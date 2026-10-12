@@ -16,6 +16,8 @@ import { join, resolve } from 'node:path';
 import { SMTPServer } from 'smtp-server';
 import { getEnv } from '../src/config/env';
 import { maskEmail } from '../src/domain/text';
+// MIME çözümleme ortak modülden gelir: e-posta teslim testi de aynı kodu ölçer.
+import { decodeMimeWords, escapeHtml, parseMessage } from '../src/lib/mime';
 
 const env = getEnv();
 const MAIL_DIR = resolve(env.DATA_DIR, 'mailbox');
@@ -28,100 +30,6 @@ interface StoredMail {
   subject: string;
   receivedAt: string;
   raw: string;
-}
-
-function decodeQuotedPrintable(input: string): string {
-  return input
-    .replace(/=\r?\n/g, '')
-    .replace(/=([0-9A-Fa-f]{2})/g, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
-}
-
-function decodeBodyPart(body: string, encoding: string | null): string {
-  const normalized = (encoding ?? '').toLowerCase();
-  if (normalized === 'base64') {
-    try {
-      return Buffer.from(body.replace(/\s+/g, ''), 'base64').toString('utf8');
-    } catch {
-      return body;
-    }
-  }
-  if (normalized === 'quoted-printable') return decodeQuotedPrintable(body);
-  return body;
-}
-
-/** RFC 2047 kodlanmış başlıkları çözer (=?UTF-8?Q?...?= / B). */
-function decodeMimeWords(value: string): string {
-  return value.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_match, _charset: string, encoding: string, text: string) => {
-    if (encoding.toUpperCase() === 'B') {
-      try {
-        return Buffer.from(text, 'base64').toString('utf8');
-      } catch {
-        return text;
-      }
-    }
-    const normalized = text.replace(/_/g, ' ');
-    const bytes: number[] = [];
-    for (let index = 0; index < normalized.length; index += 1) {
-      const char = normalized[index] as string;
-      const hex = normalized.slice(index + 1, index + 3);
-      if (char === '=' && /^[0-9A-Fa-f]{2}$/.test(hex)) {
-        bytes.push(Number.parseInt(hex, 16));
-        index += 2;
-        continue;
-      }
-      bytes.push(...Buffer.from(char, 'utf8'));
-    }
-    return Buffer.from(bytes).toString('utf8');
-  });
-}
-
-/** Basit MIME ayrıştırıcı: başlıklar + tercihen HTML gövde. */
-function parseMessage(raw: string): { headers: Record<string, string>; html: string; text: string } {
-  const separatorIndex = raw.search(/\r?\n\r?\n/);
-  const headerBlock = separatorIndex >= 0 ? raw.slice(0, separatorIndex) : raw;
-  const body = separatorIndex >= 0 ? raw.slice(separatorIndex).replace(/^\r?\n\r?\n/, '') : '';
-
-  const headers: Record<string, string> = {};
-  let currentKey = '';
-  for (const line of headerBlock.split(/\r?\n/)) {
-    if (/^[ \t]/.test(line) && currentKey) {
-      headers[currentKey] = `${headers[currentKey] ?? ''} ${line.trim()}`;
-      continue;
-    }
-    const match = /^([^:]+):\s*(.*)$/.exec(line);
-    if (!match?.[1]) continue;
-    currentKey = match[1].toLowerCase();
-    headers[currentKey] = match[2] ?? '';
-  }
-
-  const contentType = headers['content-type'] ?? 'text/plain';
-  const boundaryMatch = /boundary="?([^";]+)"?/i.exec(contentType);
-  if (!boundaryMatch?.[1]) {
-    const decoded = decodeBodyPart(body, headers['content-transfer-encoding'] ?? null);
-    const isHtml = contentType.includes('text/html');
-    return { headers, html: isHtml ? decoded : '', text: isHtml ? '' : decoded };
-  }
-
-  const parts = body.split(`--${boundaryMatch[1]}`);
-  let html = '';
-  let text = '';
-  for (const part of parts) {
-    const partSeparator = part.search(/\r?\n\r?\n/);
-    if (partSeparator < 0) continue;
-    const partHeaders = part.slice(0, partSeparator).toLowerCase();
-    const partBody = part.slice(partSeparator).replace(/^\r?\n\r?\n/, '');
-    const encoding = /content-transfer-encoding:\s*([^\r\n;]+)/.exec(partHeaders)?.[1]?.trim() ?? null;
-    const decoded = decodeBodyPart(partBody, encoding);
-    if (partHeaders.includes('text/html') && html === '') html = decoded;
-    else if (partHeaders.includes('text/plain') && text === '') text = decoded;
-  }
-  return { headers, html, text };
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) =>
-    char === '&' ? '&amp;' : char === '<' ? '&lt;' : char === '>' ? '&gt;' : char === '"' ? '&quot;' : '&#39;',
-  );
 }
 
 function renderIndex(mails: StoredMail[]): string {

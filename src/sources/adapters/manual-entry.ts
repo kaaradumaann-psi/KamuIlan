@@ -1,29 +1,31 @@
 /**
- * Manuel giriş adaptörü.
+ * Elle giriş / yönetim adaptörü.
  *
- * Bazı kaynaklar otomatik toplamaya uygun değildir (oturum/postback/CAPTCHA ya da
- * kullanım koşulları). Bu kaynaklar için sistem SAHTE VERİ ÜRETMEZ; bunun yerine
- * "manuel yöntem gerekli" durumunu bildirir ve kaynak kaydı bu şekilde görünür.
- *
- * Yönetici panelinden manuel ilan ekleme (`POST /api/admin/jobs/manual`) bu
- * kaynağın veri giriş yoludur.
+ * Bazı kaynaklar (ör. erişim kısıtlı kurum sayfaları, yalnızca basılı duyuru)
+ * otomatik toplanamaz. Bu durumda ilan yönetici tarafından elle girilir; bu
+ * adaptör otomatik tarama YAPMAZ ve bunu açıkça bildirir. Böylece "taranmış
+ * gibi" görünen uydurma veri oluşmaz.
  */
-import { AdapterUnavailableError } from '../errors';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 
 export class ManualEntryAdapter implements SourceAdapter {
   readonly key = 'manual-entry';
-  readonly label = 'Manuel giriş';
-  readonly method = 'manual';
-  readonly notes =
-    'Bu kaynak otomatik toplanmaz. İlanlar yönetici panelinden manuel eklenir; ' +
-    'kapsam raporunda "manuel yöntem" olarak işaretlenir.';
+  readonly label = 'Elle giriş (otomatik tarama yok)';
+  readonly method = 'manual-entry';
+  readonly notes = 'Bu kaynak otomatik taranmaz; ilanlar yönetici tarafından elle girilir veya yüklenir.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
-    throw new AdapterUnavailableError(
-      ctx.source.key,
-      `${ctx.source.name}: otomatik toplama uygun değil; manuel giriş yöntemi tanımlı.`,
-      'Yönetici panelinden manuel ilan ekleme veya resmî duyuru bağlantısı ile izleme.',
-    );
+    return {
+      items: [],
+      requestCount: 0,
+      notes: [
+        `Elle giriş kaynağı: ${ctx.source.key}. Otomatik tarama yapılmaz (kaynak şartları/teknik engel).`,
+        'Yeni ilan girmek için yönetim panelindeki "elle ilan" akışını kullanın (docs/source-onboarding.md).',
+      ],
+      etag: null,
+      lastModified: null,
+      notModified: false,
+      httpStatuses: [],
+    };
   }
 }

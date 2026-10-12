@@ -33,7 +33,10 @@ export const sourceSchema = z.object({
   statusNote: z.string().default(''),
   /** What was actually verified, when and how. Never claim more than evidence. */
   verification: z.object({
+    /** Canlı erişimle doğrulandı mı? (yalnızca "verified" durumu true olur) */
     verified: z.boolean(),
+    /** Adaptörü yazıldı mı? (doğrulanmış VEYA scraper-built) — doğrulama değildir. */
+    built: z.boolean().default(false),
     verifiedAt: z.string().nullable(),
     method: z.string().default(''),
     evidence: z.string().default(''),

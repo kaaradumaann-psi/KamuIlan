@@ -31,7 +31,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "sources:report": "tsx scripts/coverage-report.ts",
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
-    "seed:demo": "tsx scripts/seed-demo.ts"
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

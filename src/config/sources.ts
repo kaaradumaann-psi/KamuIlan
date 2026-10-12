@@ -151,7 +151,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     institution: 'Türkiye İş Kurumu (İŞKUR)',
     listingUrl: 'https://www.iskur.gov.tr/ilanlar/kamu-memur-alim-ilanlari/',
     homepageUrl: 'https://www.iskur.gov.tr/',
-    adapterKey: 'iskur-liste',
+    adapterKey: 'iskur-ilan-listesi',
     method: 'html-list',
     status: 'scraper-built',
     statusNote:
@@ -176,7 +176,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     institution: 'Türkiye İş Kurumu (İŞKUR)',
     listingUrl: 'https://www.iskur.gov.tr/ilanlar/kurumdisi-kamu-isci-alim-ilanlari/',
     homepageUrl: 'https://www.iskur.gov.tr/',
-    adapterKey: 'iskur-liste',
+    adapterKey: 'iskur-ilan-listesi',
     method: 'html-list',
     status: 'scraper-built',
     statusNote:
@@ -200,7 +200,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     institution: 'T.C. Cumhurbaşkanlığı (Kariyer Kapısı)',
     listingUrl: 'https://kariyerkapisi.gov.tr/isealim',
     homepageUrl: 'https://kariyerkapisi.gov.tr/',
-    adapterKey: 'kariyerkapisi',
+    adapterKey: 'kariyer-kapisi-isealim',
     method: 'browser',
     status: 'accessible',
     statusNote:
@@ -226,7 +226,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     institution: 'T.C. Millî Eğitim Bakanlığı',
     listingUrl: 'https://personel.meb.gov.tr/www/haberler/kategori/1',
     homepageUrl: 'https://personel.meb.gov.tr/',
-    adapterKey: 'meb-liste',
+    adapterKey: 'meb-duyuru-listesi',
     method: 'html-list',
     status: 'method-defined',
     statusNote:

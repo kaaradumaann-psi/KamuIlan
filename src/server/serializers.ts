@@ -33,6 +33,8 @@ export interface PublicJobSummary {
   sourceKeys: string[];
   extractionConfidence: number;
   lastVerifiedAt: string | null;
+  /** 'scraped' = gerçek kaynaktan geldi, 'sample' = demo verisi. */
+  provenance: 'scraped' | 'sample' | 'manual';
   version: number;
   updatedAt: string;
   /** Son başvuru gününe göre durum ("son 3 gün" uyarısı için). */
@@ -57,7 +59,6 @@ export interface PublicJobDetail extends PublicJobSummary {
   fieldSources: JobDoc['fieldSources'];
   evidence: JobDoc['evidence'];
   uncertainties: string[];
-  provenance: string;
   firstSeenAt: string;
   sources: {
     sourceKey: string;
@@ -105,6 +106,7 @@ export function toPublicJobSummary(job: JobDoc, now: Date = new Date()): PublicJ
     lastVerifiedAt: job.lastVerifiedAt,
     version: job.version,
     updatedAt: job.updatedAt,
+    provenance: job.provenance,
     deadline: deadlineOf(job, now),
   };
 }
@@ -161,7 +163,7 @@ export interface PublicSourceSummary {
   enabled: boolean;
   intervalMinutes: number;
   lastVerifiedAt: string | null;
-  verification: { verified: boolean; method: string; evidence: string; scope: string };
+  verification: { verified: boolean; built: boolean; method: string; evidence: string; scope: string };
   coverageNote: string;
   tags: string[];
 }
@@ -183,6 +185,7 @@ export function toPublicSource(source: SourceDoc): PublicSourceSummary {
     lastVerifiedAt: source.verification.verifiedAt,
     verification: {
       verified: source.verification.verified,
+      built: source.verification.built,
       method: source.verification.method,
       evidence: source.verification.evidence,
       scope: source.verification.scope,
@@ -232,6 +235,8 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
     statusNote: entry.statusNote,
     enabled: entry.enabled,
     verified: entry.verified,
+    /** Adaptörü yazıldı mı? Doğrulama değildir; arayüz ikisini ayrı gösterir. */
+    built: entry.built,
     lastVerifiedAt: entry.lastVerifiedAt,
     verificationEvidence: entry.verificationEvidence,
     coverageNote: entry.coverageNote,

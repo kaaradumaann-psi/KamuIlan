@@ -134,12 +134,16 @@ export async function extractPdfText(
       parts.push(pageText);
       page.cleanup?.();
       if (charCount >= maxChars) {
-        truncated = pageNumber < pagesToRead;
+        // Kırpma nedeni: ya okunacak sayfa kaldı ya da bu sayfa sınırı aştı.
+        truncated = pageNumber < pagesToRead || charCount > maxChars;
         break;
       }
     }
 
-    const text = parts.join('\n\n').slice(0, maxChars);
+    const joined = parts.join('\n\n');
+    const text = joined.slice(0, maxChars);
+    // Tek sayfa bile sınırı aşmış olabilir; o durumda da kırpıldığı bildirilir.
+    if (text.length < joined.length) truncated = true;
     const noTextLayer = text.replace(/\s/g, '').length < minChars;
 
     return {

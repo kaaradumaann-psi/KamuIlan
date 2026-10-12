@@ -91,6 +91,27 @@ describe('kontenjan ve şehir', () => {
     expect(extractCity('İlan metninde şehir bilgisi yoktur.')).toBeNull();
   });
 
+  it('il adını yalnızca kelime sınırında tanır (uydurma il yok)', () => {
+    // Regresyon: "doldurmuş" içinde "Muş", "avantaj" içinde "Van" bulunuyordu.
+    expect(extractCity('Adayların 18 yaşını doldurmuş olması gerekir.')).toBeNull();
+    expect(extractCity('Bu durum başvuru sahibi için bir avantaj sağlar.')).toBeNull();
+    expect(extractCity('Bursaspor karşılaşması ertelendi.')).toBeNull();
+    // Ek alan kullanımlar doğru tanınır.
+    expect(extractCity('Muş’ta görev yapacak personel alınacaktır.')).toBe('Muş');
+    expect(extractCity('Görev yeri Van ilindedir.')).toBe('Van');
+    expect(extractCity('Görev yeri Ankara’dır.')).toBe('Ankara');
+    expect(extractCity('Sözleşmeli personel alınacaktır.')).toBeNull();
+  });
+
+  it('birden çok il geçtiğinde ilk ili kaydeder ve bunu belirsizlik olarak bildirir', () => {
+    const result = extract({
+      title: 'Personel Alım İlanı',
+      body: 'Ankara ve İzmir illerinde istihdam edilmek üzere 10 kişi alınacaktır.',
+    });
+    expect(result.city).toBe('Ankara');
+    expect(result.uncertainties.join(' ')).toContain('birden çok il');
+  });
+
   it('il bilgisini ilan çıktısına taşır', () => {
     const result = extract({
       title: 'Hemşire Alım İlanı',

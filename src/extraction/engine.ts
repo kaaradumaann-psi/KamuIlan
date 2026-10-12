@@ -163,7 +163,8 @@ export function extract(input: ExtractionInput): ExtractedJob {
 
   // --- İl / ilçe -----------------------------------------------------------
   const cityFromListing = cleanText(listing.city);
-  const cityFromText = extractCity(haystack);
+  const cityCandidates = extractCityCandidates(haystack);
+  const cityFromText = cityCandidates[0] ?? null;
   const city = cityFromListing ?? cityFromText;
   if (city) {
     setField('city', cityFromListing ? 'listing' : 'detail', city);
@@ -175,6 +176,11 @@ export function extract(input: ExtractionInput): ExtractedJob {
   } else {
     setField('city', 'unstated', null);
     uncertainties.push('İl bilgisi belirtilmemiş.');
+  }
+  if (!cityFromListing && cityCandidates.length > 1) {
+    uncertainties.push(
+      `İlan metninde birden çok il geçiyor (${cityCandidates.slice(0, 4).join(', ')}); ilk geçen il kaydedildi, elle doğrulanmalı.`,
+    );
   }
 
   const districtFromListing = cleanText(listing.district);
@@ -348,20 +354,55 @@ export function extractUnit(text: string): string | null {
   return value.length > 140 ? value.slice(0, 140) : value;
 }
 
-export function extractCity(text: string): string | null {
-  const matches: { province: string; index: number }[] = [];
-  const normalized = text.toLocaleLowerCase('tr');
-  for (const province of PROVINCES) {
-    const needle = province.toLocaleLowerCase('tr');
-    const index = normalized.indexOf(needle);
-    if (index >= 0) matches.push({ province, index });
+/** Türkçe hâl ekleri: "Ankara'da", "Muş'ta", "Van ilinde" gibi kullanımlar için. */
+const CITY_SUFFIXES: readonly string[] = [
+  'daki', 'deki', 'taki', 'teki', 'lardaki', 'lerdeki', 'dan', 'den', 'tan', 'ten',
+  'dır', 'dir', 'dur', 'dür', 'tır', 'tir', 'tur', 'tür',
+  'da', 'de', 'ta', 'te', 'lar', 'ler', 'ya', 'ye', 'ın', 'in', 'un', 'ün',
+  'lık', 'lik', 'luk', 'lük', 'lı', 'li', 'lu', 'lü', 'a', 'e', 'ı', 'i', 'u', 'ü',
+];
+
+let cityMatcherSource: { source: string; canonical: Map<string, string> } | null = null;
+
+function getCityMatcher(): { source: string; canonical: Map<string, string> } {
+  if (cityMatcherSource) return cityMatcherSource;
+  const canonical = new Map<string, string>();
+  for (const name of PROVINCES) canonical.set(normalizeTr(name), name);
+  const names = [...canonical.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const suffixes = [...CITY_SUFFIXES].sort((a, b) => b.length - a.length).join('|');
+  cityMatcherSource = {
+    canonical,
+    source: `(?<!\\p{L})(${names.join('|')})(?:${suffixes})?(?!\\p{L})`,
+  };
+  return cityMatcherSource;
+}
+
+/**
+ * Metinde geçen il adları (kanonik yazımla, geçiş sırasına göre, tekrarsız).
+ *
+ * Neden kelime sınırı: düz arama "doldurmuş" içinde "Muş", "avantaj" içinde
+ * "Van", "Bursaspor" içinde "Bursa" bulur ve ilana OLMAYAN bir il yazardı.
+ * İl adı yalnızca kelime başında tanınır; ardından Türkçe ek gelebilir.
+ */
+export function extractCityCandidates(text: string): string[] {
+  const { source, canonical } = getCityMatcher();
+  const regex = new RegExp(source, 'gu');
+  const normalized = normalizeTr(text);
+  const found: string[] = [];
+  for (const match of normalized.matchAll(regex)) {
+    const key = match[1];
+    if (!key) continue;
+    const name = canonical.get(key);
+    if (name && !found.includes(name)) found.push(name);
   }
-  if (matches.length === 0) return null;
-  matches.sort((a, b) => a.index - b.index);
-  const first = matches[0];
-  if (!first) return null;
-  const others = matches.filter((candidate) => candidate.province !== first.province).length;
-  return others > 0 ? first.province : first.province;
+  return found;
+}
+
+/** İlan metninden il: ilk geçen il adı. Birden çok il geçiyorsa engine uyarı ekler. */
+export function extractCity(text: string): string | null {
+  return extractCityCandidates(text)[0] ?? null;
 }
 
 export function extractDistrict(text: string): string | null {

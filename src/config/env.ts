@@ -19,7 +19,8 @@ const envSchema = z.object({
   APP_DISPLAY_NAME: z.string().min(1).default('KamuRadar'),
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   APP_SECRET: z.string().default(''),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+  /** API portu (vite proxy varsayılanı 3000'e bakar). */
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 

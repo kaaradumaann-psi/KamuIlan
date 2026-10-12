@@ -33,7 +33,10 @@ export interface SourceCoverageEntry {
   status: SourceDoc['status'];
   statusNote: string;
   enabled: boolean;
+  /** Canlı doğrulama kanıtı var mı? */
   verified: boolean;
+  /** Adaptör yazıldı mı (henüz canlı doğrulanmamış olabilir)? */
+  built: boolean;
   lastVerifiedAt: string | null;
   verificationEvidence: string;
   coverageNote: string;
@@ -73,7 +76,8 @@ export class SourceRepo {
         status: definition.status,
         statusNote: definition.statusNote,
         verification: {
-          verified: definition.status === 'verified' || definition.status === 'scraper-built',
+          verified: definition.status === 'verified',
+          built: definition.status === 'verified' || definition.status === 'scraper-built',
           verifiedAt: definition.lastVerifiedAt,
           method: definition.method,
           evidence: definition.verificationEvidence,
@@ -210,6 +214,7 @@ export class SourceRepo {
       total: number;
       enabled: number;
       verified: number;
+      built: number;
       failing: number;
       stale: number;
       planned: number;
@@ -240,6 +245,7 @@ export class SourceRepo {
         statusNote: source.statusNote,
         enabled: source.enabled,
         verified: source.verification.verified,
+        built: source.verification.built,
         lastVerifiedAt: source.verification.verifiedAt,
         verificationEvidence: source.verification.evidence,
         coverageNote: source.coverageNotes,
@@ -264,6 +270,7 @@ export class SourceRepo {
         total: entries.length,
         enabled: entries.filter((entry) => entry.enabled).length,
         verified: entries.filter((entry) => entry.verified).length,
+        built: entries.filter((entry) => entry.built).length,
         failing,
         stale,
         planned: PLANNED_SOURCES.length,

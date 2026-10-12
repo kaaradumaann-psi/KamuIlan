@@ -28,8 +28,11 @@ declare module 'smtp-server' {
 
   export class SMTPServer {
     constructor(options: SMTPServerOptions);
+    /** Altta yatan TCP sunucusu; bağlanılan portu öğrenmek için (testler). */
+    readonly server: Server;
     listen(port: number, host: string, callback?: () => void): Server;
     close(callback?: () => void): void;
     on(event: 'error', listener: (error: Error) => void): this;
+    once(event: 'error', listener: (error: Error) => void): this;
   }
 }
