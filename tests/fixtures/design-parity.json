@@ -1,0 +1,15 @@
+{
+  "_comment": "Kamuİlan'ın paylaştığı tasarım katmanlarının SHA-256 karma değerleri. Kaynak: kaaradumaann-psi/psikolog (ve MMPI deposuyla aynı sırada). Bu dosya yalnızca katmanlar bilinçli olarak güncellendiğinde değiştirilir.",
+  "source": "kaaradumaann-psi/psikolog → src/styles/",
+  "sharedLayers": {
+    "screen.css": "a641dfcd295fd620add4de501e8a23b4537428ddd24f27c09db621436efa22ea",
+    "site.css": "99558cee4b98cab149ec8ddc60df3e7df627104151ca24a3552dbd2988fb5359",
+    "coherence.css": "20c0876e1d4379e1a237468b6fc1c59a863410bfa39b6e319a4a0d5b137d3a77",
+    "theme.css": "3c9bd37ac9efb741df26506bea05c8eb2df0fe7f8882b1f6061d2d9beec9a239",
+    "workspace.css": "30cef0f676cec5c1e0e7ecd7900d023a749c61c7a2f805030d4a8a127e8e7411",
+    "dashboard.css": "d8187796b4f0a3724d18f5ceab79930aac51d7423ccc3b9a27ac601b58308cbe",
+    "mobile.css": "9e0a2f54ddcafcba7b5a3c36c9347fa20f34422f07e362a788bc0cac9a034d54",
+    "responsive.css": "b6db820e45fb696e27ee5427a567f465b5f11946967fa10d608a480160fbcbdb",
+    "auth.css": "b755155418c5524d5d7f1afc24aacc7b59978efc5909b70f3f76a7d828b22d90"
+  }
+}

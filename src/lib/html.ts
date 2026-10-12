@@ -33,6 +33,21 @@ export function elementText(element: Cheerio<AnyNode>, limit = 4_000): string {
   return text.length > limit ? text.slice(0, limit) : text;
 }
 
+/**
+ * Blok sınırlarını satır sonu olarak KORUYARAK düz metin çıkarır.
+ *
+ * `elementText` tüm boşlukları tek boşluğa indirger; bir ilan kartında ayrı
+ * bloklarda duran kurum / il / tarih alanları bu yüzden tek paragrafta
+ * birleşir. Liste ayrıştırıcıları (bkz. `sources/adapters/ilan-gov-tr.ts`)
+ * alanları satır satır okuyabilsin diye bu yardımcı kullanılır.
+ */
+export function blockElementText(element: Cheerio<AnyNode>, limit = 4_000): string {
+  const clone = element.clone();
+  clone.find('script, style, noscript, svg, template').remove();
+  const text = stripHtmlTags(clone.html() ?? '');
+  return text.length > limit ? text.slice(0, limit) : text;
+}
+
 /** Sayfa içi <base href> dikkate alınarak göreli bağlantıyı mutlaklaştırır. */
 export function absoluteUrl(href: string | undefined, baseUrl: string, $?: CheerioAPI): string | null {
   if (!href) return null;

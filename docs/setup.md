@@ -29,6 +29,21 @@ npx playwright install chromium
 cp .env.example .env
 ```
 
+Dosya **otomatik olarak okunur**: `src/config/env.ts` yüklenirken
+`src/config/load-env.ts` çalışma dizinindeki `.env` dosyasını okur (bağımlılık
+yoktur; Node'un `--env-file` bayrağına gerek kalmaz). Kurallar:
+
+- **Gerçek ortam değişkeni her zaman önceliklidir**; `.env` var olan bir değeri
+  ezmez (CI/Docker/systemd/Cloudflare güvenle kullanılabilir).
+- `.env.<NODE_ENV>` (ör. `.env.production`) varsa `.env` üzerine yazar.
+- Dosya yoksa sessizce devam edilir; `.env` isteğe bağlıdır.
+- Testte (`NODE_ENV=test`) yüklenmez — testler ortamı kendileri kurar.
+- Sırlar hiçbir zaman günlüğe yazılmaz; `npm run env:check` yalnızca maskeli
+  özet gösterir.
+
+Doğrulama: `npm run env:check` çıktısındaki `envFile` satırı hangi dosyanın
+okunduğunu gösterir (yol görünür, içerik görünmez).
+
 Geliştirme için çoğu değer boş kalabilir. En az:
 
 - `APP_SECRET` — üretimde zorunlu (en az 32 karakter). Geliştirmede boşsa
@@ -41,20 +56,20 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 
 ### Üretim anahtarları (Supabase + Cloudflare + Resend)
 
-| Değişken | Nereden | Not |
-| --- | --- | --- |
-| `DATABASE_DRIVER=supabase` | bu dosya | `postgres` de aynı sürücüdür; `supabase` okunurluk için takma ad |
-| `POSTGRES_URL` | Supabase → Project Settings → Database → Connection string | Sunucu tarafı; havuz bağlantısı önerilir (port 6543) |
-| `DATABASE_URL` | alternatif ad | Bazı sağlayıcılar bu adı verir; ikisinden biri yeterlidir |
-| `POSTGRES_SSL=true` | — | Supabase TLS ister; `false` yalnızca yerel test için |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → API | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz |
-| `APP_DOMAIN` | — | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı) |
-| `APP_BASE_URL` | — | E-posta bağlantılarının üretildiği herkese açık adres |
-| `EMAIL_PROVIDER=resend` | bu dosya | `smtp` ve `file` alternatifleri vardır |
-| `RESEND_API_KEY` | Resend → API Keys | Sunucu tarafı; tarayıcıya verilmez |
-| `EMAIL_FROM` | Resend → Domains | **Doğrulanmış** alan adından bir adres olmalıdır |
-| `ALLOW_PUBLIC_REGISTRATION=0` | bu dosya | Dışarıdan kayıt kapalı; hesaplar yönetici davetiyle açılır |
+| Değişken                             | Nereden                                                    | Not                                                              |
+| ------------------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| `DATABASE_DRIVER=supabase`           | bu dosya                                                   | `postgres` de aynı sürücüdür; `supabase` okunurluk için takma ad |
+| `POSTGRES_URL`                       | Supabase → Project Settings → Database → Connection string | Sunucu tarafı; havuz bağlantısı önerilir (port 6543)             |
+| `DATABASE_URL`                       | alternatif ad                                              | Bazı sağlayıcılar bu adı verir; ikisinden biri yeterlidir        |
+| `POSTGRES_SSL=true`                  | —                                                          | Supabase TLS ister; `false` yalnızca yerel test için             |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API                                             | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır      |
+| `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → API                                             | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz   |
+| `APP_DOMAIN`                         | —                                                          | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı)      |
+| `APP_BASE_URL`                       | —                                                          | E-posta bağlantılarının üretildiği herkese açık adres            |
+| `EMAIL_PROVIDER=resend`              | bu dosya                                                   | `smtp` ve `file` alternatifleri vardır                           |
+| `RESEND_API_KEY`                     | Resend → API Keys                                          | Sunucu tarafı; tarayıcıya verilmez                               |
+| `EMAIL_FROM`                         | Resend → Domains                                           | **Doğrulanmış** alan adından bir adres olmalıdır                 |
+| `ALLOW_PUBLIC_REGISTRATION=0`        | bu dosya                                                   | Dışarıdan kayıt kapalı; hesaplar yönetici davetiyle açılır       |
 
 Üretim doğrulaması: `NODE_ENV=production npm run env:check`. Eksik sağlayıcı
 anahtarıyla uygulama **başlamaz** (e-postanın sessizce kaybolmasını engellemek için).
@@ -84,11 +99,11 @@ npm run dev
 
 Tek komutla dört süreç ayağa kalkar:
 
-| Bileşen | Adres | Not |
-| --- | --- | --- |
-| Arayüz (Vite) | http://localhost:5173 | `/api` isteklerini API'ye proxy'ler |
-| API | http://localhost:3000 | Dokümanlar: http://localhost:3000/api/docs |
-| Worker | — | Tarama + e-posta döngüsü, kalıcı kuyruk |
+| Bileşen                 | Adres                 | Not                                           |
+| ----------------------- | --------------------- | --------------------------------------------- |
+| Arayüz (Vite)           | http://localhost:5173 | `/api` isteklerini API'ye proxy'ler           |
+| API                     | http://localhost:3000 | Dokümanlar: http://localhost:3000/api/docs    |
+| Worker                  | —                     | Tarama + e-posta döngüsü, kalıcı kuyruk       |
 | Geliştirme posta kutusu | http://localhost:1080 | SMTP: `localhost:1025`; gerçek e-posta GİTMEZ |
 
 Tek tek çalıştırmak isterseniz: `npm run dev:api`, `npm run dev:worker`,
@@ -110,7 +125,7 @@ Betik şifreyi ekrana yazmaz/loglamaz. Var olan kullanıcıyı yöneticiye yüks
 ### Sonraki kullanıcılar (davet akışı)
 
 Kamuİlan'da **dışarıdan kendi kendine kayıt yoktur**. Yönetici, Yönetim →
-Kullanıcılar → *Kullanıcı davet et* formunu kullanır (`POST /api/admin/users`):
+Kullanıcılar → _Kullanıcı davet et_ formunu kullanır (`POST /api/admin/users`):
 
 1. Hesap, giriş yapılamaz durumda açılır (rastgele bir sır hash'lenir; düz metin
    parola hiçbir zaman üretilmez, gönderilmez, loglanmaz).
@@ -153,25 +168,28 @@ npm run sources:report -- --json  # makine okunur (CI)
 
 ## Docker ile geliştirme
 
-MongoDB + Redis + posta sunucusu dahil her şey tek komutla:
+Geliştirme posta sunucusu (mailpit) + API + worker + Vite arayüzü tek komutla
+ayaklanır; veritabanı sürücüsü öntanımlı olarak dosyadır (dış servis gerekmez):
 
 ```bash
 cd infra/docker && docker compose up --build
 ```
 
+Gerçek PostgreSQL ile: `DATABASE_DRIVER=postgres docker compose --profile postgres up --build`
+
 Ayrıntılar: [deployment.md](./deployment.md).
 
 ## Sık karşılaşılan sorunlar
 
-| Belirti | Çözüm |
-| --- | --- |
-| `EADDRINUSE :5173` | Vite `strictPort` kullanır. Eski süreci kapatın veya `PORT` çakışmasını giderin. |
-| Arayüz açılıyor, veri gelmiyor | API çalışmıyor olabilir: `curl http://localhost:3000/api/health`. |
-| `/api/health` durumu `degraded` | Kaynak uyarıları normaldir (ör. coğrafi kısıtlı kaynak). `warnings` alanını okuyun. |
-| E-posta gelmiyor | Geliştirmede gerçek gönderim yoktur: http://localhost:1080 posta kutusunu kontrol edin. |
-| `PDF okunamadı` | PDF bozuk/şifreli olabilir. Kayıt silinmez, inceleme kuyruğuna düşer. |
-| Kariyer Kapısı kaynağı hata veriyor | Tarayıcı gerekir: `npx playwright install chromium`. |
-| MongoDB'ye bağlanılmıyor | `MONGODB_URI` boşsa dosya deposu kullanılır; istenmiyorsa `MONGODB_URI` ayarlayın. |
+| Belirti                                | Çözüm                                                                                                       |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `EADDRINUSE :5173`                     | Vite `strictPort` kullanır. Eski süreci kapatın veya `PORT` çakışmasını giderin.                            |
+| Arayüz açılıyor, veri gelmiyor         | API çalışmıyor olabilir: `curl http://localhost:3000/api/health`.                                           |
+| `/api/health` durumu `degraded`        | Kaynak uyarıları normaldir (ör. coğrafi kısıtlı kaynak). `warnings` alanını okuyun.                         |
+| E-posta gelmiyor                       | Geliştirmede gerçek gönderim yoktur: http://localhost:1080 posta kutusunu kontrol edin.                     |
+| `PDF okunamadı`                        | PDF bozuk/şifreli olabilir. Kayıt silinmez, inceleme kuyruğuna düşer.                                       |
+| Kariyer Kapısı kaynağı hata veriyor    | Tarayıcı gerekir: `npx playwright install chromium`.                                                        |
+| MongoDB'ye bağlanılmıyor               | `MONGODB_URI` boşsa dosya deposu kullanılır; istenmiyorsa `MONGODB_URI` ayarlayın.                          |
 | `Veritabanına erişilemiyor` (Supabase) | `POSTGRES_URL` havuz (pooler) adresi mi, `POSTGRES_SSL=true` mı, Supabase'de IP kısıtı var mı kontrol edin. |
-| E-posta gönderilmiyor (üretim) | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar. |
-| Davet e-postası gelmiyor | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır. |
+| E-posta gönderilmiyor (üretim)         | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar.  |
+| Davet e-postası gelmiyor               | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır.                 |

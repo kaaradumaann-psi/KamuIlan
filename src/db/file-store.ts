@@ -4,8 +4,8 @@
  * - Tüm koleksiyonlar tek JSON dosyasında tutulur, atomik rename ile yazılır.
  * - Yazma işlemleri bir mutex kuyruğunda serileştirilir; böylece
  *   `insertIfAbsent` tek süreç içinde atomiktir.
- * - Çok örnekli üretim için tasarlanmamıştır: üretimde MongoDB zorunludur
- *   (bkz. assertProductionSafety).
+ * - Çok örnekli üretim için tasarlanmamıştır: üretimde PostgreSQL/Supabase
+ *   zorunludur (bkz. assertProductionSafety).
  *
  * Geliştirmede API, worker ve betikler (ör. `seed:demo`) aynı dosyayı paylaşır.
  * Bu yüzden her okuma/yazma öncesi dosyanın zaman damgası kontrol edilir ve
@@ -143,11 +143,13 @@ export class FileStore implements StoragePort {
     return {
       ok: !this.closed,
       driver: this.driver,
-      detail: `Dosya deposu: ${this.filePath} (yerel geliştirme; üretimde MongoDB kullanın)`,
+      detail: `Dosya deposu: ${this.filePath} (yerel geliştirme; üretimde Supabase/PostgreSQL kullanın)`,
     };
   }
 
-  async ensureIndexes(indexes: readonly IndexSpec[] = INDEXES): Promise<{ collection: string; name: string; created: boolean }[]> {
+  async ensureIndexes(
+    indexes: readonly IndexSpec[] = INDEXES,
+  ): Promise<{ collection: string; name: string; created: boolean }[]> {
     const report: { collection: string; name: string; created: boolean }[] = [];
     for (const index of indexes) {
       // Dosya sürücüsünde indeks fiziksel değildir; benzersizlik sözleşmesi
@@ -199,10 +201,13 @@ export class FileStore implements StoragePort {
   ): Promise<DocumentOf<K>[]> {
     await this.writeQueue;
     this.refreshIfChanged();
-    const rows = (this.data[collection] as unknown[]).filter((row) => matchesQuery(row, filter)) as DocumentOf<K>[];
+    const rows = (this.data[collection] as unknown[]).filter((row) =>
+      matchesQuery(row, filter),
+    ) as DocumentOf<K>[];
     const sorted = sortDocuments(rows, options.sort);
     const skip = options.skip ?? 0;
-    const limited = options.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
+    const limited =
+      options.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
     return limited;
   }
 

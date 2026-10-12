@@ -7,7 +7,7 @@
  *
  * Yöntem: HTML listesi + detay sayfası (detay isteği sayısı bütçeyle sınırlıdır).
  */
-import { elementText, loadHtml, readableText } from '../../lib/html';
+import { blockElementText, elementText, loadHtml, readableText } from '../../lib/html';
 import { cleanTitle, extractReferenceNumbers, parseListingDate } from '../listing-utils';
 import { PROVINCES } from '../../domain';
 import { normalizeUrl } from '../../domain/urls';
@@ -69,7 +69,10 @@ export class IlanGovTrAdapter implements SourceAdapter {
         notes.push('Liste içeriği değişmedi (ETag/Last-Modified) — ayrıntı isteği yapılmadı.');
         break;
       }
-      const pageRows = parseListing(response.decoded?.text ?? response.body.toString('utf8'), source.listingUrl);
+      const pageRows = parseListing(
+        response.decoded?.text ?? response.body.toString('utf8'),
+        source.listingUrl,
+      );
       notes.push(`Sayfa ${page}: ${pageRows.length} ilan satırı.`);
       if (pageRows.length === 0) break;
       const before = rows.length;
@@ -131,10 +134,15 @@ export class IlanGovTrAdapter implements SourceAdapter {
       });
       const html = response.decoded?.text ?? response.body.toString('utf8');
       const $ = loadHtml(html);
-      const body = readableText($, 'article, .ad-detail, .ilan-detay, main', 20_000) || readableText($, 'body', 20_000);
+      const body =
+        readableText($, 'article, .ad-detail, .ilan-detay, main', 20_000) || readableText($, 'body', 20_000);
       const links = $('a[href]')
         .toArray()
-        .map((element) => ({ href: $(element).attr('href') ?? '', text: elementText($(element), 200), url: normalizeUrl($(element).attr('href') ?? '', row.url) }))
+        .map((element) => ({
+          href: $(element).attr('href') ?? '',
+          text: elementText($(element), 200),
+          url: normalizeUrl($(element).attr('href') ?? '', row.url),
+        }))
         .filter((link): link is { href: string; text: string; url: string } => link.url !== null);
 
       const attachments = links
@@ -143,11 +151,18 @@ export class IlanGovTrAdapter implements SourceAdapter {
         .map((link) => ({
           url: link.url,
           label: link.text.slice(0, 160) || 'İlan belgesi',
-          kind: (/\.pdf(\?|$)/i.test(link.url) ? 'pdf' : /\.docx?(\?|$)/i.test(link.url) ? 'doc' : 'excel') as 'pdf' | 'doc' | 'excel',
+          kind: (/\.pdf(\?|$)/i.test(link.url)
+            ? 'pdf'
+            : /\.docx?(\?|$)/i.test(link.url)
+              ? 'doc'
+              : 'excel') as 'pdf' | 'doc' | 'excel',
         }));
 
-      const applicationCandidates = links.filter((link) => /kariyerkapisi\.gov\.tr|esube\.iskur\.gov\.tr|turkiye\.gov\.tr/i.test(link.url));
-      const application = applicationCandidates.find((link) => /ba[sş]vuru/i.test(link.text)) ?? applicationCandidates[0];
+      const applicationCandidates = links.filter((link) =>
+        /kariyerkapisi\.gov\.tr|esube\.iskur\.gov\.tr|turkiye\.gov\.tr/i.test(link.url),
+      );
+      const application =
+        applicationCandidates.find((link) => /ba[sş]vuru/i.test(link.text)) ?? applicationCandidates[0];
 
       return {
         bodyText: body.length > 80 ? body : null,
@@ -178,8 +193,11 @@ function parseListing(html: string, baseUrl: string): Row[] {
     const url = normalizeUrl(href, baseUrl);
     if (!url) continue;
 
-    const anchorText = elementText($(element), 400);
-    const containerText = elementText($(element).closest('article, li, .card, .ad-list-item, div'), 900) || anchorText;
+    // Blok sınırları korunarak okunur: kurum / il / tarih kartın ayrı
+    // bloklarında durur ve ancak satır satır ayrıştırılabilir.
+    const anchorText = blockElementText($(element), 400);
+    const containerText =
+      blockElementText($(element).closest('article, li, .card, .ad-list-item, div'), 900) || anchorText;
     const lines = containerText
       .split(/\s{2,}|\n/)
       .map((line) => line.trim())
@@ -192,8 +210,13 @@ function parseListing(html: string, baseUrl: string): Row[] {
     const title = cleanTitle([...titleCandidates].sort((a, b) => b.length - a.length)[0] ?? anchorText);
     if (title.length < 12) continue;
 
-    const institutionLine = titleCandidates.find((line) =>
-      /(Bakanlı|Başkanlı|Üniversite|Müdürlüğü|Genel Müdürlük|Kurum|Belediye|Valiliğ)/i.test(line),
+    // Kurum satırı: kurum kalıbına uyan ve BAŞLIK OLMAYAN ilk satır. Başlıkta
+    // kurum adı geçtiği için (ör. "… Bakanlığı 25 … alımı") eşitlik denetimi
+    // yapılmazsa kurum alanı başlığın kendisiyle dolar.
+    const institutionLine = titleCandidates.find(
+      (line) =>
+        line !== title &&
+        /(Bakanlı|Başkanlı|Üniversite|Müdürlüğü|Genel Müdürlük|Kurum|Belediye|Valiliğ)/i.test(line),
     );
     const publishedAt = parseListingDate(/\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}/.exec(containerText)?.[0] ?? null);
 

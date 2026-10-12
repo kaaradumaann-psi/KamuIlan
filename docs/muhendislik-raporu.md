@@ -23,43 +23,48 @@ gösterilir; bulunamayan alan **tahmin edilmez**, "belirtilmemiş" olarak kalır
 
 Doğrulama özeti (bu depoda çalıştırılan komutlarla):
 
-| Kontrol | Komut | Sonuç |
-| --- | --- | --- |
-| Tip denetimi | `npm run typecheck` | temiz (0 hata) |
-| Lint | `npm run lint` | 0 hata, 0 uyarı |
-| Birim/entegrasyon/arayüz testleri | `npm test` | **136 test / 12 dosya — tamamı geçti** |
-| Üretim derlemesi | `npm run build` | başarılı (102 modül, `dist/`) |
-| Ortam doğrulaması | `npm run env:check` | kullanılabilir (3 uyarı: sağlayıcı/secret/admin) |
-| Kapsam raporu | `npm run sources:report` | 9 kayıtlı kaynak: 8 etkin, **3 canlı doğrulanmış**, 5 adaptör yazılmış, 18 planlı |
+| Kontrol                           | Komut                       | Sonuç                                                                             |
+| --------------------------------- | --------------------------- | --------------------------------------------------------------------------------- |
+| Tip denetimi                      | `npm run typecheck`         | temiz (0 hata)                                                                    |
+| Lint                              | `npm run lint`              | 0 hata, 0 uyarı                                                                   |
+| Birim/entegrasyon/arayüz testleri | `npm test`                  | **165 test / 15 dosya — tamamı geçti**                                            |
+| Üretim derlemesi                  | `npm run build`             | başarılı (102 modül, `dist/`)                                                     |
+| Ortam doğrulaması                 | `npm run env:check`         | kullanılabilir (3 uyarı: sağlayıcı/secret/admin)                                  |
+| Kapsam raporu                     | `npm run sources:report`    | 9 kayıtlı kaynak: 8 etkin, **3 canlı doğrulanmış**, 5 adaptör yazılmış, 18 planlı |
+| Tasarım eşliği (psikolog/MMPI)    | `npm test -- design-system` | 5/5: stil sırası + 9 paylaşılan katmanın SHA-256'sı birebir aynı                  |
+| Kaynak adaptörü sözleşmesi        | `npm test -- sources`       | 13/13: kayıt, çevrimdışı mod, ilan.gov.tr ayrıştırma                              |
+| Biçim denetimi                    | `npx prettier --check`      | değiştirilen dosyalar temiz (depo geneli kapsam dışı)                             |
 
 ---
 
 ## 2. İstenenler ve karşılıkları
 
-| # | İstenen | Durum | Nerede / kanıt |
-| --- | --- | --- | --- |
-| 1 | Gerçek kaynaklardan veri toplama | ✅ | `src/sources/adapters/*` (7 adaptör) + `src/sources/fetcher.ts`; `npm run sources:report` |
-| 2 | Kural tabanlı sınıflandırma (mükerrer/sonuç/ihale eleme) | ✅ | `src/classification/rules.ts`, `engine.ts`; 21 test |
-| 3 | Yapılandırılmış alan çıkarımı (~25 alan) | ✅ | `src/extraction/engine.ts`, `dictionaries.ts`, `pdf.ts`; 26 test |
-| 4 | Tekilleştirme (resmî no → URL → benzerlik → inceleme) | ✅ | `src/dedupe/engine.ts`, `src/ingest/pipeline.ts`; 14 test |
-| 5 | Son başvuru takibi ve değişiklik sınıfları | ✅ | `src/domain/dates.ts`, `src/ingest/revisions.ts` |
-| 6 | Zamanlanmış, yeniden başlatmaya dayanıklı tarama | ✅ | `src/worker/scheduler.ts`, `src/db/repos/system.ts` (görev/kilit/heartbeat) |
-| 7 | Kriterlere göre e-posta bildirimi (outbox + worker) | ✅ | `src/notifications/service.ts`, `src/email/*`; 15 test |
-| 8 | Türkçe, mobil, erişilebilir arayüz | ✅ | `src/App.tsx`, `src/pages/*`, `src/styles/*` (psikolog/MMPI tasarım katmanları) |
-| 9 | Rol tabanlı yönetim paneli | ✅ | `src/pages/Admin.tsx`, `src/server/routes/admin.ts` |
-| 10 | Zod doğrulamalı REST API + OpenAPI | ✅ | `src/server/routes/*`, `/api/docs` |
-| 11 | Güvenlik: parola, çerez, CSRF, hız sınırı, SSRF, KVKK | ✅ | `src/server/passwords.ts`, `src/lib/x-csrf.ts`, `src/sources/fetcher.ts`, `docs/security-kvkk.md` |
-| 12 | Testler (fixture tabanlı, canlı çağrı yok) | ✅ | `tests/*` — 11 dosya / 131 test |
-| 13 | Docker ile tek komut ortam + CI | ✅ | `infra/docker/*`, `.github/workflows/ci.yml` |
-| 14 | **Dışarıdan kayıt yok** | ✅ | `POST /api/auth/register` varsayılan 403; hesaplar `POST /api/admin/users` ile davet edilir |
-| 15 | **Tasarım psikolog/MMPI ile aynı** | ✅ | `src/styles/{screen,site,coherence,theme,workspace,dashboard,mobile,responsive,auth}.css` bu repolarla **bayt bayt aynı**; Kamuİlan katmanı `kamuilan.css` |
-| 16 | **Ad Kamuİlan + alt alan adı** | ✅ | `src/site.ts`, `index.html`, e-posta şablonları, `APP_DOMAIN` |
-| 17 | **Test aşamasında dakikada bir tarama** | ✅ | `.env.example` → `SCAN_INTERVAL_MINUTES=1`; kaynak başına aralık `intervalMinutes` |
-| 18 | **Veritabanı Supabase** | ✅ | `src/db/postgres-store.ts` (gerçek `pg` + PGlite ile test edilen SQL ön filtre), `DATABASE_DRIVER=supabase|postgres` |
-| 19 | **Barındırma Cloudflare** | ✅ | `dist/` statik SPA + `wrangler.jsonc` (`not_found_handling: single-page-application`, custom domain) |
-| 20 | **E-posta Resend** | ✅ | `src/email/transport.ts` (`ResendEmailTransport`, 9 test), `EMAIL_PROVIDER=resend` |
-| 21 | **Bu mühendislik raporu** | ✅ | Bu dosya |
-| 22 | **PR aç ve birleştir** | ✅ | `arena/7f4c2af6-kamuradar` → `main` |
+| #   | İstenen                                                  | Durum | Nerede / kanıt                                                                                                                                             |
+| --- | -------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Gerçek kaynaklardan veri toplama                         | ✅    | `src/sources/adapters/*` (7 adaptör) + `src/sources/fetcher.ts`; `npm run sources:report`                                                                  |
+| 2   | Kural tabanlı sınıflandırma (mükerrer/sonuç/ihale eleme) | ✅    | `src/classification/rules.ts`, `engine.ts`; 21 test                                                                                                        |
+| 3   | Yapılandırılmış alan çıkarımı (~25 alan)                 | ✅    | `src/extraction/engine.ts`, `dictionaries.ts`, `pdf.ts`; 26 test                                                                                           |
+| 4   | Tekilleştirme (resmî no → URL → benzerlik → inceleme)    | ✅    | `src/dedupe/engine.ts`, `src/ingest/pipeline.ts`; 14 test                                                                                                  |
+| 5   | Son başvuru takibi ve değişiklik sınıfları               | ✅    | `src/domain/dates.ts`, `src/ingest/revisions.ts`                                                                                                           |
+| 6   | Zamanlanmış, yeniden başlatmaya dayanıklı tarama         | ✅    | `src/worker/scheduler.ts`, `src/db/repos/system.ts` (görev/kilit/heartbeat)                                                                                |
+| 7   | Kriterlere göre e-posta bildirimi (outbox + worker)      | ✅    | `src/notifications/service.ts`, `src/email/*`; 19 test                                                                                                     |
+| 8   | Türkçe, mobil, erişilebilir arayüz                       | ✅    | `src/App.tsx`, `src/pages/*`, `src/styles/*` (psikolog/MMPI tasarım katmanları)                                                                            |
+| 9   | Rol tabanlı yönetim paneli                               | ✅    | `src/pages/Admin.tsx`, `src/server/routes/admin.ts`                                                                                                        |
+| 10  | Zod doğrulamalı REST API + OpenAPI                       | ✅    | `src/server/routes/*`, `/api/docs`                                                                                                                         |
+| 11  | Güvenlik: parola, çerez, CSRF, hız sınırı, SSRF, KVKK    | ✅    | `src/server/passwords.ts`, `src/lib/x-csrf.ts`, `src/sources/fetcher.ts`, `docs/security-kvkk.md`                                                          |
+| 12  | Testler (fixture tabanlı, canlı çağrı yok)               | ✅    | `tests/*` — 15 dosya / 165 test                                                                                                                            |
+| 13  | Docker ile tek komut ortam + CI                          | ✅    | `infra/docker/*`, `.github/workflows/ci.yml`                                                                                                               |
+| 14  | **Dışarıdan kayıt yok**                                  | ✅    | `POST /api/auth/register` varsayılan 403; hesaplar `POST /api/admin/users` ile davet edilir                                                                |
+| 15  | **Tasarım psikolog/MMPI ile aynı**                       | ✅    | `src/styles/{screen,site,coherence,theme,workspace,dashboard,mobile,responsive,auth}.css` bu repolarla **bayt bayt aynı**; Kamuİlan katmanı `kamuilan.css` |
+| 16  | **Ad Kamuİlan + alt alan adı**                           | ✅    | `src/site.ts`, `index.html`, e-posta şablonları, `APP_DOMAIN`                                                                                              |
+| 17  | **Test aşamasında dakikada bir tarama**                  | ✅    | `.env.example` → `SCAN_INTERVAL_MINUTES=1`; kaynak başına aralık `intervalMinutes`                                                                         |
+| 18  | **Veritabanı Supabase**                                  | ✅    | `src/db/postgres-store.ts` (gerçek `pg` + PGlite ile test edilen SQL ön filtre), `DATABASE_DRIVER=supabase                                                 | postgres` |
+| 19  | **Barındırma Cloudflare**                                | ✅    | `dist/` statik SPA + `wrangler.jsonc` (`not_found_handling: single-page-application`, custom domain) + `functions/api/[[path]].ts` ile `/api` proxy'si     |
+| 20  | **E-posta Resend**                                       | ✅    | `src/email/transport.ts` (`ResendEmailTransport`, 9 test), `EMAIL_PROVIDER=resend`                                                                         |
+| 21  | **Bu mühendislik raporu**                                | ✅    | Bu dosya                                                                                                                                                   |
+| 22  | **PR aç ve birleştir**                                   | ✅    | `arena/7f4c2af6-kamuradar` → `main`                                                                                                                        |
+| 23  | **`.env` dosyası otomatik okunur**                       | ✅    | `src/config/load-env.ts` (bağımlılıksız); gerçek ortam değişkeni öncelikli, `.env.<NODE_ENV>` üst katman, `NODE_ENV=test`'te atlanır; 11 test              |
+| 24  | **Tasarım eşliği otomatik denetlenir**                   | ✅    | `tests/design-system.test.ts` + `tests/fixtures/design-parity.json` (SHA-256); tanımsız sınıf ve Tailwind-benzeri yardımcı sınıf kullanımı reddedilir      |
 
 ---
 
@@ -198,7 +203,7 @@ işlemsel outbox → worker gönderimi → sonuç kaydı**.
   paneline taşınır.
 - **Erişilebilirlik:** "ana içeriğe atla" bağlantısı, `aria-current` işaretli gezinme, `role="alert"`
   hatalar, klavye ile tam gezinme, odak tuzağı ve Esc ile kapanan diyaloglar, tablo başlıkları (`<th
-  scope>` / `caption`), renk-dışı durum etiketleri.
+scope>` / `caption`), renk-dışı durum etiketleri.
 - **Kayıt yoktur:** giriş ekranında "Halka açık kayıt yoktur. Hesabınız yönetici tarafından açılır."
   yazılıdır; kayıt ucu sunucuda kapalıdır.
 
@@ -244,17 +249,17 @@ Koleksiyonlar (Zod şemaları `src/db/schemas.ts`): `sources`, `jobs`, `jobSourc
 
 `npm run sources:report` çıktısından (12 Ekim 2026):
 
-| Kaynak | Yöntem | Durum | Not |
-| --- | --- | --- | --- |
-| Resmî Gazete — Çeşitli İlânlar | PDF dizini | **Canlı doğrulandı** | Günlük bölüm sayfası + ilan PDF'leri; metin katmanı okunur |
-| ilan.gov.tr — personel alımları | HTML liste | **Canlı doğrulandı** | Sayfalama, kurum/il filtreleri |
-| ÖSYM — duyurular | HTML liste | **Canlı doğrulandı** | Duyuru listesi + detay sayfası |
-| İŞKUR — kamu memur alımı | HTML liste | Adaptör yazıldı, canlı doğrulanmadı | Liste yapısı bu ortamdan doğrulanamadı; yapı değişirse `structure` hatası verir |
-| İŞKUR — kurum dışı kamu işçisi | HTML liste | Adaptör yazıldı, canlı doğrulanmadı | Adres ana sayfadaki resmî bağlantıdan alındı |
-| MEB — personel duyuruları | HTML liste | Adaptör yazıldı, canlı doğrulanmadı | "TÜM HABERLER" listesi |
-| Kariyer Kapısı — işe alım | Tarayıcı (Playwright) | Adaptör yazıldı, koşullu | Liste JavaScript ile üretiliyor; tarayıcı kurulu değilse tarama "atlandı" |
-| Kamuİlan (SBB) merkezî ekran | HTML/JSON | Erişim kısıtlı | Bu ortamdan WAF 403; kısıt aşılmaz, engellenmediği ortamda otomatik denenir |
-| e-Devlet/eşube | Elle yöntem | Kayıt | Otomatik erişim yok; kullanıcıya elle başvuru yolu gösterilir |
+| Kaynak                          | Yöntem                | Durum                               | Not                                                                             |
+| ------------------------------- | --------------------- | ----------------------------------- | ------------------------------------------------------------------------------- |
+| Resmî Gazete — Çeşitli İlânlar  | PDF dizini            | **Canlı doğrulandı**                | Günlük bölüm sayfası + ilan PDF'leri; metin katmanı okunur                      |
+| ilan.gov.tr — personel alımları | HTML liste            | **Canlı doğrulandı**                | Sayfalama, kurum/il filtreleri                                                  |
+| ÖSYM — duyurular                | HTML liste            | **Canlı doğrulandı**                | Duyuru listesi + detay sayfası                                                  |
+| İŞKUR — kamu memur alımı        | HTML liste            | Adaptör yazıldı, canlı doğrulanmadı | Liste yapısı bu ortamdan doğrulanamadı; yapı değişirse `structure` hatası verir |
+| İŞKUR — kurum dışı kamu işçisi  | HTML liste            | Adaptör yazıldı, canlı doğrulanmadı | Adres ana sayfadaki resmî bağlantıdan alındı                                    |
+| MEB — personel duyuruları       | HTML liste            | Adaptör yazıldı, canlı doğrulanmadı | "TÜM HABERLER" listesi                                                          |
+| Kariyer Kapısı — işe alım       | Tarayıcı (Playwright) | Adaptör yazıldı, koşullu            | Liste JavaScript ile üretiliyor; tarayıcı kurulu değilse tarama "atlandı"       |
+| Kamuİlan (SBB) merkezî ekran    | HTML/JSON             | Erişim kısıtlı                      | Bu ortamdan WAF 403; kısıt aşılmaz, engellenmediği ortamda otomatik denenir     |
+| e-Devlet/eşube                  | Elle yöntem           | Kayıt                               | Otomatik erişim yok; kullanıcıya elle başvuru yolu gösterilir                   |
 
 **Planlanan (henüz entegre edilmedi, ilanları kısmen diğer kaynaklardan gelir):** 18 kurum grubu —
 bakanlıklar, AFAD, SGK, GİB, TÜİK, DSİ, KGM, Tapu-Kadastro, TÜBİTAK, YÖK, üniversiteler (125) ve
@@ -287,20 +292,24 @@ kaynak ekleme rehberi: `docs/source-onboarding.md`.
 
 ## 7. Test ve doğrulama
 
-| Test dosyası | Test | Kapsam |
-| --- | --- | --- |
-| `tests/classification.test.ts` | 21 | ret/kabul/inceleme kararları, tür tespiti, sürüm ve gerekçe |
-| `tests/extraction.test.ts` | 26 | alan çıkarımı, tarih biçimleri, KPSS/kontenjan, tahmin yasağı |
-| `tests/pdf.test.ts` | 7 | gerçek PDF metin katmanı, bozuk PDF dayanıklılığı, metin sınırlama |
-| `tests/ingest.test.ts` | 14 | tekilleştirme, sürümleme, kaynak bağlantıları, değişiklik sınıfları |
-| `tests/worker.test.ts` | 15 | zamanlama, kilit, atlanan/failing kaynak davranışı, uyarı sıklığı |
-| `tests/server.test.ts` | 15 | API sözleşmeleri, RBAC, CSRF, kayıt kapalı, maskeli e-posta |
-| `tests/email.test.ts` | 10 | şablonlar, tercih eşleştirme, eşleşme gerekçesi |
-| `tests/email-delivery.test.ts` | 5 | gerçek SMTP sunucusuyla uçtan uca gönderim |
-| `tests/resend-transport.test.ts` | 9 | Resend istek biçimi, hata eşlemesi, zaman aşımı, sağlayıcı seçimi |
-| `tests/postgres-store.test.ts` | 7 | gerçek SQL üretimi ve JSONB yolu (PGlite), dosya sürücüsüyle parite |
-| `tests/file-store.test.ts` | 2 | dosya sürücüsü atomik yazma/sorgu davranışı |
-| `tests/ui.test.tsx` | 5 | kabuk çizimi (jsdom): kamuya açık sayfalar, oturumsuz panelde giriş kartı, kayıt bağlantısı yok |
+| Test dosyası                     | Test    | Kapsam                                                                                                                |
+| -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
+| `tests/classification.test.ts`   | 21      | ret/kabul/inceleme kararları, tür tespiti, sürüm ve gerekçe                                                           |
+| `tests/extraction.test.ts`       | 26      | alan çıkarımı, tarih biçimleri, KPSS/kontenjan, tahmin yasağı                                                         |
+| `tests/ingest.test.ts`           | 14      | tekilleştirme, sürümleme, kaynak bağlantıları, değişiklik sınıfları                                                   |
+| `tests/sources.test.ts`          | 13      | **kayıt sözleşmesi**, `SOURCE_LIVE_FETCH=0` davranışı, ilan.gov.tr ayrıştırma, `blockElementText`/`İlan No` tuzakları |
+| `tests/env-loader.test.ts`       | 11      | `key: value` ayrıştırma, tırnak/kaçış, çok satırlı değer, gerçek ortam önceliği, sır gizleme                          |
+| `tests/email.test.ts`            | 10      | şablonlar, tercih eşleştirme, eşleşme gerekçesi                                                                       |
+| `tests/resend-transport.test.ts` | 9       | Resend istek biçimi, hata eşlemesi, zaman aşımı, sağlayıcı seçimi                                                     |
+| `tests/pdf.test.ts`              | 7       | gerçek PDF metin katmanı, bozuk PDF dayanıklılığı, metin sınırlama                                                    |
+| `tests/design-system.test.ts`    | 5       | stil sırası, 9 katmanın SHA-256 eşliği, tanımsız sınıf ve yardımcı sınıf yasağı                                       |
+| `tests/ui.test.tsx`              | 5       | kabuk çizimi (jsdom): kamuya açık sayfalar, oturumsuz panelde giriş kartı, kayıt bağlantısı yok                       |
+| `tests/worker.test.ts`           | 15      | zamanlama, kilit, atlanan/failing kaynak davranışı, uyarı sıklığı                                                     |
+| `tests/server.test.ts`           | 15      | API sözleşmeleri, RBAC, CSRF, kayıt kapalı, maskeli e-posta                                                           |
+| `tests/email-delivery.test.ts`   | 5       | gerçek SMTP sunucusuyla uçtan uca gönderim                                                                            |
+| `tests/postgres-store.test.ts`   | 7       | gerçek SQL üretimi ve JSONB yolu (PGlite), dosya sürücüsüyle parite                                                   |
+| `tests/file-store.test.ts`       | 2       | dosya sürücüsü atomik yazma/sorgu davranışı                                                                           |
+| **Toplam**                       | **165** | **15 dosya**                                                                                                          |
 
 Testler **canlı kaynağa istek atmaz** (fixture'lar ve sahte taşıyıcılar kullanılır); dosya değişiklikleri
 geçici dizinlerde yapılır. E2E (`e2e/smoke.spec.ts`, `e2e/sources.spec.ts`) API + arayüz ayağa kalkmış
@@ -308,7 +317,7 @@ hâlde çalışır ve "dürüstlük" kontrollerini yapar (ör. arayüzdeki "canl
 işaretli satır sayısına eşit olması).
 
 **Bu ortamda çalıştırılan komutlar ve sonuçları:** `npm run typecheck` ✅ · `npm run lint` ✅ ·
-`npm test` ✅ 136/136 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
+`npm test` ✅ 165/165 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
 Playwright tarayıcıları bu ortamda indirilemediği için **E2E koşulamadı** (kurulum adımları
 `docs/testing.md` içinde).
 
@@ -361,18 +370,18 @@ Ayrıntılı tablo: `docs/setup.md` § Ortam değişkenleri.
 
 ## 10. Aşamalı teslimat günlüğü
 
-| Aşama | İçerik | Durum |
-| --- | --- | --- |
-| 1 | Depo iskeleti, yapılandırma, ortam doğrulaması, veri modeli | ✅ |
-| 2 | Depo katmanı (dosya + MongoDB + PostgreSQL/Supabase), indeksler | ✅ |
-| 3 | Kaynak adaptörleri + ağ katmanı (SSRF, geri çekilme, koşullu istek) | ✅ |
-| 4 | Sınıflandırma + çıkarım (PDF dahil) | ✅ |
-| 5 | Boru hattı: tekilleştirme, sürümleme, inceleme kuyruğu | ✅ |
-| 6 | Zamanlama, kilit, heartbeat, bakım işleri | ✅ |
-| 7 | E-posta: tercihler, outbox, Resend/SMTP, şablonlar, çıkış | ✅ |
-| 8 | API: genel uçlar, kimlik, yönetim, OpenAPI | ✅ |
-| 9 | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı) | ✅ |
-| 10 | Testler, dokümantasyon, Docker, CI, kapsam raporu | ✅ |
+| Aşama | İçerik                                                                         | Durum |
+| ----- | ------------------------------------------------------------------------------ | ----- |
+| 1     | Depo iskeleti, yapılandırma, ortam doğrulaması, veri modeli                    | ✅    |
+| 2     | Depo katmanı (dosya + MongoDB + PostgreSQL/Supabase), indeksler                | ✅    |
+| 3     | Kaynak adaptörleri + ağ katmanı (SSRF, geri çekilme, koşullu istek)            | ✅    |
+| 4     | Sınıflandırma + çıkarım (PDF dahil)                                            | ✅    |
+| 5     | Boru hattı: tekilleştirme, sürümleme, inceleme kuyruğu                         | ✅    |
+| 6     | Zamanlama, kilit, heartbeat, bakım işleri                                      | ✅    |
+| 7     | E-posta: tercihler, outbox, Resend/SMTP, şablonlar, çıkış                      | ✅    |
+| 8     | API: genel uçlar, kimlik, yönetim, OpenAPI                                     | ✅    |
+| 9     | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı) | ✅    |
+| 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                              | ✅    |
 
 ---
 
