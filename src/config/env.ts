@@ -127,8 +127,24 @@ export function resetEnvCache(): void {
   cachedEnv = null;
 }
 
-function validateEnvironment(env: Env): void {
+export interface EnvironmentInspection {
+  ok: boolean;
+  problems: string[];
+  warnings: string[];
+}
+
+/**
+ * Ayarları çalıştırmadan denetler: `npm run env:check` ve süreç başlangıcı
+ * bu sonucu kullanır. `getEnv()` sorun varsa hata fırlatır.
+ */
+export function inspectEnvironment(env: Env = getEnv()): EnvironmentInspection {
+  const { problems, warnings } = collectEnvironmentProblems(env);
+  return { ok: problems.length === 0, problems, warnings };
+}
+
+function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: string[] } {
   const problems: string[] = [];
+  const warnings: string[] = [];
   if (env.NODE_ENV === 'production') {
     if (!env.APP_SECRET || env.APP_SECRET.length < 32) {
       problems.push('APP_SECRET üretimde en az 32 karakter olmalıdır (oturum/jeton imzası).');
@@ -146,6 +162,20 @@ function validateEnvironment(env: Env): void {
   if (env.DATABASE_DRIVER === 'mongo' && !env.MONGODB_URI) {
     problems.push('DATABASE_DRIVER=mongo için MONGODB_URI gereklidir.');
   }
+  if (env.APP_SECRET.length < 32) {
+    warnings.push('APP_SECRET kısa: üretimde oturum imzası için en az 32 karakter kullanın.');
+  }
+  if (env.NODE_ENV === 'production' && !env.SOURCE_LIVE_FETCH) {
+    warnings.push('Üretimde SOURCE_LIVE_FETCH=1 olmadan kaynaklar taranmaz.');
+  }
+  if (env.ADMIN_EMAIL === '' || env.ADMIN_PASSWORD === '') {
+    warnings.push('İlk yönetici hesabı için ADMIN_EMAIL/ADMIN_PASSWORD tanımlanmamış (seed:admin çalıştırılamaz).');
+  }
+  return { problems, warnings };
+}
+
+function validateEnvironment(env: Env): void {
+  const { problems } = collectEnvironmentProblems(env);
   if (problems.length > 0) {
     throw new Error(`Ortam yapılandırması güvenli değil:\n- ${problems.join('\n- ')}`);
   }
