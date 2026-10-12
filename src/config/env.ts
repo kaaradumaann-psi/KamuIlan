@@ -7,6 +7,16 @@
  *  - Testler `getEnv()` çağırmadan önce process.env'i ayarlar (bkz. tests/setup.ts).
  */
 import { z } from 'zod';
+import { envFileSource, loadEnvFile } from './load-env';
+
+/**
+ * `.env` dosyası (varsa) ortam değişkenlerine yüklenir.
+ *
+ * Bu çağrı modül yüklenirken bir kez çalışır; böylece `npm start`,
+ * `npm run start:worker`, `npm run dev:*` ve `scripts/*` komutlarının hepsi
+ * aynı yapılandırmayı görür. Gerçek ortam değişkenleri her zaman önceliklidir.
+ */
+loadEnvFile();
 
 const csv = (value: string): string[] =>
   value
@@ -136,7 +146,12 @@ const envSchema = z.object({
   DEV_MAIL_VIEWER_PORT: z.coerce.number().int().min(1).max(65_535).default(1080),
 
   // --- Güvenlik ---
-  SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(8_760).default(24 * 14),
+  SESSION_TTL_HOURS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(8_760)
+    .default(24 * 14),
   CSRF_ENABLED: z
     .string()
     .default('1')
@@ -166,7 +181,9 @@ export function getEnv(overrides: Record<string, string | undefined> = {}): Env 
   if (cachedEnv && !hasOverrides) return cachedEnv;
   const parsed = envSchema.safeParse({ ...process.env, ...overrides });
   if (!parsed.success) {
-    const details = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ');
     throw new Error(`Ortam değişkenleri geçersiz: ${details}`);
   }
   const env = parsed.data;
@@ -263,7 +280,9 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
     warnings.push('Üretimde SOURCE_LIVE_FETCH=1 olmadan kaynaklar taranmaz.');
   }
   if (env.ADMIN_EMAIL === '' || env.ADMIN_PASSWORD === '') {
-    warnings.push('İlk yönetici hesabı için ADMIN_EMAIL/ADMIN_PASSWORD tanımlanmamış (seed:admin çalıştırılamaz).');
+    warnings.push(
+      'İlk yönetici hesabı için ADMIN_EMAIL/ADMIN_PASSWORD tanımlanmamış (seed:admin çalıştırılamaz).',
+    );
   }
   return { problems, warnings };
 }
@@ -311,5 +330,8 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
     dataDir: env.DATA_DIR,
     rateLimit: `${env.RATE_LIMIT_MAX_REQUESTS}/${env.RATE_LIMIT_WINDOW_SECONDS}s`,
     appSecretSet: env.APP_SECRET.length >= 32,
+    // Hangi dosyadan okunduğu (içerik değil) — ".env okunmadı" sorunlarını
+    // ayıklamak için görünür tutulur.
+    envFile: envFileSource() ?? 'yok (yalnızca ortam değişkenleri)',
   };
 }

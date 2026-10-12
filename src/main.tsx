@@ -5,9 +5,15 @@
  * sunucu verisi bileşenlerde kopyalanmaz. Oturum bilgisi tek yerde
  * (`SessionProvider`) tutulur ve sunucudaki `/api/auth/session` ucuyla doğrulanır.
  *
- * Stil sırası psikolog/MMPI çalışma alanlarıyla aynıdır: önce temel katmanlar
- * (tokens → site → bileşen derisi), sonra Kamuİlan katmanları, en sonda
- * responsive. `index.css` yoktur; katmanlar burada açıkça sıralanır.
+ * Stil sırası psikolog/MMPI çalışma alanlarıyla BİREBİR aynıdır. İki referans
+ * deponun da `main.tsx` dosyası aynı göreli sırayı kullanır:
+ *
+ *   screen → auth → (dashboard) → site → mobile → theme → coherence →
+ *   workspace → …uygulama katmanı… → responsive
+ *
+ * `responsive.css` her zaman EN SONDA gelir; böylece her katmanı yeniden
+ * yorumlayabilir. Bu sıra `tests/design-system.test.ts` ile denetlenir;
+ * değiştirmek tasarım sapmasıdır. `index.css` yoktur.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
@@ -17,14 +23,16 @@ import App from './App';
 import { SessionProvider } from './lib/session';
 
 import './styles/screen.css';
-import './styles/site.css';
-import './styles/coherence.css';
-import './styles/theme.css';
-import './styles/workspace.css';
-import './styles/dashboard.css';
-import './styles/kamuilan.css';
 import './styles/auth.css';
+import './styles/dashboard.css';
+import './styles/site.css';
 import './styles/mobile.css';
+import './styles/theme.css';
+import './styles/coherence.css';
+import './styles/workspace.css';
+// Kamuİlan'a özgü tek katman; yukarıdaki paylaşılan katmanların üzerine yazar.
+import './styles/kamuilan.css';
+// Duyarlı temel her zaman en son: yukarıdaki tüm katmanları yeniden yorumlar.
 import './styles/responsive.css';
 
 const queryClient = new QueryClient({

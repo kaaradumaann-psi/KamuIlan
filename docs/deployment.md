@@ -38,14 +38,31 @@ Kullanıcı → Cloudflare (kamuilan.halilkaraduman.com.tr, TLS, WAF, önbellek)
    `db:indexes` tabloları (`kamuilan_jobs`, `kamuilan_sources`, …), GIN indeksini
    ve envanterdeki benzersiz/ifade indekslerini kurar; idempotenttir ve API
    açılışında da çalışır. Servis rolü anahtarı yalnızca sunucuda tutulur.
-2. **Arayüz (Cloudflare)**
+2. **Arayüz (Cloudflare Workers + statik varlıklar)**
+
    ```bash
-   npm run build          # dist/
-   npx wrangler pages deploy dist --project-name kamuilan
+   npm run build                 # dist/
+   npx wrangler deploy           # wrangler.jsonc ayarlarını kullanır
+   npx wrangler secret put API_ORIGIN   # örn. https://api.kamuilan.halilkaraduman.com.tr
    ```
-   `/api/*` yönlendirmesi Cloudflare tarafında (Pages Functions/WAF kuralı) ya da
-   Nginx örneğindeki gibi (`infra/docker/nginx.conf`) API'ye proxy'lenir. Özel
-   alan adı: `kamuilan.halilkaraduman.com.tr`.
+
+   `wrangler.jsonc` depodadır ve **panodaki üretim durumunu korur**
+   (`workers_dev: false`, `routes` → `kamuilan.halilkaraduman.com.tr`). Dosya
+   olmadan `wrangler deploy` uzak yapılandırmayı ezer: workers.dev adresi açılır
+   ve özel alan adı düşer. Başka bir hesaba/zone'a yayınlıyorsanız `routes`
+   bloğunu kendi alan adınızla güncelleyin.
+
+   **SPA yönlendirmesi:** `assets.not_found_handling = "single-page-application"`.
+   `_redirects` içindeki `/*  /index.html  200` kuralı Workers API'sinde "sonsuz
+   döngü" sayılıp reddedilir (hata kodu 100324); bu yüzden kullanılmaz.
+
+   **`/api` proxy'si ZORUNLUDUR.** `dist/` içinde API yoktur. Proxy kurulmazsa
+   tarayıcı `/api/health` için statik varlık sunucusundan SPA gövdesini (HTML)
+   alır, JSON bekleyen arayüz boş kalır. Depodaki `functions/api/[[path]].ts`
+   bunu çözer: tüm yöntemleri, gövdeyi, çerezleri ve CSRF başlığını API sürecine
+   aktarır; yalnızca ana makineye bağlı başlıklar ayıklanır. API'ye
+   ulaşılamazsa **502 + JSON** döner (sessiz HTML yanıtı değil).
+
 3. **API + worker**: ayrı süreçler olarak daimi bir ortamda (Cloudflare Container,
    VPS, Fly.io…) çalıştırılır: `npm run start` ve `npm run start:worker`.
 4. **Resend**: alan adını doğrulayın (SPF/DKIM kayıtları DNS'te), `EMAIL_FROM`
@@ -54,11 +71,11 @@ Kullanıcı → Cloudflare (kamuilan.halilkaraduman.com.tr, TLS, WAF, önbellek)
 
 ## Süreçler
 
-| Süreç | Komut | Not |
-| --- | --- | --- |
-| API | `npm run start` | HTTP sunucusu; tarama YAPMAZ |
-| Worker | `npm run start:worker` | Zamanlayıcı + kuyruk tüketicisi + e-posta gönderimi |
-| Arayüz | `npm run build` → `dist/` | Statik dosyalar (Nginx/CDN) |
+| Süreç  | Komut                     | Not                                                 |
+| ------ | ------------------------- | --------------------------------------------------- |
+| API    | `npm run start`           | HTTP sunucusu; tarama YAPMAZ                        |
+| Worker | `npm run start:worker`    | Zamanlayıcı + kuyruk tüketicisi + e-posta gönderimi |
+| Arayüz | `npm run build` → `dist/` | Statik dosyalar (Nginx/CDN)                         |
 
 Ayrı süreçler olması bilinçlidir: tarama/e-posta yükü API'yi yavaşlatmaz ve
 worker yeniden başlatıldığında işler kaybolmaz (durum veritabanındadır).
@@ -70,9 +87,10 @@ cd infra/docker
 docker compose up --build
 ```
 
-Servisler: `mongo`, `redis`, `mail` (mailpit: SMTP 1025, arayüz 1080), `api`,
-`worker`, `web` (Vite dev sunucusu, 5173). Tüm trafik göreli `/api` üzerinden
-proxy'lenir.
+Servisler: `mail` (mailpit: SMTP 1025, arayüz 1080), `api`, `worker`, `web`
+(Vite dev sunucusu, 5173) ve isteğe bağlı `postgres` (`--profile postgres`).
+MongoDB/Redis servisi YOKTUR: varsayılan sürücü dosya deposu ve yerleşik
+veritabanı kuyruğudur. Tüm trafik göreli `/api` üzerinden proxy'lenir.
 
 Üretim arayüz imajı:
 
@@ -110,7 +128,7 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
    ```ini
    [Unit]
    Description=Kamuİlan API
-   After=network-online.target mongod.service
+   After=network-online.target
    [Service]
    User=kamuilan
    WorkingDirectory=/opt/kamuilan
@@ -165,14 +183,22 @@ süreç uyuduğunda hiçbir tarama yapılmaz. Bu nedenle:
 
 ## Yedekleme
 
-- **MongoDB**: `mongodump`/`mongorestore`; `jobs`, `jobSources`, `jobRevisions`,
-  `sources`, `users`, `notificationPreferences`, `emailOutbox`, `scrapeRuns`,
-  `auditLogs` koleksiyonları kritiktir.
+- **Supabase/PostgreSQL**: Supabase günlük yedekleri + `pg_dump`
+  (`kamuilan_*` tabloları; isim öneki `POSTGRES` şemasına göre değişebilir).
+  Kritik koleksiyonlar: `jobs`, `jobSources`, `jobRevisions`, `sources`,
+  `users`, `notificationPreferences`, `emailOutbox`, `scrapeRuns`, `auditLogs`.
 - **Dosya deposu (yalnızca geliştirme)**: `data/kamuilan.json` dosyasını kopyalayın.
 - Ayrıntılı prosedür: [operations.md](./operations.md).
 
 ## CI
 
-`.github/workflows/ci.yml`: `npm ci` → `typecheck` → `lint` → `test` → `build` →
-`env:check` → `sources:report --json` → API+arayüz başlatma → Playwright E2E.
-CI'da `SOURCE_LIVE_FETCH=0` olduğu için hiçbir gerçek kaynağa istek atılmaz.
+`.github/workflows/ci.yml`: `npm ci` → `typecheck` → `lint` → **`format:check`**
+→ `test` → `build` → `env:check` → `sources:report --json` → API+arayüz başlatma
+→ Playwright E2E. CI'da `SOURCE_LIVE_FETCH=0` olduğu için hiçbir gerçek kaynağa
+istek atılmaz.
+
+Aynı adımları dağıtımdan önce yerelde çalıştırın:
+
+```bash
+npm run typecheck && npm run lint && npm test && npm run build && npm run env:check
+```

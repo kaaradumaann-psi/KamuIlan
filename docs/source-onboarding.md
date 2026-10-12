@@ -64,6 +64,34 @@ tutulur; asıl iş kaynağın gerçekten okunabilir olduğunu göstermektir.
     `AdapterStructureError` fırlatır → tarama kaydı "yapı değişmiş olabilir" notuyla
     başarısız olur (test senaryosu 22).
 
+### 2.1 Metin çıkarma tuzakları (Türkçe + HTML)
+
+Bu üç hata daha önce gerçekten yaşandı; yeni adaptör yazarken aynı yere
+düşmeyin.
+
+1. **Satır sınırları korunmalı.** `elementText()`, tüm boşluğu tek boşluğa
+   indirger; bu yüzden `Ankara 12.10.2026 Örnek Kurum` tek satıra yapışır ve
+   il/ilçe ayrımı yapılamaz. Kart/öğe metnini okurken `blockElementText()`
+   kullanın: `<br>`, `</p>`, `</li>` gibi blok sınırlarını `\n` olarak korur,
+   yalnızca satır içi boşluğu sıkıştırır. `elementText()` başlık/bağlantı gibi
+   tek satırlık alanlar için doğrudur.
+2. **`\b` JavaScript'te her zaman ASCII'dir.** `u` bayrağı bunu değiştirmez:
+   `/\bİlan/giu` dizisi **hiçbir şeyle eşleşmez**. Türkçe kelime sınırı için
+   deseni doğrudan yazın, `\b` kullanmayın.
+3. **`i` bayrağı `İ` (U+0130) ile `i`'yi eşleştirmez.**
+   `/i/iu.test('İ') === false`. `ilan` / `İlan` gibi iki yazım da olabilecek
+   yerde karakter sınıfı kullanın: `(?:İ|I)lan`.
+
+Örnek (çalışan hâli, `src/sources/listing-utils.ts`):
+
+```ts
+/(?:İ|I)lan\s*(?:No|Numarası)\s*[:.]?\s*([A-Z0-9-]{4,20})/gi;
+```
+
+4. **Kurum adı aranırken başlık satırı hariç tutulmalı.** ilan.gov.tr'de
+   başlığın kendisi kurum adını içerir; `line !== title` koşulu olmadan
+   `institution` alanı başlıkla dolar.
+
 ## 3. Test yaz (ağ olmadan)
 
 1. `tests/fixtures/` altına gerçek sayfanın **yapısına uygun** bir fixture koyun.

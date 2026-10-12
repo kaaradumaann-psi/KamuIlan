@@ -1,0 +1,42 @@
+{
+  // Cloudflare Workers statik varlık yapılandırması (Kamuİlan arayüzü).
+  //
+  // `npm run build` çıktısı (dist/) Cloudflare'e buradan yayınlanır:
+  //   npx wrangler deploy
+  //
+  // Notlar:
+  //  • `not_found_handling: single-page-application` pathname tabanlı History API
+  //    yönlendirmesi için SPA fallback sağlar. `_redirects` içindeki
+  //    `/*  /index.html  200` kuralı Workers API'sinde "sonsuz döngü" sayılıp
+  //    reddedildiği için kullanılmaz (bkz. docs/deployment.md).
+  //  • `routes` + `workers_dev: false` panodaki mevcut üretim durumunu korur;
+  //    yazılmazsa `wrangler deploy` uzak yapılandırmayı yerel dosyayla ezer,
+  //    workers.dev adresi açılır ve özel alan adı düşer.
+  //  • `/api/*` istekleri `functions/api/[[path]].ts` tarafından API sürecine
+  //    proxy'lenir; tarayıcı yalnızca göreli /api yollarını çağırır.
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "kamuilan",
+  "compatibility_date": "2026-10-12",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+  },
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "html_handling": "auto-trailing-slash",
+  },
+  "routes": [
+    {
+      "pattern": "kamuilan.halilkaraduman.com.tr",
+      "custom_domain": true,
+    },
+  ],
+  // API sürecinin adresi (Workers secret olarak da verilebilir):
+  //   npx wrangler secret put API_ORIGIN
+  // Varsayılan: https://api.kamuilan.halilkaraduman.com.tr
+  "vars": {
+    "API_ORIGIN": "https://api.kamuilan.halilkaraduman.com.tr",
+  },
+}

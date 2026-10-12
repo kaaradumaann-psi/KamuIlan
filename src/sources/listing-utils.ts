@@ -16,7 +16,12 @@ export function parseListingDate(text: string | null | undefined): string | null
 const REFERENCE_PATTERNS: readonly RegExp[] = [
   // YOK853479, DPB845507, ILN0250539595 gibi resmî ilan numaraları
   /\b([A-Z]{2,4})[-\s]?(\d{5,12})\b/g,
-  /\bİlan\s*(?:No|Numarası)\s*[:.]?\s*([A-Z0-9-]{4,20})\b/gi,
+  // "İlan No: YOK-2026-482311" — iki tuzak:
+  //  1. `\b` JavaScript'te DAİMA ASCII sözcük sınırıdır (`u` bayrağı bunu
+  //     değiştirmez); "İ" sözcük karakteri sayılmadığı için kalıbın başındaki
+  //     `\b` satır başındaki "İlan"ı hiç yakalayamaz.
+  //  2. `i` bayrağı "İ" (U+0130) ile "i"yi eşleştirmez; harf açıkça yazılır.
+  /(?:İ|I)lan\s*(?:No|Numarası)\s*[:.]?\s*([A-Z0-9-]{4,20})/gi,
 ];
 
 /** Metinden resmî ilan numaralarını çıkarır (tekilleştirme için değerli). */

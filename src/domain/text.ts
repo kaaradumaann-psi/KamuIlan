@@ -61,20 +61,33 @@ export function collapseWhitespace(value: string): string {
   return value.replace(/[\s\u00A0\u2028\u2029]+/g, ' ').trim();
 }
 
+/**
+ * HTML etiketlerini ayıklayıp düz metin döndürür.
+ *
+ * Blok sınırları (`<br>`, `</p>`, `</div>`, `</li>`, `</tr>`, başlık kapanışları)
+ * SATIR SONU OLARAK KORUNUR. Bu ayrım liste ayrıştırıcıları için zorunludur:
+ * bir ilan kartında kurum, il ve tarih ayrı bloklarda durur; satır sonları
+ * kaybolursa alanlar tek paragrafta birleşir ve hiçbiri güvenle çıkarılamaz.
+ * Satır İÇİ boşluklar (birden fazla boşluk, sekme, nbsp) sadeleştirilir.
+ */
 export function stripHtmlTags(html: string): string {
-  return collapseWhitespace(
-    html
-      .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, ' ')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;|&apos;/gi, "'")
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>'),
-  );
+  const withoutMarkup = html
+    .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+
+  return withoutMarkup
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
 }
 
 export function tokenize(value: string, minLength = 2): string[] {
