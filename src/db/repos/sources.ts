@@ -220,7 +220,10 @@ export class SourceRepo {
       planned: number;
     };
   }> {
-    const sources = await this.store.find('sources', {}, { sort: [['name', 1]] });
+    const allSources = await this.store.find('sources', {}, { sort: [['name', 1]] });
+    // Demo/örnek veri kaydı gerçek bir tarama kaynağı değildir; kapsam sayılarına
+    // girmez (seed:demo bunu coverageNote alanında taahhüt ediyor).
+    const sources = allSources.filter((source) => !source.tags.includes('demo'));
     const entries: SourceCoverageEntry[] = [];
     const staleThreshold = Date.now() - 6 * 3_600_000;
     let failing = 0;

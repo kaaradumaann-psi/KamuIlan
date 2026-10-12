@@ -132,7 +132,10 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
         },
         workers: {
           total: heartbeats.length,
-          running: heartbeats.filter((beat) => beat.status === 'running').length,
+          // "çalışıyor" demek için yalnızca status alanı yetmez: kalp atışı taze olmalı.
+          running: heartbeats.filter(
+            (beat) => beat.status === 'running' && beat.lastHeartbeatAt >= staleThreshold,
+          ).length,
           stale: staleWorkers.length,
           items: heartbeats.slice(0, 10).map((beat) => ({
             workerId: beat.workerId,

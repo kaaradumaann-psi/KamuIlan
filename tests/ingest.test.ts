@@ -92,6 +92,30 @@ function fakeAdapter(items: RawAnnouncement[], notes: string[] = []): SourceAdap
   };
 }
 
+describe('kapsam raporu', () => {
+  it('demo/örnek veri kaydını kapsam sayılarına katmaz', async () => {
+    const repos = await makeRepos();
+    await repos.sources.seed([
+      TEST_DEFINITION,
+      {
+        ...TEST_DEFINITION,
+        key: 'demo-ornek-veri',
+        name: 'Demo — örnek veri (gerçek kaynak değildir)',
+        adapterKey: 'manual-entry',
+        method: 'manual-entry',
+        status: 'disabled',
+        enabled: false,
+        tags: ['demo', 'ornek-veri'],
+      },
+    ]);
+
+    const coverage = await repos.sources.coverage();
+    expect(coverage.sources.map((entry) => entry.key)).toEqual(['test-liste-kaynagi']);
+    expect(coverage.summary.total).toBe(1);
+    expect(coverage.summary.enabled).toBe(1);
+  });
+});
+
 describe('kabul hattı — kayıt ve sürümleme', () => {
   it('gerçek personel alım ilanını kabul eder ve kaydeder', async () => {
     const repos = await makeRepos();
