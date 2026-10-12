@@ -204,7 +204,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'browser',
     status: 'accessible',
     statusNote:
-      'Sayfa açılıyor ancak ilan listesi tarayıcıda (JavaScript) oluşturulıyor; düz HTTP isteğiyle liste okunamaz. Playwright kuruluysa devreye girer, değilse tarama "atlandı" olarak kaydedilir ve panelde görünür.',
+      'Sayfa açılıyor ancak ilan listesi tarayıcıda (JavaScript) oluşturuluyor; düz HTTP isteğiyle liste okunamaz. Playwright kuruluysa devreye girer, değilse tarama "atlandı" olarak kaydedilir ve panelde görünür.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
       `${VERIFIED_AT} canlı doğrulama: /isealim sayfası HTTP 200 döndü; "Aktif İlanlar" tablosu o an boş geldi ` +

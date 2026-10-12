@@ -362,6 +362,11 @@ export class WorkerRuntime {
 
     const staleThreshold = new Date(now.getTime() - HEARTBEAT_STALE_MS).toISOString();
     const staleWorkers = await this.repos.heartbeats.listStale(staleThreshold);
+    if (staleWorkers.length > 0) {
+      // Kalp atışı kesilen süreçler "durdu" sayılır; aksi hâlde panelde sahte
+      // "çalışıyor" görünürler (geliştirmede tsx watch sık yeniden başlatır).
+      await this.repos.heartbeats.markStaleAsStopped(staleThreshold);
+    }
     for (const worker of staleWorkers) {
       if (worker.workerId === this.workerId) continue;
       // Aynı ölü worker için her tikte tekrar uyarmak yerine bir kez uyarılır;
