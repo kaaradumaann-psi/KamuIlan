@@ -81,8 +81,11 @@ infra/           docker-compose + Dockerfile + MongoDB başlangıç betiği
 
 ## Depolama
 
-- **Geliştirme** (öntanımlı): `data/kamuradar.json` dosya deposu. Tek süreç için
-  uygundur, kurulum gerektirmez.
+- **Geliştirme** (öntanımlı): `data/kamuradar.json` dosya deposu. Kurulum
+  gerektirmez; atomik yazma (tmp + rename) ve süreçler arası değişiklik algılama
+  (dosya zaman damgası) kullanır. API, worker ve betikler bu dosyayı paylaşabilir;
+  yine de paylaşımlı kilit yoktur, bu yüzden üretimde MongoDB zorunludur
+  (uygulama üretimde dosya deposuyla başlamayı reddeder).
 - **Üretim**: MongoDB (`MONGODB_URI`), indeksler `src/db/indexes.ts`ten
   `npm run db:indexes` ile (ve API açılışında) oluşturulur.
 - **Kuyruk**: `REDIS_URL` varsa BullMQ, yoksa yerleşik (veritabanı) kuyruk.

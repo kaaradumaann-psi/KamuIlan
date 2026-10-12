@@ -6,8 +6,14 @@
  *   `insertIfAbsent` tek süreç içinde atomiktir.
  * - Çok örnekli üretim için tasarlanmamıştır: üretimde MongoDB zorunludur
  *   (bkz. assertProductionSafety).
+ *
+ * Geliştirmede API, worker ve betikler (ör. `seed:demo`) aynı dosyayı paylaşır.
+ * Bu yüzden her okuma/yazma öncesi dosyanın zaman damgası kontrol edilir ve
+ * başka bir süreç yazdıysa bellek yeniden yüklenir; aksi hâlde worker'ın kalp
+ * atışı yazımı seed betiğinin eklediği kayıtları ezerdi. Yine de tam eşzamanlı
+ * çok süreçli kullanım garantili DEĞİLDİR (paylaşımlı kilit yoktur).
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createId } from '../domain/ids';
 import { COLLECTION_SCHEMAS, type CollectionName, type DocumentOf } from './schemas';
@@ -27,6 +33,9 @@ export class FileStore implements StoragePort {
   private data: Record<CollectionName, DocumentOf<CollectionName>[]>;
   private writeQueue: Promise<void> = Promise.resolve();
   private closed = false;
+  /** Diskten son okunan sürümün izi (başka süreç yazdı mı?). */
+  private loadedMtimeMs = -1;
+  private loadedSize = -1;
 
   constructor(dataDir: string, fileName = 'kamuradar.json') {
     this.filePath = join(dataDir, fileName);
@@ -47,21 +56,45 @@ export class FileStore implements StoragePort {
       await this.flush();
       return;
     }
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk(): void {
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as FilePayload;
+      const raw = readFileSync(this.filePath, 'utf8');
+      const stat = statSync(this.filePath);
+      const parsed = JSON.parse(raw) as FilePayload;
       this.data = this.emptyCollections();
       for (const [name, docs] of Object.entries(parsed.collections ?? {})) {
         if (name in this.data && Array.isArray(docs)) {
           this.data[name as CollectionName] = docs as DocumentOf<CollectionName>[];
         }
       }
+      this.loadedMtimeMs = stat.mtimeMs;
+      this.loadedSize = stat.size;
     } catch (error) {
       const backup = `${this.filePath}.corrupt-${Date.now()}`;
       renameSync(this.filePath, backup);
       this.data = this.emptyCollections();
+      this.loadedMtimeMs = -1;
+      this.loadedSize = -1;
       throw new Error(
         `Veri dosyası okunamadı, bozuk kopya ${backup} olarak saklandı: ${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Başka bir süreç dosyayı değiştirdiyse belleği tazeler.
+   * Okuma ve yazma işlemlerinin başında çağrılır; böylece kayıtlar kaybolmaz.
+   */
+  private refreshIfChanged(): void {
+    try {
+      const stat = statSync(this.filePath);
+      if (stat.mtimeMs === this.loadedMtimeMs && stat.size === this.loadedSize) return;
+      this.loadFromDisk();
+    } catch {
+      // Dosya henüz yok: bellekteki durum geçerli.
     }
   }
 
@@ -82,11 +115,19 @@ export class FileStore implements StoragePort {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(tmp, JSON.stringify(payload), 'utf8');
     renameSync(tmp, this.filePath);
+    try {
+      const stat = statSync(this.filePath);
+      this.loadedMtimeMs = stat.mtimeMs;
+      this.loadedSize = stat.size;
+    } catch {
+      // İzin/yarış durumu: sonraki okuma tazeleme denemesi yapacak.
+    }
   }
 
   /** Yazma serileştirme: tüm mutasyonlar bu kuyruktan geçer. */
   private async mutate<T>(operation: () => T | Promise<T>): Promise<T> {
     const run = this.writeQueue.then(async () => {
+      this.refreshIfChanged();
       const result = await operation();
       this.flush();
       return result;
@@ -145,6 +186,7 @@ export class FileStore implements StoragePort {
 
   async findOne<K extends CollectionName>(collection: K, filter: Query): Promise<DocumentOf<K> | null> {
     await this.writeQueue;
+    this.refreshIfChanged();
     const rows = this.data[collection] as unknown[];
     for (const row of rows) if (matchesQuery(row, filter)) return row as DocumentOf<K>;
     return null;
@@ -156,6 +198,7 @@ export class FileStore implements StoragePort {
     options: FindOptions = {},
   ): Promise<DocumentOf<K>[]> {
     await this.writeQueue;
+    this.refreshIfChanged();
     const rows = (this.data[collection] as unknown[]).filter((row) => matchesQuery(row, filter)) as DocumentOf<K>[];
     const sorted = sortDocuments(rows, options.sort);
     const skip = options.skip ?? 0;
@@ -165,6 +208,7 @@ export class FileStore implements StoragePort {
 
   async count<K extends CollectionName>(collection: K, filter: Query = {}): Promise<number> {
     await this.writeQueue;
+    this.refreshIfChanged();
     return (this.data[collection] as unknown[]).filter((row) => matchesQuery(row, filter)).length;
   }
 
