@@ -441,7 +441,12 @@ export const workerHeartbeatSchema = z.object({
   host: z.string(),
   startedAt: isoString(),
   lastHeartbeatAt: isoString(),
-  status: z.enum(['starting', 'running', 'stopping']),
+  /**
+   * 'stopped': süreç artık yok (kalp atışı kesildi veya kapanış bildirildi).
+   * Worker başlarken eskimiş 'running' kayıtları bu duruma çevrilir; panelde
+   * sahte "çalışıyor" görünmesinler.
+   */
+  status: z.enum(['starting', 'running', 'stopping', 'stopped']),
   processedJobs: z.number().int().min(0),
   lastError: z.string().nullable(),
 });

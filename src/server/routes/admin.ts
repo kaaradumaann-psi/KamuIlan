@@ -97,7 +97,10 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       version: beat.version,
       lastHeartbeatAt: beat.lastHeartbeatAt,
       processedJobs: beat.processedJobs,
-      stale: now - Date.parse(beat.lastHeartbeatAt) > SCHEDULER_DEFAULTS.heartbeatStaleMs,
+      // Durdurulmuş süreçler bayat sayılmaz; panelde yanlış alarm üretmesinler.
+      stale:
+        beat.status !== 'stopped' &&
+        now - Date.parse(beat.lastHeartbeatAt) > SCHEDULER_DEFAULTS.heartbeatStaleMs,
       lastError: beat.lastError,
     }));
     return {

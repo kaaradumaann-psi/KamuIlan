@@ -90,7 +90,10 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
       ]);
 
       const staleThreshold = new Date(now.getTime() - HEARTBEAT_STALE_MS).toISOString();
-      const staleWorkers = heartbeats.filter((beat) => beat.lastHeartbeatAt < staleThreshold);
+      // 'stopped' kayıtlar bayat sayılmaz: süreç bilinçli/kendiliğinden durmuştur.
+      const staleWorkers = heartbeats.filter(
+        (beat) => beat.status !== 'stopped' && beat.lastHeartbeatAt < staleThreshold,
+      );
       const warnings: string[] = [];
       if (!health.ok) warnings.push('Veritabanına erişilemiyor.');
       if (coverage.summary.failing > 0) warnings.push(`${coverage.summary.failing} kaynak üst üste başarısız.`);
