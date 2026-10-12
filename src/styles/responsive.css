@@ -1,0 +1,1512 @@
+/* ==========================================================================
+   Responsive Foundation — viewport fit, navigation shell, touch ergonomics
+   --------------------------------------------------------------------------
+   main.tsx imports this file LAST, after workspace.css, so it can
+   refine every screen layer without fighting the cascade. It owns the shared
+   foundation only; screen-specific layout stays in the files that already own
+   it (workspace.css, reports.css, scanner.css, …).
+
+     01 · Global viewport units, safe areas and the horizontal-overflow net
+     02 · ≤1100px — tablet header guards
+     03 · ≤720px — touch ergonomics (16px controls, ≥44px targets)
+     04 · ≤720px — navigation strips and page shells
+     05 · ≤720px — data tables stay readable, never squeezed
+     06 · ≤560px — two/three-column form grids collapse
+     07 · ≤430px — small phones (320 / 360 / 375 / 390 / 414 / 430)
+     08 · ≤720px — reports, charts and paper previews
+     08b/08c · sources entries + coarse-pointer touch band
+     09 · ≤720px — scanner / camera surfaces
+     10 · compact navigation panel on smaller screens, ≤900px header row
+     11 · PaperViewport — A4 paper keeps the desktop composition everywhere
+     12 · ≤720px — data tables become cards (actions visible without scroll)
+     13 · ≤720px — OMR / scanner text-fit fixes
+     14 · ≤720px — small touch targets and remaining spills
+
+   Ordering rule: media blocks are written widest-first so that a narrower
+   breakpoint always wins when both apply.
+
+   Rules:
+     • Every declaration is inside `@media screen` — the printable A4 sheet
+       (form.css / print.css / @media print blocks) never receives a single
+       declaration from this file.
+     • No `!important`, no new component, no rewritten design: foundation only.
+     • The workspace design layer provides the desktop sidebar above 1050px.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   01 · Global viewport units, safe areas, overflow net
+   -------------------------------------------------------------------------- */
+@media screen {
+  /* 100vh is the *large* viewport on mobile browsers: as the URL bar hides and
+     shows, a 100vh column jumps and can push the footer under the browser
+     chrome. dvh tracks the visible viewport; vh stays as the fallback for
+     browsers that do not support it yet. */
+  .portal-layout,
+  .auth-page,
+  .auth-shell,
+  .info-shell,
+  .report-workspace {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* A modal taller than the *visible* viewport scrolls internally instead of
+     letting the last action button sit under the browser chrome. */
+  .modal-container {
+    max-height: 90vh;
+    max-height: 90dvh;
+  }
+
+  /* The A4 preview scroller is the PaperViewport frame (`.report-preview-paper`),
+     sticky and height-capped only in the two-column split; below 1241px
+     reports.css turns the pane static, so this rule must not leak there. */
+  @media screen and (min-width: 1241px) {
+    .report-preview-paper {
+      max-height: calc(100vh - 160px);
+      max-height: calc(100dvh - 160px);
+    }
+  }
+
+  /* Notch / home-indicator insets. `env()` resolves to 0px where unsupported. */
+  .app-header {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .site-footer-inner {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Flex/grid children default to `min-width: auto`, which is the single most
+     common cause of a "table/card is wider than the phone" bug. Containers that
+     host scrollable tables already own their own `overflow-x: auto`. */
+  .app-main,
+  .app-main > *,
+  .reports-page,
+  .report-workspace,
+  .ws-panel,
+  .ws-flow,
+  .dashboard-section,
+  .card-elevated,
+  .report-section {
+    min-width: 0;
+  }
+
+  /* Unbreakable identifiers (UUID, e-posta, dosya adı, batch kodu) must wrap
+     instead of widening the layout. */
+  .record-ref-code,
+  .record-page-id,
+  .mono-sub,
+  .batch-code,
+  input[type='search'],
+  .form-kit-file strong,
+  .ws-edit-panel-id {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   02 · ≤1100px — tablet header guards
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 1100px) {
+  /* Between 901px and ~1100px the header is still a single 72px row: brand +
+     workspace tabs + site link + user + logout. A long account name must not
+     push the row wider than the viewport. */
+  .header-left,
+  .header-user,
+  .user-profile-summary,
+  .user-info-text {
+    min-width: 0;
+  }
+
+  .user-full-name {
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .home-site-link span {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   03 · ≤720px — touch ergonomics
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* iOS Safari zooms the whole page when a form control smaller than 16px takes
+     focus, then leaves the user zoomed in. Two layers guard against it:
+       (a) a catch-all for controls the design system does not style itself
+           (browser default is 13.33px), and
+       (b) explicit overrides for every styled control that declares a smaller
+           size — these must out-rank the rule they correct, so they carry the
+           same or higher specificity and come later in the cascade.
+     The APA title field is the single intentional exception (display type). */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .form-group input,
+  .form-group select,
+  .form-group textarea,
+  .field input,
+  .field textarea,
+  .search-input-wrapper input,
+  .date-filter-field input,
+  .date-filter-field select,
+  .filter-group input,
+  .filter-group select,
+  .raw-field input,
+  .expert-notes-input,
+  .ws-form textarea,
+  .report-edit-pane textarea,
+  .report-settings-grid input,
+  .report-template-save input,
+  .report-toolbar select,
+  .admin-creation-form input,
+  .reports-page input:not([type='file']):not([type='checkbox']):not([type='radio']),
+  .reports-page select,
+  .reports-page textarea {
+    font-size: 16px;
+  }
+
+  /* Exception: the APA report title is a display-sized field on purpose. */
+  .reports-page .report-title-input input,
+  .report-edit-pane .report-title-input input {font-size: clamp(19px, 5.2vw, 24px);
+  }
+
+  /* 44px is the documented target of this project's mobile layer. Compact
+     controls (btn-sm, table row actions, filter fields, close buttons, pills)
+     were 28–36px tall on a phone. */
+  .btn-primary, .btn-secondary, .btn-danger, .btn-sm, .action-btn-primary, .action-btn-secondary, .action-btn-danger, .icon-close-btn, .portal-tab, .subnav-tab, .mode-tab, .quicknav-chip, .report-toolbar button, .report-preview-actions button, .scan-comparison-toggle button, .close-banner-btn, .site-footer-link, .btn-logout, .ws-choice-row label, .report-mobile-tabs button{
+    min-height: 44px;
+  }
+
+  .icon-close-btn,
+  .close-banner-btn {
+    min-width: 44px;
+  }
+
+  .date-filter-field input,
+  .date-filter-field select,
+  .raw-field input {
+    height: 44px;
+  }
+
+  /* Inputs must never be narrower than a comfortable thumb target either. */
+  .date-filter-field {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .date-filter-field input,
+  .date-filter-field select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Checkboxes/radios that are not wrapped in a pill label still need a real
+     hit area next to their text. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 20px;
+    height: 20px;
+  }
+
+  /* Tabular figures in date filters must not reflow between platforms. */
+  input,
+  select,
+  textarea {
+    line-height: 1.35;
+  }
+
+  /* Legibility floor for the small labels that carry meaning on a phone. These
+     were 9-10px (badge/flag/eyebrow type) and are hard to read at arm's length;
+     they are bumped here only, so desktop and print keep their scale. */
+  .user-role-badge,
+  .brand-subtitle,
+  .btn-multiline small,
+  .ws-method-flag,
+  .level-badge,
+  .mv-band,
+  .qe-cell,
+  .item-select-chip .item-ans,
+  .site-footer-sep,
+  .site-footer-disclaimer,
+  .site-footer-credit {
+    font-size: 11px;
+  }
+
+  /* The 1-60 item chips were ~36px tall: below the documented 44px target and
+     the primary way a wrong OMR reading is corrected. */
+  .item-select-chip {
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* Image-enhancement mode pills in the scan review were ~29px tall (padding
+     6px + 12.5px type) — measured in a real browser at 390px. */
+  .scan-enhancer-pill {
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .scan-enhancer-pills {
+    flex-wrap: wrap;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   04 · ≤720px — navigation strips and page shells
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* Admin sub-tabs were a non-wrapping flex row: on a 320–430px screen the third
+     tab ("+ Yeni Psikolog") sat outside the viewport and dragged the whole page
+     into a horizontal scroll. The strip now scrolls inside the header instead;
+     keyboard focus still scrolls the active tab into view natively. */
+  .admin-subnav-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .admin-subnav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subnav-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    scroll-margin-inline: 12px;
+  }
+
+  /* The workspace switcher keeps its own scrollable row (theme.css) — keep the
+     swipe gesture smooth and let a half-cut tab hint that it scrolls. */
+  .workspace-tabs {
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-inline: 12px;
+  }
+
+  /* Page shells: the desktop 24–28px gutter is a luxury on a phone. */
+  .reports-page,
+  .report-workspace {
+    padding: 20px 16px 36px;
+  }
+
+  .app-main {
+    padding: 18px 14px 40px;
+  }
+
+  /* Modal chrome: 24px of padding on every side leaves 224px of usable width on
+     a 320px phone. */
+  .modal-header {
+    padding: 16px 16px 14px;
+  }
+
+  .modal-body {
+    padding: 16px;
+    gap: 18px;
+  }
+
+  .modal-footer {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .modal-footer > .btn-primary,
+  .modal-footer > .btn-secondary,
+  .modal-footer > .btn-danger {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  /* Status banners carry long Turkish sentences: they need to breathe and their
+     dismiss button needs a real target. */
+  .status-banner {
+    align-items: flex-start;
+    padding: 12px 12px;
+    gap: 10px;
+  }
+
+  .empty-state-card {
+    padding: 32px 18px;
+  }
+
+  .loading-state-card {
+    padding: 32px 16px;
+  }
+
+  /* Report editor — the formatting toolbar is ~14 controls. Sticky, it stacked
+     into four rows and covered most of a phone screen while typing; in a
+     phone-width editor it scrolls with the document instead.
+     The structure group (H1 … Tablo) is a nowrap pill: on a 320–430px screen
+     “Tablo” sat past the viewport and dragged the page sideways. Groups wrap
+     inside the editor width; nothing in the toolbar may widen the page. */
+  .report-toolbar {
+    position: static;
+    max-width: 100%;
+    align-items: flex-start;
+    overflow-x: clip;
+  }
+
+  .report-toolbar-group {
+    display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
+    min-width: 0;
+    border-radius: 14px;
+  }
+
+  .report-toolbar-group[aria-label='Yapı'],
+  .report-toolbar-group[aria-label='Ekle'] {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .report-toolbar-group[aria-label='Ekle'] select {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .report-toolbar-sep {
+    display: none;
+  }
+
+  .report-toolbar button {
+    white-space: nowrap;
+  }
+
+  .report-toolbar select {
+    flex: 1 1 140px;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .report-edit-pane,
+  .report-blocks,
+  .report-edit-block,
+  .report-edit-table {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* Editor tables: two textareas at their intrinsic min-width (~200px each)
+     pushed the page sideways. Fixed layout shares the row; the block itself
+     may scroll, the page may not. */
+  .report-edit-block table {
+    width: 100%;
+    max-width: 100%;
+    table-layout: fixed;
+  }
+
+  .report-edit-table {
+    overflow-x: auto;
+  }
+
+  .report-edit-table textarea {
+    max-width: 100%;
+  }
+
+  /* Table cells inside the editor: a 36px cell is too small to tap and edit. */
+  .report-edit-table textarea {
+    min-height: 44px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   05 · ≤720px — data tables stay readable, never squeezed
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* A 5–6 column record table squeezed into 320–430px broke every cell into
+     3–4 wrapped lines: the data was all there but unusable. Below this width
+     the table keeps its natural column widths and scrolls horizontally inside
+     its own card, so columns stay aligned and rows stay scannable. */
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .modern-data-table:not([data-mobile-cards]) {
+    min-width: 640px;
+  }
+
+  /* The first column carries the patient identity and stays visible while the
+     rest of the row scrolls. `position: sticky` inside a scroll container works
+     because the cell has a background of its own. */
+  .modern-data-table:not([data-mobile-cards]) th:first-child,
+  .modern-data-table:not([data-mobile-cards]) td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--white);
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+
+  .modern-data-table:not([data-mobile-cards]) th:first-child {
+    background: var(--slate-50);
+    z-index: 2;
+  }
+
+  .modern-data-table:not([data-mobile-cards]) tbody tr:hover td:first-child {
+    background: #f8fafc;
+  }
+
+  .modern-data-table td,
+  .modern-data-table th {
+    padding: 12px 14px;
+  }
+
+  .table-row-actions {
+    min-width: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   06 · ≤560px — form layouts that still assume a wide column
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 560px) {
+  /* The admin "new psychologist" form and the record intake form are two/three
+     column grids; below this width a column is narrower than the field's own
+     minimum comfortable touch width. */
+  .form-grid-2col,
+  .form-grid-3col,
+  .form-row-2,
+  .form-row-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .form-col-span-2 {
+    grid-column: span 1;
+  }
+
+  /* Action rows: 44px targets side by side leave two ~100px buttons on a 320px
+     screen, so they wrap and share the row instead. */
+  .section-header-actions,
+  .form-actions-bar,
+  .report-settings-actions,
+  .report-edit-table-actions,
+  .ws-restore-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .report-settings-actions > .btn-primary,
+  .report-settings-actions > .btn-secondary {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   06b · Takvim (Randevular) — dar ekranlarda 7 sütunluk ay görünümü yatay
+   taşma yapmamalı; hücreler küçülür, metin kısalır, dokunma hedefleri kalır.
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .calendar-view-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .calendar-month-nav {
+    justify-content: center;
+  }
+
+  .calendar-card {
+    padding: 10px;
+  }
+
+  .calendar-weekday-row,
+  .calendar-grid {
+    gap: 4px;
+  }
+
+  .calendar-day-cell {
+    min-height: 64px;
+    padding: 4px;
+    gap: 3px;
+  }
+
+  .calendar-day-number {
+    width: 20px;
+    height: 20px;
+    font-size: 10.5px;
+  }
+
+  .calendar-day-add {
+    width: 18px;
+    height: 18px;
+  }
+
+  .appointment-pill {
+    padding: 2px 4px;
+    font-size: 9.5px;
+  }
+
+  .calendar-weekday-label {
+    font-size: 9.5px;
+    letter-spacing: 0.02em;
+  }
+}
+
+@media screen and (max-width: 430px) {
+  /* On the narrowest phones even the abbreviated weekday labels + day numbers
+     compete for space; drop the per-day "add" affordance (tapping the day
+     number itself still opens the filter, and the header's primary action
+     already creates a new appointment) so nothing is clipped or overlapped. */
+  .calendar-day-add {
+    display: none;
+  }
+
+  .calendar-day-cell {
+    min-height: 52px;
+  }
+
+  .appointment-pill {
+    font-size: 9px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   07 · ≤430px — small phones (320 / 360 / 375 / 390 / 414 / 430)
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 430px) {
+  /* Footer strings were `white-space: nowrap`: at 320px the copyright/meta line
+     ran under the viewport edge instead of wrapping to a second centred row. */
+  .site-footer-copyright,
+  .site-footer-meta,
+  .site-footer-disclaimer,
+  .site-footer-credit {
+    white-space: normal;
+    text-align: center;
+  }
+
+  /* Dossier score chips (`T 68 . 88` + condition labels) wrap instead of
+     spilling out of the card. */
+  .scale-dossier-stats,
+  .dossier-stats {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+
+  .dossier-stat,
+  .dossier-fact dd {
+    white-space: normal;
+  }
+
+  /* Gutter: 14px sides consumed 8% of a 320px screen; 12px returns usable width
+     to the tables, cards and the answer grid without touching desktop. */
+  .app-main {
+    padding: 16px 12px 40px;
+  }
+
+  .reports-page,
+  .report-workspace {
+    padding: 16px 12px 32px;
+  }
+
+  .header-inner {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .header-left,
+  .header-user {
+    gap: 8px;
+  }
+
+  .portal-tab {
+    padding: 8px 11px;
+  }
+
+  .connectivity-banner {
+    width: calc(100% - 24px);
+  }
+
+  /* Filters stack instead of squeezing two dated fields side by side. */
+  .date-range-filter {
+    gap: 8px;
+  }
+
+  .date-range-filter > .date-filter-field {
+    flex: 1 1 140px;
+  }
+
+  .search-filter-box .search-input-wrapper input {padding-left: 40px;
+  }
+
+  /* Card and section padding: 20–24px reads as "empty" on a 320px screen.
+     Only surfaces that own their padding are listed — the table card must stay
+     full-bleed so `.table-responsive` keeps its edge-to-edge scroll. */
+  .card-elevated, .report-section{
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .modal-backdrop {
+    padding: 12px;
+  }
+
+  /* Footer: centered stack instead of a cramped two-column row. */
+  .site-footer-inner {
+    justify-content: center;
+    text-align: center;
+    gap: 6px 12px;
+  }
+
+  .site-footer-left,
+  .site-footer-nav {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* One notch narrower than the ≤720px table: the sticky identity column keeps
+     the row identifiable, 600px leaves the actions room without pushing the
+     date/psychologist columns out of sight. */
+  .modern-data-table:not([data-mobile-cards]) {
+    min-width: 600px;
+  }
+
+  /* Filter row: `Sayfa boyutu`, grouping and clear buttons stack instead of
+     collapsing into each other. */
+  .search-filter-box > div {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  /* List/card footers (pagination) keep the counter on its own line. */
+  .review-pagination-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   08 · ≤720px — reports and paper previews
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .report-table-scroll,
+  .table-responsive {
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+  }
+
+  /* Folded paper previews inside the reports page must not claim more height
+     than the *visible* viewport on a phone. */
+  .report-full-preview-body {
+    max-height: 70vh;
+    max-height: 70dvh;
+  }
+
+  .report-examples-body .report-sample-frame {
+    max-height: 60vh;
+    max-height: 60dvh;
+  }
+
+  /* Kâğıdın 11mm (≈41px) yan dolgusu 320–430px'lik bir telefonda içeriğe yer
+     bırakmaz; ekran önizlemesinde aynı sayfa px dolguyla gösterilir (baskı
+     dolgusu değişmez — önizleme `.screen-only` içinde, kâğıt `.print-only`). */
+  .report-full-preview-body {
+    padding: 12px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   08b · ≤720px — Kaynakça (sources) entries
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* Ölçüldü: `.sources-citation` bir flex öğesi (`.sources-entry-head`) ve
+     içindeki DOI/adres tek kelime; `min-width: auto` yüzünden öğe içeriğinden
+     daha dar olamıyordu ve 320–414px'te sayfanın tamamı yatay kayıyordu
+     (scrollWidth 425 > clientWidth 320). */
+  .sources-citation {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .sources-entry-head {
+    min-width: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   08c · Dokunmatik işaretçi (≤1024px) — yatay telefonlar ve tabletler
+   --------------------------------------------------------------------------
+   Ölçüldü: 844×390 yatay telefonda (genişlik > 720px) düğmeler 34px'e düşüyordu;
+   genişlik tabanlı bantlar yatay telefonu masaüstü sayıyor. İmleç kaba ise
+   (parmak) aynı 44px hedefi geçerlidir. ≥1280px masaüstü bu bandın dışında
+   kalır, dokunmatik dizüstülerde masaüstü yoğunluğu bozulmaz.
+   -------------------------------------------------------------------------- */
+@media screen and (pointer: coarse) and (max-width: 1024px) {.btn-primary, .btn-secondary, .btn-danger, .btn-sm, .action-btn-primary, .action-btn-secondary, .action-btn-danger, .icon-close-btn, .portal-tab, .subnav-tab, .mode-tab, .quicknav-chip, .report-toolbar button, .report-preview-actions button, .report-mobile-tabs button, .close-banner-btn, .site-footer-link, .btn-logout, .ws-choice-row label, .item-select-chip, .scan-enhancer-pill, .scan-actions > button, .preview-switch-btn, .admin-subnav-tabs button{
+    min-height: 44px;
+  }
+
+  .dropzone-label,
+  .scanner-input-card button {
+    min-height: 44px;
+  }
+
+  /* Rapor editöründeki blok denetimleri (yukarı/aşağı/sil) 28px ölçüldü: dokunmatik
+     cihazda blok seçildiğinde çıkan tek sıralama/silme yoludur. */
+  .report-block-controls > button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   09 · ≤720px — scanner, camera and review workflow
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* The camera stage is the viewfinder: on a phone it owns the full column
+     (mobile.css already lifts the 520px cap; this keeps the radius and adds
+     smooth video behaviour). */
+  .scan-camera-stage {
+    width: 100%;
+    max-width: 100%;
+    border-radius: var(--radius-md);
+  }
+
+  /* Camera actions wrap instead of squeezing; the shutter is the primary action
+     and never shares a row with "stop" when the row is too narrow. */
+  .scan-actions {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .scan-actions > button {
+    flex: 1 1 auto;
+    min-width: 140px;
+    justify-content: center;
+  }
+
+  /* Review workflow surfaces that were sized in plain pixels. */
+  .item-inspection-box {
+    padding: 14px;
+  }
+
+  /* The item crop is the evidence the clinician judges: give it room and keep
+     the zoom gesture inside the figure. */
+  .scan-crop-figure {
+    padding: 10px;
+  }
+
+  .scan-crop-image {
+    overflow: hidden;
+  }
+
+  /* Manual corner editor: the drag surface and the warped preview stack, and
+     the preview can use the full column instead of a fixed 280px canvas. */
+  .manual-corner-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .manual-corner-preview-canvas {
+    width: 100%;
+    max-width: 280px;
+    height: auto;
+  }
+
+  .manual-corner-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* OMR result strip: the per-page status cells stay tappable. */
+  .scanner-metrics-strip > * {
+    min-height: 44px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   10 · Kompakt gezinme paneli (hamburger) — her genişlik
+   --------------------------------------------------------------------------
+   Telefonda başlık üç satıra yayılıyordu (marka / sekmeler / kullanıcı+site
+   bağlantısı) ve değerli dikey alanı yiyordu. Bu yüzden sekme şeridi, kullanıcı
+   özeti ve çıkış düğmesi başlıktan çıkar; sağ üstteki tek düğme menüyü açar.
+
+   Masaüstünde workspace.css kalıcı bir yan menü sunar. Dar ekranda buradaki
+   panel görünür; arka plan kaplaması ve klavye odağı yönetilir.
+
+   Menü eskiden ekranın tamamını kaplayan beyaz bir katmandı; 13 bağlantılık
+   liste küçük telefonlarda ekranı aşıyordu. Artık menü, başlığın hemen altına
+   yaslanan yüzen bir paneldir: arka plan hafifçe karartılır ama sayfa görünür
+   kalır, panelin yüksekliği ekranı asla aşmaz, uzun liste panel içinde kayar
+   ve kullanıcı + çıkış şeridi panelin dibinde yapışık kalır. Bağlantılar dar
+   ekranda tek, sığan ekranda iki kolonlu ızgarada dizilir.
+   -------------------------------------------------------------------------- */
+@media screen {
+  /* Sekme şeridi kalabalık. Gezinme her genişlikte hamburger menüdedir. */
+  .workspace-tabs {
+    display: none;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    margin-left: 8px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--text);
+  }
+
+  /* Hafif karartma: sayfa seçilebilir kalsın, tam kaplama olmasın. */
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(15, 23, 42, 0.42);
+    animation: mobileNavFade 160ms ease;
+  }
+
+  .mobile-nav-panel {
+    --mn-top: 74px; /* masaüstü başlık 64px + nefes payı */
+    position: fixed;
+    top: calc(var(--mn-top) + env(safe-area-inset-top, 0px));
+    right: 12px;
+    width: min(420px, calc(100vw - 24px));
+    z-index: 91;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - var(--mn-top) - 16px);
+    max-height: calc(
+      100dvh - var(--mn-top) - env(safe-area-inset-bottom, 0px) - 16px
+    );
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.35);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform-origin: top right;
+    animation: mobileNavPop 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+
+  .mobile-nav-head,
+  .mobile-nav-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: none;
+  }
+
+  .mobile-nav-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 6px 8px 6px 14px;
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-nav-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--slate-500);
+  }
+
+  .nav-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--white);
+    color: var(--slate-700);
+  }
+
+  .mobile-nav-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px 14px;
+  }
+
+  .mobile-nav-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--slate-500);
+    margin: 8px 4px 2px;
+  }
+
+  /* Izgara: kolon sığdıkça iki kolona açılır; liste dikeyde kısalır. */
+  .mobile-nav-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .mobile-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    text-align: left;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--slate-700);
+    text-decoration: none;
+    background: transparent;
+    border: 1px solid transparent;
+  }
+
+  .mobile-nav-link.active {
+    background: var(--primary-tint);
+    border-color: var(--primary-border);
+    color: var(--primary);
+  }
+
+  .mobile-nav-link svg {
+    flex: none;
+    color: var(--slate-500);
+  }
+
+  .mobile-nav-link.active svg {
+    color: var(--primary);
+  }
+
+  .mobile-nav-link span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Uzun etiketli bağlantı (site adresi) kendi satırında tek kolon. */
+  .mobile-nav-link-wide {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-nav-current {
+    margin-left: auto;
+    flex: none;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--primary);
+    background: var(--white);
+    border: 1px solid var(--primary-border);
+    border-radius: var(--radius-full);
+    padding: 3px 9px;
+  }
+
+  /* Kullanıcı + çıkış şeridi: liste kayarken panelin dibinde kalır. */
+  .mobile-nav-foot {
+    position: sticky;
+    bottom: 0;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--slate-50);
+  }
+
+  .mobile-nav-foot .btn-logout {
+    min-height: 44px;
+    padding: 10px 16px;
+    flex: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-nav-backdrop,
+    .mobile-nav-panel {
+      animation: none;
+    }
+  }
+}
+
+@keyframes mobileNavFade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes mobileNavPop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@media screen and (max-width: 900px) {
+  .workspace-tabs,
+  .header-user {
+    display: none;
+  }
+
+  /* Tek satırlık başlık: marka solda, menü düğmesi sağda. screen.css ≤900px
+     başlığı kolonlara ayırır; burada satır düzenine geri döndürülür. */
+  .header-inner {
+    height: 60px;
+    padding: 8px 14px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .header-left {
+    flex-wrap: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex: none;
+    margin-left: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--white);
+    color: var(--slate-700);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Panel başlığa bitişik: dar ekranda kenar boşlukları küçülür. */
+  .mobile-nav-panel {
+    --mn-top: 66px; /* mobil başlık 60px + nefes payı */
+    right: 8px;
+    width: min(420px, calc(100vw - 16px));
+    border-radius: 14px;
+  }
+
+  .mobile-nav-foot {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-nav-foot .user-full-name {
+    max-width: none;
+    font-size: 13.5px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   11 · PaperViewport — A4 kâğıdı her ekranda masaüstü düzeniyle
+   --------------------------------------------------------------------------
+   Kâğıt (TAM RAPOR / şablon önizleme / canlı önizleme) 760px masaüstü
+   kompozisyonuyla dizilir; dar ekranda transform:scale ile sığdırılır ya da
+   %100 modunda belge görüntüleyici gibi çerçeve içinde yatay kaydırılır.
+   Sayfa gövdesi hiçbir modda yatay kaymaz; kaydırma yalnız çerçevededir.
+   Baskı hattı (.print-only) bu katmandan etkilenmez.
+   -------------------------------------------------------------------------- */
+@media screen {
+  .paper-viewport {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .paper-viewport-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .paper-viewport-hint {
+    font-size: 11.5px;
+    color: var(--soft);
+    line-height: 1.45;
+    min-width: 0;
+  }
+
+  .paper-viewport-modes {
+    display: inline-flex;
+    gap: 4px;
+    background: var(--slate-100);
+    border-radius: var(--radius-full);
+    padding: 3px;
+    flex: none;
+  }
+
+  .paper-viewport-modes button {
+    min-height: 34px;
+    padding: 4px 14px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--slate-600);
+    background: transparent;
+    border: 1px solid transparent;
+  }
+
+  .paper-viewport-modes button[aria-pressed='true'] {
+    background: var(--white);
+    color: var(--primary);
+    border-color: var(--primary-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  .paper-viewport-scroll {
+    min-width: 0;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+  }
+
+  .paper-viewport-scale {
+    margin: 0 auto;
+    position: relative;
+  }
+
+  .paper-viewport-sheet {
+    width: 760px;
+    transform-origin: top left;
+  }
+
+  /* %100 modunda kâğıt gerçek boyutundadır; çerçeve yatay kaydırır. */
+  .paper-viewport-scroll[data-paper-mode='full'] {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .paper-viewport-scroll[data-paper-mode='full'] .paper-viewport-scale {
+    width: 760px;
+  }
+
+  .paper-viewport-scroll[data-paper-mode='full'] .paper-viewport-sheet {
+    transform: none;
+  }
+
+  /* Editör bölmesindeki çerçeve: tek kaydırıcı kâğıdın kendi çerçevesidir. */
+  .report-preview-paper {
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+}
+
+@media screen and (max-width: 720px) {
+  .paper-viewport-bar {
+    align-items: flex-start;
+  }
+
+  .paper-viewport-hint {
+    flex: 1 1 200px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   12 · ≤720px — veri tabloları kart olur: işlemler kaydırmasız görünür
+   --------------------------------------------------------------------------
+   Yatay kaydırmalı tablo, satır eylemlerini (İncele / Raporlar / Sil) gizliyordu;
+   kullanıcı eylemi görmek için tüm sayfayı kaydırıyordu. data-mobile-cards
+   işaretli tablolar telefonda karta dönüşür: her satır bir kart, her hücre
+   etiketiyle (data-label) alt alta, eylem satırı kartın altında tam genişlik.
+   Masaüstü ve yazdırma görünümü değişmez.
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .table-responsive:has(.modern-data-table[data-mobile-cards]) {
+    overflow-x: visible;
+  }
+
+  .modern-data-table[data-mobile-cards] {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .modern-data-table[data-mobile-cards] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .modern-data-table[data-mobile-cards] tbody {
+    display: block;
+  }
+
+  .modern-data-table[data-mobile-cards] tbody tr {
+    display: block;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 14px;
+    margin: 0 0 12px;
+  }
+
+  .modern-data-table[data-mobile-cards] tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .modern-data-table[data-mobile-cards] td {
+    display: block;
+    width: 100%;
+    padding: 5px 0;
+    border: 0;
+    text-align: left;
+  }
+
+  .modern-data-table[data-mobile-cards] td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--slate-500);
+    margin-bottom: 2px;
+  }
+
+  .modern-data-table[data-mobile-cards] td[data-label=''] {
+    padding-top: 0;
+  }
+
+  .modern-data-table[data-mobile-cards] td[data-label='']::before {
+    content: none;
+  }
+
+  .modern-data-table[data-mobile-cards] td[data-label='İşlemler'] {
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .modern-data-table[data-mobile-cards] td[data-label='İşlemler']::before {
+    content: none;
+  }
+
+  .modern-data-table[data-mobile-cards] .table-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: stretch;
+  }
+
+  .modern-data-table[data-mobile-cards] .table-row-actions > * {
+    flex: 1 1 45%;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   13 · OMR / tarayıcı yüzeyleri: metin taşması ve sarmalama düzeltmeleri
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* "inceleme bekleyen cevaplar" uyarısı: gövde metni daralıp taşıyordu;
+     satırı kendi başına sarmala, eylem düğmesi altına insin. */
+  .auto-resolve-banner .auto-resolve-body {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .auto-resolve-banner > svg {
+    order: 1;
+  }
+
+  .auto-resolve-banner > button {
+    order: 3;
+  }
+
+  /* Sayfa kartları 320-430px'te tek kolon: başlık ve durum metni kırılmasın. */
+  .scan-pages-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Metrik şeridi: 5 hücre 2 kolonda sıkışıyordu; telefonda tek kolon. */
+  .scanner-metrics-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .scanner-metrics-strip .stat-item {
+    padding: 12px 14px;
+  }
+
+  /* Kalite raporu satırları ve ölçüm listesi uzun değerleri sarmalasın. */
+  .q-metric,
+  .scan-row-location {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   13b · ≤1200px — uzun görsel dosya adı sayfayı sağa kaydırmasın
+   --------------------------------------------------------------------------
+   Telefon galerisi adları boşluksuz tek jeton olabilir
+   (IMG_20260924_…jpg, WhatsApp Image…). Durum şeridi ve “Kaynak dosya”
+   satırı flex öğesidir; min-width: auto yüzünden ad, ekrandan geniş bir
+   kutu üretir ve sayfa yatay kayar. Ad kırılır, şerit ve inceleme başlığı
+   ekran genişliğinde kalır.
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 1200px) {
+  .scanner-layout-container,
+  .scanner-input-card,
+  .scanner-status-strip,
+  .scanner-alerts-list,
+  .scan-review-panel,
+  .status-live-indicator,
+  .status-live-text,
+  .status-banner,
+  .status-banner strong,
+  .scan-alert,
+  .scan-review-panel .section-header-row,
+  .scan-review-panel .section-header-row > div,
+  .scan-review-panel .section-subtext,
+  .scan-source-name {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .scanner-status-strip {
+    overflow-x: clip;
+  }
+
+  .status-live-indicator {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .status-live-text {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .live-dot {
+    flex: none;
+  }
+
+  .scan-review-panel .section-header-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .scan-review-panel .section-header-row > div:first-child {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+
+  .status-banner > span,
+  .status-banner > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   14 · ≤720px — küçük dokunma hedefleri ve kalan sızıntılar
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  /* Arama kutusundaki gruplama onay kutusu ve sayfa boyutu seçici 20-23px idi. */
+  .search-filter-box input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+  }
+
+  .search-filter-box label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+  }
+
+  .search-filter-box select {
+    min-height: 44px;
+  }
+
+  /* Sayfa başı geri bağlantıları ve açılır bölüm başlıkları 34-42px idi. */
+  .reports-page > .screen-only > a,
+  .record-page-topbar > .btn-secondary {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .client-info-details > summary,
+  .expert-notes-details > summary {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  /* Alt bilgi bağlantıları dar ekranda yatayda da büyüsün. */
+  .site-footer-link {
+    padding: 10px 8px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Bilgi sayfaları içindekiler listesi satırları 27-33px idi. */
+  .policy-toc-list a,
+  .faq-toc-link {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .info-brand {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Rapor ayarlarındaki logo/imza yükleme kutusu 373px sabit genişliydi ve
+     320-414px ekrandan taşıyordu; kutu kolon genişliğine uyum sağlar. */
+  .report-settings-upload {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .report-settings-upload input[type='file'] {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+/* Klinik sekme şeridi: 8 sekme dar masaüstünde kırpılmasın. */
+@media screen and (max-width: 1280px) {
+  .workspace-tabs {
+    max-width: min(640px, 46vw);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .portal-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}

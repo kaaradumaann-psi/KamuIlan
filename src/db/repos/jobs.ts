@@ -1,0 +1,298 @@
+/**
+ * İlan deposu: tekil ilanlar, kaynak bağları, sürüm geçmişi ve arama.
+ */
+import { createId } from '../../domain/ids';
+import { normalizeTr } from '../../domain/text';
+import { toIstanbulDateOnly } from '../../domain/dates';
+import type { JobStatus } from '../../domain';
+import type { Clock } from '../../lib/clock';
+import { systemClock } from '../../lib/clock';
+import type { StoragePort } from '../ports';
+import type { JobDoc, JobRevisionDoc, JobSourceDoc } from '../schemas';
+import { validateDocument } from '../validate';
+import type { Query, SortSpec } from '../query';
+
+export interface JobSearchFilters {
+  q?: string;
+  institution?: string;
+  title?: string;
+  cities?: string[];
+  employmentTypes?: string[];
+  educationLevels?: string[];
+  departments?: string[];
+  kpssScoreTypes?: string[];
+  sourceKeys?: string[];
+  status?: JobStatus[];
+  deadlineFrom?: string;
+  deadlineTo?: string;
+  minQuota?: number;
+  onlyWithApplicationUrl?: boolean;
+}
+
+export type JobSort = 'newest' | 'deadline' | 'published' | 'institution' | 'title';
+
+const SORTS: Record<JobSort, SortSpec> = {
+  newest: [['createdAt', -1]],
+  deadline: [['applicationEndDate', 1]],
+  published: [['publishedAt', -1]],
+  institution: [['institutionNormalized', 1]],
+  title: [['titleNormalized', 1]],
+};
+
+export interface JobSearchResult {
+  items: JobDoc[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface JobSearchOptions {
+  page?: number;
+  pageSize?: number;
+  sort?: JobSort;
+  /** Yönetici aramalarında taslak/incelemedeki kayıtlar da görünür. */
+  includeNonAccepted?: boolean;
+}
+
+export class JobRepo {
+  constructor(
+    private readonly store: StoragePort,
+    private readonly clock: Clock = systemClock,
+  ) {}
+
+  async findById(id: string): Promise<JobDoc | null> {
+    return this.store.findOne('jobs', { id });
+  }
+
+  async findByDedupeKey(dedupeKey: string): Promise<JobDoc | null> {
+    return this.store.findOne('jobs', { dedupeKey });
+  }
+
+  async findByNormalizedUrl(normalizedUrl: string): Promise<JobDoc | null> {
+    return this.store.findOne('jobs', { normalizedUrl });
+  }
+
+  /** Kaynak içi kimlik eşleşmesi: aynı kaynak aynı ilanı yeniden yayımladı. */
+  async findLinkBySourceItem(sourceKey: string, sourceItemId: string): Promise<JobSourceDoc | null> {
+    return this.store.findOne('jobSources', { sourceKey, sourceItemId });
+  }
+
+  async listSourceLinks(jobId: string): Promise<JobSourceDoc[]> {
+    return this.store.find('jobSources', { jobId }, { sort: [['firstSeenAt', 1]] });
+  }
+
+  /**
+   * Tekilleştirme adayları: aynı kurum, benzer başlık ya da aynı başvuru dönemi.
+   * Karar burada verilmez; aday listesi dedupe motoruna verilir.
+   */
+  async findDedupeCandidates(params: {
+    institutionNormalized: string;
+    titleNormalized: string;
+    applicationEndDate?: string | null;
+    limit?: number;
+  }): Promise<JobDoc[]> {
+    const limit = params.limit ?? 40;
+    const byInstitution = await this.store.find(
+      'jobs',
+      { institutionNormalized: { $regex: params.institutionNormalized.slice(0, 24), $regexFlags: 'i' } },
+      { limit, sort: [['createdAt', -1]] },
+    );
+    const byTitle = await this.store.find(
+      'jobs',
+      { titleNormalized: { $regex: params.titleNormalized.slice(0, 24), $regexFlags: 'i' } },
+      { limit, sort: [['createdAt', -1]] },
+    );
+    const byPeriod = params.applicationEndDate
+      ? await this.store.find('jobs', { applicationEndDate: params.applicationEndDate }, { limit })
+      : [];
+
+    const map = new Map<string, JobDoc>();
+    for (const job of [...byInstitution, ...byTitle, ...byPeriod]) map.set(job.id, job);
+    return [...map.values()];
+  }
+
+  async insertJob(doc: JobDoc): Promise<{ job: JobDoc; created: boolean }> {
+    validateDocument('jobs', doc);
+    const result = await this.store.insertIfAbsent('jobs', doc);
+    return { job: result.document, created: result.inserted };
+  }
+
+  async updateJob(jobId: string, patch: Record<string, unknown>): Promise<JobDoc | null> {
+    const updated = await this.store.updateOne('jobs', { id: jobId }, {
+      ...patch,
+      updatedAt: this.clock.now().toISOString(),
+    });
+    if (updated) validateDocument('jobs', updated);
+    return updated;
+  }
+
+  async addSourceLink(doc: JobSourceDoc): Promise<{ link: JobSourceDoc; created: boolean }> {
+    validateDocument('jobSources', doc);
+    const result = await this.store.insertIfAbsent('jobSources', doc);
+    return { link: result.document, created: result.inserted };
+  }
+
+  async touchSourceLink(linkId: string, patch: { lastSeenAt: string; title?: string; active?: boolean }): Promise<void> {
+    await this.store.updateOne('jobSources', { id: linkId }, patch);
+  }
+
+  async addRevision(doc: JobRevisionDoc): Promise<{ revision: JobRevisionDoc; created: boolean }> {
+    validateDocument('jobRevisions', doc);
+    const result = await this.store.insertIfAbsent('jobRevisions', doc);
+    return { revision: result.document, created: result.inserted };
+  }
+
+  async listRevisions(jobId: string): Promise<JobRevisionDoc[]> {
+    return this.store.find('jobRevisions', { jobId }, { sort: [['version', -1]] });
+  }
+
+  async search(filters: JobSearchFilters, options: JobSearchOptions = {}): Promise<JobSearchResult> {
+    const pageSize = Math.min(Math.max(options.pageSize ?? 20, 1), 100);
+    const page = Math.max(options.page ?? 1, 1);
+    const query = this.buildFilter(filters, options.includeNonAccepted ?? false);
+    const total = await this.store.count('jobs', query);
+    const items = await this.store.find('jobs', query, {
+      sort: SORTS[options.sort ?? 'newest'],
+      limit: pageSize,
+      skip: (page - 1) * pageSize,
+    });
+    return { items, total, page, pageSize };
+  }
+
+  buildFilter(filters: JobSearchFilters, includeNonAccepted = false): Query {
+    const clauses: Query[] = [];
+    if (!includeNonAccepted) clauses.push({ 'classification.decision': 'accept' });
+    if (filters.status && filters.status.length > 0) clauses.push({ status: { $in: filters.status } });
+    if (filters.employmentTypes && filters.employmentTypes.length > 0) {
+      clauses.push({ employmentType: { $in: filters.employmentTypes } });
+    }
+    if (filters.cities && filters.cities.length > 0) {
+      clauses.push({ city: { $in: filters.cities.map((city) => city) } });
+    }
+    if (filters.sourceKeys && filters.sourceKeys.length > 0) clauses.push({ sourceKeys: { $in: filters.sourceKeys } });
+    if (filters.educationLevels && filters.educationLevels.length > 0) {
+      clauses.push({ 'requirements.educationLevels': { $in: filters.educationLevels } });
+    }
+    if (filters.departments && filters.departments.length > 0) {
+      clauses.push({
+        'requirements.departments': { $in: filters.departments.map((value) => value) },
+      });
+    }
+    if (filters.kpssScoreTypes && filters.kpssScoreTypes.length > 0) {
+      clauses.push({ 'requirements.kpssScoreTypes': { $in: filters.kpssScoreTypes } });
+    }
+    if (filters.institution) clauses.push({ institutionNormalized: { $regex: normalizeTr(filters.institution), $regexFlags: 'i' } });
+    if (filters.title) clauses.push({ titleNormalized: { $regex: normalizeTr(filters.title), $regexFlags: 'i' } });
+    if (filters.q) {
+      const needle = normalizeTr(filters.q);
+      clauses.push({
+        $or: [
+          { titleNormalized: { $regex: needle, $regexFlags: 'i' } },
+          { institutionNormalized: { $regex: needle, $regexFlags: 'i' } },
+          { textExcerpt: { $regex: needle, $regexFlags: 'i' } },
+        ],
+      });
+    }
+    if (filters.deadlineFrom) clauses.push({ applicationEndDate: { $gte: filters.deadlineFrom } });
+    if (filters.deadlineTo) clauses.push({ applicationEndDate: { $lte: filters.deadlineTo } });
+    if (filters.minQuota !== undefined) clauses.push({ quota: { $gte: filters.minQuota } });
+    if (filters.onlyWithApplicationUrl) clauses.push({ applicationUrl: { $ne: null } });
+    return clauses.length > 0 ? { $and: clauses } : {};
+  }
+
+  /** Ana sayfa istatistikleri — yalnızca gerçek verilerden üretilir. */
+  async dashboardStats(now: Date = this.clock.now()): Promise<{
+    total: number;
+    active: number;
+    upcoming: number;
+    closed: number;
+    closingSoon: number;
+    addedToday: number;
+    byEmploymentType: { key: string; count: number }[];
+    lastSuccessfulScanAt: string | null;
+  }> {
+    const base: Query = { 'classification.decision': 'accept' };
+    const today = toIstanbulDateOnly(now);
+    const soon = toIstanbulDateOnly(new Date(now.getTime() + 7 * 86_400_000));
+
+    const [total, active, upcoming, closed, closingSoon, addedToday, jobs] = await Promise.all([
+      this.store.count('jobs', base),
+      this.store.count('jobs', { ...base, status: 'active' }),
+      this.store.count('jobs', { ...base, status: 'upcoming' }),
+      this.store.count('jobs', { ...base, status: 'closed' }),
+      this.store.count('jobs', {
+        ...base,
+        status: 'active',
+        applicationEndDate: { $gte: today, $lte: soon },
+      }),
+      this.store.count('jobs', { ...base, publishedAt: { $gte: `${today}T00:00:00+03:00` } }),
+      this.store.find('jobs', base, { limit: 2_000, sort: [['createdAt', -1]] }),
+    ]);
+
+    const counts = new Map<string, number>();
+    for (const job of jobs) counts.set(job.employmentType, (counts.get(job.employmentType) ?? 0) + 1);
+
+    const lastRuns = await this.store.find('scrapeRuns', { status: 'success' }, { limit: 1, sort: [['startedAt', -1]] });
+    const lastRun = lastRuns[0];
+
+    return {
+      total,
+      active,
+      upcoming,
+      closed,
+      closingSoon,
+      addedToday,
+      byEmploymentType: [...counts.entries()]
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => b.count - a.count),
+      lastSuccessfulScanAt: lastRun?.startedAt ?? null,
+    };
+  }
+
+  /** Kapanan ilanların durumunu günceller (başvuru bitiş tarihi geçti). */
+  async closeExpiredJobs(todayDateOnly: string): Promise<number> {
+    const now = this.clock.now().toISOString();
+    return this.store.updateMany(
+      'jobs',
+      { status: { $in: ['active', 'upcoming'] }, applicationEndDate: { $lt: todayDateOnly } },
+      { status: 'closed', statusReason: 'Başvuru süresi doldu.', updatedAt: now },
+    );
+  }
+
+  /** Başvurusu bugün başlayan ilanları "aktif" durumuna alır. */
+  async activateStartedJobs(todayDateOnly: string): Promise<number> {
+    const now = this.clock.now().toISOString();
+    return this.store.updateMany(
+      'jobs',
+      {
+        status: 'upcoming',
+        applicationStartAt: { $lte: `${todayDateOnly}T23:59:59+03:00` },
+        applicationEndDate: { $gte: todayDateOnly },
+      },
+      { status: 'active', statusReason: 'Başvuru penceresi açıldı.', updatedAt: now },
+    );
+  }
+
+  buildJobDocument(
+    input: Omit<JobDoc, 'id' | 'createdAt' | 'updatedAt' | 'firstSeenAt' | 'lastSeenAt' | 'version'> & { seenAt: string },
+  ): JobDoc {
+    const { seenAt, ...rest } = input;
+    return {
+      ...rest,
+      id: createId('job'),
+      version: 1,
+      firstSeenAt: seenAt,
+      lastSeenAt: seenAt,
+      createdAt: seenAt,
+      updatedAt: seenAt,
+    };
+  }
+
+  static normalizedInstitution(value: string): string {
+    return normalizeTr(value);
+  }
+
+  static normalizedTitle(value: string): string {
+    return normalizeTr(value);
+  }
+}

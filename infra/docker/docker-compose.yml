@@ -1,0 +1,140 @@
+# Kamuİlan — tek komutla geliştirme ortamı
+#
+#   cd infra/docker && docker compose up --build
+#
+#   Arayüz        http://localhost:5173
+#   API           http://localhost:3000/api/health
+#   API dokümanı  http://localhost:3000/api/docs
+#   Posta kutusu  http://localhost:1080   (mailpit: gerçek e-posta gönderilmez)
+#
+# Varsayılan veritabanı sürücüsü `file` (DATA_DIR hacmi): tek komutla ayağa kalkan
+# ortam için dış servis gerekmez. Gerçek PostgreSQL ile çalışmak için:
+#
+#   cd infra/docker && DATABASE_DRIVER=postgres docker compose --profile postgres up --build
+#
+# Üretimde bu dosya KULLANILMAZ: Supabase (yönetilen PostgreSQL), Cloudflare
+# (barındırma) ve Resend (e-posta) kullanılır; sırlar ortam değişkeni/secret
+# manager'dan verilir. Bkz. docs/setup.md ve docs/deployment.md.
+
+services:
+  # Geliştirme posta sunucusu: gelen postaları yakalar, gerçek gönderim yapmaz.
+  mail:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - '1025:1025'
+      - '1080:8025'
+    environment:
+      MP_MAX_MESSAGES: 200
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  # Yerel PostgreSQL (isteğe bağlı): yalnızca --profile postgres ile başlar.
+  postgres:
+    image: postgres:17-alpine
+    profiles: ['postgres']
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kamuilan}
+      POSTGRES_USER: ${POSTGRES_USER:-kamuilan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kamuilan}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-kamuilan} -d ${POSTGRES_DB:-kamuilan}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    command: ['npx', 'tsx', 'src/server/main.ts']
+    environment: &app_env
+      NODE_ENV: development
+      PORT: 3000
+      HOST: 0.0.0.0
+      APP_BASE_URL: http://localhost:5173
+      APP_DOMAIN: localhost
+      APP_SECRET: ${APP_SECRET:-gelistirme-ortami-icin-gecici-bir-anahtar-32+}
+      DATA_DIR: /data
+      # file | postgres | supabase | mongo
+      DATABASE_DRIVER: ${DATABASE_DRIVER:-file}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://kamuilan:kamuilan@postgres:5432/kamuilan}
+      POSTGRES_SSL: ${POSTGRES_SSL:-false}
+      # Supabase (üretim): sunucu tarafı anahtarlar; anon anahtar tarayıcıda kullanılmaz.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      # Test aşamasında tarama aralığı 1 dakika (üretimde 30–360 önerilir).
+      SCAN_INTERVAL_MINUTES: ${SCAN_INTERVAL_MINUTES:-1}
+      SCHEDULER_ENABLED: '1'
+      SOURCE_LIVE_FETCH: ${SOURCE_LIVE_FETCH:-1}
+      # Canlı kaynaklara istek atılmasın isteniyorsa: SOURCE_LIVE_FETCH=0
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      SMTP_HOST: mail
+      SMTP_PORT: 1025
+      EMAIL_FROM: Kamuİlan <bildirim@kamuilan.local>
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Halka açık kayıt politikası: kapalı. Hesaplar yönetici tarafından açılır.
+      ALLOW_PUBLIC_REGISTRATION: '0'
+    volumes:
+      - kamuilan-data:/data
+    ports:
+      - '3000:3000'
+    # Sağlık denetimi: arayüz ancak API ayakta olduğunda başlar; `docker compose ps`
+    # tek bakışta gerçek durumu gösterir. Node 22'de fetch yerleşiktir (ek araç yok).
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    command: ['npx', 'tsx', 'src/worker/main.ts']
+    environment:
+      <<: *app_env
+      PORT: 3001
+      WORKER_NAMESPACE: docker
+    volumes:
+      - kamuilan-data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Geliştirme arayüzü: Vite dev sunucusu. /api isteklerini API konteynerine
+  # proxy'ler (tarayıcı göreli /api çağırır; localhost'a istek atmaz).
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    command: ['npx', 'vite', '--host', '0.0.0.0', '--port', '5173']
+    environment:
+      API_ORIGIN: http://api:3000
+    ports:
+      - '5173:5173'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  kamuilan-data:
+  postgres-data:

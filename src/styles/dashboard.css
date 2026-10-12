@@ -1,0 +1,403 @@
+/* Dashboard — minimal, token/hairline uyumlu, inline style yerine sınıf tabanlı */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.dashboard-card {
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dashboard-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard-card-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dashboard-card-value {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.dashboard-card-hint {
+  font-size: 11px;
+}
+
+.dashboard-card-action {
+  margin-top: 0.35rem;
+  align-self: flex-start;
+}
+
+.dashboard-actions {
+  margin-top: 0.6rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dashboard-loading {
+  padding: 0.75rem;
+}
+
+.dashboard-container {
+  margin-bottom: 1rem;
+}
+
+.dashboard-wrapper {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 0;
+}
+
+.day-board {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr) auto;
+  gap: 18px;
+  align-items: end;
+  padding: 8px 0 4px;
+}
+
+.desk-date p,
+.desk-now p {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+.desk-date h1 {
+  margin: 6px 0 8px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(36px, 5vw, 56px);
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+
+.desk-date span,
+.desk-now span {
+  color: var(--soft);
+  font-size: 14px;
+}
+
+.desk-now {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+}
+
+.desk-now strong {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.desk-now-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.desk-backup {
+  align-self: start;
+}
+
+.desk-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.desk-rail button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  text-align: left;
+  color: inherit;
+}
+
+.desk-rail strong {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.desk-rail span {
+  font-size: 12.5px;
+  color: var(--soft);
+}
+
+@media screen and (max-width: 800px) {
+  .desk,
+  .desk-rail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.day-board-head,
+.section-row,
+.formulation-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.day-board-head h2,
+.section-row h3,
+.tomorrow-card h3,
+.attention-panel h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  margin: 4px 0 0;
+}
+
+.day-board-date,
+.day-board-note,
+.prep-meta,
+.prep-last,
+.score-empty {
+  color: var(--soft);
+  font-size: 13px;
+}
+
+.metric-link {
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+}
+
+.attention-panel {
+  background: var(--danger-tint);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.attention-panel h3,
+.attention-panel button,
+.tomorrow-card button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.attention-panel ul,
+.tomorrow-card ul,
+.prep-checks {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attention-panel button,
+.tomorrow-card button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  flex-wrap: wrap;
+}
+
+.attention-panel small,
+.tomorrow-card span {
+  color: var(--soft);
+  font-size: 12.5px;
+}
+
+.attention-danger {
+  color: var(--danger-ink);
+}
+
+.prep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prep-card,
+.tomorrow-card,
+.empty-prep,
+.formulation-card {
+  padding: 16px;
+}
+
+.prep-card {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 14px;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+
+.prep-time {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+}
+
+.prep-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.prep-title h4,
+.formulation-head h3,
+.formulation-goals h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.prep-actions,
+.score-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.score-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg-soft);
+}
+
+.score-up {
+  border-color: var(--danger-border);
+}
+
+.score-down {
+  border-color: var(--success-border);
+}
+
+.score-flag {
+  background: var(--danger-tint);
+}
+
+.prep-checks {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.formulation-panel,
+.formulation-grid,
+.formulation-goals {
+  display: grid;
+  gap: 12px;
+}
+
+.formulation-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.goal-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 130px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.goal-row input,
+.goal-row select,
+.formulation-card textarea,
+.formulation-card input,
+.formulation-card select {
+  width: 100%;
+  font: inherit;
+  font-weight: 400;
+}
+
+.formulation-card .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.formulation-card textarea {
+  min-height: 78px;
+}
+
+.goal-row {
+  align-items: center;
+}
+
+.safety-needed {
+  border-color: var(--danger-border);
+}
+
+.safety-callout,
+.formulation-saved {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.safety-callout {
+  color: var(--danger-ink);
+}
+
+.file-brief {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+
+.file-brief p {
+  margin: 6px 0;
+  font-size: 13.5px;
+}
+
+@media screen and (max-width: 720px) {
+  .prep-card,
+  .goal-row {
+    grid-template-columns: 1fr;
+  }
+}
