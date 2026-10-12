@@ -30,7 +30,7 @@ import { TEST_SOURCE_KEY, sozlesmeliPersonelIlani } from './fixtures/announcemen
 
 const NOW = new Date('2026-10-12T09:00:00+03:00');
 const BASE_URL = 'http://localhost:5173';
-const SENDER_NAME = 'KamuRadar';
+const SENDER_NAME = 'Kamuİlan';
 
 const TEST_DEFINITION: SourceDefinition = {
   key: TEST_SOURCE_KEY,
@@ -113,7 +113,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
 }
 
 async function makeRepos(): Promise<Repos> {
-  const dir = mkdtempSync(join(tmpdir(), 'kamuradar-delivery-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kamuilan-delivery-'));
   const store = new FileStore(dir);
   await store.init();
   return createRepos(store, fixedClock(NOW));
@@ -220,7 +220,7 @@ describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → 
       secure: false,
       user: '',
       pass: '',
-      from: `${SENDER_NAME} <bildirim@kamuradar.test>`,
+      from: `${SENDER_NAME} <bildirim@kamuilan.test>`,
     });
 
     try {
@@ -305,7 +305,7 @@ describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → 
       secure: false,
       user: '',
       pass: '',
-      from: `${SENDER_NAME} <bildirim@kamuradar.test>`,
+      from: `${SENDER_NAME} <bildirim@kamuilan.test>`,
     });
     try {
       const result = await sendOutboxBatch({ repos, transport, workerId: 'worker-test', now: NOW });

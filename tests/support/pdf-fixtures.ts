@@ -110,7 +110,7 @@ export function buildPdf(options: PdfBuildOptions = {}): Buffer {
   if (options.title) {
     infoObjectNumber = 6;
     offsets.push(offset);
-    push(`6 0 obj\n<< /Title (${escapePdfText(options.title)}) /Producer (KamuRadar test fixture) >>\nendobj\n`);
+    push(`6 0 obj\n<< /Title (${escapePdfText(options.title)}) /Producer (Kamuİlan test fixture) >>\nendobj\n`);
   }
 
   const totalObjects = infoObjectNumber === 0 ? 5 : 6;

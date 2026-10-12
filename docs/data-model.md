@@ -49,6 +49,28 @@ Tarihler ISO 8601 (UTC) saklanır; gösterim ve tarih yorumlama
 metni/PDF), `unstated` (metinde yok). Arayüz her alanın yanında bu bilgiyi
 gösterir; çıkarılamayan alanlar `null` kalır ve "belirtilmemiş" yazılır.
 
+## Postgres (Supabase) karşılığı
+
+Her koleksiyon `kamuilan_<koleksiyon>` adlı tek bir tablodur
+(`kamuilan_jobs`, `kamuilan_job_sources`, `kamuilan_notification_preferences`…):
+
+```sql
+CREATE TABLE kamuilan_jobs (
+  id          text PRIMARY KEY,              -- job_...
+  data        jsonb NOT NULL,                -- belgenin tamamı (zod şeması doğrular)
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX kamuilan_jobs_data_gin ON kamuilan_jobs USING gin (data jsonb_path_ops);
+-- Envanterdeki benzersiz/ifade indeksleri (npm run db:indexes):
+CREATE UNIQUE INDEX ... ON kamuilan_jobs ((data -> 'dedupeKey'));
+```
+
+Kurallar: şema tek doğruluk kaynağıdır (zod), SQL ön filtre sonrasında nihai karar
+`matchesQuery` ile verilir, benzersiz indeksler yalnızca hız için değil veri
+bütünlüğü içindir (iki worker aynı kaydı yazamaz), tüm güncellemeler satır kilidi
+(`SELECT … FOR UPDATE`) altındadır. Bir koleksiyona yeni alan eklemek migration
+gerektirmez; alan indeksten geçiyorsa `npm run db:indexes` yeterlidir.
+
 ## Durum ve değişiklik sınıfları
 
 - İlan durumu: `active` (başvuru açık), `upcoming` (henüz başlamadı), `closed`

@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`\nKamuRadar kaynak kapsamı — ${toIstanbulDateOnly(now)}`);
+  console.log(`\nKamuİlan kaynak kapsamı — ${toIstanbulDateOnly(now)}`);
   console.log(
     `${coverage.summary.total} kayıtlı kaynak (etkin ${coverage.summary.enabled}, canlı doğrulanmış ${coverage.summary.verified}, ` +
       `adaptörü yazılmış ${coverage.summary.built}), ` +

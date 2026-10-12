@@ -37,7 +37,7 @@ export class FileStore implements StoragePort {
   private loadedMtimeMs = -1;
   private loadedSize = -1;
 
-  constructor(dataDir: string, fileName = 'kamuradar.json') {
+  constructor(dataDir: string, fileName = 'kamuilan.json') {
     this.filePath = join(dataDir, fileName);
     this.data = this.emptyCollections();
     mkdirSync(dataDir, { recursive: true });

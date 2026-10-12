@@ -51,6 +51,10 @@ export const sourceSchema = z.object({
     lastErrorAt: z.string().nullable(),
     lastErrorMessage: z.string().nullable(),
     consecutiveFailures: z.number().int().min(0),
+    /** Üst üste atlanan tarama sayısı (atlama ile hata ayırt edilebilsin diye). */
+    consecutiveSkips: z.number().int().min(0).default(0),
+    /** Son yönetici uyarısının zamanı: uyarıların tekrar sıklığını sınırlar. */
+    lastWarningAt: z.string().nullable().default(null),
     totalRuns: z.number().int().min(0),
     totalSuccesses: z.number().int().min(0),
     avgDurationMs: z.number().min(0),
@@ -287,7 +291,7 @@ export const emailOutboxSchema = z.object({
   eventId: idString('nev').nullable(),
   jobId: idString('job').nullable(),
   userId: idString('usr').nullable(),
-  kind: z.enum(['job-notification', 'digest', 'email-verification', 'password-reset', 'test']),
+  kind: z.enum(['job-notification', 'digest', 'email-verification', 'password-reset', 'account-invite', 'test']),
   toEmail: z.string().min(5),
   subject: z.string().min(1),
   template: z.string().min(1),

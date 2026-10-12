@@ -7,6 +7,8 @@
  *  - Başarısız tarama üstel geri çekilmeyle yeniden denenir, sınır dolunca DLQ'ya düşer.
  *  - Kaynak erişilemezse mevcut ilanlar korunur.
  *  - Kaynak iki worker tarafından aynı anda taranmaz (kilit).
+ *  - Kalıcı kaynak hatası için yönetici uyarısı tekrar etmez (6 saatte bir).
+ *  - Kalp atışı zaman aşımına düşen worker kaydı yoksa yeni kayıt üretilir.
  *  - E-posta gönderimi tarama sonucundan bağımsız yürür.
  *
  * Hiçbir test gerçek kaynağa istek atmaz: adaptörler enjekte edilir.
@@ -119,7 +121,7 @@ interface World {
 }
 
 async function makeWorld(): Promise<World> {
-  const dir = mkdtempSync(join(tmpdir(), 'kamuradar-worker-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kamuilan-worker-'));
   const store = new FileStore(dir);
   await store.init();
   const clock = fixedClock(NOW);
@@ -274,6 +276,43 @@ describe('worker çalışma zamanı', () => {
 
     const skippedRuns = await world.repos.runs.list({ sourceKey: OK_SOURCE_KEY });
     expect(skippedRuns[0]?.status).toBe('skipped');
+  });
+
+  it('kalıcı kaynak hatası için yönetici uyarısı her taramada tekrarlanmaz', async () => {
+    const world = await makeWorld();
+    const runtime = makeRuntime(world, { adapter: unreachableAdapter() });
+    await ensureScheduledTasks(world.repos, LOGGER);
+    await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
+
+    // Kaynak aralığı 60 dakika: saati ilerleterek gerçekçi biçimde 5 tarama yapılır.
+    for (let index = 0; index < 5; index += 1) {
+      const result = await runtime.tick();
+      expect(result.scrapes.skipped).toBeGreaterThanOrEqual(1);
+      world.clock.advance(60 * 60 * 1000);
+      await schedulerTick(world.repos, world.queue, { now: world.repos.clock.now(), logger: LOGGER });
+    }
+
+    const source = await world.repos.sources.getByKey(OK_SOURCE_KEY);
+    expect(source?.health.consecutiveFailures).toBe(5);
+    expect(source?.health.consecutiveSkips).toBe(5);
+    expect(source?.health.lastSuccessAt).toBeNull();
+
+    // Denetim kaydı TEK olmalı: 1 dakikalık test taramasında her dakika yazılsaydı
+    // denetim kaydı ve log okunamaz hale gelirdi.
+    const ownWarnings = (await world.repos.audit.list(50, 'source.skipping')).filter(
+      (log) => log.targetId === OK_SOURCE_KEY,
+    );
+    expect(ownWarnings).toHaveLength(1);
+    expect(source?.health.lastWarningAt).not.toBeNull();
+
+    // Altı saat sonra uyarı yeniden üretilir: kalıcı sorun sessizce kaybolmaz.
+    world.clock.advance(6 * 60 * 60 * 1000);
+    await schedulerTick(world.repos, world.queue, { now: world.repos.clock.now(), logger: LOGGER });
+    await runtime.tick();
+    const afterSixHours = (await world.repos.audit.list(50, 'source.skipping')).filter(
+      (log) => log.targetId === OK_SOURCE_KEY,
+    );
+    expect(afterSixHours).toHaveLength(2);
   });
 
   it('başarısız tarama geri çekilmeyle yeniden denenir ve sınır dolunca DLQ olur', async () => {

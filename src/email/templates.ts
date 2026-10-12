@@ -11,7 +11,14 @@
  */
 import type { JobDoc } from '../db/schemas';
 
-export type EmailTemplate = 'verify-email' | 'password-reset' | 'new-job' | 'job-changed' | 'daily-digest' | 'test';
+export type EmailTemplate =
+  | 'account-invite'
+  | 'verify-email'
+  | 'password-reset'
+  | 'new-job'
+  | 'job-changed'
+  | 'daily-digest'
+  | 'test';
 
 export interface RenderContext {
   baseUrl: string;
@@ -148,11 +155,17 @@ function renderLayout(input: {
   bodyHtml: string;
   bodyText: string;
   ctx: RenderContext;
+  /**
+   * Alt bilgideki "neden gönderildi" satırı. Bildirim e-postalarında tercih
+   * kaydına, işlemsel e-postalarda (davet/doğrulama/şifre sıfırlama) ilgili
+   * işleme atıf yapılır: kullanıcıya yanlış gerekçe gösterilmez.
+   */
+  reason?: string;
 }): { html: string; text: string } {
   const { ctx } = input;
   const footerLines = [
     `${ctx.senderName} — kamu personel alım ilanı takip sistemi.`,
-    'Bu e-posta, bildirim tercihleriniz kaydedildiği için gönderildi.',
+    input.reason ?? 'Bu e-posta, bildirim tercihleriniz kaydedildiği için gönderildi.',
   ];
   const footerLinks: string[] = [];
   if (ctx.preferencesUrl) footerLinks.push(`<a href="${escapeHtml(ctx.preferencesUrl)}">Bildirim tercihleri</a>`);
@@ -252,8 +265,27 @@ export function renderEmail(
           <p style="margin:0;font-size:12px;color:#616e7c;word-break:break-all;">Bağlantı çalışmazsa: ${escapeHtml(link)}</p>`,
         bodyText: `E-posta adresinizi doğrulamak için: ${link}`,
         ctx,
+        reason: 'Bu e-posta, hesabınızın e-posta adresini doğrulamanız için gönderildi.',
       });
       return { subject: `${ctx.senderName}: e-posta adresinizi doğrulayın`, ...body };
+    }
+    case 'account-invite': {
+      const link = String(payload['inviteUrl'] ?? '');
+      const role = String(payload['roleLabel'] ?? 'kullanıcı');
+      const body = renderLayout({
+        heading: 'Hesabınız açıldı',
+        intro: `${ctx.senderName} için bir hesap açıldı (${role}). Aşağıdaki bağlantıdan kendi şifrenizi belirleyin; bağlantı tek kullanımlıktır.`,
+        bodyHtml: `<p style="margin:0 0 16px;font-size:14px;"><a href="${escapeHtml(link)}" style="background:#0a84ff;color:#ffffff;padding:10px 16px;border-radius:8px;text-decoration:none;">Şifremi belirle</a></p>
+          <p style="margin:0;font-size:12px;color:#6e6e73;word-break:break-all;">Bağlantı çalışmazsa: ${escapeHtml(link)}</p>
+          <p style="margin:12px 0 0;font-size:12px;color:#6e6e73;">Kamuİlan'da dışarıdan kayıt yoktur; hesaplar yalnızca yönetici tarafından açılır. Bu daveti siz beklemiyorsanız e-postayı yok sayın.</p>`,
+        bodyText:
+          `Hesabınız açıldı. Şifre belirleme bağlantısı: ${link}\n` +
+          'Kamuİlan\'da dışarıdan kayıt yoktur; hesaplar yalnızca yönetici tarafından açılır. ' +
+          'Bu daveti siz beklemiyorsanız e-postayı yok sayın.',
+        ctx,
+        reason: 'Bu e-posta, yönetici tarafından açılan hesabınız için gönderildi.',
+      });
+      return { subject: `${ctx.senderName}: hesabınız açıldı — şifre belirleyin`, ...body };
     }
     case 'password-reset': {
       const link = String(payload['resetUrl'] ?? '');
@@ -265,6 +297,7 @@ export function renderEmail(
           <p style="margin:12px 0 0;font-size:12px;color:#616e7c;">Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.</p>`,
         bodyText: `Şifre sıfırlama bağlantısı: ${link}`,
         ctx,
+        reason: 'Bu e-posta, şifre sıfırlama isteğiniz üzerine gönderildi. İsteği siz yapmadıysanız yok sayın.',
       });
       return { subject: `${ctx.senderName}: şifre sıfırlama isteği`, ...body };
     }
@@ -312,10 +345,11 @@ export function renderEmail(
     case 'test': {
       const body = renderLayout({
         heading: 'Test e-postası',
-        intro: 'Bu e-posta KamuRadar kurulum doğrulaması için gönderildi.',
+        intro: 'Bu e-posta Kamuİlan kurulum doğrulaması için gönderildi.',
         bodyHtml: `<p style="margin:0;font-size:14px;">Sağlayıcı yapılandırması: ${escapeHtml(String(payload['provider'] ?? 'bilinmiyor'))}</p>`,
         bodyText: `Test e-postası. Sağlayıcı: ${String(payload['provider'] ?? 'bilinmiyor')}`,
         ctx,
+        reason: 'Bu e-posta, yöneticinin başlattığı kurulum doğrulaması için gönderildi.',
       });
       return { subject: `${ctx.senderName}: test e-postası`, ...body };
     }

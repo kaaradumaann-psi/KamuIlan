@@ -1,0 +1,1472 @@
+/* Legacy component skin retained for the clinical forms and reports.
+   Shared palette tokens live in screen.css; workspace.css is the current screen
+   design layer for navigation, daily workflow, states and interactive controls.
+   Print geometry remains in the existing @media print rules. */
+
+@media screen {
+  /* ========================================================================
+     01 · Canvas & typography
+     ======================================================================== */
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  /* Site headlines: Newsreader at weight 300 with tight tracking and a
+     light-italic register. A system serif stands in when the face is not
+     installed, because the published build never fetches a web font. */
+  .form-prep-hero h1,
+  .hero-text-side h1,
+  .scanner-hero-header h2,
+  .auth-heading h1,
+  .modal-header h2,
+  .record-panel-locked h3,
+  .record-panel-success h3,
+  .scan-camera h3 {
+    font-family: var(--font-display);
+    font-weight: 300;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--text);
+  }
+
+  .form-prep-hero h1,
+  .hero-text-side h1 {
+    font-size: clamp(26px, 3vw, 33px);
+    margin: 10px 0 8px;
+  }
+
+  .scanner-hero-header h2 {
+    font-size: clamp(24px, 2.6vw, 31px);
+    margin: 10px 0 8px;
+  }
+
+  .auth-heading h1 {
+    font-size: 27px;
+    margin: 10px 0 8px;
+  }
+
+  .modal-header h2 {
+    font-size: 23px;
+    margin: 8px 0 2px;
+  }
+
+  .record-panel-locked h3,
+  .record-panel-success h3,
+  .scan-camera h3 {
+    font-size: 20px;
+    margin: 0 0 6px;
+  }
+
+  /* Section titles stay in the UI face: at 14–18 px the serif would fight
+     the data around it. Weight and tracking do the work instead. */
+  .section-heading,
+  .section-heading-sm,
+  .inspection-title,
+  .locked-content h3,
+  .guide-title {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .section-heading {
+    font-size: 17px;
+  }
+
+  /* Body copy of the site: 13.5–14.5 px, soft grey, 1.6 leading. */
+  .scanner-hero-sub,
+  .form-prep-hero p,
+  .hero-text-side p,
+  .section-subtext,
+  .guide-note,
+  .dropzone-desc,
+  .scan-camera p,
+  .locked-content p {
+    color: var(--soft);
+    line-height: 1.6;
+  }
+
+  /* ========================================================================
+     02 · Micro labels — the site's uppercase 10–11 px kickers
+     ======================================================================== */
+
+  .section-badge,
+  .badge-chip,
+  .auth-eyebrow,
+  .metric-label,
+  .stat-label,
+  .detail-label,
+  .batch-label,
+  .section-mini-heading,
+  .filter-group label,
+  .brand-subtitle,
+  .user-role-badge,
+  .preview-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .section-badge,
+  .badge-chip {
+    border-radius: var(--radius-full);
+    padding: 5px 11px;
+    gap: 6px;
+  }
+
+  .section-badge {
+    font-size: 10.5px;
+  }
+
+  /* The site's kicker chip: hairline border, soft grey ground, muted label and
+     a single blue dot as the only decoration. */
+  .section-badge.badge-primary {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .section-badge.badge-primary::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+  }
+
+  .badge-chip.badge-primary {
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .badge-chip.badge-primary svg {
+    color: var(--text);
+  }
+
+  .badge-chip.badge-default,
+  .status-pill,
+  .stats-pill,
+  .date-tag,
+  .batch-badge {
+    border-radius: var(--radius-full);
+  }
+
+  .badge-default,
+  .stats-pill,
+  .pill-inactive,
+  .date-tag,
+  .batch-badge {
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .date-tag {
+    text-transform: none;
+    letter-spacing: 0.01em;
+    font-weight: 500;
+  }
+
+  .mono-sub,
+  .batch-code,
+  .record-ref-code,
+  .detail-val.mono,
+  .table-stats-bar code {
+    font-family: var(--font-mono);
+  }
+
+  .batch-code {
+    color: var(--text);
+  }
+
+  /* ========================================================================
+     03 · Chrome — sticky blurred bar, hairline separated
+     ======================================================================== */
+
+  .app-header {
+    background: rgba(255, 255, 255, 0.86);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: none;
+  }
+
+  .header-inner {
+    max-width: var(--container);
+    padding: 0 28px;
+  }
+
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    /* Same ink square as the site's favicon monogram. */
+    background: #111213;
+    color: #ececec;
+    box-shadow: none;
+  }
+
+  .brand-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .brand-subtitle {
+    font-size: 10px;
+    color: var(--soft);
+  }
+
+  /* Workspace switcher: a soft track with the active tab floating on paper. */
+  .workspace-tabs {
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+  }
+
+  .portal-tab {
+    gap: 7px;
+    padding: 7px 15px;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--soft);
+    border-radius: var(--radius-full);
+  }
+
+  .portal-tab:hover {
+    color: var(--text);
+  }
+
+  .portal-tab.active {
+    background: var(--white);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(13, 13, 13, 0.06);
+  }
+
+  .user-avatar-circle {
+    width: 36px;
+    height: 36px;
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .user-full-name {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .user-role-badge {
+    font-size: 10px;
+    margin-top: 1px;
+  }
+
+  /* Admin is ink, the clinician role carries the accent — the site's only two
+     ways of saying “this is important”. */
+  .badge-admin {
+    color: var(--text);
+  }
+
+  .badge-psy {
+    color: var(--accent-ink);
+  }
+
+  .btn-logout {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--soft);
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+  }
+
+  .btn-logout:hover {background: var(--danger-tint);
+    color: var(--danger);
+    border-color: var(--danger-border);
+  }
+
+  /* Ana site kısayolu: uzman tek tıkla yazarın sitesine geri dönebilmeli. */
+  .home-site-link{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 13px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--soft);
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+    text-decoration: none;
+  }
+
+  .home-site-link:hover {
+    color: var(--text);
+    border-color: var(--text);
+  }
+
+  .home-site-link svg {
+    color: var(--muted);
+  }
+
+  .home-site-link:hover svg {
+    color: var(--text);
+  }
+
+  .app-main {
+    max-width: var(--container);
+    padding: 40px 28px 56px;
+  }
+
+  /* ========================================================================
+     04 · Controls — the site's pill buttons
+     ======================================================================== */
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-print,
+  .btn-download,
+  .auth-submit-btn,
+  .choice-action-btn,
+  .pill-btn,
+  .mode-tab,
+  .btn-toggle-status,
+  .action-btn-primary,
+  .action-btn-danger {
+    border-radius: var(--radius-full);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  /* Primary action = ink. The accent is reserved for state, not for buttons. */
+  .btn-primary {
+    padding: 11px 20px;
+    background: var(--text);
+    border: 1px solid var(--text);
+    color: var(--white);
+    box-shadow: none;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: #1a1a1a;
+    border-color: #1a1a1a;
+    box-shadow: none;
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active:not(:disabled) {
+    transform: none;
+  }
+
+  .btn-primary:disabled {
+    background: var(--slate-200);
+    border-color: var(--slate-200);
+    color: var(--soft);
+    opacity: 1;
+  }
+
+  .btn-secondary {
+    background: var(--white);
+    color: var(--text);
+    border: 1px solid var(--hairline);
+    box-shadow: none;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--white);
+    border-color: var(--text);
+    color: var(--text);
+  }
+
+  .btn-secondary.btn-danger-soft {
+    color: var(--soft);
+    border-color: var(--hairline);
+  }
+
+  .btn-secondary.btn-danger-soft:hover:not(:disabled) {
+    color: var(--danger);
+    border-color: var(--danger-border);
+    background: var(--danger-tint);
+  }
+
+  .btn-danger {
+    background: var(--danger);
+    border: 1px solid var(--danger);
+    color: var(--white);
+    box-shadow: none;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: var(--danger-hover);
+    border-color: var(--danger-hover);
+  }
+
+  .btn-sm {
+    padding: 6px 14px;
+    font-size: 12px;
+  }
+
+  .btn-multiline span {
+    font-weight: 500;
+  }
+
+  .btn-multiline small {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+
+  .btn-print,
+  .btn-download {
+    padding: 12px 22px;
+  }
+
+  .icon-button,
+  .icon-close-btn {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+    color: var(--text);
+    box-shadow: none;
+  }
+
+  .icon-button:hover:not(:disabled),
+  .icon-close-btn:hover {
+    background: var(--bg-soft);
+    border-color: var(--slate-300);
+    color: var(--text);
+  }
+
+  .action-btn-primary {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+  }
+
+  .action-btn-primary:hover:not(:disabled) {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--white);
+  }
+
+  .action-btn-danger {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .action-btn-danger:hover:not(:disabled) {
+    background: var(--danger-tint);
+    border-color: var(--danger-border);
+    color: var(--danger-hover);
+  }
+
+  /* Mode switchers and page selectors: the active one is filled with ink. */
+  .mode-tab {
+    border: 1px solid transparent;
+  }
+
+  .mode-tab:hover {
+    background: var(--bg-soft);
+    color: var(--text);
+  }
+
+  .mode-tab.active,
+  .pill-btn.active,
+  .choice-action-btn.selected,
+  .choice-action-btn.blank-btn.selected {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--white);
+  }
+
+  /* A selected answer keeps its ink fill while hovered. */
+  .choice-action-btn:not(.selected):hover:not(:disabled) {
+    border-color: var(--text);
+    background: var(--bg-soft);
+    color: var(--text);
+  }
+
+  .pill-btn {
+    padding: 6px 13px;
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .pill-btn:hover {
+    background: var(--bg-soft);
+    color: var(--text);
+  }
+
+  .btn-toggle-status {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .btn-toggle-status:hover {
+    background: var(--bg-soft);
+    color: var(--text);
+  }
+
+  .subnav-tab {
+    gap: 8px;
+    padding: 10px 4px;
+    margin-right: 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--soft);
+    border-bottom: 1px solid transparent;
+    margin-bottom: -1px;
+  }
+
+  .subnav-tab.active {
+    color: var(--text);
+    font-weight: 600;
+    border-bottom-color: var(--text);
+  }
+
+  /* ========================================================================
+     05 · Forms & fields
+     ======================================================================== */
+
+  /* 10.5 px uppercase type needs the darker grey to stay legible. */
+  .form-group label,
+  .filter-group label,
+  .detail-label,
+  .batch-label,
+  .section-mini-heading {
+    color: var(--soft);
+  }
+
+  .form-group input,
+  .form-group select,
+  .filter-group select,
+  .filter-group input,
+  .search-input-wrapper input,
+  .field input,
+  .field textarea {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: 13.5px;
+    box-shadow: none;
+  }
+
+  /* The site's focus state: the hairline simply turns to ink. */
+  .form-group input:focus,
+  .form-group select:focus,
+  .filter-group select:focus,
+  .filter-group input:focus,
+  .search-input-wrapper input:focus,
+  .field input:focus,
+  .field textarea:focus,
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--text);
+    box-shadow: none;
+    outline: none;
+  }
+
+  input:focus-visible:not([type='checkbox']):not([type='radio']),
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+
+  /* Checkboxes and radios were excluded from the rule above (a native browser
+     ring was assumed) but the reset in this file removes it, so keyboard users
+     had no focus indicator on grouped/acceptance toggles. */
+  input[type='checkbox']:focus-visible,
+  input[type='radio']:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted);
+  }
+
+  .form-audit-note,
+  .auth-footer-help {
+    color: var(--soft);
+  }
+
+  .auth-footer-help {
+    border-top: 1px solid var(--hairline);
+  }
+
+  /* ========================================================================
+     06 · Surfaces — cards are hairlines, not shadows
+     ======================================================================== */
+
+  .card-elevated,
+  .modern-table-card,
+  .metric-box,
+  .hero-account-badge,
+  .normalized-sheet-card,
+  .page-card-box,
+  .scanner-input-card,
+  .scanner-progress-card,
+  .scan-review-panel,
+  .scan-crop-figure,
+  .quality-dropdown,
+  .inspection-controls-row,
+  .item-inspection-box,
+  .client-details-grid,
+  .scanner-status-strip,
+  .batch-badge,
+  .record-ref-code {
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: none;
+  }
+
+  .metric-box,
+  .scanner-status-strip {
+    border-radius: var(--radius-lg);
+  }
+
+  .scanner-status-strip,
+  .inspection-controls-row,
+  .client-details-grid,
+  .item-inspection-box,
+  .quality-dropdown {
+    background: var(--bg-soft);
+  }
+
+  .normalized-sheet-card,
+  .page-card-box,
+  .scan-crop-figure {
+    box-shadow: none;
+  }
+
+  .page-card-box:hover:not(:disabled) {
+    border-color: var(--slate-300);
+    transform: translateY(-1px);
+    box-shadow: none;
+  }
+
+  .page-card-box.is-active {
+    border-color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--text);
+  }
+
+  .page-card-box.is-missing {
+    background: var(--bg-soft);
+    border-style: dashed;
+  }
+
+  .page-card-thumb {
+    background: var(--bg-soft);
+    border-radius: var(--radius-sm);
+  }
+
+  .metric-icon-wrap,
+  .empty-state-icon,
+  .locked-icon-wrap,
+  .dropzone-icon {
+    border-radius: var(--radius-md);
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+    box-shadow: none;
+  }
+
+  .bg-blue-tint {
+    background: var(--primary-tint);
+    border-color: var(--primary-border);
+    color: var(--accent-ink);
+  }
+
+  .bg-purple-tint,
+  .admin-avatar-ring {
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+  }
+
+  .bg-green-tint {
+    background: var(--success-tint);
+    border-color: var(--success-border);
+    color: var(--success);
+  }
+
+  .metric-label {
+    color: var(--soft);
+    font-size: 10.5px;
+  }
+
+  .metric-value,
+  .stat-val {
+    font-size: 25px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-item {
+    padding: 18px 22px;
+  }
+
+  .stat-label {
+    color: var(--soft);
+    font-size: 10.5px;
+  }
+
+  .scanner-metrics-strip {
+    border-radius: var(--radius-lg);
+  }
+
+  .text-primary {
+    color: var(--accent-ink);
+  }
+
+  .text-warning {
+    color: var(--warning);
+  }
+
+  .date-tag,
+  .cell-subtitle,
+  .text-muted-sm,
+  .mono-sub,
+  .crop-meta-caption,
+  .q-metric {
+    color: var(--soft);
+  }
+
+  .empty-state-card {
+    background: var(--bg-soft);
+    border: 1px dashed var(--slate-300);
+    border-radius: var(--radius-lg);
+    color: var(--soft);
+  }
+
+  .empty-state-icon {
+    border-radius: var(--radius-full);
+  }
+
+  .loading-state-card {
+    color: var(--soft);
+  }
+
+  .spinner {
+    border-color: var(--hairline);
+    border-top-color: var(--text);
+  }
+
+  .spinner-sm {
+    border-color: var(--hairline);
+    border-top-color: var(--text);
+  }
+
+  /* ========================================================================
+     07 · Status banners
+     ======================================================================== */
+
+  .status-banner {
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    line-height: 1.55;
+  }
+
+  .info-banner {
+    background: var(--primary-tint);
+    border: 1px solid var(--primary-border);
+    color: var(--accent-ink);
+  }
+
+  .success-banner {
+    background: var(--success-tint);
+    border: 1px solid var(--success-border);
+    color: #0a6b49;
+  }
+
+  .warning-banner {
+    background: var(--warning-tint);
+    border: 1px solid var(--warning-border);
+    color: #8a5a05;
+  }
+
+  .error-banner {
+    background: var(--danger-tint);
+    border: 1px solid var(--danger-border);
+    color: #a93028;
+  }
+
+  .reset-confirm-box {
+    border-radius: var(--radius-lg);
+  }
+
+  .confirm-text strong {
+    color: #a93028;
+  }
+
+  .confirm-text p {
+    color: var(--soft);
+  }
+
+  .print-status-note {
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    color: var(--soft);
+  }
+
+  /* ========================================================================
+     08 · Tables — hairline rows with uppercase micro headers
+     ======================================================================== */
+
+  .modern-data-table th {
+    background: var(--bg);
+    color: var(--soft);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .modern-data-table td {
+    padding: 15px 18px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .modern-data-table tbody tr:hover {
+    background-color: #fafafa;
+  }
+
+  .row-muted {
+    background: transparent;
+    opacity: 0.6;
+  }
+
+  .cell-title {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .table-user-cell .user-initials-avatar,
+  .user-initials-avatar {
+    width: 38px;
+    height: 38px;
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .avatar-inactive {
+    background: var(--white);
+    color: var(--muted);
+    border-color: var(--hairline);
+  }
+
+  .badge-psychologist {
+    background: var(--primary-tint);
+    border: 1px solid var(--primary-border);
+    color: var(--accent-ink);
+    border-radius: var(--radius-full);
+  }
+
+  .pill-active {
+    background: var(--success-tint);
+    border: 1px solid var(--success-border);
+    color: #0a6b49;
+  }
+
+  .table-stats-bar {
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .table-stats-bar code {
+    color: var(--text);
+  }
+
+  .answers-bubble-grid {
+    background: var(--white);
+  }
+
+  .answers-bubble-grid,
+  .page-answers-table-container {
+    border-color: var(--hairline);
+  }
+
+  .answer-bubble-cell {
+    border-color: var(--hairline);
+    border-radius: var(--radius-sm);
+  }
+
+  .answer-bubble-cell.choice-true {
+    background: var(--primary-tint);
+    border-color: var(--primary-border);
+    color: var(--accent-ink);
+  }
+
+  .answer-bubble-cell.choice-false {
+    background: var(--danger-tint);
+    border-color: var(--danger-border);
+    color: #a93028;
+  }
+
+  .answer-bubble-cell.choice-blank {
+    background: var(--bg-soft);
+    color: var(--muted);
+  }
+
+  .undo-review-row {
+    background: var(--success-tint);
+    border: 1px solid var(--success-border);
+  }
+
+  .undo-info {
+    color: #0a6b49;
+  }
+
+  .manual-indicator {
+    color: var(--success);
+  }
+
+  .answer-bubble-cell.is-reviewed {
+    box-shadow: inset 0 0 0 1px var(--success);
+  }
+
+  .success-hint {
+    color: #0a6b49 !important;
+  }
+
+  /* ========================================================================
+     09 · Form workspace (form preparation tab)
+     ======================================================================== */
+
+  .form-prep-hero,
+  .scanner-hero-header,
+  .admin-header-hero {
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 26px;
+  }
+
+  .page-option {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    box-shadow: none;
+  }
+
+  .page-option:hover {
+    background: var(--bg-soft);
+    border-color: var(--slate-300);
+  }
+
+  .page-option.selected {
+    background: var(--bg-soft);
+    border-color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--text);
+  }
+
+  .page-option.selected .page-option-copy strong,
+  .selected .page-option-copy strong {
+    color: var(--text);
+  }
+
+  .page-option-copy strong {
+    color: var(--text);
+  }
+
+  .page-option-copy span {
+    color: var(--soft);
+  }
+
+  .selected-check {
+    background: var(--text);
+    color: var(--white);
+  }
+
+  .guide-spec-list div {
+    border-bottom: 1px solid var(--hairline);
+    padding: 8px 0;
+  }
+
+  .guide-spec-list dt {
+    color: var(--soft);
+  }
+
+  .guide-spec-list dd {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .print-guide-card {
+    padding: 22px;
+  }
+
+  .preview-panel {
+    background: var(--bg-soft);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: none;
+  }
+
+  .preview-toolbar,
+  .preview-bottom {
+    background: var(--white);
+    border-color: var(--hairline);
+    color: var(--soft);
+  }
+
+  .preview-label {
+    color: var(--text);
+    letter-spacing: 0.1em;
+  }
+
+  .preview-label span {
+    color: var(--soft);
+    border-left: 1px solid var(--hairline);
+  }
+
+  .preview-fit {
+    color: var(--soft);
+  }
+
+  .scaled-paper {
+    box-shadow: 0 22px 44px -30px rgba(13, 13, 13, 0.45), 0 0 0 1px var(--hairline);
+  }
+
+  .document-meta-strip {
+    color: var(--soft);
+    gap: 12px;
+  }
+
+  .document-meta-strip strong {
+    color: var(--soft);
+    font-weight: 600;
+  }
+
+  .pagination {
+    gap: 12px;
+  }
+
+  .page-option,
+  .paper-stage,
+  .preview-panel {
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* ========================================================================
+     10 · Scanner workspace
+     ======================================================================== */
+
+  .scanner-layout-container {
+    gap: 26px;
+  }
+
+  .scan-mode-tabs {
+    gap: 8px;
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 14px;
+  }
+
+  .dropzone-area {
+    background: var(--bg-soft);
+    border: 1px dashed var(--slate-300);
+    border-radius: var(--radius-lg);
+  }
+
+  .dropzone-area:hover {
+    background: var(--slate-100);
+    border-color: var(--text);
+  }
+
+  .dropzone-icon {
+    width: 58px;
+    height: 58px;
+    border-radius: var(--radius-full);
+    background: var(--white);
+    color: var(--text);
+  }
+
+  .dropzone-title {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .dropzone-desc,
+  .dropzone-hint {
+    color: var(--muted);
+  }
+
+  .scan-alert {
+    background: var(--danger-tint);
+    border: 1px solid var(--danger-border);
+    color: #a93028;
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+  }
+
+  .status-live-indicator {
+    color: var(--soft);
+  }
+
+  .live-dot {
+    box-shadow: 0 0 0 3px rgba(14, 158, 106, 0.14);
+  }
+
+  .section-heading-sm {
+    font-size: 16px;
+  }
+
+  .card-check-pill {
+    background: var(--text);
+    color: var(--white);
+    box-shadow: none;
+  }
+
+  .missing-page-placeholder {
+    color: var(--muted);
+  }
+
+  .page-card-meta strong {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .page-card-meta small {
+    color: var(--muted);
+  }
+
+  .scan-preview-aside .section-label,
+  .section-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--soft);
+  }
+
+  .scan-row-location {
+    background: rgba(10, 132, 255, 0.16);
+    border: 2px solid var(--accent);
+  }
+
+  .scan-response-outline {
+    border: 1.6px solid var(--accent);
+  }
+
+  .items-selector-grid {
+    gap: 6px;
+  }
+
+  .item-select-chip {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+  }
+
+  .item-select-chip:hover {
+    border-color: var(--slate-300);
+    background: var(--bg-soft);
+  }
+
+  .item-select-chip.active {
+    border-color: var(--text);
+    background: var(--bg-soft);
+    box-shadow: inset 0 0 0 1px var(--text);
+  }
+
+  .item-select-chip.reviewed {
+    border-color: var(--success-border);
+    background: var(--success-tint);
+  }
+
+  .item-select-chip .item-num {
+    color: var(--text);
+  }
+
+  .item-select-chip .item-ans {
+    color: var(--muted);
+  }
+
+  .scan-crop-map {
+    color: var(--accent-ink);
+  }
+
+  .choice-action-btn {
+    padding: 8px 18px;
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    color: var(--soft);
+  }
+
+  .scan-camera-stage {
+    background: #111213;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .scan-camera-overlay {
+    border-radius: var(--radius-md);
+  }
+
+  .scan-camera-advice {
+    background: var(--primary-tint);
+    border: 1px solid var(--primary-border);
+    color: var(--accent-ink);
+    border-radius: var(--radius-md);
+  }
+
+  /* ========================================================================
+     11 · Auth screen
+     ======================================================================== */
+
+  .auth-shell {
+    background: radial-gradient(circle at 50% -10%, #ffffff 0%, #f4f4f5 100%);
+  }
+
+  .auth-card {
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 34px 30px;
+    box-shadow: 0 30px 70px -50px rgba(13, 13, 13, 0.4);
+  }
+
+  .auth-brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: #111213;
+    color: #ececec;
+  }
+
+  .auth-brand strong {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .auth-brand small {
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+  }
+
+  .auth-eyebrow {
+    color: var(--muted);
+  }
+
+  .auth-heading p {
+    color: var(--soft);
+    line-height: 1.6;
+  }
+
+  .auth-submit-btn {
+    height: 46px;
+  }
+
+  /* ========================================================================
+     12 · Admin console
+     ======================================================================== */
+
+  .admin-avatar-ring {
+    width: 40px;
+    height: 40px;
+  }
+
+  .admin-header-hero {
+    padding-bottom: 26px;
+  }
+
+  .admin-subnav-tabs {
+    gap: 0;
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 0;
+  }
+
+  .stats-pill {
+    padding: 6px 13px;
+    font-weight: 500;
+  }
+
+  .ready-pill {
+    background: var(--success-tint);
+    border-color: var(--success-border);
+    color: #0a6b49;
+  }
+
+  .record-panel-locked {
+    background: var(--bg-soft);
+    border: 1px dashed var(--slate-300);
+    border-radius: var(--radius-lg);
+  }
+
+  .record-panel-success {
+    background: var(--success-tint);
+    border: 1px solid var(--success-border);
+    border-radius: var(--radius-lg);
+  }
+
+  .success-icon-wrap {
+    background: var(--white);
+    color: var(--success);
+    box-shadow: none;
+  }
+
+  .success-content h3 {
+    color: #0a6b49;
+  }
+
+  .success-content p {
+    color: #0a6b49;
+  }
+
+  .client-data-form {
+    gap: 18px;
+  }
+
+  /* ========================================================================
+     13 · Modal
+     ======================================================================== */
+
+  .modal-backdrop {
+    background: rgba(13, 13, 13, 0.5);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-container {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 40px 90px -60px rgba(13, 13, 13, 0.6);
+  }
+
+  .modal-header,
+  .modal-footer {
+    border-color: var(--hairline);
+  }
+
+  .modal-footer {
+    background: var(--bg-soft);
+  }
+
+  .modal-subtitle {
+    color: var(--soft);
+  }
+
+  .detail-val {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .detail-val.highlight {
+    color: var(--accent-ink);
+  }
+
+  .page-switcher-pills {
+    gap: 8px;
+  }
+
+  /* (14 · Footer) Eski tek satırlık app-footer kaldırıldı; sitenin tam alt
+     bilgisi site.css'teki .site-footer'da yaşar ve her ekranda aynıdır. */
+}
+
+/* The 900 px breakpoint in screen.css stacks the header; the stacked layout wins below it. */
+@media screen and (min-width: 901px) {
+  .header-inner {
+    height: var(--nav-h);
+  }
+}
+
+/* ========================================================================
+   15 · Narrow screens — mirror the breakpoints of the files above
+   ======================================================================== */
+
+@media screen and (max-width: 900px) {
+  .header-inner {
+    padding: 14px 20px;
+  }
+
+  .app-main {
+    padding: 28px 20px 44px;
+  }
+
+  /* The stacked header gives the workspace switcher its own scrollable row
+     instead of squeezing three Turkish labels next to the brand. */
+  .header-left {
+    flex-wrap: wrap;
+  }
+
+  .workspace-tabs {
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+    scrollbar-width: none;
+  }
+
+  .workspace-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .portal-tab {
+    flex: 0 0 auto;
+    padding: 8px 13px;
+    font-size: 12px;
+  }
+
+  .section-heading {
+    font-size: 16px;
+  }
+
+  .form-prep-hero,
+  .scanner-hero-header,
+  .admin-header-hero {
+    padding-bottom: 20px;
+  }
+}
+
+@media screen and (max-width: 560px) {
+  .hero-cta-group .btn-primary,
+  .hero-cta-group .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mode-tab {
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+}

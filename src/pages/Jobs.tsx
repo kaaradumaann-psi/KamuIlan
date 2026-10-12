@@ -1,111 +1,172 @@
 /**
- * İlan listesi: paylaşılabilir URL filtreleri, sıralama ve sayfalama.
+ * İlan listesi: filtrelenebilir, sıralanabilir, sayfalanabilir.
  *
- * Filtre durumu URL'de tutulur; aynı bağlantıyı açan herkes aynı sonucu görür.
+ * Filtre durumu URL'de yaşar (paylaşılabilir bağlantı şartı). Sayfa yalnızca
+ * sunucudan gelen kayıtları gösterir; toplam sayı da sunucudan gelir.
  */
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
-import { formatNumber } from '../lib/format';
-import type { JobListResponse } from '../types';
-import { EMPTY_FILTERS, FilterForm, activeFilterCount, filtersFromParams, filtersToParams, type JobFilters } from '../components/Filters';
+import { FilterForm, activeFilterCount, filtersFromParams, filtersToParams, type JobFilters } from '../components/Filters';
 import { JobCard } from '../components/JobCard';
-import { Card, EmptyState, ErrorNotice, Pagination, Spinner } from '../components/ui';
+import { Icon } from '../components/Icon';
+import { EmptyState, ErrorNotice, LoadingCard, Pagination, Tag } from '../components/ui';
+import { api, errorMessage } from '../lib/api';
+import { formatDateTime, formatNumber } from '../lib/format';
+import { HONESTY_NOTE } from '../site';
+import type { JobListResponse } from '../types';
 
 const PAGE_SIZE = 20;
 
-export function JobsPage(): ReactNode {
+export function JobsPage() {
   const [params, setParams] = useSearchParams();
-  const filters = filtersFromParams(params);
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
+  const urlFilters = filtersFromParams(params);
 
-  const query = useQuery({
-    queryKey: ['jobs', params.toString()],
+  const [draft, setDraft] = useState<JobFilters>(urlFilters);
+  const [panelOpen, setPanelOpen] = useState(activeFilterCount(urlFilters) === 0);
+
+  // Adres çubuğu değiştiğinde (geri/ileri, paylaşılan bağlantı) taslağı eşitle.
+  // React'in önerdiği "prop değişince durumu ayarla" deseni: efekt yerine
+  // render sırasında önceki anahtarla karşılaştırılır.
+  const paramsKey = params.toString();
+  const [lastParamsKey, setLastParamsKey] = useState(paramsKey);
+  if (paramsKey !== lastParamsKey) {
+    setLastParamsKey(paramsKey);
+    setDraft(urlFilters);
+  }
+
+  const query = {
+    ...urlFilters,
+    page,
+    pageSize: PAGE_SIZE,
+  };
+
+  const jobs = useQuery({
+    queryKey: ['jobs', JSON.stringify(query)],
     queryFn: () =>
       api.get<JobListResponse>('/api/jobs', {
-        ...(filters.q ? { q: filters.q } : {}),
-        ...(filters.city ? { city: filters.city } : {}),
-        ...(filters.institution ? { institution: filters.institution } : {}),
-        ...(filters.employmentType ? { employmentType: filters.employmentType } : {}),
-        ...(filters.status ? { status: filters.status } : {}),
-        ...(filters.deadlineFrom ? { deadlineFrom: filters.deadlineFrom } : {}),
-        ...(filters.deadlineTo ? { deadlineTo: filters.deadlineTo } : {}),
-        ...(filters.minQuota ? { minQuota: filters.minQuota } : {}),
-        ...(filters.hasApplicationUrl ? { hasApplicationUrl: true } : {}),
-        sort: filters.sort,
+        q: query.q || undefined,
+        city: query.city || undefined,
+        institution: query.institution || undefined,
+        employmentType: query.employmentType || undefined,
+        status: query.status || undefined,
+        deadlineFrom: query.deadlineFrom || undefined,
+        deadlineTo: query.deadlineTo || undefined,
+        minQuota: query.minQuota || undefined,
+        hasApplicationUrl: query.hasApplicationUrl ? true : undefined,
+        sort: query.sort,
         page,
         pageSize: PAGE_SIZE,
       }),
+    placeholderData: (previous) => previous,
   });
 
-  const apply = (next: JobFilters, nextPage = 1): void => {
-    setParams(filtersToParams(next, nextPage, PAGE_SIZE));
-  };
+  /** Filtreleri uygula: URL'i tek doğruluk kaynağı yapar, sayfayı 1'e alır. */
+  function apply(filters: JobFilters): void {
+    const next = filtersToParams(filters, 1, PAGE_SIZE);
+    setParams(next, { replace: true });
+  }
 
-  const active = activeFilterCount(filters);
+  function reset(): void {
+    setParams(filtersToParams({ ...draft, q: '', city: '', institution: '', employmentType: '', status: '', deadlineFrom: '', deadlineTo: '', minQuota: '', hasApplicationUrl: false, sort: 'newest' }, 1, PAGE_SIZE), {
+      replace: true,
+    });
+  }
+
+  function goToPage(next: number): void {
+    const nextParams = filtersToParams(urlFilters, next, PAGE_SIZE);
+    setParams(nextParams, { replace: false });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  const activeCount = activeFilterCount(urlFilters);
 
   return (
-    <div className="space-y-4">
-      <header>
-        <h1 className="text-xl font-semibold">İlanlar</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Filtreler adres çubuğuna yazılır; bağlantıyı paylaştığınızda karşı taraf aynı listeyi görür.
-        </p>
+    <div className="page-stack">
+      <header className="page-head">
+        <div className="page-head-text">
+          <span className="kicker">İlan arama</span>
+          <h1 className="page-title">Kamu personel alım ilanları</h1>
+          <p className="info-lede">
+            Filtreler adres çubuğuna yazılır: bulduğunuz listeyi bağlantı olarak paylaşabilirsiniz.
+          </p>
+        </div>
+        <div className="page-head-actions">
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            aria-expanded={panelOpen}
+            aria-controls="filtre-paneli"
+            onClick={() => setPanelOpen((open) => !open)}
+          >
+            <Icon name="filter" size={15} />
+            <span>{panelOpen ? 'Filtreleri gizle' : 'Filtreler'}</span>
+            {activeCount > 0 && <span className="subnav-count">{activeCount}</span>}
+          </button>
+        </div>
       </header>
 
-      <FilterForm
-        filters={filters}
-        onChange={(next) => setParams(filtersToParams(next, 1, PAGE_SIZE), { replace: true })}
-        onSubmit={() => apply(filters, 1)}
-        onReset={() => apply(EMPTY_FILTERS, 1)}
-      />
+      {panelOpen && (
+        <div id="filtre-paneli">
+          <FilterForm
+            filters={draft}
+            onChange={setDraft}
+            onSubmit={() => apply(draft)}
+            onReset={reset}
+            busy={jobs.isFetching}
+          />
+        </div>
+      )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600 dark:text-slate-300">
-        <p aria-live="polite">
-          {query.isLoading ? 'Aranıyor…' : `${formatNumber(query.data?.total ?? 0)} ilan bulundu`}
-          {active > 0 ? ` (${active} filtre etkin)` : ''}
-        </p>
-        {query.data && query.data.pages > 1 && (
-          <p>
-            Sayfa {query.data.page} / {query.data.pages}
-          </p>
+      <div className="filter-summary" role="status" aria-live="polite">
+        {jobs.data ? (
+          <>
+            <strong>{formatNumber(jobs.data.total)}</strong> ilan bulundu
+            {activeCount > 0 && <span className="inline-sep" />}
+            {activeCount > 0 && <Tag tone="accent">{`${activeCount} filtre etkin`}</Tag>}
+            <span className="inline-sep" />
+            <span className="text-muted-sm">
+              Sayfa {jobs.data.page}/{Math.max(1, jobs.data.pages)} · listeleme zamanı{' '}
+              {formatDateTime(jobs.data.generatedAt)}
+            </span>
+          </>
+        ) : (
+          <span className="text-muted-sm">Sonuçlar yükleniyor…</span>
         )}
       </div>
 
-      {query.isError && <ErrorNotice message="İlanlar yüklenemedi. Bağlantıyı kontrol edip yeniden deneyin." onRetry={() => void query.refetch()} />}
-      {query.isLoading && <Spinner label="İlanlar yükleniyor…" />}
+      {jobs.isError && (
+        <ErrorNotice
+          title="İlan listesi alınamadı"
+          message={errorMessage(jobs.error)}
+          onRetry={() => void jobs.refetch()}
+        />
+      )}
 
-      {query.data?.items.length === 0 && !query.isLoading && (
+      {jobs.isLoading && <LoadingCard title="İlanlar yükleniyor…" />}
+
+      {jobs.data && jobs.data.items.length === 0 && (
         <EmptyState
-          title="Bu kriterlere uyan ilan bulunamadı"
-          description="Filtreleri gevşetmeyi deneyin. Ayrıca ilk tarama henüz çalışmamış olabilir; Kaynaklar sayfasından son tarama durumunu görebilirsiniz."
+          icon="search"
+          title="Bu filtrelerle ilan bulunamadı"
+          description="Filtreleri gevşetmeyi deneyin. Kayıt sayısı kaynaklara ve tarama kapsamına bağlıdır; sistem tüm ilanları topladığını iddia etmez."
         />
       )}
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {query.data?.items.map((job) => <JobCard key={job.id} job={job} />)}
-      </div>
-
-      {query.data && (
-        <Pagination
-          page={query.data.page}
-          pages={query.data.pages}
-          onChange={(nextPage) => {
-            const next = filtersToParams(filters, nextPage, PAGE_SIZE);
-            setParams(next);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-        />
+      {jobs.data && jobs.data.items.length > 0 && (
+        <div className="job-list">
+          {jobs.data.items.map((job) => (
+            <JobCard job={job} key={job.id} />
+          ))}
+        </div>
       )}
 
-      <Card title="Sonuçlar nasıl oluşuyor?" description="Şeffaflık notu">
-        <ul className="list-disc space-y-1 pl-5 text-sm">
-          <li>Yalnızca sınıflandırmada "kabul" kararı verilen ilanlar listelenir; şüpheli kayıtlar inceleme kuyruğuna gider.</li>
-          <li>İhale, satın alma, sonuç/atama ve tebliğ içerikleri yeni ilan sayılmaz.</li>
-          <li>Eksik alanlar uydurulmaz: bilinmeyen değerler "belirtilmemiş" olarak gösterilir.</li>
-        </ul>
-      </Card>
+      {jobs.data && (
+        <Pagination page={jobs.data.page} pages={jobs.data.pages} onPage={goToPage} label="İlan sayfaları" />
+      )}
+
+      <p className="text-muted-sm">{HONESTY_NOTE}</p>
     </div>
   );
 }

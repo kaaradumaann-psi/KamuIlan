@@ -11,6 +11,7 @@ import { api, errorMessage } from '../lib/api';
 import { EDUCATION_LABELS, EMPLOYMENT_TYPE_LABELS, formatDateTime, turkishCapitalize } from '../lib/format';
 import type { NotificationHistoryResponse, PreferenceFilters, PreferencesResponse } from '../types';
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const EMPTY_FILTERS: PreferenceFilters = {
   keywords: [],
@@ -32,7 +33,7 @@ function toList(value: string): string[] {
     .filter((item) => item.length > 1);
 }
 
-export function PanelPage(): ReactNode {
+export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'history' } = {}): ReactNode {
   const queryClient = useQueryClient();
   const preferences = useQuery({ queryKey: ['preferences'], queryFn: () => api.get<PreferencesResponse>('/api/notifications/preferences') });
   const history = useQuery({ queryKey: ['history'], queryFn: () => api.get<NotificationHistoryResponse>('/api/notifications/history') });
@@ -82,6 +83,7 @@ export function PanelPage(): ReactNode {
   });
 
   const [deletePassword, setDeletePassword] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteAccount = useMutation({
     mutationFn: () => api.post<{ message: string }>('/api/auth/delete-account', { confirm: 'SIL', password: deletePassword }),
     onSuccess: (data) => {
@@ -96,8 +98,8 @@ export function PanelPage(): ReactNode {
     return (
       <Card title="Oturum gerekli">
         <ErrorNotice message={errorMessage(preferences.error)} />
-        <p className="mt-3 text-sm">
-          <Link to="/giris">Giriş yapın</Link> veya <Link to="/kayit">kayıt olun</Link>.
+        <p className="text-muted-sm mt-3">
+          <Link to="/giris">Giriş yapın</Link>. Hesabınız yoksa yöneticiden davet isteyin — halka açık kayıt yoktur.
         </p>
       </Card>
     );
@@ -116,11 +118,11 @@ export function PanelPage(): ReactNode {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold">Panelim</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className="text-muted-sm">
             {data.email} için bildirim tercihleri · doğrulama:{' '}
             {data.emailVerified ? <Badge tone="success">doğrulandı</Badge> : <Badge tone="warning">doğrulanmadı</Badge>}
           </p>
@@ -149,10 +151,20 @@ export function PanelPage(): ReactNode {
         </div>
       </header>
 
+      <nav className="subnav-tabs" aria-label="Panel bölümleri">
+        <Link className={view === 'preferences' ? 'subnav-tab is-active' : 'subnav-tab'} to="/panel">
+          Tercihlerim
+        </Link>
+        <Link className={view === 'history' ? 'subnav-tab is-active' : 'subnav-tab'} to="/panel/gecmis">
+          Bildirim geçmişi
+        </Link>
+      </nav>
+
       {data.notice && <InfoNote tone="warning">{data.notice}</InfoNote>}
       {message && <InfoNote>{message}</InfoNote>}
       {error && <ErrorNotice message={error} />}
 
+      {view === 'preferences' && (
       <Card
         title="Bildirim tercihleri"
         description="Kriterlerin tümü 'VEYA' mantığıyla filtrelenir; ilan bu kriterlerden en az birine uyduğunda bildirim üretilir."
@@ -353,18 +365,21 @@ export function PanelPage(): ReactNode {
         </form>
       </Card>
 
+      )}
+
+      {view === 'history' && (
       <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">
         {history.isLoading && <Spinner />}
         {history.data && (
           <>
             {history.data.events.length === 0 ? (
-              <p className="text-sm text-slate-600 dark:text-slate-300">Henüz bildirim üretilmedi.</p>
+              <p className="text-muted-sm">Henüz bildirim üretilmedi.</p>
             ) : (
               <ul className="space-y-2 text-sm">
                 {history.data.events.map((event) => (
                   <li key={event.id} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
                     <p className="font-medium">{event.jobTitle ?? event.jobId}</p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                    <p className="text-muted-sm">
                       {event.kind === 'new-job' ? 'Yeni ilan' : 'İlan güncellendi'} · {formatDateTime(event.createdAt)} ·{' '}
                       {event.matchedOn.length > 0 ? `eşleşme: ${event.matchedOn.join(', ')}` : 'eşleşme bilgisi yok'}
                     </p>
@@ -390,13 +405,16 @@ export function PanelPage(): ReactNode {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{history.data.notice}</p>
+                <p className="text-muted-sm mt-2">{history.data.notice}</p>
               </div>
             )}
           </>
         )}
       </Card>
 
+      )}
+
+      {view === 'preferences' && (
       <Card title="Hesap ve veriler" description="KVKK: verilerinizi kendiniz yönetirsiniz.">
         <p className="text-sm">
           Bildirimleri duraklatmak ya da hesabınızı silmek için aşağıdaki işlemleri kullanabilirsiniz. Hesap silindiğinde e-posta
@@ -415,14 +433,25 @@ export function PanelPage(): ReactNode {
           </Field>
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-danger"
             disabled={deletePassword.length < 10 || deleteAccount.isPending}
-            onClick={() => deleteAccount.mutate()}
+            onClick={() => setConfirmDelete(true)}
           >
             Hesabımı sil
           </button>
+          {confirmDelete && (
+            <ConfirmDialog
+              title="Hesabı sil"
+              description="Bu işlem geri alınamaz: e-posta adresiniz anonimleştirilir, bildirim tercihleriniz ve oturumlarınız kaldırılır. Kamuya açık ilan kayıtları korunur."
+              confirmLabel="Hesabımı kalıcı olarak sil"
+              busy={deleteAccount.isPending}
+              onConfirm={() => deleteAccount.mutate()}
+              onCancel={() => setConfirmDelete(false)}
+            />
+          )}
         </div>
       </Card>
+      )}
     </div>
   );
 }

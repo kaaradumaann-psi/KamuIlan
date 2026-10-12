@@ -65,6 +65,9 @@ export interface RunSourceResult {
 
 const LOCK_TTL_PADDING_MS = 90_000;
 const ADMIN_WARNING_FAILURE_THRESHOLD = 3;
+
+/** Aynı kaynak için yönetici uyarısının tekrar aralığı (6 saat). */
+const SOURCE_WARNING_REPEAT_MS = 6 * 60 * 60 * 1000;
 const KNOWN_ITEMS_LOOKBACK = 5_000;
 
 /** Adaptörün ihtiyaç duyduğu kaynak tanımı (envanter kaydı; yoksa DB kaydından türetilir). */
@@ -290,9 +293,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
     lastModified,
     contentHash,
     contentUnchanged,
+    skipped: status === 'skipped',
   });
 
-  await warnOnRepeatedFailures({ repos, source, logger, fatalError });
+  // Atlanan tarama da yöneticiyi ilgilendirir (kaynak hiç toplanamıyor); uyarı
+  // metni atlama ile hatayı ayırır ve uyarılar 6 saatte bir tekrarlanır.
+  await warnOnRepeatedFailures({ repos, source, logger, fatalError, skipped: status === 'skipped' });
 
   await repos.locks.release(lockKey, workerId);
 
@@ -394,20 +400,36 @@ async function warnOnRepeatedFailures(input: {
   source: SourceDoc;
   logger: Logger;
   fatalError: Error | null;
+  skipped?: boolean;
 }): Promise<void> {
-  const { repos, source, logger, fatalError } = input;
+  const { repos, source, logger, fatalError, skipped = false } = input;
   const current = await repos.sources.getByKey(source.key);
   const failures = current?.health.consecutiveFailures ?? 0;
   if (!fatalError || failures < ADMIN_WARNING_FAILURE_THRESHOLD) return;
 
-  const message = `${source.name} kaynağı ${failures} kez üst üste başarısız oldu: ${fatalError.message}`;
-  logger.warn({ sourceKey: source.key, failures }, message);
+  // Uyarı en fazla 6 saatte bir tekrarlanır: 1 dakikalık test taramasında her
+  // dakika aynı kaydı yazmak denetim kaydını ve logu okunamaz hale getirirdi.
+  const lastWarningAt = current?.health.lastWarningAt ?? null;
+  const due =
+    lastWarningAt === null || Date.parse(lastWarningAt) < repos.clock.now().getTime() - SOURCE_WARNING_REPEAT_MS;
+
+  const message = skipped
+    ? `${source.name} kaynağı ${failures} kez üst üste toplanamadı (atlandı): ${fatalError.message}`
+    : `${source.name} kaynağı ${failures} kez üst üste başarısız oldu: ${fatalError.message}`;
+
+  if (!due) {
+    logger.debug({ sourceKey: source.key, failures }, `${message} (uyarı tekrarı bastırıldı)`);
+    return;
+  }
+
+  logger.warn({ sourceKey: source.key, failures, skipped }, message);
+  await repos.sources.recordWarning(source.key, repos.clock.now().toISOString());
   await repos.audit.append({
     actorUserId: null,
     actorRole: 'worker',
-    action: 'source.failing',
+    action: skipped ? 'source.skipping' : 'source.failing',
     targetType: 'source',
     targetId: source.key,
-    meta: { failures, error: fatalError.message, lastSuccessAt: current?.health.lastSuccessAt ?? null },
+    meta: { failures, skipped, error: fatalError.message, lastSuccessAt: current?.health.lastSuccessAt ?? null },
   });
 }

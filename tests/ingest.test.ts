@@ -34,7 +34,7 @@ const NOW = new Date('2026-10-12T09:00:00+03:00');
 const WORKER = 'worker-test-1';
 
 async function makeRepos(): Promise<Repos> {
-  const dir = mkdtempSync(join(tmpdir(), 'kamuradar-ingest-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kamuilan-ingest-'));
   const store = new FileStore(dir);
   await store.init();
   return createRepos(store, fixedClock(NOW));
@@ -294,7 +294,7 @@ describe('bildirim olayları', () => {
       job: job!,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
     });
 
     expect(result.queued).toBe(1);
@@ -314,7 +314,7 @@ describe('bildirim olayları', () => {
       job: job!,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
     });
     expect(tekrar.queued).toBe(0);
     expect(tekrar.alreadyExists).toBe(1);
@@ -333,7 +333,7 @@ describe('bildirim olayları', () => {
       job: job!,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
     });
 
     expect(result.matched).toBe(0);

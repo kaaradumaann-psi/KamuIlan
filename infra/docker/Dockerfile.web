@@ -1,4 +1,4 @@
-# KamuRadar — üretim arayüz imajı (statik derleme + nginx)
+# Kamuİlan — üretim arayüz imajı (statik derleme + nginx)
 #
 # Derleme: `npm run build` (Vite) → dist/
 # Sunum:   nginx, SPA yönlendirmeleri ve /api proxy'si ile.

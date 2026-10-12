@@ -1,31 +1,54 @@
 /**
- * Ortak arayüz bileşenleri (erişilebilir, mobil öncelikli).
+ * Ortak arayüz yapı taşları.
  *
- * Bu dosya iş mantığı içermez; yalnızca sunum ve erişilebilirlik sorumluluğu vardır.
+ * Tasarım dili psikolog/MMPI çalışma alanlarıyla aynı sınıf sözlüğünü kullanır
+ * (`screen.css`, `theme.css`, `workspace.css`, `kamuilan.css`). Burada yeni
+ * görsel karar verilmez; yalnızca var olan sınıflar tek yerden üretilir ki
+ * sayfalar birbirinden farklı görünmesin.
  */
-import type { ReactNode } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
+import { Icon } from './Icon';
+import type { IconName } from './Icon';
 
-export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' }): ReactNode {
-  const tones: Record<string, string> = {
-    neutral: 'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200',
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200',
-    warning: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100',
-    danger: 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200',
-    info: 'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100',
-  };
-  return <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${tones[tone]}`}>{children}</span>;
+export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'accent';
+
+/** Etiket: durum, tür ve güven göstergeleri. */
+export function Tag({ children, tone = 'neutral', icon }: { children: ReactNode; tone?: Tone; icon?: IconName }) {
+  return (
+    <span className={`tag tag-${tone}`}>
+      {icon && <Icon name={icon} size={12} />}
+      <span>{children}</span>
+    </span>
+  );
 }
 
-export function Card({ title, children, description, actions }: { title?: string; description?: string; children: ReactNode; actions?: ReactNode }): ReactNode {
+/** Eski ad (`Badge`) ile geriye dönük uyum: aynı bileşen. */
+export const Badge = Tag;
+
+export function Card({
+  title,
+  description,
+  actions,
+  children,
+  className = '',
+  id,
+}: {
+  title?: string;
+  description?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  id?: string;
+}) {
   return (
-    <section className="card">
+    <section className={`card-elevated ${className}`.trim()} id={id}>
       {(title || actions) && (
-        <header className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <header className="card-head">
           <div>
-            {title && <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">{title}</h2>}
-            {description && <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{description}</p>}
+            {title && <h3 className="card-title">{title}</h3>}
+            {description && <p className="card-sub">{description}</p>}
           </div>
-          {actions}
+          {actions && <div className="card-actions">{actions}</div>}
         </header>
       )}
       {children}
@@ -33,138 +56,361 @@ export function Card({ title, children, description, actions }: { title?: string
   );
 }
 
-export function Spinner({ label = 'Yükleniyor…' }: { label?: string }): ReactNode {
+export function Spinner({ label = 'Yükleniyor…' }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 py-6 text-sm text-slate-600 dark:text-slate-300" role="status" aria-live="polite">
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand-600" aria-hidden="true" />
-      {label}
+    <span className="spinner-inline" role="status">
+      <span className="spinner" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+export function LoadingCard({ title = 'Yükleniyor…', description }: { title?: string; description?: string }) {
+  return (
+    <div className="loading-state-card" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <h4>{title}</h4>
+      {description && <p>{description}</p>}
     </div>
   );
 }
 
-export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }): ReactNode {
-  return (
-    <div className="card text-center">
-      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
-      {description && <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{description}</p>}
-      {action && <div className="mt-3 flex justify-center">{action}</div>}
-    </div>
-  );
-}
-
-export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }): ReactNode {
-  return (
-    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-      <p>{message}</p>
-      {onRetry && (
-        <button type="button" className="btn-secondary mt-2" onClick={onRetry}>
-          Yeniden dene
-        </button>
-      )}
-    </div>
-  );
-}
-
-export function InfoNote({ children, tone = 'info' }: { children: ReactNode; tone?: 'info' | 'warning' }): ReactNode {
-  const styles =
-    tone === 'warning'
-      ? 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
-      : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200';
-  return <p className={`rounded-lg border p-3 text-sm ${styles}`}>{children}</p>;
-}
-
-export function Field({
-  label,
-  htmlFor,
-  hint,
-  error,
-  children,
-  required,
+export function EmptyState({
+  title,
+  description,
+  action,
+  icon = 'search',
 }: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  icon?: IconName;
+}) {
+  return (
+    <div className="empty-state-card">
+      <span className="empty-state-icon" aria-hidden="true">
+        <Icon name={icon} size={22} />
+      </span>
+      <h4>{title}</h4>
+      {description && <p>{description}</p>}
+      {action && <div className="empty-state-action">{action}</div>}
+    </div>
+  );
+}
+
+export function ErrorNotice({ message, onRetry, title }: { message: string; onRetry?: () => void; title?: string }) {
+  return (
+    <div className="notice notice-danger" role="alert">
+      <Icon name="alert" size={16} />
+      <div>
+        {title && <strong>{title}</strong>}
+        <p>{message}</p>
+        {onRetry && (
+          <button type="button" className="btn-secondary btn-sm" onClick={onRetry}>
+            Yeniden dene
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function InfoNote({
+  children,
+  tone = 'info',
+  title,
+}: {
+  children: ReactNode;
+  tone?: 'info' | 'warning' | 'success' | 'danger';
+  title?: string;
+}) {
+  return (
+    <div className={`notice notice-${tone}`}>
+      <Icon name={tone === 'info' ? 'info' : tone === 'success' ? 'check' : 'alert'} size={16} />
+      <div>
+        {title && <strong>{title}</strong>}
+        <div>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+type FieldProps = {
   label: string;
-  htmlFor: string;
+  htmlFor?: string;
   hint?: string;
   error?: string | null;
   required?: boolean;
   children: ReactNode;
-}): ReactNode {
+};
+
+/** Etiket + ipucu + hata metnini aynı düzende tutar. */
+export function Field({ label, htmlFor, hint, error, required = false, children }: FieldProps) {
   return (
-    <div>
-      <label className="label" htmlFor={htmlFor}>
+    <div className="form-group">
+      <label htmlFor={htmlFor}>
         {label}
-        {required && <span aria-hidden="true"> *</span>}
+        {required && <span className="field-required"> *</span>}
       </label>
       {children}
-      {hint && (
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400" id={`${htmlFor}-hint`}>
-          {hint}
-        </p>
-      )}
+      {hint && !error && <span className="field-hint">{hint}</span>}
       {error && (
-        <p className="mt-1 text-xs text-red-700 dark:text-red-300" id={`${htmlFor}-error`} role="alert">
+        <span className="form-error" role="alert">
           {error}
-        </p>
+        </span>
       )}
     </div>
   );
 }
 
-export function DefinitionList({ items }: { items: { term: string; value: ReactNode }[] }): ReactNode {
+/** Metin girişi (etiket/ipucu/hata Field ile birlikte kullanılır). */
+export function TextInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+  invalid = false,
+  autoComplete,
+  inputMode,
+  min,
+  max,
+  disabled = false,
+}: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: 'text' | 'email' | 'password' | 'number' | 'date' | 'search' | 'tel';
+  invalid?: boolean;
+  autoComplete?: string;
+  inputMode?: 'text' | 'numeric' | 'email';
+  min?: number;
+  max?: number;
+  disabled?: boolean;
+}) {
   return (
-    <dl className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+    <input
+      id={id}
+      className={invalid ? 'is-invalid' : undefined}
+      type={type}
+      value={value}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+      inputMode={inputMode}
+      min={min}
+      max={max}
+      disabled={disabled}
+      aria-invalid={invalid || undefined}
+      onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value)}
+    />
+  );
+}
+
+/** Onay kutusu — erişilebilirlik için etiket tıklanabilir alanı kaplar. */
+export function Checkbox({
+  id,
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <label className="checkbox-row" htmlFor={id}>
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.checked)}
+      />
+      <span>
+        <strong>{label}</strong>
+        {hint && <span className="field-hint">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+/** Terim–değer listesi (detay ve durum sayfalarında ortak kullanım). */
+export function DefinitionList({ items }: { items: { term: string; value: ReactNode; hint?: string }[] }) {
+  return (
+    <dl className="definition-list">
       {items.map((item) => (
-        <div key={item.term} className="min-w-0">
-          <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{item.term}</dt>
-          <dd className="break-words text-sm text-slate-900 dark:text-slate-100">{item.value}</dd>
+        <div className="definition-row" key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>
+            {item.value}
+            {item.hint && <span className="field-hint">{item.hint}</span>}
+          </dd>
         </div>
       ))}
     </dl>
   );
 }
 
+/** Sayfa numarası düğmeleri (yalnızca erişilebilir etiketlerle). */
 export function Pagination({
   page,
   pages,
-  onChange,
+  onPage,
+  label = 'Sayfalama',
 }: {
   page: number;
   pages: number;
-  onChange: (page: number) => void;
-}): ReactNode {
+  onPage: (page: number) => void;
+  label?: string;
+}) {
   if (pages <= 1) return null;
+  const windowSize = 2;
+  const start = Math.max(1, page - windowSize);
+  const end = Math.min(pages, page + windowSize);
+  const numbers: number[] = [];
+  for (let index = start; index <= end; index += 1) numbers.push(index);
+
   return (
-    <nav className="mt-4 flex items-center justify-between gap-2" aria-label="Sayfalar">
-      <button type="button" className="btn-secondary" onClick={() => onChange(page - 1)} disabled={page <= 1}>
-        ← Önceki
+    <nav className="pagination" aria-label={label}>
+      <button type="button" className="btn-secondary btn-sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <Icon name="left" size={14} />
+        <span>Önceki</span>
       </button>
-      <p className="text-sm text-slate-600 dark:text-slate-300" aria-live="polite">
+      {start > 1 && (
+        <>
+          <button type="button" className="page-btn" onClick={() => onPage(1)}>
+            1
+          </button>
+          {start > 2 && <span className="pagination-gap">…</span>}
+        </>
+      )}
+      {numbers.map((number) => (
+        <button
+          type="button"
+          key={number}
+          className={number === page ? 'page-btn is-current' : 'page-btn'}
+          aria-current={number === page ? 'page' : undefined}
+          onClick={() => onPage(number)}
+        >
+          {number}
+        </button>
+      ))}
+      {end < pages && (
+        <>
+          {end < pages - 1 && <span className="pagination-gap">…</span>}
+          <button type="button" className="page-btn" onClick={() => onPage(pages)}>
+            {pages}
+          </button>
+        </>
+      )}
+      <button type="button" className="btn-secondary btn-sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+        <span>Sonraki</span>
+        <Icon name="right" size={14} />
+      </button>
+      <span className="pagination-note">
         {page} / {pages}
-      </p>
-      <button type="button" className="btn-secondary" onClick={() => onChange(page + 1)} disabled={page >= pages}>
-        Sonraki →
-      </button>
+      </span>
     </nav>
   );
 }
 
-export function ProgressBar({ value, label }: { value: number; label: string }): ReactNode {
-  const percent = Math.max(0, Math.min(100, Math.round(value * 100)));
+/** Yüzde göstergesi: çıkarım güveni, kapsam oranı. */
+export function ProgressBar({ value, label }: { value: number; label: string }) {
+  const percent = Math.max(0, Math.min(100, Math.round(value)));
   return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
-        <span>{label}</span>
-        <span aria-hidden="true">{percent}%</span>
+    <div className="confidence-bar">
+      <div className="confidence-track" role="img" aria-label={`${label}: yüzde ${percent}`}>
+        <span className="confidence-fill" style={{ width: `${percent}%` }} />
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-        <div
-          className="h-full rounded-full bg-brand-600"
-          style={{ width: `${percent}%` }}
-          role="progressbar"
-          aria-valuenow={percent}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={label}
-        />
+      <span className="confidence-value">
+        {label} %{percent}
+      </span>
+    </div>
+  );
+}
+
+/** Sekme başlıkları (yönetim paneli ve panel içi bölümler). */
+export function Tabs({
+  tabs,
+  current,
+  onSelect,
+  label,
+}: {
+  tabs: { id: string; label: string; count?: number }[];
+  current: string;
+  onSelect: (id: string) => void;
+  label: string;
+}) {
+  return (
+    <div className="subnav-tabs" role="tablist" aria-label={label}>
+      {tabs.map((tab) => (
+        <button
+          type="button"
+          key={tab.id}
+          role="tab"
+          aria-selected={tab.id === current}
+          className={tab.id === current ? 'subnav-tab is-active' : 'subnav-tab'}
+          onClick={() => onSelect(tab.id)}
+        >
+          <span>{tab.label}</span>
+          {typeof tab.count === 'number' && <span className="subnav-count">{tab.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Ölçü kartı: yalnızca gerçek sunucu değerleri için kullanılır. */
+export function StatCard({
+  label,
+  value,
+  icon,
+  hint,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: ReactNode;
+  icon?: IconName;
+  hint?: string;
+  tone?: Tone;
+}) {
+  return (
+    <div className={`stat-item stat-${tone}`}>
+      {icon && (
+        <span className="stat-icon" aria-hidden="true">
+          <Icon name={icon} size={18} />
+        </span>
+      )}
+      <div>
+        <span className="stat-label">{label}</span>
+        <strong className="stat-val">{value}</strong>
+        {hint && <span className="field-hint">{hint}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Yatay kaydırmalı tablo sarmalayıcı (mobilde kart görünümüne düşer). */
+export function DataTable({ head, children, caption }: { head: string[]; children: ReactNode; caption: string }) {
+  return (
+    <div className="modern-table-card">
+      <div className="table-responsive">
+        <table className="modern-data-table">
+          <caption className="visually-hidden">{caption}</caption>
+          <thead>
+            <tr>
+              {head.map((cell) => (
+                <th key={cell} scope="col">
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>{children}</tbody>
+        </table>
       </div>
     </div>
   );

@@ -1,74 +1,95 @@
 /**
- * İlan kartı: liste görünümünde kullanılır.
+ * İlan kartı — liste ve ana sayfada ortak.
  *
- * Gösterilen her alan ilan kaydından gelir; eksik alan "belirtilmemiş" olarak
- * işaretlenir ve kart, örnek veri olduğunda bunu açıkça söyler.
+ * Kart yalnızca kayıttaki alanları gösterir; hiçbir değer tahmin edilmez.
+ * Belirsiz alanlar ("—") olarak kalır ve kayıt demo verisiyse bu açıkça yazılır.
  */
-import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS, deadlineLabel, formatDateOnly, formatNumber } from '../lib/format';
+import { EMPLOYMENT_TYPE_LABELS, deadlineLabel, formatDateOnly, formatRelative } from '../lib/format';
 import type { PublicJobSummary } from '../types';
-import { Badge } from './ui';
+import { Icon } from './Icon';
+import { Tag } from './ui';
 
-export function JobCard({ job }: { job: PublicJobSummary }): ReactNode {
-  const deadlineTone =
-    job.deadline.state === 'closed'
-      ? 'danger'
-      : job.deadline.state === 'closing-soon'
-        ? 'warning'
-        : job.deadline.state === 'active'
-          ? 'success'
-          : 'neutral';
+/** Kapanış bilgisi etiket tonu (duruma göre). */
+function deadlineTone(job: PublicJobSummary): 'success' | 'warning' | 'info' | 'neutral' {
+  if (job.deadline.state === 'closing-soon') return 'warning';
+  if (job.deadline.state === 'active') return 'success';
+  if (job.deadline.state === 'upcoming') return 'info';
+  return 'neutral';
+}
+
+export function JobCard({ job }: { job: PublicJobSummary }) {
+  const city = [job.city, job.district].filter((part): part is string => Boolean(part)).join(' / ');
 
   return (
-    <article className="card">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="info">{EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType}</Badge>
-        <Badge tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
-          {JOB_STATUS_LABELS[job.status] ?? job.status}
-        </Badge>
-        <Badge tone={deadlineTone as 'danger' | 'warning' | 'success' | 'neutral'}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Badge>
-        {job.provenance === 'sample' && <Badge tone="warning">örnek veri</Badge>}
-      </div>
+    <article className="job-card">
+      <header className="job-card-head">
+        <span className="job-card-institution">
+          <Icon name="building" size={14} />
+          {job.institution}
+        </span>
+        <span className="job-card-dates">
+          {job.publishedAt ? `Yayım: ${formatDateOnly(job.publishedAt)}` : 'Yayım tarihi belirtilmemiş'}
+        </span>
+      </header>
 
-      <h3 className="mt-2 text-base font-semibold leading-snug">
-        <Link to={`/ilanlar/${job.id}`} className="text-slate-900 no-underline hover:underline dark:text-slate-50">
-          {job.title}
-        </Link>
+      <h3 className="job-card-title">
+        <Link to={`/ilanlar/${encodeURIComponent(job.id)}`}>{job.title}</Link>
       </h3>
 
-      <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{job.institution}</p>
-
-      <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Kontenjan</dt>
-          <dd>{formatNumber(job.quota)}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Yer</dt>
-          <dd>{[job.city, job.district].filter(Boolean).join(' / ') || 'belirtilmemiş'}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Son başvuru</dt>
-          <dd>{job.applicationEndDate ? formatDateOnly(job.applicationEndDate) : 'belirtilmemiş'}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Kaynak</dt>
-          <dd>{job.sourceKeys.length > 0 ? job.sourceKeys.join(', ') : 'belirtilmemiş'}</dd>
-        </div>
-      </dl>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-        {job.titles.length > 0 && <span>Unvan: {job.titles.slice(0, 3).join(', ')}</span>}
-        {job.attachmentCount > 0 && <span>· {job.attachmentCount} ek belge</span>}
-        {job.hasApplicationUrl ? <span>· başvuru bağlantısı var</span> : <span>· başvuru bağlantısı belirtilmemiş</span>}
+      <div className="job-card-tags">
+        <Tag tone="accent">{job.employmentTypeLabel || EMPLOYMENT_TYPE_LABELS[job.employmentType] || 'Belirsiz'}</Tag>
+        {city && <Tag icon="mapPin">{city}</Tag>}
+        {job.quota !== null && <Tag icon="user">{`${job.quota} kişi`}</Tag>}
+        <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
+        {job.provenance === 'sample' && <Tag tone="warning">Örnek veri</Tag>}
+        {job.criticalMissingFields && job.criticalMissingFields.length > 0 && (
+          <Tag tone="warning">{`${job.criticalMissingFields.length} alan eksik`}</Tag>
+        )}
       </div>
 
-      <div className="mt-3">
-        <Link className="btn-secondary" to={`/ilanlar/${job.id}`}>
-          İlan detayı
-        </Link>
-      </div>
+      {(job.unit || job.titles.length > 0 || job.attachmentCount > 0) && (
+        <ul className="job-card-meta">
+          {job.unit && (
+            <li>
+              <Icon name="layers" size={13} /> {job.unit}
+            </li>
+          )}
+          {job.titles.length > 0 && (
+            <li>
+              <Icon name="tag" size={13} /> {job.titles.slice(0, 3).join(', ')}
+              {job.titles.length > 3 ? ` +${job.titles.length - 3}` : ''}
+            </li>
+          )}
+          {job.attachmentCount > 0 && (
+            <li>
+              <Icon name="file" size={13} /> {job.attachmentCount} belge
+            </li>
+          )}
+          <li>
+            <Icon name="list" size={13} />{' '}
+            {job.sourceKeys.length > 1 ? `${job.sourceKeys.length} kaynak` : '1 kaynak'}
+          </li>
+        </ul>
+      )}
+
+      <footer className="job-card-foot">
+        <span>
+          {job.hasApplicationUrl ? (
+            <>
+              <Icon name="link" size={13} /> Başvuru bağlantısı var
+            </>
+          ) : (
+            <>
+              <Icon name="info" size={13} /> Başvuru bağlantısı ilanda belirtilmemiş
+            </>
+          )}
+        </span>
+        <span>
+          Son doğrulama:{' '}
+          {job.lastVerifiedAt ? formatRelative(job.lastVerifiedAt) : 'henüz doğrulanmadı'}
+        </span>
+      </footer>
     </article>
   );
 }

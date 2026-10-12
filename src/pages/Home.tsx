@@ -1,177 +1,295 @@
 /**
- * Ana sayfa: güncel ilanlar, yakın son başvurular, tür dağılımı ve sistem durumu.
+ * Ana sayfa — herkese açık özet.
  *
- * Kural: Hiçbir sayı uydurulmaz. Tüm değerler `/api/jobs/stats` ve
- * `/api/health` yanıtlarından gelir; veri yoksa "henüz veri yok" yazılır.
+ * Buradaki her sayı sunucudan gelir (`/api/jobs/stats`, `/api/health`). Sistem
+ * "tüm ilanlar" iddiasında bulunmaz: kapsam, son başarılı tarama ve doğrulanmış
+ * kaynak sayısı açıkça yazılır.
  */
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import { api } from '../lib/api';
-import { EMPLOYMENT_TYPE_LABELS, formatNumber, formatRelative } from '../lib/format';
-import type { DashboardStats, HealthResponse, JobListResponse } from '../types';
+import { useState, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { PROVINCES } from '../domain/provinces';
 import { JobCard } from '../components/JobCard';
-import { Card, EmptyState, ErrorNotice, InfoNote, Spinner } from '../components/ui';
+import { Icon } from '../components/Icon';
+import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
+import { api, errorMessage } from '../lib/api';
+import {
+  EMPLOYMENT_TYPE_LABELS,
+  deadlineLabel,
+  formatDateOnly,
+  formatNumber,
+  formatRelative,
+} from '../lib/format';
+import { APP_TAGLINE, HONESTY_NOTE } from '../site';
+import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary } from '../types';
 
-export function HomePage(): ReactNode {
-  const stats = useQuery({ queryKey: ['stats'], queryFn: () => api.get<DashboardStats>('/api/jobs/stats') });
-  const health = useQuery({ queryKey: ['health'], queryFn: () => api.get<HealthResponse>('/api/health') });
-  const latest = useQuery({
-    queryKey: ['jobs', 'latest'],
-    queryFn: () => api.get<JobListResponse>('/api/jobs', { pageSize: 6, sort: 'newest' }),
-  });
-  const closing = useQuery({
-    queryKey: ['jobs', 'closing-soon'],
-    queryFn: () => api.get<JobListResponse>('/api/jobs', { pageSize: 4, sort: 'deadline', status: 'active' }),
+const STATS_KEY = ['home', 'stats'] as const;
+const LATEST_KEY = ['home', 'latest'] as const;
+const CLOSING_KEY = ['home', 'closing'] as const;
+const HEALTH_KEY = ['home', 'health'] as const;
+
+/** Sistem durumu şeridi: gerçek sağlık yanıtından türetilir. */
+function statusLabel(status: HealthResponse['status'] | undefined): { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' } {
+  if (status === 'ok') return { label: 'Sistem normal', tone: 'success' };
+  if (status === 'degraded') return { label: 'Sistem kısmen sorunlu', tone: 'warning' };
+  if (status === 'down') return { label: 'Sistem erişilemez', tone: 'danger' };
+  return { label: 'Durum bilinmiyor', tone: 'neutral' };
+}
+
+function SystemStrip() {
+  const health = useQuery({
+    queryKey: HEALTH_KEY,
+    queryFn: () => api.get<HealthResponse>('/api/health'),
+    refetchInterval: 60_000,
+    retry: 1,
   });
 
+  if (health.isLoading) return <div className="status-strip" aria-busy="true">Sistem durumu okunuyor…</div>;
+  if (health.isError || !health.data) {
+    return (
+      <div className="status-strip is-warning" role="status">
+        <Icon name="alert" size={15} />
+        <span>Sistem durumu şu anda okunamıyor. Sayfayı yenilediğinizde yeniden denenecek.</span>
+      </div>
+    );
+  }
+
+  const data = health.data;
+  const state = statusLabel(data.status);
   return (
-    <div className="space-y-6">
-      <section className="card bg-gradient-to-br from-brand-600 to-brand-700 text-white dark:from-brand-700 dark:to-slate-900">
-        <h1 className="text-2xl font-semibold sm:text-3xl">Kamu personel alım ilanları — tek yerde, kaynaklı</h1>
-        <p className="mt-2 max-w-3xl text-sm text-brand-50">
-          Resmî Gazete, ilan.gov.tr, ÖSYM, İŞKUR, Kariyer Kapısı ve kurum sayfalarından ilanlar toplanır; sınıflandırılır,
-          tekilleştirilir ve kriterlerinize uyan yeni ilanlar için e-posta gönderilir.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link to="/ilanlar" className="btn bg-white text-brand-700 hover:bg-brand-50">
-            İlanları ara
-          </Link>
-          <Link to="/kaynaklar" className="btn border border-white/40 text-white hover:bg-white/10">
-            Kaynak kapsamı
-          </Link>
-          <Link to="/giris" className="btn border border-white/40 text-white hover:bg-white/10">
-            Bildirim al
-          </Link>
-        </div>
-      </section>
-
-      {health.data && health.data.warnings.length > 0 && (
-        <InfoNote tone="warning">
-          <strong>Sistem uyarısı:</strong> {health.data.warnings.join(' ')}
-        </InfoNote>
+    <div className={`status-strip is-${state.tone}`} role="status">
+      <Tag tone={state.tone}>{state.label}</Tag>
+      <span>
+        Son başarılı tarama:{' '}
+        <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'kayıt yok'}</strong>
+      </span>
+      <span>
+        Worker: <strong>{data.workers.running} çalışıyor</strong>
+        {data.workers.stale > 0 ? `, ${data.workers.stale} bayat` : ''}
+      </span>
+      <span>
+        Kaynaklar: <strong>{data.sources.enabled} etkin</strong> · {data.sources.built ?? 0} adaptör yazılmış ·{' '}
+        {data.sources.verified} canlı doğrulanmış · {data.sources.planned} planlı
+      </span>
+      {data.queue.pending + data.queue.active > 0 && (
+        <span>
+          Kuyruk: <strong>{data.queue.pending + data.queue.active} iş</strong>
+        </span>
       )}
-
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {stats.isLoading && <Spinner />}
-        {stats.data && (
-          <>
-            <StatCard label="Toplam ilan" value={formatNumber(stats.data.total)} />
-            <StatCard label="Başvuruya açık" value={formatNumber(stats.data.active)} />
-            <StatCard label="Yakında başlıyor" value={formatNumber(stats.data.upcoming)} />
-            <StatCard label="Son 7 günde kapanan/kapanacak" value={formatNumber(stats.data.closingSoon)} />
-            <StatCard label="Bugün eklenen" value={formatNumber(stats.data.addedToday)} />
-            <StatCard label="Kapandı" value={formatNumber(stats.data.closed)} />
-          </>
-        )}
-      </section>
-
-      {stats.data && (
-        <Card title="İlan türüne göre dağılım" description="Yalnızca kayıtlı ilanlardan hesaplanır.">
-          {stats.data.byEmploymentType.length === 0 ? (
-            <p className="text-sm text-slate-600 dark:text-slate-300">Henüz ilan yok.</p>
-          ) : (
-            <ul className="space-y-2">
-              {stats.data.byEmploymentType.map((entry) => {
-                const total = stats.data?.total ?? 1;
-                const percent = Math.round((entry.count / Math.max(1, total)) * 100);
-                return (
-                  <li key={entry.key}>
-                    <div className="flex items-center justify-between text-sm">
-                      <Link to={`/ilanlar?employmentType=${encodeURIComponent(entry.key)}`}>
-                        {EMPLOYMENT_TYPE_LABELS[entry.key] ?? entry.key}
-                      </Link>
-                      <span className="text-slate-600 dark:text-slate-300">
-                        {formatNumber(entry.count)} ({percent}%)
-                      </span>
-                    </div>
-                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                      <div className="h-full rounded-full bg-brand-500" style={{ width: `${percent}%` }} />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-      )}
-
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="space-y-3">
-          <header className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">En yeni ilanlar</h2>
-            <Link to="/ilanlar?sort=newest" className="text-sm">
-              Tümü
-            </Link>
-          </header>
-          {latest.isError && <ErrorNotice message="İlanlar yüklenemedi." onRetry={() => void latest.refetch()} />}
-          {latest.data?.items.length === 0 && (
-            <EmptyState
-              title="Henüz ilan toplanmadı"
-              description="Kaynaklar ilk taramayı bekliyor. Worker çalıştığında ilanlar burada görünür — tarayıcıyı açık tutmanız gerekmez."
-            />
-          )}
-          {latest.data?.items.map((job) => <JobCard key={job.id} job={job} />)}
-        </div>
-
-        <div className="space-y-3">
-          <header className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Son günler</h2>
-            <Link to="/ilanlar?sort=deadline&status=active" className="text-sm">
-              Tümü
-            </Link>
-          </header>
-          {closing.data?.items.length === 0 && (
-            <EmptyState title="Yakın tarihli kapanan ilan yok" description="Son başvuru tarihi yaklaşan ilan bulunmuyor." />
-          )}
-          {closing.data?.items.map((job) => <JobCard key={job.id} job={job} />)}
-        </div>
-      </section>
-
-      <Card title="Sistem durumu" description="Bu bilgiler gerçek ölçümlerdir: son başarılı tarama, worker kalp atışı ve kapsam.">
-        {health.isError && <ErrorNotice message="Sistem durumu okunamadı." onRetry={() => void health.refetch()} />}
-        {health.data && (
-          <ul className="space-y-1 text-sm">
-            <li>Durum: {health.data.status === 'ok' ? 'normal' : health.data.status === 'degraded' ? 'kısmen sorunlu' : 'erişilemez'}</li>
-            <li>
-              Son başarılı tarama:{' '}
-              {health.data.scans.lastSuccessAt ? formatRelative(health.data.scans.lastSuccessAt) : 'henüz başarılı tarama yok'}
-            </li>
-            <li>
-              Tarama kaydı: {formatNumber(health.data.scans.totalRuns)} (başarısız {formatNumber(health.data.scans.failedRuns)})
-            </li>
-            <li>
-              Çalışan worker: {formatNumber(health.data.workers.running)} / {formatNumber(health.data.workers.total)} (bayat:{' '}
-              {formatNumber(health.data.workers.stale)})
-            </li>
-            <li>
-              Kuyruk: {health.data.queue.backend} — bekleyen {formatNumber(health.data.queue.pending)}, aktif{' '}
-              {formatNumber(health.data.queue.active)}, ölü {formatNumber(health.data.queue.dead)}
-            </li>
-            <li>
-              Kaynaklar: {formatNumber(health.data.sources.enabled)} etkin / {formatNumber(health.data.sources.total)} kayıtlı
-              (doğrulanmış {formatNumber(health.data.sources.verified)}, üst üste başarısız {formatNumber(health.data.sources.failing)})
-            </li>
-            <li className="text-slate-600 dark:text-slate-300">
-              Ayrıntılı kapsam ve boşluklar için <Link to="/kaynaklar">Kaynaklar</Link> sayfasına bakın.
-            </li>
-          </ul>
-        )}
-      </Card>
-
-      <InfoNote>
-        Bu sistem Türkiye'deki tüm kamu ilanlarını yakaladığını iddia etmez: yalnızca envanterde kayıtlı kaynaklar taranır,
-        henüz entegre edilmemiş kurum sayfaları kaynak listesinde açıkça belirtilir.
-      </InfoNote>
     </div>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }): ReactNode {
+export function HomePage() {
+  const navigate = useNavigate();
+  const [term, setTerm] = useState('');
+  const [city, setCity] = useState('');
+
+  const stats = useQuery({
+    queryKey: STATS_KEY,
+    queryFn: () => api.get<DashboardStats>('/api/jobs/stats'),
+  });
+  const latest = useQuery({
+    queryKey: LATEST_KEY,
+    queryFn: () => api.get<JobListResponse>('/api/jobs', { sort: 'newest', pageSize: 6 }),
+  });
+  const closing = useQuery({
+    queryKey: CLOSING_KEY,
+    queryFn: () =>
+      api.get<{ items: PublicJobSummary[]; days: number; generatedAt: string }>('/api/jobs/deadlines/upcoming', {
+        days: 14,
+      }),
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    if (term.trim()) params.set('q', term.trim());
+    if (city.trim()) params.set('city', city.trim());
+    const query = params.toString();
+    navigate(`/ilanlar${query ? `?${query}` : ''}`);
+  }
+
+  const typeCounts = stats.data?.byEmploymentType ?? [];
+  const maxType = typeCounts.reduce((max, item) => Math.max(max, item.count), 0);
+
   return (
-    <div className="card">
-      <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    <div className="page-stack">
+      <section className="hero-band">
+        <div className="hero-band-inner">
+          <div className="hero-text-side">
+            <span className="kicker">Kamu ilanı takip sistemi</span>
+            <h1>Kamu personel alım ilanları — kaynaklı, tekilleştirilmiş, takvime bağlı</h1>
+            <p className="info-lede">{APP_TAGLINE}</p>
+            <form className="hero-search" onSubmit={submit} role="search" aria-label="İlan ara">
+              <div className="search-input-wrapper">
+                <Icon name="search" size={18} />
+                <input
+                  type="search"
+                  value={term}
+                  onChange={(event) => setTerm(event.target.value)}
+                  placeholder="Unvan, kurum veya anahtar kelime (örn. hemşire, zabıta, DSİ)"
+                  aria-label="Arama terimi"
+                />
+              </div>
+              <div className="search-input-wrapper">
+                <Icon name="mapPin" size={18} />
+                <input
+                  type="search"
+                  value={city}
+                  onChange={(event) => setCity(event.target.value)}
+                  placeholder="İl (örn. İstanbul)"
+                  aria-label="İl"
+                  list="il-listesi"
+                />
+              </div>
+              <button type="submit" className="btn-primary">
+                <Icon name="search" size={16} />
+                <span>İlanlarda ara</span>
+              </button>
+            </form>
+            <div className="hero-actions">
+              <Link className="btn-secondary" to="/kaynaklar">
+                <Icon name="list" size={16} />
+                <span>Kaynaklar ve kapsam</span>
+              </Link>
+              <Link className="btn-secondary" to="/panel">
+                <Icon name="bell" size={16} />
+                <span>Bildirim kur</span>
+              </Link>
+            </div>
+          </div>
+
+          <div className="hero-foot">
+            <SystemStrip />
+          </div>
+        </div>
+      </section>
+
+      {stats.isError && (
+        <ErrorNotice
+          title="Özet sayılar alınamadı"
+          message={errorMessage(stats.error)}
+          onRetry={() => void stats.refetch()}
+        />
+      )}
+
+      {stats.data && (
+        <section className="stats-grid-4" aria-label="Güncel sayılar">
+          <StatCard label="Açık ilan" value={formatNumber(stats.data.active)} icon="layers" tone="accent" />
+          <StatCard label="Bugün eklenen" value={formatNumber(stats.data.addedToday)} icon="check" tone="success" />
+          <StatCard label="Kapanışa ≤ 7 gün" value={formatNumber(stats.data.closingSoon)} icon="clock" tone="warning" />
+          <StatCard label="Kayıtlı ilan (tümü)" value={formatNumber(stats.data.total)} icon="list" />
+        </section>
+      )}
+
+      <div className="dashboard-grid">
+        <Card
+          title="Son eklenen ilanlar"
+          description="Kaynak taramasında en son görülen ilanlar."
+          actions={
+            <Link className="board-text-link" to="/ilanlar?sort=newest">
+              Tümünü gör <Icon name="right" size={13} />
+            </Link>
+          }
+        >
+          {latest.isLoading && <LoadingCard title="İlanlar yükleniyor…" />}
+          {latest.isError && (
+            <ErrorNotice message={errorMessage(latest.error)} onRetry={() => void latest.refetch()} />
+          )}
+          {latest.data && latest.data.items.length === 0 && (
+            <p className="text-muted-sm">
+              Henüz ilan kaydı yok. Kaynaklar tarandıkça burada görünecek.
+            </p>
+          )}
+          {latest.data && latest.data.items.length > 0 && (
+            <div className="job-list">
+              {latest.data.items.map((job) => (
+                <JobCard job={job} key={job.id} />
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card title="Yaklaşan son başvuru tarihleri" description="Önümüzdeki 14 gün, aktif ilanlar.">
+          {closing.isLoading && <LoadingCard title="Takvim yükleniyor…" />}
+          {closing.isError && (
+            <ErrorNotice message={errorMessage(closing.error)} onRetry={() => void closing.refetch()} />
+          )}
+          {closing.data && closing.data.items.length === 0 && (
+            <p className="text-muted-sm">Önümüzdeki 14 gün içinde biten doğrulanmış başvuru tarihi yok.</p>
+          )}
+          {closing.data && closing.data.items.length > 0 && (
+            <ul className="report-list">
+              {closing.data.items.map((job) => (
+                <li className="report-list-item" key={job.id}>
+                  <div>
+                    <Link to={`/ilanlar/${encodeURIComponent(job.id)}`}>{job.title}</Link>
+                    <span className="cell-subtitle">{job.institution}</span>
+                  </div>
+                  <div className="report-list-meta">
+                    <span className="date-tag">{formatDateOnly(job.applicationEndAt)}</span>
+                    <span className="text-muted-sm">{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      {typeCounts.length > 0 && (
+        <Card title="İstihdam türüne göre dağılım" description="Kayıtlı ilanların tür bazında sayısı.">
+          <ul className="distribution-list">
+            {typeCounts.map((item) => (
+              <li key={item.key}>
+                <span className="distribution-label">{EMPLOYMENT_TYPE_LABELS[item.key] ?? item.key}</span>
+                <span className="distribution-track" aria-hidden="true">
+                  <span
+                    className="distribution-fill"
+                    style={{ width: maxType > 0 ? `${Math.round((item.count / maxType) * 100)}%` : '0%' }}
+                  />
+                </span>
+                <strong className="distribution-value">{formatNumber(item.count)}</strong>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <Card title="Sistem nasıl çalışıyor?" description="Kısaca boru hattı ve sınırları.">
+        <ol className="checklist">
+          <li>
+            <strong>Tarama:</strong> Kaynaklar zamanlanmış işlerle taranır; her taramanın sonucu, süresi ve hatası
+            kaydedilir. Bir kaynağa erişilemezse mevcut ilan kayıtları silinmez, kaynak "bayat" olarak işaretlenir.
+          </li>
+          <li>
+            <strong>Sınıflandırma:</strong> Personel alım ilanı olmayan içerik (ihale, tebliğ, sonuç listesi) kural
+            tabanlı olarak elenir; kararsız kalanlar inceleme kuyruğuna düşer, sessizce silinmez.
+          </li>
+          <li>
+            <strong>Çıkarım:</strong> Unvan, kurum, kontenjan, il, tarih, KPSS koşulu gibi alanlar belgeden çıkarılır;
+            bulunamayan alanlar "belirtilmemiş" olarak kalır ve hiçbir değer tahmin edilmez.
+          </li>
+          <li>
+            <strong>Tekilleştirme:</strong> Aynı ilan birden çok kaynakta yayımlanıyorsa tek kayda bağlanır; tüm kaynak
+            bağlantıları korunur. Benzer başlıklı farklı ilanlar otomatik birleştirilmez.
+          </li>
+          <li>
+            <strong>Bildirim:</strong> Kaydettiğiniz kriterlere uyan yeni ilanlar veya değişiklikler e-posta ile
+            gönderilir; gönderim sonucu (sağlayıcıya iletildi / kabul edildi) kayda geçer.
+          </li>
+        </ol>
+        <InfoNote title="Dürüstlük notu" tone="info">
+          {HONESTY_NOTE}
+        </InfoNote>
+      </Card>
+
+      <datalist id="il-listesi">
+        {PROVINCES.map((province) => (
+          <option value={province.name} key={province.plateCode} />
+        ))}
+      </datalist>
     </div>
   );
 }

@@ -43,6 +43,16 @@ Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çal
    geçici olarak kapatabilirsiniz; **kapatma mevcut ilanları silmez**.
 4. **Aralık değiştirme** — Yönetim → Kaynaklar → aralık alanı (dakika). Hızlı
    kaynaklar 30–60 dk, kurumsal sayfalar 2–6 saat, keşif işleri günlük.
+5. **Kaynak sürekli atlanıyor** — Tarama kaydı `status='skipped'` ve mesaj
+   "toplanamadı (atlandı)" ise kaynak yöntemsel olarak çalıştırılamıyordur
+   (ör. başsız tarayıcı kurulu değil, erişim kısıtlı). Atlama da sağlık
+   sayacını artırır, çünkü kaynak hiç toplanamıyordur; çözüm ya bağımlılığı
+   kurmak (`npx playwright install chromium`) ya da kaynağı `needs-manual-method`
+   olarak işaretlemektir. **Engel aşılmaz.**
+6. **Test aşamasında dakikalık tarama** — `SCAN_INTERVAL_MINUTES=1` iken bir
+   kaynak saatte 60 kez denenir. Kaynak başına `minRequestIntervalMs` yine
+   uygulanır ve aynı kaynak iki kez eşzamanlı taranmaz; ancak üretime çıkmadan
+   önce bu ayarı 30–360 aralığına çekin (kaynak temsili + kota).
 
 ## 3.1 Uyarı gürültüsünü önleme
 
@@ -69,16 +79,39 @@ bakım işi 7 günden eski kayıtları siler; panelde sahte "çalışıyor" gör
 
 ## 5. Yedekleme ve geri yükleme
 
-### MongoDB
+### Supabase (Postgres) — üretim
+
+```bash
+# Supabase Dashboard → Database → Backups (günlük otomatik yedek, Pro planda PITR)
+# Ek/bağımsız yedek: bağlantı dizesiyle pg_dump (supabase CLI ya da yerel pg_dump)
+pg_dump "$POSTGRES_URL" --schema=public --no-owner \
+  --table='kamuilan_*' --file=/backup/kamuilan-$(date +%F).sql
+
+# Geri yükleme (boş bir projeye/şemaya)
+psql "$POSTGRES_URL" --file=/backup/kamuilan-2026-10-12.sql
+```
+
+Yedek kapsamı: `kamuilan_sources`, `kamuilan_jobs`, `kamuilan_job_sources`,
+`kamuilan_job_revisions`, `kamuilan_users`, `kamuilan_sessions`,
+`kamuilan_notification_preferences`, `kamuilan_notification_events`,
+`kamuilan_email_outbox`, `kamuilan_scrape_runs`, `kamuilan_review_queue`,
+`kamuilan_audit_logs`, `kamuilan_scheduled_tasks`, `kamuilan_clusters`,
+`kamuilan_worker_heartbeats`. Atılabilir: `kamuilan_rate_limits`,
+`kamuilan_locks`, `kamuilan_queue_jobs`.
+
+Geri yükleme sonrası: `npm run db:indexes && npm run db:migrate`, ardından
+`GET /api/health` ve `npm run sources:report` ile doğrulayın.
+
+### MongoDB (alternatif)
 
 ```bash
 # Yedek (sıkıştırılmış)
-mongodump --uri="$MONGODB_URI" --db=kamuradar --gzip --archive=/backup/kamuradar-$(date +%F).gz \
+mongodump --uri="$MONGODB_URI" --db=kamuilan --gzip --archive=/backup/kamuilan-$(date +%F).gz \
   --excludeCollection=rateLimits --excludeCollection=locks
 
 # Geri yükleme (boş bir veritabanına)
-mongorestore --uri="$MONGODB_URI" --nsFrom='kamuradar.*' --nsTo='kamuradar.*' \
-  --gzip --archive=/backup/kamuradar-2026-10-12.gz
+mongorestore --uri="$MONGODB_URI" --nsFrom='kamuilan.*' --nsTo='kamuilan.*' \
+  --gzip --archive=/backup/kamuilan-2026-10-12.gz
 ```
 
 Yedekleme kapsamı: `sources`, `jobs`, `jobSources`, `jobRevisions`, `users`,
@@ -92,7 +125,7 @@ sonra `GET /api/health` ve `npm run sources:report` ile doğrulayın.
 ### Dosya deposu (geliştirme)
 
 ```bash
-cp data/kamuradar.json /backup/kamuradar-$(date +%F).json
+cp data/kamuilan.json /backup/kamuilan-$(date +%F).json
 ```
 
 Geri yüklemede dosyayı yerine kopyalayın; uygulama açılışta indeksleri yeniden kurar.
@@ -100,8 +133,12 @@ Geri yüklemede dosyayı yerine kopyalayın; uygulama açılışta indeksleri ye
 ## 6. E-posta hattı
 
 - Geliştirme: `npm run dev:smtp` → http://localhost:1080 (gerçek gönderim yok).
-- Üretim: `SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`. Üretimde SMTP yoksa uygulama
-  başlamaz (sessiz kayıp olmasın).
+- Üretim (öntanımlı): **Resend** — `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
+  doğrulanmış alan adından `EMAIL_FROM`. Alternatif: `SMTP_HOST/PORT/USER/PASS`.
+  Üretimde hiçbiri yoksa uygulama başlamaz (sessiz kayıp olmasın).
+- Resend tarafında teslim/bounce/şikâyet raporları Resend panelinden izlenir;
+  Kamuİlan yalnızca "sağlayıcı kabul etti" bilgisini saklar. Şüpheli artışta
+  `EMAIL_FROM` alan adının SPF/DKIM kayıtlarını kontrol edin.
 - Durumlar: `pending` → `sending` → `accepted` | `failed` → (`dead`).
   "accepted", sağlayıcının iletiyi kabul ettiğini gösterir; "teslim edildi"
   bilgisi verilmez.

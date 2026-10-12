@@ -5,8 +5,8 @@
  * e-posta ve meta etiketleri `BRANDING` üzerinden okur.
  */
 export const BRANDING = {
-  name: 'KamuRadar',
-  shortName: 'KamuRadar',
+  name: 'Kamuİlan',
+  shortName: 'Kamuİlan',
   tagline: 'Türkiye genelinde kamu personel alım ilanları — tek yerde, kaynaklı ve doğrulanmış.',
   description:
     'Resmî kaynaklardan toplanan memur, sözleşmeli personel, kamu işçisi ve akademik kadro ilanlarını sınıflandıran, tekilleştiren ve e-posta ile bildiren açık platform.',

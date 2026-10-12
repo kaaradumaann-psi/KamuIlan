@@ -1,9 +1,10 @@
 /**
  * Depolama arayüzü (port).
  *
- * İki sürücü aynı sözleşmeyi uygular:
- *  - mongodb : üretim. Kalıcı, çok örnekli, benzersiz indekslerle yarış koruması.
- *  - file    : yerel geliştirme/test. data/kamuradar.json içinde kalıcı,
+ * Üç sürücü aynı sözleşmeyi uygular:
+ *  - postgres: ÜRETİM. Supabase (Postgres) üzerinde JSONB tablo/indeksler.
+ *  - mongodb : alternatif kalıcı sürücü (eski kurulumlar).
+ *  - file    : yerel geliştirme/test. data/kamuilan.json içinde kalıcı,
  *              atomik yazma + süreç içi kilit ile tutarlı.
  *
  * Üst katmanlar (ingest, notifier, API) yalnızca bu arayüzü bilir.
@@ -24,7 +25,7 @@ export interface InsertIfAbsentResult<K extends CollectionName> {
 }
 
 export interface StoragePort {
-  readonly driver: 'mongodb' | 'file';
+  readonly driver: 'postgres' | 'mongodb' | 'file';
 
   init(): Promise<void>;
   close(): Promise<void>;

@@ -42,7 +42,7 @@ function renderIndex(mails: StoredMail[]): string {
       </tr>`,
     )
     .join('');
-  return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>KamuRadar geliştirme posta kutusu</title>
+  return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Kamuİlan geliştirme posta kutusu</title>
   <style>body{font-family:system-ui,sans-serif;margin:24px;color:#1f2933}h1{font-size:20px}
   table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #e4e7eb;padding:8px;text-align:left;font-size:14px}
   .note{background:#fff8e1;padding:10px;border-radius:8px;font-size:13px;margin-bottom:16px}</style></head>

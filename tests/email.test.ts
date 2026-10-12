@@ -24,7 +24,7 @@ const NOW = new Date('2026-10-12T09:00:00+03:00');
 const WORKER = 'worker-email-1';
 
 async function makeRepos(): Promise<{ repos: Repos; advance: (ms: number) => void }> {
-  const dir = mkdtempSync(join(tmpdir(), 'kamuradar-email-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kamuilan-email-'));
   const store = new FileStore(dir);
   await store.init();
   const clock = fixedClock(NOW);
@@ -92,7 +92,7 @@ describe('e-posta gönderimi', () => {
       job,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
       now: NOW,
     });
 
@@ -127,7 +127,7 @@ describe('e-posta gönderimi', () => {
       job,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
       now: NOW,
     });
 
@@ -258,7 +258,7 @@ describe('abonelikten çıkma', () => {
       job,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
       now: NOW,
     });
 
@@ -295,7 +295,7 @@ describe('abonelikten çıkma', () => {
       job: newJob!,
       kind: 'new-job',
       baseUrl: 'http://localhost:5173',
-      senderName: 'KamuRadar',
+      senderName: 'Kamuİlan',
       now: NOW,
     });
     expect(queued.queued).toBe(0);
@@ -324,7 +324,7 @@ describe('taşıyıcı seçimi ve ortam ayrımı', () => {
   });
 
   it('geliştirme dosya taşıyıcısı e-postayı diskten okunabilir biçimde yazar', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kamuradar-mail-'));
+    const dir = mkdtempSync(join(tmpdir(), 'kamuilan-mail-'));
     const transport = new FileEmailTransport(dir);
     const result = await transport.send({
       to: 'dev@ornek.test',

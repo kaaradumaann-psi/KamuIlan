@@ -5,9 +5,11 @@
  * yönetir. Böylece aynı bağlantı başka birinde aynı sonucu verir.
  */
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
 import { EMPLOYMENT_TYPE_LABELS } from '../lib/format';
-import { Field } from './ui';
+import { Icon } from './Icon';
+import { Checkbox, Field } from './ui';
 
 export interface JobFilters {
   q: string;
@@ -86,17 +88,19 @@ export function FilterForm({
   onChange,
   onSubmit,
   onReset,
+  busy = false,
 }: {
   filters: JobFilters;
   onChange: (next: JobFilters) => void;
   onSubmit: () => void;
   onReset: () => void;
+  busy?: boolean;
 }): ReactNode {
   const update = (patch: Partial<JobFilters>): void => onChange({ ...filters, ...patch });
 
   return (
     <form
-      className="card"
+      className="card-elevated filter-panel"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
@@ -104,22 +108,23 @@ export function FilterForm({
       aria-label="İlan filtreleri"
     >
       <CityDatalist />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="filter-grid">
         <Field label="Anahtar kelime" htmlFor="filter-q" hint="Başlık, kurum veya ilan metninde arar.">
-          <input
-            id="filter-q"
-            className="input"
-            type="search"
-            value={filters.q}
-            onChange={(event) => update({ q: event.target.value })}
-            placeholder="ör. hemşire, zabıta, öğretim görevlisi"
-          />
+          <span className="search-input-wrap">
+            <Icon name="search" size={16} />
+            <input
+              id="filter-q"
+              type="search"
+              value={filters.q}
+              onChange={(event) => update({ q: event.target.value })}
+              placeholder="ör. hemşire, zabıta, öğretim görevlisi"
+            />
+          </span>
         </Field>
 
         <Field label="Kurum" htmlFor="filter-institution">
           <input
             id="filter-institution"
-            className="input"
             value={filters.institution}
             onChange={(event) => update({ institution: event.target.value })}
             placeholder="ör. Üniversitesi, Bakanlığı"
@@ -129,7 +134,6 @@ export function FilterForm({
         <Field label="İl" htmlFor="filter-city">
           <input
             id="filter-city"
-            className="input"
             value={filters.city}
             onChange={(event) => update({ city: event.target.value })}
             placeholder="ör. Ankara"
@@ -140,7 +144,7 @@ export function FilterForm({
         <Field label="İstihdam türü" htmlFor="filter-employment">
           <select
             id="filter-employment"
-            className="input"
+            className="filter-select"
             value={filters.employmentType}
             onChange={(event) => update({ employmentType: event.target.value })}
           >
@@ -154,7 +158,12 @@ export function FilterForm({
         </Field>
 
         <Field label="Durum" htmlFor="filter-status">
-          <select id="filter-status" className="input" value={filters.status} onChange={(event) => update({ status: event.target.value })}>
+          <select
+            id="filter-status"
+            className="filter-select"
+            value={filters.status}
+            onChange={(event) => update({ status: event.target.value })}
+          >
             <option value="">Tümü</option>
             <option value="active">Başvuru açık</option>
             <option value="upcoming">Başvuru yakında</option>
@@ -162,10 +171,9 @@ export function FilterForm({
           </select>
         </Field>
 
-        <Field label="En az kontenjan" htmlFor="filter-quota" hint="Yalnızca sayı belirtilen ilanlarda çalışır.">
+        <Field label="En az kontenjan" htmlFor="filter-quota" hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır.">
           <input
             id="filter-quota"
-            className="input"
             type="number"
             min={1}
             inputMode="numeric"
@@ -177,7 +185,7 @@ export function FilterForm({
         <Field label="Son başvuru (başlangıç)" htmlFor="filter-from">
           <input
             id="filter-from"
-            className="input"
+            className="date-filter-field"
             type="date"
             value={filters.deadlineFrom}
             onChange={(event) => update({ deadlineFrom: event.target.value })}
@@ -187,7 +195,7 @@ export function FilterForm({
         <Field label="Son başvuru (bitiş)" htmlFor="filter-to">
           <input
             id="filter-to"
-            className="input"
+            className="date-filter-field"
             type="date"
             value={filters.deadlineTo}
             onChange={(event) => update({ deadlineTo: event.target.value })}
@@ -195,7 +203,12 @@ export function FilterForm({
         </Field>
 
         <Field label="Sıralama" htmlFor="filter-sort">
-          <select id="filter-sort" className="input" value={filters.sort} onChange={(event) => update({ sort: event.target.value })}>
+          <select
+            id="filter-sort"
+            className="filter-select"
+            value={filters.sort}
+            onChange={(event) => update({ sort: event.target.value })}
+          >
             <option value="newest">Sisteme eklenme (yeni → eski)</option>
             <option value="deadline">Son başvuru tarihi (yakın → uzak)</option>
             <option value="published">Yayım tarihi (yeni → eski)</option>
@@ -205,23 +218,27 @@ export function FilterForm({
         </Field>
       </div>
 
-      <label className="mt-3 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="h-5 w-5"
-          checked={filters.hasApplicationUrl}
-          onChange={(event) => update({ hasApplicationUrl: event.target.checked })}
-        />
-        Yalnızca başvuru bağlantısı olan ilanlar
-      </label>
+      <Checkbox
+        id="filter-app-url"
+        checked={filters.hasApplicationUrl}
+        onChange={(checked) => update({ hasApplicationUrl: checked })}
+        label="Yalnızca başvuru bağlantısı olan ilanlar"
+        hint="Başvuru adresi yalnızca ilanda açıkça verilmişse doldurulur."
+      />
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button type="submit" className="btn-primary">
-          Filtrele
+      <div className="filter-actions">
+        <button type="submit" className="btn-primary" disabled={busy}>
+          <Icon name="search" size={16} />
+          <span>{busy ? 'Aranıyor…' : 'Filtrele'}</span>
         </button>
         <button type="button" className="btn-secondary" onClick={onReset}>
-          Filtreleri temizle
+          <Icon name="close" size={15} />
+          <span>Filtreleri temizle</span>
         </button>
+        <Link className="btn-secondary" to="/kaynaklar">
+          <Icon name="list" size={15} />
+          <span>Hangi kaynaklar taranıyor?</span>
+        </Link>
       </div>
     </form>
   );

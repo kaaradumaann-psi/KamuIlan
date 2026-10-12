@@ -11,6 +11,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { api, errorMessage } from '../lib/api';
+import { Icon } from '../components/Icon';
 import {
   RUN_STATUS_LABELS,
   SOURCE_STATUS_LABELS,
@@ -29,9 +30,9 @@ import type {
   ScrapeRunSummary,
   SourceCoverageEntry,
 } from '../types';
-import { Badge, Card, ErrorNotice, InfoNote, Spinner } from '../components/ui';
+import { Badge, Card, DataTable, ErrorNotice, Field, InfoNote, Spinner, Tabs, Tag } from '../components/ui';
 
-type Tab = 'ozet' | 'kaynaklar' | 'taramalar' | 'inceleme' | 'eposta' | 'kuyruk' | 'kapsam' | 'denetim';
+type Tab = 'ozet' | 'kaynaklar' | 'taramalar' | 'inceleme' | 'eposta' | 'kuyruk' | 'kapsam' | 'kullanicilar' | 'denetim';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'ozet', label: 'Genel bakış' },
@@ -41,6 +42,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'eposta', label: 'E-posta kuyruğu' },
   { id: 'kuyruk', label: 'Kuyruk & kilitler' },
   { id: 'kapsam', label: 'Kapsam raporu' },
+  { id: 'kullanicilar', label: 'Kullanıcılar' },
   { id: 'denetim', label: 'Denetim kaydı' },
 ];
 
@@ -58,27 +60,19 @@ export function AdminPage(): ReactNode {
   }
 
   return (
-    <div className="space-y-4">
-      <header>
-        <h1 className="text-xl font-semibold">Yönetim</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Kaynak sağlığı, tarama kayıtları, inceleme kuyruğu ve e-posta hattı. Tüm işlemler denetim kaydına yazılır.
-        </p>
+    <div className="page-stack">
+      <header className="page-head">
+        <div className="page-head-text">
+          <span className="kicker">Yönetim</span>
+          <h1 className="page-title">Yönetim paneli</h1>
+          <p className="info-lede">
+            Kaynak sağlığı, tarama kayıtları, inceleme kuyruğu, e-posta hattı ve kullanıcılar. Her işlem denetim
+            kaydına yazılır; e-posta adresleri panelde maskeli gösterilir.
+          </p>
+        </div>
       </header>
 
-      <nav className="flex flex-wrap gap-1" aria-label="Yönetim bölümleri">
-        {TABS.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            className={`btn ${tab === entry.id ? 'bg-brand-600 text-white' : 'btn-secondary'}`}
-            aria-current={tab === entry.id ? 'page' : undefined}
-            onClick={() => setTab(entry.id)}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </nav>
+      <Tabs tabs={TABS} current={tab} onSelect={(id) => setTab(id as Tab)} label="Yönetim bölümleri" />
 
       {overview.isLoading && <Spinner label="Panel yükleniyor…" />}
       {overview.data && tab === 'ozet' && <OverviewTab data={overview.data} />}
@@ -88,6 +82,7 @@ export function AdminPage(): ReactNode {
       {tab === 'eposta' && <OutboxTab />}
       {tab === 'kuyruk' && <QueueTab />}
       {tab === 'kapsam' && <CoverageTab />}
+      {tab === 'kullanicilar' && <UsersTab />}
       {tab === 'denetim' && <AuditTab />}
     </div>
   );
@@ -96,7 +91,7 @@ export function AdminPage(): ReactNode {
 function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
   const health = useQuery({ queryKey: ['health'], queryFn: () => api.get<HealthResponse>('/api/health') });
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       {data.workerWarning && <InfoNote tone="warning">{data.workerWarning}</InfoNote>}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Metric label="İlan (kabul)" value={formatNumber(data.jobs.total)} />
@@ -124,7 +119,7 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
                 <span className="text-slate-600 dark:text-slate-300">
                   rol: {worker.role} · son atış: {formatRelative(worker.lastHeartbeatAt)} · işlenen iş: {formatNumber(worker.processedJobs)}
                 </span>
-                {worker.lastError && <span className="text-red-700 dark:text-red-300">son hata: {worker.lastError}</span>}
+                {worker.lastError && <span className="text-danger-sm">son hata: {worker.lastError}</span>}
               </li>
             ))}
           </ul>
@@ -201,7 +196,7 @@ function SourcesTab(): ReactNode {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn-primary" onClick={() => scanAll.mutate()} disabled={scanAll.isPending}>
           Tüm etkin kaynakları tara
@@ -228,8 +223,8 @@ function SourcesTab(): ReactNode {
             <span>ortalama süre: {formatDuration(source.health.avgDurationMs)}</span>
             <span>başarı oranı: {source.health.totalRuns > 0 ? `${Math.round((source.health.successRuns / source.health.totalRuns) * 100)}%` : 'veri yok'}</span>
           </div>
-          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{source.coverageNote}</p>
-          {source.health.lastError && <p className="mt-1 text-xs text-red-700 dark:text-red-300">Son hata: {source.health.lastError}</p>}
+          <p className="text-muted-sm mt-2">{source.coverageNote}</p>
+          {source.health.lastError && <p className="text-danger-sm">Son hata: {source.health.lastError}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" className="btn-secondary" onClick={() => scan.mutate(source.key)} disabled={scan.isPending || !source.enabled}>
               Şimdi tara
@@ -263,8 +258,8 @@ function RunsTab(): ReactNode {
   });
 
   return (
-    <div className="space-y-4">
-      <label className="block max-w-xs">
+    <div className="page-stack">
+      <label className="input-narrow">
         <span className="label">Kaynağa göre filtrele</span>
         <input className="input" value={sourceKey} onChange={(event) => setSourceKey(event.target.value)} placeholder="ör. resmigazete-cestili-ilanlar" />
       </label>
@@ -273,7 +268,7 @@ function RunsTab(): ReactNode {
         <Card title="Hata bildirimleri" description="HTML değişikliği veya erişim sorunu burada görünür.">
           <ul className="space-y-2 text-sm">
             {query.data.failing.map((run) => (
-              <li key={run.id} className="text-red-700 dark:text-red-300">
+              <li key={run.id} className="text-danger-sm">
                 <p className="font-medium">{run.id}</p>
                 <p className="text-xs">
                   {formatDateTime(run.startedAt)} · {run.result}
@@ -286,11 +281,11 @@ function RunsTab(): ReactNode {
       ) : null}
 
       <Card title="Tarama kayıtları">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="modern-table-card">
+          <table className="modern-data-table">
             <caption className="sr-only">Tarama kayıtları</caption>
             <thead>
-              <tr className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <tr className="table-head-label">
                 <th scope="col" className="py-2 pr-3">Zaman</th>
                 <th scope="col" className="py-2 pr-3">Kaynak</th>
                 <th scope="col" className="py-2 pr-3">Durum</th>
@@ -319,7 +314,7 @@ function RunsTab(): ReactNode {
                   <td className="py-2 pr-3">{run.scheduleDelayMs !== null ? formatDuration(run.scheduleDelayMs) : '—'}</td>
                   <td className="py-2 text-xs">
                     {run.result}
-                    {run.errors.length > 0 && <p className="text-red-700 dark:text-red-300">{run.errors.join(' | ')}</p>}
+                    {run.errors.length > 0 && <p className="text-danger-sm">{run.errors.join(' | ')}</p>}
                   </td>
                 </tr>
               ))}
@@ -354,7 +349,7 @@ function ReviewTab(): ReactNode {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-sm">
           <span className="label">Tür</span>
@@ -366,7 +361,7 @@ function ReviewTab(): ReactNode {
           </select>
         </label>
         {query.data && (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className="text-muted-sm">
             Açık kayıt: {formatNumber(query.data.counts.total)} (sınıflandırma {query.data.counts.classification}, tekilleştirme{' '}
             {query.data.counts.dedupe}, çıkarım {query.data.counts.extraction})
           </p>
@@ -379,7 +374,7 @@ function ReviewTab(): ReactNode {
       {query.data?.items.map((item) => (
         <Card key={item.id} title={item.title} description={`${item.kind} · güven ${Math.round(item.confidence * 100)}%`}>
           <p className="text-sm">{item.reason}</p>
-          <p className="mt-1 text-xs">
+          <p className="text-muted-sm mt-1">
             <a href={item.url} target="_blank" rel="noreferrer noopener" className="break-all">
               {item.url}
             </a>
@@ -442,7 +437,7 @@ function OutboxTab(): ReactNode {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-sm">
           <span className="label">Durum</span>
@@ -457,7 +452,7 @@ function OutboxTab(): ReactNode {
           </select>
         </label>
         {query.data && (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
+          <p className="text-muted-sm">
             {Object.entries(query.data.stats)
               .map(([key, value]) => `${key}: ${value}`)
               .join(' · ')}
@@ -467,11 +462,11 @@ function OutboxTab(): ReactNode {
       {query.data?.notice && <InfoNote>{query.data.notice}</InfoNote>}
       {query.isLoading && <Spinner />}
       <Card title="E-posta kuyruğu" description={query.data?.schema}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="modern-table-card">
+          <table className="modern-data-table">
             <caption className="sr-only">E-posta kuyruğu kayıtları</caption>
             <thead>
-              <tr className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <tr className="table-head-label">
                 <th scope="col" className="py-2 pr-3">Oluşturma</th>
                 <th scope="col" className="py-2 pr-3">Alıcı</th>
                 <th scope="col" className="py-2 pr-3">Konu</th>
@@ -490,7 +485,7 @@ function OutboxTab(): ReactNode {
                     <Badge tone={item.status === 'accepted' ? 'success' : item.status === 'dead' ? 'danger' : item.status === 'failed' ? 'warning' : 'neutral'}>
                       {item.status}
                     </Badge>
-                    {item.lastError && <p className="text-xs text-red-700 dark:text-red-300">{item.lastError}</p>}
+                    {item.lastError && <p className="text-danger-sm">{item.lastError}</p>}
                   </td>
                   <td className="py-2 pr-3">
                     {item.attempts}/{item.maxAttempts}
@@ -516,17 +511,17 @@ function QueueTab(): ReactNode {
   const query = useQuery({ queryKey: ['admin-queue'], queryFn: () => api.get<QueueResponse>('/api/admin/queue'), refetchInterval: 30_000 });
 
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       {query.data?.scheduleLagWarning && <InfoNote tone="warning">{query.data.scheduleLagWarning}</InfoNote>}
       {query.isLoading && <Spinner />}
       {query.data && (
         <>
           <Card title="Zamanlanmış görevler" description="Her kaynak için planlanan sonraki çalışma; gecikme = worker'ın geride kaldığı süre.">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <div className="modern-table-card">
+              <table className="modern-data-table">
                 <caption className="sr-only">Zamanlanmış görevler</caption>
                 <thead>
-                  <tr className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <tr className="table-head-label">
                     <th scope="col" className="py-2 pr-3">Kaynak</th>
                     <th scope="col" className="py-2 pr-3">Aralık</th>
                     <th scope="col" className="py-2 pr-3">Sıradaki</th>
@@ -538,7 +533,7 @@ function QueueTab(): ReactNode {
                   {query.data.tasks.map((task) => (
                     <tr key={task.id} className="border-t border-slate-200 dark:border-slate-800">
                       <td className="py-2 pr-3">
-                        {task.sourceKey} <span className="text-xs text-slate-500">({task.kind})</span>
+                        {task.sourceKey} <span className="text-muted-sm">({task.kind})</span>
                       </td>
                       <td className="py-2 pr-3">{task.intervalMinutes} dk</td>
                       <td className="py-2 pr-3">{formatDateTime(task.nextRunAt)}</td>
@@ -589,7 +584,7 @@ function CoverageTab(): ReactNode {
   if (query.isLoading) return <Spinner />;
   if (!query.data) return <ErrorNotice message="Kapsam raporu alınamadı." onRetry={() => void query.refetch()} />;
   return (
-    <div className="space-y-4">
+    <div className="page-stack">
       <InfoNote tone="warning">{query.data.disclaimer}</InfoNote>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Metric label="Toplam kaynak" value={formatNumber(query.data.total)} />
@@ -652,8 +647,8 @@ function AuditTab(): ReactNode {
   });
 
   return (
-    <div className="space-y-4">
-      <label className="block max-w-xs">
+    <div className="page-stack">
+      <label className="input-narrow">
         <span className="label">İşlem filtresi</span>
         <input className="input" value={action} onChange={(event) => setAction(event.target.value)} placeholder="ör. admin.source-scan-requested" />
       </label>
@@ -674,10 +669,166 @@ function AuditTab(): ReactNode {
   );
 }
 
+
+type AdminUserRow = {
+  id: string;
+  email: string;
+  displayName: string | null;
+  role: 'user' | 'admin';
+  status: string;
+  emailVerified: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  notificationsEnabled: boolean;
+  notificationMode: string | null;
+};
+
+/**
+ * Kullanıcılar: Kamuİlan'da dışarıdan kayıt YOKTUR. Hesap yalnızca buradan
+ * açılır; kullanıcı tek kullanımlık bağlantıyla kendi parolasını belirler.
+ * Yönetici paneli e-posta adreslerini maskeli gösterir (KVKK).
+ */
+function UsersTab(): ReactNode {
+  const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const users = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: () =>
+      api.get<{ users: AdminUserRow[]; notifiableCount: number; notice: string }>('/api/admin/users', { limit: 100 }),
+  });
+
+  const invite = useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/api/admin/users', {
+        email,
+        displayName: displayName.trim() || undefined,
+        role,
+      }),
+    onSuccess: (data) => {
+      setMessage(data.message);
+      setError(null);
+      setEmail('');
+      setDisplayName('');
+      setRole('user');
+      void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+    onError: (caught) => {
+      setError(errorMessage(caught));
+      setMessage(null);
+    },
+  });
+
+  return (
+    <div className="admin-section">
+      <InfoNote tone="info" title="Halka açık kayıt yoktur">
+        Kamuİlan'da kullanıcılar kendi kendine kayıt olamaz. Hesap buradan açılır; davet e-postasındaki bağlantı 72
+        saat geçerlidir ve parolayı yalnızca kullanıcı belirler. Sistem düz metin parola üretmez ve göndermez.
+      </InfoNote>
+
+      <Card title="Yeni kullanıcı davet et" description="Hesap açılır ve tek kullanımlık şifre belirleme bağlantısı gönderilir.">
+        <form
+          className="filter-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
+            invite.mutate();
+          }}
+        >
+          <Field label="E-posta" htmlFor="invite-email" required>
+            <input
+              id="invite-email"
+              type="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="ad.soyad@ornek.gov.tr"
+            />
+          </Field>
+          <Field label="Görünen ad" htmlFor="invite-name" hint="Boş bırakılırsa e-posta kökü kullanılır.">
+            <input id="invite-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </Field>
+          <Field label="Rol" htmlFor="invite-role" hint="Yönetici rolü tüm panele erişir.">
+            <select
+              id="invite-role"
+              className="filter-select"
+              value={role}
+              onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'user')}
+            >
+              <option value="user">Kullanıcı</option>
+              <option value="admin">Yönetici</option>
+            </select>
+          </Field>
+        </form>
+        <div className="filter-actions">
+          <button type="button" className="btn-primary" disabled={invite.isPending || email.length < 5} onClick={() => invite.mutate()}>
+            <Icon name="send" size={15} />
+            <span>{invite.isPending ? 'Davet gönderiliyor…' : 'Davet gönder'}</span>
+          </button>
+        </div>
+        {message && <InfoNote tone="success">{message}</InfoNote>}
+        {error && <ErrorNotice message={error} />}
+      </Card>
+
+      <Card
+        title="Kullanıcılar"
+        description={users.data ? `Bildirim alan kullanıcı: ${formatNumber(users.data.notifiableCount)}` : undefined}
+      >
+        {users.isLoading && <Spinner label="Kullanıcılar yükleniyor…" />}
+        {users.isError && <ErrorNotice message={errorMessage(users.error)} onRetry={() => void users.refetch()} />}
+        {users.data && (
+          <DataTable caption="Kullanıcı listesi" head={['Kullanıcı', 'Rol', 'Durum', 'Bildirim', 'Son giriş', 'Kayıt']}>
+            {users.data.users.map((user) => (
+              <tr key={user.id}>
+                <td data-label="Kullanıcı">
+                  <span className="cell-title">{user.displayName ?? '—'}</span>
+                  <span className="cell-mono">{user.email}</span>
+                </td>
+                <td data-label="Rol">
+                  <Tag tone={user.role === 'admin' ? 'accent' : 'neutral'}>
+                    {user.role === 'admin' ? 'yönetici' : 'kullanıcı'}
+                  </Tag>
+                </td>
+                <td data-label="Durum">
+                  <Tag tone={user.emailVerified ? 'success' : 'warning'}>
+                    {user.emailVerified ? 'doğrulanmış' : 'doğrulanmamış'}
+                  </Tag>
+                  <span className="cell-subtitle">{user.status}</span>
+                </td>
+                <td data-label="Bildirim">
+                  {user.notificationsEnabled ? (
+                    <span>
+                      açık <span className="cell-subtitle">{user.notificationMode ?? 'instant'}</span>
+                    </span>
+                  ) : (
+                    <span className="cell-subtitle">kapalı / duraklatıldı</span>
+                  )}
+                </td>
+                <td data-label="Son giriş">
+                  <span className="cell-subtitle">
+                    {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'hiç giriş yapmadı'}
+                  </span>
+                </td>
+                <td data-label="Kayıt">
+                  <span className="cell-subtitle">{formatDateTime(user.createdAt)}</span>
+                </td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+        {users.data && <p className="text-muted-sm mt-2">{users.data.notice}</p>}
+      </Card>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }): ReactNode {
   return (
-    <div className="card">
-      <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+    <div className="card-elevated">
+      <p className="table-head-label">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   );

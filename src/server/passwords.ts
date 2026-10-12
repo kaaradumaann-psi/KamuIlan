@@ -26,7 +26,7 @@ const COMMON_WEAK_PASSWORDS = new Set([
   '123456789',
   '1234567890',
   'qwertyuiop',
-  'kamuradar',
+  'kamuilan',
   'parola123',
   'sifre1234',
   'admin1234',

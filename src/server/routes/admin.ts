@@ -13,7 +13,10 @@ import { z } from 'zod';
 import { APP_VERSION, CLASSIFICATION_VERSION, DEDUPE_VERSION, EXTRACTION_VERSION, SCHEDULER_DEFAULTS } from '../../config/app';
 import { SOURCE_DEFINITIONS, type SourceDefinition, type SourceGroup, type SourceMethod, type SourceStatus, type SourceType } from '../../config/sources';
 import type { Repos } from '../../db/repos';
-import { createId } from '../../domain/ids';
+import { createId, randomToken } from '../../domain/ids';
+import { hashPassword } from '../passwords';
+import { BRANDING } from '../../config/app';
+import { getEnv } from '../../config/env';
 import { audit, requireAdmin } from '../context';
 import { ApiError } from '../errors';
 import { toCoverageEntry, toReviewItem, toRevision, toRunSummary, toSourceStatus, toUserProfile } from '../serializers';
@@ -473,6 +476,71 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       })),
       notifiableCount,
       notice: 'KVKK gereği yönetici paneli e-posta adreslerini maskeli gösterir; iletişim yalnızca kullanıcı isteğiyle kurulur.',
+    };
+  });
+
+  /**
+   * Kullanıcı daveti. Kamuİlan'da dışarıdan kayıt yoktur: hesabı yönetici açar,
+   * kullanıcı tek kullanımlık bağlantıyla kendi şifresini belirler.
+   * Parola üretilmez, düz metin parola hiçbir zaman oluşturulmaz/gönderilmez.
+   */
+  app.post('/api/admin/users', { schema: { tags: ['admin'], summary: 'Kullanıcı davet et (hesabı yönetici açar)' } }, async (request, reply) => {
+    const body = z
+      .object({
+        email: z.email('Geçerli bir e-posta adresi girin.').trim().toLowerCase().max(160),
+        displayName: z.string().trim().min(2).max(80).optional(),
+        role: z.enum(['user', 'admin']).default('user'),
+        note: z.string().trim().max(300).optional(),
+      })
+      .parse(request.body);
+
+    const existing = await repos.users.findByEmail(body.email);
+    if (existing) throw ApiError.conflict('Bu e-posta ile bir hesap zaten var.');
+
+    // Parola yerine rastgele bir sır üretilip hash'lenir: kullanıcı bağlantıdan
+    // kendi parolasını belirleyene kadar hesap giriş yapılamaz durumda kalır.
+    const { hash, salt } = await hashPassword(randomToken(48));
+    const created = await repos.users.create({
+      email: body.email,
+      passwordHash: hash,
+      passwordSalt: salt,
+      displayName: body.displayName ?? body.email.split('@')[0] ?? 'Kullanıcı',
+      role: body.role,
+    });
+    if (!created.created) throw ApiError.conflict('Bu e-posta ile bir hesap zaten var.');
+    const user = created.user;
+
+    const token = randomToken(32);
+    await repos.users.createToken({ userId: user.id, type: 'password-reset', token, ttlMinutes: 60 * 24 * 3 });
+    await repos.outbox.enqueue({
+      eventId: null,
+      jobId: null,
+      userId: user.id,
+      toEmail: user.email,
+      kind: 'account-invite',
+      subject: `${BRANDING.name} hesabınız açıldı — şifre belirleyin`,
+      template: 'account-invite',
+      payload: {
+        displayName: user.displayName ?? '',
+        roleLabel: user.role === 'admin' ? 'yönetici' : 'kullanıcı',
+        inviteUrl: `${getEnv().APP_BASE_URL}/sifre-sifirla?token=${token}`,
+        expiresInHours: 72,
+      },
+      idempotencyKey: `invite:${user.id}:${token}`,
+    });
+
+    await audit(repos.audit, request, {
+      action: 'admin.user-invited',
+      targetType: 'user',
+      targetId: user.id,
+      meta: { role: user.role, note: body.note ?? null },
+    });
+    reply.status(201);
+    return {
+      user: toUserProfile(user, { self: false }),
+      message:
+        'Hesap açıldı. Kullanıcıya tek kullanımlık şifre belirleme bağlantısı e-posta ile gönderiliyor; ' +
+        'bağlantı 72 saat geçerlidir.',
     };
   });
 

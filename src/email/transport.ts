@@ -1,11 +1,11 @@
 /**
  * E-posta taşıma katmanı.
  *
- * Üç taşıyıcı:
- *  - smtp   : üretim. SMTP_HOST tanımlıysa kullanılır (Auth gerekiyorsa kullanıcı/şifre).
- *  - file   : geliştirme. SMTP ayarı yoksa ve EMAIL_DEV_FILE_TRANSPORT=1 ise
- *             e-postalar data/mail/ altına .html/.txt olarak yazılır; böylece
- *             hiçbir e-posta gerçek adrese gitmez.
+ * Dört taşıyıcı:
+ *  - resend : ÜRETİM (varsayılan). RESEND_API_KEY tanımlıysa HTTPS API kullanılır.
+ *  - smtp   : üretim alternatifi. SMTP_HOST tanımlıysa kullanılır (Auth gerekiyorsa kullanıcı/şifre).
+ *  - file   : geliştirme. Sağlayıcı ayarı yoksa e-postalar data/mail/ altına
+ *             .html/.txt olarak yazılır; böylece hiçbir e-posta gerçek adrese gitmez.
  *  - memory : testler için.
  *
  * Durum dili: taşıyıcı yalnızca "sağlayıcı mesajı kabul etti" bilgisini döner.
@@ -16,6 +16,12 @@ import { join } from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { getEnv } from '../config/env';
 import { maskEmail } from '../domain/text';
+
+/** Testlerde ağ çağrısını kesmek için kullanılan minimal fetch imzası. */
+export type FetchLike = (
+  input: string,
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
+) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
 
 export interface EmailMessage {
   to: string;
@@ -34,7 +40,7 @@ export interface EmailSendResult {
 }
 
 export interface EmailTransport {
-  readonly key: 'smtp' | 'file' | 'memory';
+  readonly key: 'resend' | 'smtp' | 'file' | 'memory';
   readonly description: string;
   send(message: EmailMessage): Promise<EmailSendResult>;
   close?(): Promise<void>;
@@ -64,6 +70,101 @@ export class FileEmailTransport implements EmailTransport {
       providerMessageId: `file:${base}`,
       providerResponse: `Yerel dosyaya yazıldı (${maskEmail(message.to)}).`,
     };
+  }
+}
+
+/**
+ * Resend (https://resend.com) HTTPS API taşıyıcısı — Kamuİlan'ın üretim yolu.
+ *
+ * Neden `fetch`: resend SDK'sı ince bir sarmalayıcıdan ibaret; ek bağımlılık
+ * yerine Node 22'nin global fetch'i kullanılıyor. Böylece taşıyıcı, ağ çağrısı
+ * enjekte edilerek (FetchLike) testlerde tamamen çevrimdışı doğrulanabiliyor.
+ *
+ * Durum dili: Resend 2xx dönerse "sağlayıcı kabul etti" kaydedilir. Teslim
+ * (delivered/bounced) bilgisi bu çağrıdan gelmez; bu yüzden hiçbir yerde
+ * "teslim edildi" denmez.
+ */
+export class ResendEmailTransport implements EmailTransport {
+  readonly key = 'resend' as const;
+  readonly description: string;
+  private readonly endpoint: string;
+
+  constructor(
+    private readonly options: {
+      apiKey: string;
+      from: string;
+      baseUrl?: string;
+      fetchImpl?: FetchLike;
+      timeoutMs?: number;
+    },
+  ) {
+    this.endpoint = `${(options.baseUrl ?? 'https://api.resend.com').replace(/\/$/, '')}/emails`;
+    this.description = `Resend HTTPS API (${this.endpoint})`;
+  }
+
+  async send(message: EmailMessage): Promise<EmailSendResult> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 20_000);
+    const fetchImpl: FetchLike =
+      this.options.fetchImpl ??
+      ((input, init) => fetch(input, init) as unknown as ReturnType<FetchLike>);
+    try {
+      const response = await fetchImpl(this.endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.options.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: this.options.from,
+          to: [message.to],
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+        }),
+        signal: controller.signal,
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        // Sağlayıcı hatası aynen döndürülür: sessiz yutma yok, kuyruk yeniden dener.
+        return {
+          accepted: false,
+          providerMessageId: null,
+          providerResponse: body.slice(0, 500),
+          error: `Resend ${response.status}: ${body.slice(0, 300)}`,
+        };
+      }
+      const parsed = parseResendId(body);
+      return {
+        accepted: true,
+        providerMessageId: parsed,
+        providerResponse: body.slice(0, 500),
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        accepted: false,
+        providerMessageId: null,
+        providerResponse: null,
+        error: `Resend çağrısı başarısız (${maskEmail(message.to)}): ${detail}`,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** Resend yanıtından mesaj kimliğini çıkarır; beklenmeyen gövde hataya yol açmaz. */
+export function parseResendId(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === 'object' && 'id' in parsed) {
+      const id = (parsed as { id?: unknown }).id;
+      return typeof id === 'string' ? id : null;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -154,15 +255,29 @@ export class MemoryEmailTransport implements EmailTransport {
   }
 }
 
-export type TransportChoice = { transport: EmailTransport; mode: 'smtp' | 'file'; note: string };
+export type TransportMode = 'resend' | 'smtp' | 'file';
+export type TransportChoice = { transport: EmailTransport; mode: TransportMode; note: string };
 
 /**
  * Taşıyıcı seçimi.
- *  - SMTP_HOST varsa: gerçek SMTP (üretim).
- *  - yoksa ve dosya taşıyıcısı açıksa: dosya (geliştirme).
- *  - üretimde SMTP yoksa: hata (sessizce e-posta kaybetmek yasak).
+ *  - RESEND_API_KEY varsa: Resend (üretim varsayılanı).
+ *  - SMTP_HOST varsa: gerçek SMTP (üretim alternatifi).
+ *  - yoksa: dosya taşıyıcısı (geliştirme/test) — hiçbir e-posta gerçek adrese gitmez.
+ *  - üretimde hiçbir sağlayıcı yoksa: hata (sessizce e-posta kaybetmek yasak).
  */
 export function createEmailTransport(env = getEnv()): TransportChoice {
+  if (env.RESEND_API_KEY) {
+    return {
+      transport: new ResendEmailTransport({
+        apiKey: env.RESEND_API_KEY,
+        from: env.EMAIL_FROM,
+        baseUrl: env.RESEND_API_BASE_URL,
+      }),
+      mode: 'resend',
+      note: `Resend API üzerinden gönderim (${maskEmail(env.EMAIL_FROM)}).`,
+    };
+  }
+
   if (env.SMTP_HOST) {
     return {
       transport: new SmtpEmailTransport({
@@ -180,7 +295,7 @@ export function createEmailTransport(env = getEnv()): TransportChoice {
 
   if (env.NODE_ENV === 'production') {
     throw new Error(
-      'Üretimde SMTP_HOST tanımlı olmalıdır. Aksi halde e-postalar sessizce kaybolur; uygulama başlatılmaz.',
+      'Üretimde RESEND_API_KEY ya da SMTP_HOST tanımlı olmalıdır. Aksi halde e-postalar sessizce kaybolur; uygulama başlatılmaz.',
     );
   }
 
@@ -189,13 +304,13 @@ export function createEmailTransport(env = getEnv()): TransportChoice {
     return {
       transport: new FileEmailTransport(dir),
       mode: 'file',
-      note: `Geliştirme: e-postalar gönderilmez, ${dir} klasörüne yazılır (MailHog yerine).`,
+      note: `Geliştirme: e-postalar gönderilmez, ${dir} klasörüne yazılır (sağlayıcı anahtarı yok).`,
     };
   }
 
   return {
     transport: new FileEmailTransport(join(env.DATA_DIR, 'mail')),
     mode: 'file',
-    note: 'SMTP tanımlı değil; e-postalar dosyaya yazılıyor.',
+    note: 'RESEND_API_KEY/SMTP_HOST tanımlı değil; e-postalar dosyaya yazılıyor.',
   };
 }

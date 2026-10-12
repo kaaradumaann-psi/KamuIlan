@@ -18,7 +18,7 @@ function main(): void {
   }
 
   const inspection = inspectEnvironment(env);
-  console.log('KamuRadar ortam özeti (gizli değer yok):');
+  console.log('Kamuİlan ortam özeti (gizli değer yok):');
   for (const [key, value] of Object.entries(describeEnv(env))) {
     console.log(`  ${key.padEnd(14)}: ${String(value)}`);
   }

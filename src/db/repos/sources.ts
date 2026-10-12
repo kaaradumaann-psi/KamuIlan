@@ -23,6 +23,12 @@ export interface SourceHealthUpdate {
   contentHash?: string | null;
   /** Kaynak 304 döndürdü: "boş tarama" sayılmaz (emptyStreak artırılmaz). */
   contentUnchanged?: boolean;
+  /**
+   * Tarama "atlandı" (ör. adaptör için gereken tarayıcı çalışma zamanı yok,
+   * kaynak erişim kısıtlı). Atlama bir KAYNAK HATASI DEĞİLDİR: hata sayacını
+   * artırmaz, "üst üste başarısız" uyarısını tetiklemez; ayrı sayılır.
+   */
+  skipped?: boolean;
 }
 
 export interface SourceCoverageEntry {
@@ -119,6 +125,8 @@ export class SourceRepo {
           lastModified: null,
           lastContentHash: null,
           emptyStreak: 0,
+          consecutiveSkips: 0,
+          lastWarningAt: null,
         },
         createdAt: now,
       } as SourceDoc;
@@ -168,6 +176,19 @@ export class SourceRepo {
    * yalnızca sağlık bilgisi (başarısız deneme, hata mesajı, ardışık hata sayısı)
    * güncellenir; mevcut ilanlar olduğu gibi kalır.
    */
+  /**
+   * Yönetici uyarısının zamanını yazar.
+   *
+   * Neden ayrı alan: 1 dakikalık test taramasında aynı kaynak için her dakika
+   * denetim kaydı ve uyarı üretilirse panel ve log okunamaz hale gelir. Uyarı
+   * üretimi bu damgayla sınırlanır (bkz. pipeline SOURCE_WARNING_REPEAT_MS).
+   */
+  async recordWarning(key: string, at: string): Promise<SourceDoc | null> {
+    const updated = await this.store.updateOne('sources', { key }, { 'health.lastWarningAt': at, updatedAt: at });
+    if (updated) validateDocument('sources', updated);
+    return updated;
+  }
+
   async recordHealth(key: string, update: SourceHealthUpdate): Promise<SourceDoc | null> {
     const current = await this.getByKey(key);
     if (!current) return null;
@@ -187,7 +208,10 @@ export class SourceRepo {
       'health.avgDurationMs': avgDurationMs,
       'health.lastDiscoveredCount': update.discoveredCount,
       'health.lastAcceptedCount': update.acceptedCount,
+      // Atlama da bir başarısızlıktır (kaynak toplanamıyor); ayrıca kaç kez
+      // üst üste atlandığı izlenir ki panelde "atlanıyor" ile "hata" ayırt edilsin.
       'health.consecutiveFailures': update.success ? 0 : health.consecutiveFailures + 1,
+      'health.consecutiveSkips': update.success ? 0 : update.skipped ? health.consecutiveSkips + 1 : 0,
       'health.lastSuccessAt': update.success ? update.lastRunAt : health.lastSuccessAt,
       'health.lastErrorAt': update.success ? health.lastErrorAt : now,
       'health.lastErrorMessage': update.success ? null : (update.errorMessage ?? health.lastErrorMessage ?? 'Bilinmeyen hata'),

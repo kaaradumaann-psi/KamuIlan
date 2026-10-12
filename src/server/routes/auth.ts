@@ -40,7 +40,17 @@ function clearSessionCookies(reply: FastifyReply): void {
 }
 
 export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
-  app.post('/api/auth/register', { schema: { tags: ['auth'], summary: 'Kayıt ve doğrulama e-postası' } }, async (request, reply) => {
+  // Kamuİlan politikası: dışarıdan kendi kendine kayıt KAPALIDIR. Hesaplar
+  // yönetici tarafından açılır (POST /api/admin/users → tek kullanımlık
+  // "parola belirleme" bağlantısı). Bu uç yalnızca ALLOW_PUBLIC_REGISTRATION=1
+  // iken çalışır; aksi halde 403 döner ve hiçbir kayıt oluşmaz.
+  app.post('/api/auth/register', { schema: { tags: ['auth'], summary: 'Kayıt (yalnızca ALLOW_PUBLIC_REGISTRATION=1 iken)' } }, async (request, reply) => {
+    if (!getEnv().ALLOW_PUBLIC_REGISTRATION) {
+      throw ApiError.forbidden(
+        `${BRANDING.name} hesabı yalnızca yönetici davetiyle açılır. Davet için site yöneticisiyle iletişime geçin.`,
+      );
+    }
+
     const body = z
       .object({
         email: emailSchema,

@@ -1,5 +1,5 @@
 /**
- * KamuRadar shared domain types.
+ * Kamuİlan shared domain types.
  *
  * These types are the contract between source adapters, the classification /
  * extraction pipeline, the database layer, the API and the web app.

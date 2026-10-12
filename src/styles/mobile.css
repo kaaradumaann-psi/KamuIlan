@@ -1,0 +1,664 @@
+/* ==========================================================================
+   Mobil görünüm — yalnızca dar ekranlar (telefon)
+   --------------------------------------------------------------------------
+   Masaüstü görünümü DEĞİŞMEZ: bu dosyadaki her kural bir dar-ekran medya
+   sorgusu içindedir ve main.tsx'te diğer dosyalardan SONRA yüklendiği için
+   sadece 720px ve altı genişliklerde devreye girer.
+
+   Hedefler:
+   • Sıfır yatay kaydırma (içerik her zaman ekran genişliğine sığar)
+   • Başlık / sekmeler / kullanıcı alanı daralmadan okunur kalır
+   • Dosya yükleme kutusu, hata kartları ve formlar ekrana sığar
+   • Düğmeler ve metinler hizalı, basılabilir (≥44px dokunma alanı)
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1 · Küresel taşma koruması
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Resimler ve kanvalar asla konteynerini aşmasın (kamera önizlemeleri,
+     sayfa görselleri). İkonik <svg>'ler width/height özniteliğiyle boyutlu
+     olduğu için bu kurala dahil edilmez. */
+  img,
+  canvas,
+  video {
+    max-width: 100%;
+  }
+
+  /* Uzun UUID'ler, batch kodları ve e-postalar satırı taşırıp yatay kaydırmayı
+     tetikler: kırılmasına izin ver. */
+  code,
+  .mono-sub,
+  .batch-code,
+  .record-page-id,
+  a[href^='mailto:'] {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* Flex çocukları içeriği için sıfır min-width: grid/flex taşmasının
+     en yaygın nedeni `min-width: auto`'dur. */
+  .app-main > *,
+  .report-section > *,
+  .card-elevated > * {
+    min-width: 0;
+  }
+
+  .app-main {
+    padding: 20px 14px 44px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   2 · Uygulama başlığı: marka + sekmeler + kullanıcı alanı
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .header-inner {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .header-left {
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .brand {
+    gap: 9px;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+    flex: none;
+  }
+
+  .brand-title {
+    font-size: 16px;
+  }
+
+  .workspace-tabs {
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .portal-tab {
+    padding: 8px 10px;
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  /* Kullanıcı alanı: dar ekranda tek satıra sığmaz → kendi satırında sarmala. */
+  .header-user {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 10px;
+  }
+
+  .home-site-link {
+    padding: 6px 11px;
+    font-size: 11.5px;
+  }
+
+  .home-site-link span {
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-profile-summary {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .user-avatar-circle {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+    flex: none;
+  }
+
+  .user-info-text {
+    min-width: 0;
+  }
+
+  .user-full-name {
+    font-size: 12.5px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-role-badge {
+    font-size: 9.5px;
+  }
+
+  .btn-logout {
+    padding: 7px 11px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .brand-subtitle {
+    display: none;
+  }
+
+  .brand-title {
+    font-size: 15px;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* Sitede alan adı zaten biliniyor; başlıkta sadece dışa çıkan ok kalır. */
+  .home-site-link span {
+    display: none;
+  }
+
+  .home-site-link {
+    padding: 7px 9px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   3 · Durum bantları / hata kartları: metin sarmalasın, düğme taşmasın
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .status-banner {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+
+  /* Metin alanı genişlesin; eylem (kapat / dene) alta sarkmasın. */
+  .status-banner > span,
+  .status-banner > div {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .status-banner .btn-primary,
+  .status-banner .btn-secondary {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  /* Tek satırlık kısa uyarılarda metin + düğme yan yana kalabilir. */
+  .status-banner > span:only-of-type {
+    flex: 1 1 auto;
+  }
+
+  .reset-confirm-box {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .reset-confirm-box .confirm-btn-group {
+    width: 100%;
+  }
+
+  .reset-confirm-box .confirm-btn-group .btn-danger,
+  .reset-confirm-box .confirm-btn-group .btn-secondary {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   4 · OMR tarama alanı: yükleme kutusu, sekmeler, metrikler, sayfa kartları
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .scanner-layout-container {
+    gap: 16px;
+  }
+
+  .scanner-hero-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 14px;
+  }
+
+  .scanner-hero-header h2 {
+    font-size: 21px;
+  }
+
+  .hero-actions {
+    margin-left: auto;
+  }
+
+  .hero-actions .btn-secondary {
+    padding: 8px 12px;
+  }
+
+  .scanner-input-card,
+  .scanner-progress-card,
+  .scan-review-panel {
+    padding: 16px 14px;
+  }
+
+  .scan-mode-tabs {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+  }
+
+  .mode-tab {
+    flex: 1 1 45%;
+    justify-content: center;
+    padding: 9px 10px;
+    font-size: 12.5px;
+    gap: 6px;
+  }
+
+  .dropzone-area {
+    padding: 24px 12px 20px;
+  }
+
+  .dropzone-icon {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 10px;
+  }
+
+  .dropzone-title {
+    font-size: 14.5px;
+  }
+
+  .dropzone-desc {
+    font-size: 12.5px;
+    padding: 0 6px;
+  }
+
+  .dropzone-hint {
+    font-size: 11px;
+    padding: 0 4px;
+  }
+
+  /* Canlı durum: uzun Türkçe mesaj + durdur düğmesi → dikey dizile. */
+  .scanner-status-strip {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .scanner-status-strip .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .status-live-indicator {
+    align-items: flex-start;
+  }
+
+  .progress-top-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .batch-badge {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .batch-code {
+    overflow-wrap: anywhere;
+  }
+
+  /* 4 sayfa kartı 2x2, metrik şeridi 2 sütunlu. */
+  .scan-pages-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .page-card-box {
+    padding: 10px;
+  }
+
+  .scanner-metrics-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scanner-metrics-strip .stat-item {
+    padding: 12px 14px;
+  }
+
+  .scanner-metrics-strip .stat-val {
+    font-size: 18px;
+  }
+
+  /* 5 metrik, 2 sütun → sonuncu tüm satırı kaplasın (delik kalmasın). */
+  .scanner-metrics-strip .stat-item:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .stat-label {
+    font-size: 10.5px;
+  }
+
+  /* Sayfa inceleme: önizleme üstte, cevap listesi altta. */
+  .scan-review-columns {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .scan-camera-stage {
+    max-width: 100%;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .mode-tab {
+    flex: 1 1 100%;
+  }
+
+  .scanner-metrics-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-val {
+    font-size: 16px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   5 · İşlem akışı (CaseWorkspace): akış çubuğu, taslak çubuğu, adımlar
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .ws-flow {
+    gap: 12px;
+  }
+
+  .ws-flowbar {
+    gap: 8px;
+    padding: 8px;
+    border-radius: var(--radius-lg);
+  }
+
+  .ws-flowbar > .btn-secondary {
+    flex: none;
+  }
+
+  .ws-stepper {
+    flex-wrap: wrap;
+    gap: 3px;
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ws-step {
+    padding: 5px 9px;
+    font-size: 11.5px;
+    gap: 5px;
+  }
+
+  .ws-flowbar-action {
+    width: 100%;
+  }
+
+  .ws-flowbar-action .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Taslak çubuğu: çevrimdışı metin + kuyruk çipleri sarmalasın. */
+  .ws-draftbar {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 12px;
+    align-items: center;
+  }
+
+  .ws-panel-head {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ws-panel-title {
+    font-size: 21px;
+  }
+
+  .ws-review-edits {
+    width: 100%;
+  }
+
+  .ws-review-edits .btn-secondary {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .ws-nav {
+    gap: 8px;
+  }
+
+  .ws-nav .btn-primary,
+  .ws-nav .btn-secondary {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .ws-client-chip {
+    width: 100%;
+    padding: 8px 12px;
+  }
+
+  .ws-client-chip span {
+    overflow-wrap: anywhere;
+  }
+
+  .ws-method {
+    padding: 14px 12px;
+  }
+
+  /* Giriş formu: etiket/alan hizası dar ekranda korunur. */
+  .ws-form {
+    gap: 12px;
+  }
+
+  .ws-conditions-check {
+    align-items: flex-start;
+  }
+
+  .ws-checklist li {
+    gap: 8px;
+    font-size: 12.5px;
+    padding: 8px 10px;
+  }
+
+  /* Yarım çalışma kartı: eylemler alta tam genişlik. */
+  .ws-restore-card {
+    gap: 10px;
+  }
+
+  .ws-restore-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .ws-restore-actions .btn-primary,
+  .ws-restore-actions .btn-secondary {
+    justify-content: center;
+  }
+
+  .ws-restore-card {
+    text-align: left;
+  }
+
+  .ws-restore-icon {
+    margin: 0;
+  }
+
+  /* Hızlı veri girişi (566 madde): sahne ve navigasyon dar ekrana sığsın. */
+  .qe-stage {
+    padding: 14px 12px;
+  }
+
+  .qe-current strong {
+    font-size: 24px;
+  }
+
+  .qe-counts {
+    flex-wrap: wrap;
+  }
+
+  .qe-nav-btns {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .qe-nav-btns .btn-secondary {
+    flex: 1 1 90px;
+    justify-content: center;
+  }
+
+  /* Ham puan: 2 sütun yeterlidir. */
+  .raw-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Oturum künyesi: 2 sütun. */
+  .ws-dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   6 · Kayıt detay sayfası
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .record-page {
+    gap: 14px;
+  }
+
+  .record-page-topbar {
+    gap: 8px;
+  }
+
+  .record-page-topbar > .btn-secondary {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .record-page-topbar-title {
+    order: -1;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .record-page-header {
+    padding: 14px;
+  }
+
+  .report-section {
+    padding: 14px;
+  }
+
+  .report-section-title {
+    font-size: 16px;
+  }
+
+  .report-quicknav {
+    position: static;
+    padding: 8px 10px;
+  }
+
+  .client-info-details summary {
+    padding: 10px 14px;
+  }
+
+  .client-info-details .client-details-grid {
+    padding: 4px 14px 14px;
+  }
+
+  .client-info-details .record-page-context {
+    padding: 0 14px 12px;
+  }
+
+  .expert-notes-input {
+    min-height: 84px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .record-page-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .record-page-topbar > .btn-secondary {
+    width: 100%;
+  }
+
+  .record-page-topbar-title {
+    order: -1;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   7 · Tablolar (Kayıtlar / Yönetim): satır aksiyonları sarmalasın
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .table-responsive {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .table-row-actions .action-btn-primary,
+  .table-row-actions .action-btn-secondary,
+  .table-row-actions .action-btn-danger {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   8 · Giriş / kayıt ekranı
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .auth-site-return {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .auth-setup-links {
+    width: 100%;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   9 · Alt bilgi
+   -------------------------------------------------------------------------- */
+@media screen and (max-width: 720px) {
+  .site-footer-inner {
+    padding: 12px 16px;
+    gap: 8px 14px;
+  }
+
+  .site-footer-nav {
+    gap: 4px 10px;
+  }
+}

@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
 
 /**
  * Arena preview host is {port}-{id}.e2b.app; '.e2b.app' suffix izinli.
@@ -11,7 +10,9 @@ import tailwindcss from '@tailwindcss/vite';
  */
 export default defineConfig({
   appType: 'spa',
-  plugins: [react(), tailwindcss()],
+  // Tasarım sistemi düz CSS katmanlarıdır (psikolog/MMPI ile aynı);
+  // yardımcı sınıf üreten bir eklenti kullanılmaz.
+  plugins: [react()],
   server: {
     host: '0.0.0.0',
     port: 5173,

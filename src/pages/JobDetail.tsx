@@ -22,7 +22,8 @@ import {
   turkishCapitalize,
 } from '../lib/format';
 import type { PublicJobDetail } from '../types';
-import { Badge, Card, DefinitionList, ErrorNotice, InfoNote, ProgressBar, Spinner } from '../components/ui';
+import { Card, EmptyState, ErrorNotice, InfoNote, LoadingCard, ProgressBar, Tag, DefinitionList } from '../components/ui';
+import { Icon } from '../components/Icon';
 
 const FIELD_LABELS: Record<string, string> = {
   title: 'Başlık',
@@ -57,78 +58,108 @@ export function JobDetailPage(): ReactNode {
     retry: 0,
   });
 
-  if (query.isLoading) return <Spinner label="İlan yükleniyor…" />;
+  if (query.isLoading) return <LoadingCard title="İlan yükleniyor…" />;
   if (query.isError) {
     return (
-      <div className="space-y-3">
+      <div className="page-stack">
         <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
-        <Link to="/ilanlar" className="btn-secondary">
-          İlan listesine dön
+        <Link className="btn-secondary" to="/ilanlar">
+          <Icon name="left" size={15} />
+          <span>İlan listesine dön</span>
         </Link>
       </div>
     );
   }
   const job = query.data;
-  if (!job) return null;
+  if (!job) {
+    return (
+      <EmptyState
+        icon="info"
+        title="İlan bulunamadı"
+        description="Bağlantı eski olabilir; kayıt kaldırılmış ya da kimliği değişmiş olabilir."
+        action={
+          <Link className="btn-primary" to="/ilanlar">
+            İlanlara göz at
+          </Link>
+        }
+      />
+    );
+  }
 
   const requirements = job.requirements;
 
   return (
-    <article className="space-y-4">
-      <header className="card">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="info">{EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType}</Badge>
-          <Badge tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
+    <article className="page-stack">
+      <header className="detail-head card-elevated">
+        <div className="detail-head-tags">
+          <Tag tone="accent">{EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType}</Tag>
+          <Tag tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
             {JOB_STATUS_LABELS[job.status] ?? job.status}
-          </Badge>
-          <Badge
-            tone={job.deadline.state === 'closing-soon' ? 'warning' : job.deadline.state === 'closed' ? 'danger' : 'neutral'}
-          >
+          </Tag>
+          <Tag tone={job.deadline.state === 'closing-soon' ? 'warning' : job.deadline.state === 'closed' ? 'neutral' : 'info'}>
             {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
-          </Badge>
-          {job.provenance === 'sample' && <Badge tone="warning">örnek veri (gerçek ilan değil)</Badge>}
-          <Badge tone={job.classification.confidence >= 0.8 ? 'success' : 'neutral'}>
-            sınıflandırma: {confidenceLabel(job.classification.confidence)}
-          </Badge>
+          </Tag>
+          {job.provenance === 'sample' && <Tag tone="warning">örnek veri (gerçek ilan değil)</Tag>}
+          <Tag tone={job.classification.confidence >= 0.8 ? 'success' : 'neutral'}>
+            {`sınıflandırma: ${confidenceLabel(job.classification.confidence)}`}
+          </Tag>
         </div>
-        <h1 className="mt-2 text-xl font-semibold">{job.title}</h1>
-        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{job.institution}</p>
-        {job.unit && <p className="text-sm text-slate-600 dark:text-slate-400">Birim: {job.unit}</p>}
 
-        <div className="mt-3 flex flex-wrap gap-2">
+        <h1 className="page-title">{job.title}</h1>
+        <p className="detail-institution">
+          <Icon name="building" size={15} /> {job.institution}
+          {job.unit ? ` · ${job.unit}` : ''}
+        </p>
+
+        <div className="detail-actions">
           <a className="btn-primary" href={job.detailUrl} target="_blank" rel="noreferrer noopener">
-            Resmî ilanı aç
+            <Icon name="external" size={15} />
+            <span>Resmî ilanı aç</span>
           </a>
           {job.applicationUrl ? (
             <a className="btn-secondary" href={job.applicationUrl} target="_blank" rel="noreferrer noopener">
-              Başvuru bağlantısı
+              <Icon name="link" size={15} />
+              <span>Başvuru bağlantısı</span>
             </a>
           ) : (
-            <span className="btn-secondary cursor-not-allowed" aria-disabled="true" title="İlanda başvuru bağlantısı belirtilmemiş">
-              Başvuru bağlantısı belirtilmemiş
+            <span className="btn-secondary is-disabled" aria-disabled="true" title="İlanda başvuru bağlantısı belirtilmemiş">
+              <Icon name="info" size={15} />
+              <span>Başvuru bağlantısı belirtilmemiş</span>
             </span>
           )}
+          <Link className="btn-secondary" to="/ilanlar">
+            <Icon name="search" size={15} />
+            <span>Benzer ilanları ara</span>
+          </Link>
         </div>
       </header>
 
       {job.uncertainties.length > 0 && (
-        <InfoNote tone="warning">
-          <strong>Belirsizlikler:</strong> {job.uncertainties.join(' ')}
+        <InfoNote tone="warning" title="Belirsizlikler">
+          {job.uncertainties.join(' ')}
         </InfoNote>
       )}
 
-      <Card title="Temel bilgiler">
+      <Card title="Temel bilgiler" description="Alanlar yalnızca kaynakta yazıyorsa doldurulur.">
         <DefinitionList
           items={[
             { term: 'Kontenjan', value: formatNumber(job.quota) },
             { term: 'İl / İlçe', value: [job.city, job.district].filter(Boolean).join(' / ') || 'belirtilmemiş' },
             { term: 'Unvan(lar)', value: job.titles.length > 0 ? job.titles.join(', ') : 'belirtilmemiş' },
-            { term: 'Başvuru başlangıcı', value: job.applicationStartAt ? formatDateTime(job.applicationStartAt) : 'belirtilmemiş' },
+            {
+              term: 'Başvuru başlangıcı',
+              value: job.applicationStartAt ? formatDateTime(job.applicationStartAt) : 'belirtilmemiş',
+            },
             { term: 'Son başvuru', value: job.applicationEndAt ? formatDateTime(job.applicationEndAt) : 'belirtilmemiş' },
             { term: 'Yayım tarihi', value: job.publishedAt ? formatDate(job.publishedAt) : 'belirtilmemiş' },
             { term: 'Resmî ilan no', value: job.originalRefNo ?? 'belirtilmemiş' },
+            { term: 'Başvuru yöntemi', value: job.applicationMethod ?? 'belirtilmemiş' },
             { term: 'İlk görülme', value: formatDateTime(job.firstSeenAt) },
-            { term: 'Son doğrulama', value: job.lastVerifiedAt ? formatDateTime(job.lastVerifiedAt) : 'doğrulanmadı' },
+            {
+              term: 'Son doğrulama',
+              value: job.lastVerifiedAt ? formatDateTime(job.lastVerifiedAt) : 'doğrulanmadı',
+              hint: 'Kaynağın son başarılı taramasında bu kaydın görüldüğü an.',
+            },
           ]}
         />
       </Card>
@@ -143,7 +174,10 @@ export function JobDetailPage(): ReactNode {
                   ? requirements.educationLevels.map((level) => EDUCATION_LABELS[level] ?? level).join(', ')
                   : 'belirtilmemiş',
             },
-            { term: 'Bölüm / program', value: requirements.departments.length > 0 ? requirements.departments.join(', ') : 'belirtilmemiş' },
+            {
+              term: 'Bölüm / program',
+              value: requirements.departments.length > 0 ? requirements.departments.join(', ') : 'belirtilmemiş',
+            },
             {
               term: 'KPSS',
               value:
@@ -160,9 +194,18 @@ export function JobDetailPage(): ReactNode {
                   ? `${requirements.minAge ?? ''}${requirements.minAge !== null ? ' – ' : ''}${requirements.maxAge ?? ''}`
                   : 'belirtilmemiş',
             },
-            { term: 'Deneyim', value: requirements.minExperienceYears !== null ? `en az ${requirements.minExperienceYears} yıl` : 'belirtilmemiş' },
-            { term: 'Yabancı dil', value: requirements.foreignLanguages.length > 0 ? requirements.foreignLanguages.join(', ') : 'belirtilmemiş' },
-            { term: 'Sertifika / belge', value: requirements.certificates.length > 0 ? requirements.certificates.join(', ') : 'belirtilmemiş' },
+            {
+              term: 'Deneyim',
+              value: requirements.minExperienceYears !== null ? `en az ${requirements.minExperienceYears} yıl` : 'belirtilmemiş',
+            },
+            {
+              term: 'Yabancı dil',
+              value: requirements.foreignLanguages.length > 0 ? requirements.foreignLanguages.join(', ') : 'belirtilmemiş',
+            },
+            {
+              term: 'Sertifika / belge',
+              value: requirements.certificates.length > 0 ? requirements.certificates.join(', ') : 'belirtilmemiş',
+            },
             {
               term: 'Özel koşullar',
               value: requirements.specialConditions.length > 0 ? requirements.specialConditions.join(', ') : 'belirtilmemiş',
@@ -172,12 +215,19 @@ export function JobDetailPage(): ReactNode {
       </Card>
 
       {job.attachments.length > 0 && (
-        <Card title="Ek belgeler" description="İlan sahibinin yayımladığı dosyalar (içeriği çalıştırılmaz, yalnızca bağlantı verilir).">
-          <ul className="space-y-1 text-sm">
+        <Card
+          title="Ek belgeler"
+          description="İlan sahibinin yayımladığı dosyalar; içerik çalıştırılmaz, yalnızca kaynağına bağlantı verilir."
+        >
+          <ul className="link-row">
             {job.attachments.map((attachment) => (
               <li key={attachment.url}>
                 <a href={attachment.url} target="_blank" rel="noreferrer noopener">
-                  {attachment.label || turkishCapitalize(attachment.kind)} ({attachment.kind.toUpperCase()})
+                  <Icon name="file" size={15} />
+                  <span>
+                    {attachment.label || turkishCapitalize(attachment.kind)}{' '}
+                    <span className="cell-mono">({attachment.kind.toUpperCase()})</span>
+                  </span>
                 </a>
               </li>
             ))}
@@ -186,16 +236,19 @@ export function JobDetailPage(): ReactNode {
       )}
 
       <Card title="Kaynaklar ve doğrulama" description="Bu ilanın bulunduğu tüm kaynaklar; hiçbiri diğerinin yerine geçmez.">
-        <ul className="space-y-2 text-sm">
+        <ul className="provenance-list">
           {job.sources.map((source) => (
-            <li key={source.sourceKey + source.url} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-              <p className="font-medium">{source.sourceName ?? source.sourceKey}</p>
-              <a href={source.url} target="_blank" rel="noreferrer noopener" className="break-all text-xs">
+            <li className="provenance-source" key={source.sourceKey + source.url}>
+              <div className="provenance-head">
+                <strong>{source.sourceName ?? source.sourceKey}</strong>
+                <Tag tone={source.active ? 'success' : 'neutral'}>{source.active ? 'kaynakta aktif' : 'kaynakta görünmüyor'}</Tag>
+              </div>
+              <a href={source.url} target="_blank" rel="noreferrer noopener" className="provenance-snippet">
                 {source.url}
               </a>
-              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                İlk görülme: {formatDateTime(source.firstSeenAt)} · Son görülme: {formatDateTime(source.lastSeenAt)} ·{' '}
-                {source.active ? 'kaynakta aktif' : 'kaynakta görünmüyor'}
+              <p className="text-muted-sm">
+                İlk görülme: {formatDateTime(source.firstSeenAt)} · Son görülme: {formatDateTime(source.lastSeenAt)}
+                {source.publishedAt ? ` · Kaynaktaki yayım: ${formatDate(source.publishedAt)}` : ''}
               </p>
             </li>
           ))}
@@ -203,32 +256,32 @@ export function JobDetailPage(): ReactNode {
       </Card>
 
       <Card title="Alan bazlı kaynak izi" description="Her alanın hangi katmandan çıkarıldığı.">
-        <div className="space-y-2">
-          <ProgressBar value={job.extractionConfidence} label="Çıkarım güveni" />
-          <ul className="space-y-1 text-sm">
-            {Object.entries(job.fieldSources).map(([field, source]) => (
-              <li key={field} className="flex flex-wrap items-baseline gap-2">
-                <span className="font-medium">{FIELD_LABELS[field] ?? field}</span>
-                <Badge tone="neutral">{SOURCE_KIND_LABELS[source.kind] ?? source.kind}</Badge>
-                {source.snippet && <span className="text-xs text-slate-600 dark:text-slate-400">“{source.snippet.slice(0, 120)}”</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ProgressBar value={job.extractionConfidence} label="Çıkarım güveni" />
+        <ul className="provenance-list">
+          {Object.entries(job.fieldSources).map(([field, source]) => (
+            <li className="provenance-source" key={field}>
+              <div className="provenance-head">
+                <strong>{FIELD_LABELS[field] ?? field}</strong>
+                <Tag>{SOURCE_KIND_LABELS[source.kind] ?? source.kind}</Tag>
+              </div>
+              {source.snippet && <p className="provenance-snippet">“{source.snippet.slice(0, 200)}”</p>}
+            </li>
+          ))}
+        </ul>
       </Card>
 
       <Card title="İlan metni özeti" description="Ham metinden alıntı; biçimlendirme uygulanmaz (güvenlik gereği).">
-        <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{job.textExcerpt || 'Metin alınamadı.'}</p>
+        <p className="job-excerpt">{job.textExcerpt || 'Metin alınamadı.'}</p>
       </Card>
 
-      <Card title="Sınıflandırma kararı" description="Kural motoru kararı; şüpheli kayıtlar kullanıcıya gösterilmez.">
-        <p className="text-sm">
+      <Card title="Sınıflandırma kararı" description="Kural motoru kararı; kararsız kayıtlar kullanıcıya gösterilmez.">
+        <p>
           Karar: <strong>{job.classification.decision === 'accept' ? 'kabul' : job.classification.decision}</strong> · Tür:{' '}
           {EMPLOYMENT_TYPE_LABELS[job.classification.employmentType] ?? job.classification.employmentType} · Sürüm:{' '}
-          {job.classification.version}
+          <span className="cell-mono">{job.classification.version}</span>
         </p>
         {job.classification.reasons.length > 0 && (
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+          <ul className="checklist">
             {job.classification.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
@@ -236,9 +289,9 @@ export function JobDetailPage(): ReactNode {
         )}
       </Card>
 
-      <InfoNote>
-        Kesin bilgi için ilanın resmî kaynağını doğrulayın. KamuRadar yalnızca yayımlanmış ilanları toplar; başvuru koşullarındaki
-        değişiklikler kaynağın kendisinde olur.
+      <InfoNote title="Kesin bilgi kaynağındadır">
+        Başvuru koşullarını ilanın resmî kaynağından doğrulayın; değişiklikler önce kaynakta olur. Kamuİlan yalnızca
+        yayımlanmış ilanları toplar ve gördüğü son hâli gösterir.
         {job.applicationEndDate ? ` Son başvuru günü: ${formatDateOnly(job.applicationEndDate)}.` : ''}
       </InfoNote>
     </article>

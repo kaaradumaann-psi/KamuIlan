@@ -39,7 +39,7 @@ function readCookie(name: string): string | null {
 }
 
 export function csrfToken(): string | null {
-  return readCookie('kamuradar_csrf');
+  return readCookie('kamuilan_csrf');
 }
 
 export interface RequestOptions {

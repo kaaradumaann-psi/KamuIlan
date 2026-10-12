@@ -16,8 +16,8 @@ import type { Repos } from '../db/repos';
 import type { SessionDoc, UserDoc } from '../db/schemas';
 import type { AuditRepo, RateLimitRepo } from '../db/repos/system';
 
-export const SESSION_COOKIE = 'kamuradar_session';
-export const CSRF_COOKIE = 'kamuradar_csrf';
+export const SESSION_COOKIE = 'kamuilan_session';
+export const CSRF_COOKIE = 'kamuilan_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
 
 export interface RequestContext {

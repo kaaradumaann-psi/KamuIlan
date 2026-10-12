@@ -4,7 +4,8 @@
  * Kapsanan garantiler:
  *  - Hata biçimi standart; bilinmeyen kayıt 404 döner (stack sızmaz).
  *  - Güvenlik başlıkları her yanıtta vardır.
- *  - Kayıt → doğrulama → oturum akışı; doğrulanmamış kullanıcı bildirim almaz.
+ *  - Dışarıdan kayıt kapalı; hesaplar yönetici davetiyle açılır, doğrulanmamış
+ *    kullanıcı bildirim almaz.
  *  - Oturum olmadan korumalı uçlar 401; CSRF başlığı olmadan yazan istekler 403.
  *  - Kullanıcılar birbirinin verisini göremez (izolasyon).
  *  - Yönetici uçları RBAC ile korunur; kararlar denetim kaydına yazılır.
@@ -72,13 +73,13 @@ async function login(
   expect(response.statusCode).toBe(200);
   const body = response.json() as { user: { id: string }; csrfToken: string };
   const cookies = response.cookies as { name: string; value: string }[];
-  const session = cookies.find((cookie) => cookie.name === 'kamuradar_session')?.value ?? '';
+  const session = cookies.find((cookie) => cookie.name === 'kamuilan_session')?.value ?? '';
   expect(session.length).toBeGreaterThan(20);
   return { session, csrf: body.csrfToken, userId: body.user.id };
 }
 
 beforeAll(async () => {
-  const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuradar-api-')));
+  const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuilan-api-')));
   await store.init();
   const clock = fixedClock(NOW);
   const repos = createRepos(store, clock);
@@ -252,41 +253,83 @@ describe('kaynak şeffaflığı', () => {
 });
 
 describe('kimlik akışı', () => {
-  it('kayıt doğrulama e-postası kuyruğa alır, zayıf parola reddedilir', async () => {
-    const weak = await world.app.inject({
+  it('dışarıdan kayıt kapalıdır: /api/auth/register hesap açmaz', async () => {
+    const response = await world.app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: { email: 'zayif@ornek.test', password: 'parola', consent: true },
+      payload: { email: 'disaridan@ornek.test', password: 'Guclu-Parola-2026', consent: true },
     });
-    expect(weak.statusCode).toBe(400);
+    expect(response.statusCode).toBe(403);
+    expect((response.json() as { error: { message: string } }).error.message).toContain('yönetici daveti');
+    // Kritik: reddedilen istek arka planda hesap oluşturmamalı.
+    expect(await world.repos.users.findByEmail('disaridan@ornek.test')).toBeNull();
+  });
 
-    const noConsent = await world.app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { email: 'onaysiz@ornek.test', password: 'Guclu-Parola-2026', consent: false },
+  it('e-posta doğrulama jetonu tek kullanımlıktır', async () => {
+    const userId = await createUser(world.repos, {
+      email: 'dogrula@ornek.test',
+      password: 'Guclu-Parola-2026',
+      verified: false,
     });
-    expect(noConsent.statusCode).toBe(400);
-
-    const ok = await world.app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { email: 'yeni@ornek.test', password: 'Guclu-Parola-2026', consent: true },
-    });
-    expect(ok.statusCode).toBe(201);
-    const outbox = await world.repos.outbox.list({ status: 'pending' }, 20);
-    const verification = outbox.find((item) => item.kind === 'email-verification' && item.toEmail === 'yeni@ornek.test');
-    expect(verification).toBeTruthy();
-    const token = String((verification?.payload as { verifyUrl: string }).verifyUrl).split('token=')[1] as string;
+    const token = 'dogrulama-jetonu-0123456789abcdef';
+    await world.repos.users.createToken({ userId, type: 'email-verify', token, ttlMinutes: 60 });
 
     const verified = await world.app.inject({ method: 'POST', url: '/api/auth/verify-email', payload: { token } });
     expect(verified.statusCode).toBe(200);
     const reused = await world.app.inject({ method: 'POST', url: '/api/auth/verify-email', payload: { token } });
     expect(reused.statusCode).toBe(400);
 
-    const user = await world.repos.users.findByEmail('yeni@ornek.test');
+    const user = await world.repos.users.findById(userId);
     expect(user?.emailVerified).toBe(true);
-    // Doğrulanmış ama şifre düz metin saklanmaz.
+    // Doğrulanmış olsa bile şifre düz metin saklanmaz.
     expect(user?.passwordHash).not.toContain('Guclu-Parola-2026');
+  });
+
+  it('yönetici daveti hesabı açar; kullanıcı tek kullanımlık bağlantıyla kendi parolasını belirler', async () => {
+    await createUser(world.repos, { email: 'davetci-admin@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    const admin = await login(world.app, 'davetci-admin@ornek.test', 'Guclu-Parola-2026');
+
+    const invited = await world.app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      cookies: { kamuilan_session: admin.session, kamuilan_csrf: admin.csrf },
+      headers: { 'x-csrf-token': admin.csrf },
+      payload: { email: 'davetli@ornek.test', displayName: 'Davetli Kullanıcı', role: 'user', note: 'test daveti' },
+    });
+    expect(invited.statusCode).toBe(201);
+
+    const outbox = await world.repos.outbox.list({ status: 'pending' }, 50);
+    const invite = outbox.find((item) => item.kind === 'account-invite' && item.toEmail === 'davetli@ornek.test');
+    expect(invite).toBeTruthy();
+    // Davet e-postası düz metin parola içermez; yalnızca tek kullanımlık bağlantı taşır.
+    expect(JSON.stringify(invite?.payload)).not.toContain('password');
+    const token = String((invite?.payload as { inviteUrl: string }).inviteUrl).split('token=')[1] as string;
+
+    const tooWeak = await world.app.inject({
+      method: 'POST',
+      url: '/api/auth/reset-password',
+      payload: { token, password: 'parola' },
+    });
+    expect(tooWeak.statusCode).toBe(400);
+
+    const setPassword = await world.app.inject({
+      method: 'POST',
+      url: '/api/auth/reset-password',
+      payload: { token, password: 'Yeni-Parola-2026!' },
+    });
+    expect(setPassword.statusCode).toBe(200);
+
+    await login(world.app, 'davetli@ornek.test', 'Yeni-Parola-2026!');
+
+    const reused = await world.app.inject({
+      method: 'POST',
+      url: '/api/auth/reset-password',
+      payload: { token, password: 'Baska-Parola-2026!' },
+    });
+    expect(reused.statusCode).toBe(400);
+
+    const logs = await world.repos.audit.list(50, 'admin.user-invited');
+    expect(logs.some((log) => log.targetId === invite?.userId)).toBe(true);
   });
 
   it('oturum çerezi olmadan korumalı uçlar 401, CSRF olmadan yazan istek 403', async () => {
@@ -301,7 +344,7 @@ describe('kimlik akışı', () => {
       method: 'PUT',
       url: '/api/notifications/preferences',
       payload: { enabled: true },
-      cookies: { kamuradar_session: session.session, kamuradar_csrf: session.csrf },
+      cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
     });
     expect(withoutCsrf.statusCode).toBe(403);
     expect((withoutCsrf.json() as { error: { message: string } }).error.message).toContain('CSRF');
@@ -310,7 +353,7 @@ describe('kimlik akışı', () => {
       method: 'PUT',
       url: '/api/notifications/preferences',
       payload: { enabled: true, filters: { cities: ['Ankara'] } },
-      cookies: { kamuradar_session: session.session, kamuradar_csrf: session.csrf },
+      cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
       headers: { 'x-csrf-token': session.csrf },
     });
     expect(withCsrf.statusCode).toBe(200);
@@ -325,7 +368,7 @@ describe('kimlik akışı', () => {
     const preferences = await world.app.inject({
       method: 'GET',
       url: '/api/notifications/preferences',
-      cookies: { kamuradar_session: session.session },
+      cookies: { kamuilan_session: session.session },
     });
     const body = preferences.json() as { canReceive: boolean; notice: string | null };
     expect(body.canReceive).toBe(false);
@@ -335,7 +378,7 @@ describe('kimlik akışı', () => {
       method: 'POST',
       url: '/api/notifications/test-email',
       payload: {},
-      cookies: { kamuradar_session: session.session, kamuradar_csrf: session.csrf },
+      cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
       headers: { 'x-csrf-token': session.csrf },
     });
     expect(testEmail.statusCode).toBe(403);
@@ -355,7 +398,7 @@ describe('yetkilendirme ve izolasyon', () => {
     const aliceHistory = await world.app.inject({
       method: 'GET',
       url: '/api/notifications/history',
-      cookies: { kamuradar_session: alice.session },
+      cookies: { kamuilan_session: alice.session },
     });
     expect(aliceHistory.statusCode).toBe(200);
     expect((aliceHistory.json() as { events: unknown[] }).events).toHaveLength(0);
@@ -364,7 +407,7 @@ describe('yetkilendirme ve izolasyon', () => {
     const bobHistory = await world.app.inject({
       method: 'GET',
       url: '/api/notifications/history',
-      cookies: { kamuradar_session: bob.session },
+      cookies: { kamuilan_session: bob.session },
     });
     expect((bobHistory.json() as { events: { jobId: string }[] }).events[0]?.jobId).toBe(jobId);
 
@@ -378,7 +421,7 @@ describe('yetkilendirme ve izolasyon', () => {
     const forbidden = await world.app.inject({
       method: 'GET',
       url: '/api/admin/overview',
-      cookies: { kamuradar_session: normal.session },
+      cookies: { kamuilan_session: normal.session },
     });
     expect(forbidden.statusCode).toBe(403);
 
@@ -387,7 +430,7 @@ describe('yetkilendirme ve izolasyon', () => {
     const overview = await world.app.inject({
       method: 'GET',
       url: '/api/admin/overview',
-      cookies: { kamuradar_session: admin.session },
+      cookies: { kamuilan_session: admin.session },
     });
     expect(overview.statusCode).toBe(200);
     const body = overview.json() as { jobs: { total: number }; workers: unknown[]; workerWarning: string | null; auditEntries: number };
@@ -405,7 +448,7 @@ describe('inceleme kuyruğu kararı', () => {
     const queue = await world.app.inject({
       method: 'GET',
       url: '/api/admin/review-queue?kind=dedupe',
-      cookies: { kamuradar_session: admin.session },
+      cookies: { kamuilan_session: admin.session },
     });
     expect(queue.statusCode).toBe(200);
     const items = (queue.json() as { items: { id: string; candidateJobIds: string[] }[] }).items;
@@ -419,7 +462,7 @@ describe('inceleme kuyruğu kararı', () => {
       method: 'POST',
       url: `/api/admin/review-queue/${item?.id}/resolve`,
       payload: { action: 'merge', note: 'Aynı ilanın iki kaynak kaydı.' },
-      cookies: { kamuradar_session: admin.session, kamuradar_csrf: admin.csrf },
+      cookies: { kamuilan_session: admin.session, kamuilan_csrf: admin.csrf },
       headers: { 'x-csrf-token': admin.csrf },
     });
     expect(resolved.statusCode).toBe(200);
@@ -444,7 +487,7 @@ describe('hız sınırlama', () => {
   it('kimlik uçlarında sınır aşılırsa 429 ve retry-after döner', async () => {
     process.env.AUTH_RATE_LIMIT_MAX_REQUESTS = '3';
     resetEnvCache();
-    const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuradar-rate-')));
+    const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuilan-rate-')));
     await store.init();
     const repos = createRepos(store, fixedClock(NOW));
     const app = await buildApp({ repos, logger: LOGGER });

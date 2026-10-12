@@ -1,30 +1,31 @@
 /**
  * Arayüz girişi.
  *
- * Yönlendirme: react-router (tarayıcı geçmişi) + @tanstack/react-query (sunucu
- * durumu). Sunucu durumu bileşenlerde kopyalanmaz; tek kaynak API'dir.
+ * Yönlendirme react-router ile, sunucu durumu @tanstack/react-query ile yönetilir;
+ * sunucu verisi bileşenlerde kopyalanmaz. Oturum bilgisi tek yerde
+ * (`SessionProvider`) tutulur ve sunucudaki `/api/auth/session` ucuyla doğrulanır.
+ *
+ * Stil sırası psikolog/MMPI çalışma alanlarıyla aynıdır: önce temel katmanlar
+ * (tokens → site → bileşen derisi), sonra Kamuİlan katmanları, en sonda
+ * responsive. `index.css` yoktur; katmanlar burada açıkça sıralanır.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StrictMode, type ReactNode } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
-import { Layout } from './components/Layout';
-import { AdminPage } from './pages/Admin';
-import { HomePage } from './pages/Home';
-import { JobDetailPage } from './pages/JobDetail';
-import { JobsPage } from './pages/Jobs';
-import { PanelPage } from './pages/Panel';
-import { SourcesPage } from './pages/Sources';
-import {
-  ForgotPasswordPage,
-  LoginPage,
-  RegisterPage,
-  ResendVerificationPage,
-  ResetPasswordPage,
-  UnsubscribePage,
-  VerifyEmailPage,
-} from './pages/auth';
-import './styles/index.css';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+import { SessionProvider } from './lib/session';
+
+import './styles/screen.css';
+import './styles/site.css';
+import './styles/coherence.css';
+import './styles/theme.css';
+import './styles/workspace.css';
+import './styles/dashboard.css';
+import './styles/kamuilan.css';
+import './styles/auth.css';
+import './styles/mobile.css';
+import './styles/responsive.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,40 +37,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function NotFoundPage(): ReactNode {
-  return (
-    <div className="card">
-      <h1 className="text-lg font-semibold">Sayfa bulunamadı</h1>
-      <p className="mt-1 text-sm">
-        Aradığınız sayfa yok. <Link to="/">Ana sayfaya dönün</Link> veya <Link to="/ilanlar">ilanlara göz atın</Link>.
-      </p>
-    </div>
-  );
-}
-
-function App(): ReactNode {
-  return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/ilanlar" element={<JobsPage />} />
-        <Route path="/ilanlar/:id" element={<JobDetailPage />} />
-        <Route path="/kaynaklar" element={<SourcesPage />} />
-        <Route path="/giris" element={<LoginPage />} />
-        <Route path="/kayit" element={<RegisterPage />} />
-        <Route path="/dogrulama" element={<VerifyEmailPage />} />
-        <Route path="/dogrulama-gonder" element={<ResendVerificationPage />} />
-        <Route path="/sifremi-unuttum" element={<ForgotPasswordPage />} />
-        <Route path="/sifre-sifirla" element={<ResetPasswordPage />} />
-        <Route path="/abonelikten-cik" element={<UnsubscribePage />} />
-        <Route path="/panel" element={<PanelPage />} />
-        <Route path="/yonetim" element={<AdminPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </Layout>
-  );
-}
-
 const container = document.getElementById('root');
 if (!container) {
   throw new Error('Arayüz kökü (#root) bulunamadı: index.html beklenen yapıda değil.');
@@ -79,7 +46,9 @@ createRoot(container).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        <SessionProvider>
+          <App />
+        </SessionProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

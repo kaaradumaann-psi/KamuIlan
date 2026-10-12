@@ -42,7 +42,7 @@ function definition(key: string, name: string): SourceDefinition {
 
 describe('dosya deposu — süreçler arası tutarlılık', () => {
   it('başka bir sürecin yazdığı kayıtları okur ve kendi yazımıyla ezmez', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kamuradar-filestore-'));
+    const dir = mkdtempSync(join(tmpdir(), 'kamuilan-filestore-'));
 
     // İki ayrı depo = iki ayrı süreç (aynı dosya).
     const first = new FileStore(dir);
@@ -70,7 +70,7 @@ describe('dosya deposu — süreçler arası tutarlılık', () => {
   });
 
   it('bozuk dosyayı yedekleyip temiz durumla devam eder', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kamuradar-filestore-corrupt-'));
+    const dir = mkdtempSync(join(tmpdir(), 'kamuilan-filestore-corrupt-'));
     const store = new FileStore(dir);
     await store.init();
     const repos = createRepos(store);
@@ -78,7 +78,7 @@ describe('dosya deposu — süreçler arası tutarlılık', () => {
 
     // Dosyayı bozalım: sonraki açılış hata vermemeli, bozuk kopya saklanmalı.
     const { writeFileSync, readdirSync } = await import('node:fs');
-    writeFileSync(join(dir, 'kamuradar.json'), '{ bu geçerli json değil', 'utf8');
+    writeFileSync(join(dir, 'kamuilan.json'), '{ bu geçerli json değil', 'utf8');
 
     const fresh = new FileStore(dir);
     await expect(fresh.init()).rejects.toThrow(/Veri dosyası okunamadı/);

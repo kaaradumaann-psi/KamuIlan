@@ -1,0 +1,789 @@
+/* ==========================================================================
+   Site chrome — tam alt bilgi (site footer), bilgi sayfası kabuğu (SSS,
+   Gizlilik & KVKK, Kullanım Koşulları, Kaynakça) ve giriş ekranı sarmalayıcı.
+   theme.css'ten sonra yüklenir; aynı tasarım dilini kullanır: kâğıt-beyaz
+   yüzeyler, hairline kenarlıklar, tek vurgu rengi, küçük uppercase kickers.
+   ========================================================================== */
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  z-index: 80;
+  transform: translateY(-160%);
+  background: #0d0d0d;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+}
+.skip-link:focus {
+  transform: none;
+}
+
+@media screen {
+  /* ========================================================================
+     01 · Auth sayfa sarmalayıcı — giriş/kurulum ekranı + alt bilgi
+     ======================================================================== */
+
+  .auth-page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* auth-shell'in kendi 100vh minimumu, alt bilginin ekrana sığmasını engeller. */
+  .auth-page .auth-shell {
+    flex: 1 0 auto;
+    min-height: 0;
+  }
+
+  /* ========================================================================
+     02 · Tam alt bilgi — minimal, site tasarım diliyle uyumlu
+     Tek satırda marka + telif, karşıda sayfa bağlantıları. İkinci satır
+     yalnızca yasal uyarı için — 10px, muted, hairline üstü.
+     ======================================================================== */
+
+  .site-footer {
+    margin-top: auto;
+    background: var(--bg);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .site-footer-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    padding: 11px 28px;
+    min-height: 44px;
+    flex-wrap: wrap;
+  }
+
+  .site-footer-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .site-footer-mark {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: #111213;
+    border: 1px solid #111213;
+    color: #ececec;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .site-footer-mark svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .site-footer-copyright {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--soft);
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .site-footer-copyright b {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .site-footer-meta {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
+  .site-footer-sep {
+    color: var(--slate-300);
+    font-size: 10px;
+    user-select: none;
+  }
+
+  .site-footer-nav {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+  }
+
+  .site-footer-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--soft);
+    text-decoration: none;
+    letter-spacing: -0.01em;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  .site-footer-link:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .site-footer-link-muted {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .site-footer-link-external svg {
+    color: var(--muted);
+  }
+
+  .site-footer-legal {
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-soft);
+  }
+
+  .site-footer-legal-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 8px 28px;
+    text-align: center;
+  }
+
+  .site-footer-disclaimer {
+    margin: 0;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.45;
+    max-width: 80ch;
+  }
+
+  .site-footer-credit {
+    margin: 0;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.4;
+    max-width: 60ch;
+  }
+
+  @media (max-width: 900px) {
+    .site-footer-inner {
+      padding: 11px 20px;
+      gap: 10px 16px;
+    }
+    .site-footer-legal-inner {
+      padding: 8px 20px;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .site-footer-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 12px 16px;
+      gap: 10px;
+    }
+    .site-footer-nav {
+      gap: 6px 12px;
+    }
+    .site-footer-legal-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      text-align: left;
+      padding: 9px 16px;
+    }
+    .site-footer-legal-inner .site-footer-sep {
+      display: none;
+    }
+    .site-footer-disclaimer,
+    .site-footer-credit {
+      text-align: left;
+    }
+  }
+
+  /* ========================================================================
+     03 · Bilgi sayfası kabuğu — üst şerit + içerik + alt bilgi
+     ======================================================================== */
+
+  .info-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+
+  .info-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .info-topbar-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    height: 60px;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .info-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: var(--text);
+  }
+
+  .info-brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-sm);
+    background: #111213;
+    border: 1px solid #111213;
+    color: #ececec;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .info-brand-text strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  .info-brand-text small {
+    display: block;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .info-main {
+    flex: 1;
+    padding: 34px 24px 60px;
+  }
+
+  .info-container {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .info-page-head {
+    margin-bottom: 26px;
+  }
+
+  .info-kicker {
+    display: block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .info-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: clamp(27px, 3vw, 34px);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--text);
+  }
+
+  .info-lede {
+    margin: 0 0 26px;
+    max-width: 74ch;
+    font-size: 13.5px;
+    color: var(--soft);
+    line-height: 1.65;
+  }
+
+  /* ========================================================================
+     04 · Politika belgesi düzeni (Gizlilik & KVKK, Kullanım Koşulları)
+     ======================================================================== */
+
+  .policy-layout {
+    display: grid;
+    grid-template-columns: 252px minmax(0, 1fr);
+    gap: 40px;
+    align-items: start;
+  }
+
+  .policy-toc,
+  .sources-toc {
+    position: sticky;
+    top: 84px;
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 16px;
+  }
+
+  .policy-toc-heading {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .policy-toc-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: none;
+  }
+
+  .policy-toc-list a {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--slate-700);
+    text-decoration: none;
+    line-height: 1.4;
+  }
+
+  .policy-toc-list a:hover {
+    background: var(--bg-soft);
+    color: var(--text);
+  }
+
+  .policy-toc-no {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .policy-toc-updated {
+    display: block;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--hairline);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .policy-body {
+    min-width: 0;
+  }
+
+  .policy-body .info-lede {
+    margin-bottom: 18px;
+  }
+
+  .policy-section {
+    padding: 22px 0;
+    border-top: 1px solid var(--hairline);
+    scroll-margin-top: 84px;
+  }
+
+  .policy-section h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 10px;
+    font-size: 16.5px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .policy-section-no {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .policy-section p {
+    margin: 8px 0;
+    font-size: 13.5px;
+    color: var(--slate-700);
+    line-height: 1.7;
+  }
+
+  .policy-section a {
+    color: var(--accent-ink);
+    text-underline-offset: 3px;
+  }
+
+  .policy-list {
+    margin: 10px 0;
+    padding-left: 22px;
+  }
+
+  .policy-list li {
+    margin: 7px 0;
+    font-size: 13.5px;
+    color: var(--slate-700);
+    line-height: 1.65;
+  }
+
+  .policy-list li::marker {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .policy-back-top {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 18px;
+    padding: 8px 16px;
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--soft);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .policy-back-top:hover {
+    color: var(--text);
+    border-color: var(--slate-300);
+  }
+
+  @media (max-width: 900px) {
+    .policy-layout {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .policy-toc,
+    .sources-toc {
+      position: static;
+    }
+    .policy-toc-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .policy-toc-list a {
+      padding: 4px 10px;
+      background: var(--bg-soft);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-full);
+      font-size: 12px;
+    }
+  }
+
+  /* ========================================================================
+     05 · SSS sayfası
+     ======================================================================== */
+
+  .faq-page {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+    max-width: 860px;
+  }
+
+  .faq-page .info-lede {
+    margin-bottom: 0;
+  }
+
+  .faq-toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .faq-toc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 13px;
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-full);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--slate-700);
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .faq-toc-link:hover {
+    color: var(--text);
+    border-color: var(--slate-300);
+  }
+
+  .faq-toc-no {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .faq-toc-count {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .faq-group {
+    scroll-margin-top: 84px;
+  }
+
+  .faq-group-head {
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+
+  .faq-group-head h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .faq-item {
+    background: var(--white);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  .faq-question {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .faq-question::-webkit-details-marker {
+    display: none;
+  }
+
+  .faq-question svg {
+    flex: none;
+    margin-top: 2px;
+    color: var(--muted);
+    transition: transform 0.18s ease;
+  }
+
+  .faq-item[open] .faq-question svg {
+    transform: rotate(90deg);
+    color: var(--accent-ink);
+  }
+
+  .faq-item[open] .faq-question {
+    padding-bottom: 6px;
+  }
+
+  .faq-answer {
+    padding: 2px 16px 14px 41px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .faq-answer p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--soft);
+    line-height: 1.65;
+  }
+
+  /* ========================================================================
+     06 · Kaynakça — sabit içindekiler + numaralı bölümler
+     ======================================================================== */
+
+  .sources-page {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-width: 1080px;
+  }
+
+  .sources-page .info-lede {
+    margin-bottom: 4px;
+  }
+
+  .sources-layout {
+    display: grid;
+    grid-template-columns: 262px minmax(0, 1fr);
+    gap: 36px;
+    align-items: start;
+  }
+
+  .sources-toc-count {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+
+  .sources-toc .sources-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 12px;
+    padding: 10px 0 0;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--hairline);
+    border-radius: 0;
+  }
+
+  .sources-legend-item {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--slate-600);
+    line-height: 1.45;
+  }
+
+  .sources-body {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
+  }
+
+  .sources-group {
+    scroll-margin-top: 84px;
+  }
+
+  .sources-group-head {
+    position: relative;
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+  }
+
+  .sources-group-count {
+    position: absolute;
+    top: 2px;
+    right: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .sources-entry-no {
+    margin-right: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .sources-body footer {
+    border-top: 1px solid var(--hairline);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .sources-body .sources-foot {
+    border-top: none;
+    padding-top: 0;
+    margin: 0;
+  }
+
+  @media (max-width: 900px) {
+    .sources-layout {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .info-main {
+      padding: 24px 16px 48px;
+    }
+  }
+}
+
+/* ========================================================================
+   07 · Yazdırma — bilgi sayfaları sade belge olarak basılır
+   ======================================================================== */
+
+@media print {
+  .site-footer,
+  .info-topbar,
+  .policy-toc,
+  .sources-toc,
+  .policy-back-top,
+  .faq-toc {
+    display: none !important;
+  }
+
+  .info-main {
+    padding: 0;
+  }
+
+  .info-title {
+    font-size: 22px;
+  }
+
+  .policy-section,
+  .faq-item {
+    break-inside: avoid-page;
+    box-shadow: none !important;
+  }
+}

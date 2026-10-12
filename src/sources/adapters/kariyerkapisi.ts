@@ -48,7 +48,7 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     const html = await this.renderWithBrowser(source.listingUrl).catch((error: unknown) => {
       throw new AdapterUnavailableError(
         source.key,
-        error instanceof Error ? error.message : String(error),
+        describeBrowserFailure(error),
         'Başsız tarayıcı (playwright) gerekiyor: npm i -D playwright && npx playwright install chromium',
       );
     });
@@ -111,4 +111,28 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       await browser.close();
     }
   }
+}
+
+/**
+ * Tarayıcı hatasını okunabilir bir özete indirger.
+ *
+ * Playwright, kurulum eksikliğinde çok satırlı bir kutu basar (kurulum
+ * komutları, doküman bağlantıları, `Call log`). Bu metin olduğu gibi kaynak
+ * sağlığına yazılırsa panel okunmaz hale gelir. İlk satırlar + kurulum ipucu
+ * korunur; ayrıntı kısaltılır.
+ */
+function describeBrowserFailure(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const first = lines[0] ?? 'Bilinmeyen tarayıcı hatası';
+  const summary = lines.slice(1).find((line) => /browser|chromium|executable|timeout|net::|ENOTFOUND|ECONN/i.test(line));
+  const parts = [first];
+  if (summary && summary !== first) parts.push(summary);
+  if (/Executable doesn't exist|Please run the following command/i.test(raw)) {
+    parts.push('Kurulum: npx playwright install chromium (ya da kaynağı manuel yönteme alın).');
+  }
+  return parts.join(' | ').slice(0, 400);
 }

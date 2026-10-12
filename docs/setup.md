@@ -3,8 +3,10 @@
 ## Gereksinimler
 
 - **Node.js 22+** ve npm 10+ (`node -v`)
-- İsteğe bağlı: MongoDB 7 ve Redis 7 (yoksa yerel **dosya deposu** ve **yerleşik kuyruk**
-  kullanılır — kurulum gerekmez)
+- Geliştirme: başka hiçbir şey gerekmez (yerel **dosya deposu** + **yerleşik kuyruk**).
+- Üretim: **Supabase** projesi (Postgres), **Cloudflare** (alan adı/barındırma),
+  **Resend** hesabı (e-posta). Ayrıntı: [deployment.md](./deployment.md).
+- İsteğe bağlı: MongoDB 7 ve Redis 7 (eski kurulumlar / kuyruk için)
 - İsteğe bağlı: Playwright tarayıcıları (yalnızca Kariyer Kapısı kaynağı ve E2E testleri için)
 
 ## 1. Bağımlılıklar
@@ -34,6 +36,28 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 - `DATA_DIR` — dosya deposu ve geliştirme posta kutusu dizini (öntanımlı `./data`).
 - `SOURCE_LIVE_FETCH=1` — gerçek kaynaklara istek atılmasını sağlar. `0` iken
   adaptörler ağa çıkmaz (demo/test için).
+- `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: her kaynak dakikada bir
+  taranır. Üretimde `0` (kaynak başına `intervalMinutes`) veya 30–360 önerilir.
+
+### Üretim anahtarları (Supabase + Cloudflare + Resend)
+
+| Değişken | Nereden | Not |
+| --- | --- | --- |
+| `DATABASE_DRIVER=supabase` | bu dosya | `postgres` de aynı sürücüdür; `supabase` okunurluk için takma ad |
+| `POSTGRES_URL` | Supabase → Project Settings → Database → Connection string | Sunucu tarafı; havuz bağlantısı önerilir (port 6543) |
+| `DATABASE_URL` | alternatif ad | Bazı sağlayıcılar bu adı verir; ikisinden biri yeterlidir |
+| `POSTGRES_SSL=true` | — | Supabase TLS ister; `false` yalnızca yerel test için |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → API | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz |
+| `APP_DOMAIN` | — | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı) |
+| `APP_BASE_URL` | — | E-posta bağlantılarının üretildiği herkese açık adres |
+| `EMAIL_PROVIDER=resend` | bu dosya | `smtp` ve `file` alternatifleri vardır |
+| `RESEND_API_KEY` | Resend → API Keys | Sunucu tarafı; tarayıcıya verilmez |
+| `EMAIL_FROM` | Resend → Domains | **Doğrulanmış** alan adından bir adres olmalıdır |
+| `ALLOW_PUBLIC_REGISTRATION=0` | bu dosya | Dışarıdan kayıt kapalı; hesaplar yönetici davetiyle açılır |
+
+Üretim doğrulaması: `NODE_ENV=production npm run env:check`. Eksik sağlayıcı
+anahtarıyla uygulama **başlamaz** (e-postanın sessizce kaybolmasını engellemek için).
 
 Doğrulama:
 
@@ -82,6 +106,18 @@ ADMIN_EMAIL=yonetici@example.com ADMIN_PASSWORD="uzun-rastgele-bir-parola" npm r
 
 Betik şifreyi ekrana yazmaz/loglamaz. Var olan kullanıcıyı yöneticiye yükseltir,
 şifresini değiştirmez.
+
+### Sonraki kullanıcılar (davet akışı)
+
+Kamuİlan'da **dışarıdan kendi kendine kayıt yoktur**. Yönetici, Yönetim →
+Kullanıcılar → *Kullanıcı davet et* formunu kullanır (`POST /api/admin/users`):
+
+1. Hesap, giriş yapılamaz durumda açılır (rastgele bir sır hash'lenir; düz metin
+   parola hiçbir zaman üretilmez, gönderilmez, loglanmaz).
+2. Davetliye **tek kullanımlık** şifre belirleme bağlantısı gider (72 saat).
+3. Kullanıcı kendi parolasını belirler; parola gücü doğrulanır ve oturumlar
+   kapatılır. Davet e-postası, bildirim aboneliği oluşturmaz — tercihlerini
+   kullanıcı kendisi açar.
 
 ## 6. Örnek veri (isteğe bağlı)
 
@@ -136,3 +172,6 @@ Ayrıntılar: [deployment.md](./deployment.md).
 | `PDF okunamadı` | PDF bozuk/şifreli olabilir. Kayıt silinmez, inceleme kuyruğuna düşer. |
 | Kariyer Kapısı kaynağı hata veriyor | Tarayıcı gerekir: `npx playwright install chromium`. |
 | MongoDB'ye bağlanılmıyor | `MONGODB_URI` boşsa dosya deposu kullanılır; istenmiyorsa `MONGODB_URI` ayarlayın. |
+| `Veritabanına erişilemiyor` (Supabase) | `POSTGRES_URL` havuz (pooler) adresi mi, `POSTGRES_SSL=true` mı, Supabase'de IP kısıtı var mı kontrol edin. |
+| E-posta gönderilmiyor (üretim) | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar. |
+| Davet e-postası gelmiyor | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır. |

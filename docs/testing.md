@@ -26,7 +26,10 @@ içi SMTP sunucusu kullanılır. Bu sayede CI'da ve çevrimdışı ortamda karar
 | `tests/email.test.ts` | Şablon, koşullar (doğrulanmamış/duraklatılmış kullanıcı), idempotency, yeniden deneme, ölü mektup, abonelikten çıkma |
 | `tests/email-delivery.test.ts` | Uçtan uca gönderim: fixture → DB → eşleşme → outbox → gerçek SMTP → teslim kaydı |
 | `tests/worker.test.ts` | Zamanlayıcı, kuyruk, kilit, yeniden başlatma sonrası devam, DLQ |
-| `tests/server.test.ts` | API: sağlık, ilan listesi/detayı, kapsam, kimlik akışı, CSRF, RBAC, hız sınırı |
+| `tests/server.test.ts` | API: sağlık, ilan listesi/detayı, kapsam, kimlik akışı (kapalı kayıt + davet), CSRF, RBAC, hız sınırı |
+| `tests/postgres-store.test.ts` | Supabase/Postgres deposu (PGlite = gerçek Postgres 16): tablo/indeks kurulumu, JSONB ön filtresi ↔ dosya sürücüsü eşdeğerliği, benzersiz indeks çakışması, satır kilidi, zod doğrulaması |
+| `tests/resend-transport.test.ts` | Resend taşıyıcısı (ağa çıkmaz): istek biçimi, 2xx/4xx yorumu, maskeleme, zaman aşımı, taşıyıcı seçimi, davet şablonu |
+| `tests/ui.test.tsx` | Arayüz kabuğu (jsdom): kabuk çizimi, kamuya açık sayfalar, oturumsuz panelde giriş kartı, **kayıt bağlantısı yok** kontrolü |
 | `e2e/*.spec.ts` | Tarayıcı: sayfalar açılıyor mu, filtre URL'de kalıyor mu, kapsam dürüst mü |
 
 ## Zorunlu senaryo eşlemesi
@@ -49,6 +52,7 @@ içi SMTP sunucusu kullanılır. Bu sayede CI'da ve çevrimdışı ortamda karar
 | 14 | Filtreye uymayan ilana e-posta yok | `email-delivery` → "tercihe uymayan ilan için e-posta kuyruklamaz (SMTP çağrısı yapılmaz)" |
 | 15 | Abonelikten çıkmış kullanıcıya e-posta yok | `email-delivery` → "abonelikten çıkan kullanıcıya yeni e-posta gönderilmez"; `ingest` → "duraklatılmış veya abonelikten çıkmış kullanıcıya e-posta üretmez" |
 | 16 | Doğrulanmamış kullanıcıya e-posta yok | `server` → "doğrulanmamış kullanıcı bildirim açamaz ve test e-postası gönderemez"; `ingest` → doğrulama kontrolü |
+| 16b | Dışarıdan kayıt kapalı, hesaplar davetle açılır | `server` → "dışarıdan kayıt kapalıdır: /api/auth/register hesap açmaz", "yönetici daveti hesabı açar; kullanıcı tek kullanımlık bağlantıyla kendi parolasını belirler" |
 | 17 | Aynı kaynak eşzamanlı iki kez taranmaz | `ingest` → "aynı kaynağı eşzamanlı iki kez taramaz (kilit)"; `worker` → "kilitli kaynağı iki worker aynı anda taramaz" |
 | 18 | Worker yeniden başlayınca iş sürer | `worker` → "worker yeniden başlayınca kalan işi sürdürür (durum veritabanında)" |
 | 19 | Kaynak erişilemezse ilanlar korunur | `worker` → "kaynak erişilemezse ilanlar korunur, kaynak sağlığı işaretlenir" |
@@ -85,8 +89,11 @@ kayıt, hangi başlıklar, tarih var mı) raporlar; doğrulama kanıtı bu çık
 
 ## Kapsam dışı (bilinçli)
 
-- Gerçek POSTA GÖNDERİMİ (üretim SMTP hesabı) testlerde yoktur; süreç içi SMTP
-  sunucusu kullanılır. Üretim SMTP'si dağıtım sırasında elle doğrulanmalıdır.
+- Gerçek POSTA GÖNDERİMİ yoktur: uçtan uca akış süreç içi SMTP sunucusuyla, üretim
+  yolu (Resend) ise ağ çağrısı enjekte edilerek (sahte uç nokta) doğrulanır. Resend
+  anahtarı ve alan adı doğrulaması dağıtım sırasında elle sınanmalıdır.
+- Gerçek Supabase bağlantısı testlerde kurulmaz; sürücü PGlite (Postgres 16, WASM)
+  üzerinde gerçek SQL ile çalıştırılır.
 - Tarayıcı gerektiren kaynaklar (Kariyer Kapısı) CI'da koşmaz; E2E tarayıcısı
   ayrıdır (arayüzü test eder, kaynak taramaz).
 - OCR: taranmış PDF'lerde metin çıkarımı YAPILMAZ (bilinçli). Kayıt "metin

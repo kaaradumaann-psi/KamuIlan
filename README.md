@@ -1,4 +1,4 @@
-# KamuRadar
+# Kamuİlan
 
 Türkiye'deki **kamu personel alım ilanlarını** resmî kaynaklardan toplayan,
 sınıflandıran, tekilleştiren, yapılandırılmış alanlara ayıran ve kullanıcı
@@ -67,6 +67,12 @@ npm run dev           # arayüz + API + worker + geliştirme posta sunucusu
 ADMIN_EMAIL=yonetici@example.com ADMIN_PASSWORD="uzun-rastgele-parola" npm run seed:admin
 ```
 
+**Kendi kendine kayıt YOKTUR.** Kamuİlan'da hesap açmanın tek yolu yöneticinin
+davetidir: yönetim panelindeki *Kullanıcı davet et* formu hesabı açar ve davetliye
+tek kullanımlık **şifre belirleme** bağlantısı e-posta ile gider
+(`ALLOW_PUBLIC_REGISTRATION=0`). Bu, sahte/istenmeyen hesapları ve bildirim
+listesinin dışarıdan büyümesini engeller.
+
 Ayrıntılı kurulum: [docs/setup.md](./docs/setup.md) ·
 Docker ile: `cd infra/docker && docker compose up --build`
 
@@ -78,7 +84,7 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | `npm run dev:api` / `dev:worker` / `dev:web` / `dev:smtp` | Parça parça çalıştırma |
 | `npm run build` / `npm run preview` | Arayüz derlemesi / önizleme (4173) |
 | `npm start` / `npm run start:worker` | Üretim: API / worker |
-| `npm test` | Vitest (birim + entegrasyon, ağ erişimi yok) |
+| `npm test` | Vitest (birim + entegrasyon + arayüz kabuğu, ağ erişimi yok) |
 | `npm run test:e2e` | Playwright tarayıcı testleri |
 | `SOURCE_LIVE_FETCH=1 npm run test:live` | Gerçek kaynaklara canlı doğrulama |
 | `npm run typecheck` / `npm run lint` | Tip kontrolü / lint |
@@ -87,10 +93,13 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | `npm run seed:admin` | İlk yönetici (ADMIN_EMAIL/ADMIN_PASSWORD) |
 | `npm run seed:demo` | Örnek veri (`provenance: 'sample'`) |
 | `npm run fixtures:pdf` / `fixtures:capture` | Test fixture üretimi / canlı yakalama |
+| `npm run env:check` | Ortam değişkeni doğrulaması (eksik/tehlikeli ayar uyarıları) |
 
 ## Mimari ve belgeler
 
+- [Mühendislik raporu](./docs/muhendislik-raporu.md) — istenenler ↔ yapılanlar, uçtan uca akış, doğrulama sonuçları
 - [Mimari](./docs/architecture.md) — katmanlar, uçtan uca akış, kararlar
+- [Kurulum ayrıntıları](./docs/setup.md) — Supabase/Cloudflare/Resend anahtarları, davet akışı
 - [Kaynaklar ve kapsam](./docs/sources.md) — hangi kaynak doğrulandı, hangisi bekliyor
 - [Yeni kaynak ekleme](./docs/source-onboarding.md)
 - [Veri modeli](./docs/data-model.md)
@@ -98,17 +107,41 @@ Docker ile: `cd infra/docker && docker compose up --build`
 - [Güvenlik ve KVKK](./docs/security-kvkk.md)
 - [Testler](./docs/testing.md) · [Dürüst sınırlar](./docs/limitations.md)
 
+## Üretim yığını
+
+| Katman | Seçim | Not |
+| --- | --- | --- |
+| Veritabanı | **Supabase Postgres** (`DATABASE_DRIVER=supabase`) | Koleksiyonlar `kamuilan_<koleksiyon>` tablolarında JSONB olarak durur; GIN indeksi + ifade indeksleri `npm run db:indexes` ile kurulur |
+| Alan adı / barındırma | **Cloudflare** (`kamuilan.halilkaraduman.com.tr`) | Arayüz statik derleme olarak Cloudflare'de; `/api` API'ye yönlendirilir |
+| E-posta | **Resend** (`EMAIL_PROVIDER=resend`) | `RESEND_API_KEY` sunucu tarafında; taşıyıcı HTTPS API'dir, SDK bağımlılığı yoktur |
+| Alternatifler | MongoDB (eski kurulum), SMTP, Docker Compose | Kod tabanı üç depo sürücüsünü ve dört e-posta taşıyıcısını destekler |
+
+**Test aşaması:** `SCAN_INTERVAL_MINUTES=1` (her dakika tarama) ile gelinir; bu
+ayar yalnızca test içindir, üretimde kaynak temsiline saygı için 30–360 dakika
+önerilir (`SCAN_INTERVAL_MINUTES=0` → kaynak başına `intervalMinutes` kullanılır).
+
+## Arayüz tasarımı
+
+Arayüz, psikolog ve MMPI çalışma alanlarıyla **aynı tasarım katmanlarını** kullanır:
+`src/styles/screen.css`, `site.css`, `coherence.css`, `theme.css`, `workspace.css`,
+`dashboard.css`, `mobile.css`, `responsive.css` ve `auth.css` bu repolarda birebir
+kopyadır; Kamuİlan'a özgü yüzeyler `kamuilan.css` içindedir. Kabuk (sol gezinme,
+üst başlık, alt bilgi, dar ekran menüsü) referans uygulamalarla aynı sınıf
+sözlüğünü kullanır. Yardımcı sınıf üreten CSS eklentisi kullanılmaz.
+
 ## Teknoloji
 
 TypeScript (strict, `noUncheckedIndexedAccess`), Node 22, Fastify 5 + zod,
-MongoDB veya dosya deposu, Redis/BullMQ veya yerleşik kalıcı kuyruk,
-React 19 + Vite + Tailwind, vitest + Playwright, pino günlükleri.
+Supabase Postgres / MongoDB / dosya deposu (aynı `StoragePort`), Redis/BullMQ
+veya yerleşik kalıcı kuyruk, Resend/SMTP/dosya e-posta taşıyıcıları,
+React 19 + Vite, vitest + Playwright, pino günlükleri.
 
 ## Testler
 
-108 birim/entegrasyon testi, 9 dosya; hiçbiri dış ağa çıkmaz (sahte adaptör,
-fixture HTML/PDF ve süreç içi SMTP sunucusu). Zorunlu 22 senaryonun eşlemesi,
-uçtan uca gönderim testi ve E2E akışı: [docs/testing.md](./docs/testing.md).
+136 birim/entegrasyon testi, 12 dosya; hiçbiri dış ağa çıkmaz (sahte adaptör,
+fixture HTML/PDF, süreç içi SMTP sunucusu, PGlite ile gerçek Postgres davranışı ve
+sahte Resend uç noktası). Zorunlu 22 senaryonun eşlemesi, uçtan uca gönderim testi
+ve E2E akışı: [docs/testing.md](./docs/testing.md).
 
 ## Lisans ve kullanım
 

@@ -1,0 +1,372 @@
+/* One visual language for the login gate and the clinic.
+   Canvas is quiet gray. Surfaces are white. Headlines are Newsreader serif.
+   Ink marks selection. Blue accent (#0a84ff) carries status and actions — aligned
+   with halilkaraduman.com.tr & Repo123. Screen only — print rules stay in clinical.css. */
+
+:root {
+  --shell: 1120px;
+  --canvas: #ffffff;
+}
+
+@media screen {
+  body,
+  .portal-layout,
+  .auth-page,
+  .auth-shell,
+  .info-shell {
+    background: var(--canvas);
+  }
+
+  .app-header,
+  .info-topbar {
+    background: #fff;
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: none;
+  }
+
+  .header-inner,
+  .app-main,
+  .site-footer-inner,
+  .site-footer-legal-inner,
+  .info-topbar-inner,
+  .info-container {
+    max-width: var(--shell);
+  }
+
+  .app-main {
+    padding: 28px 24px 56px;
+  }
+
+  .clinical-container,
+  .dashboard-wrapper {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .site-footer {
+    background: #fff;
+  }
+
+  .site-footer-legal {
+    background: var(--bg-soft);
+  }
+
+  .site-footer-disclaimer {
+    font-size: 12.5px;
+    line-height: 1.55;
+    max-width: 62ch;
+  }
+
+  .header-current {
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--soft);
+    white-space: nowrap;
+  }
+
+  .site-footer-mark,
+  .info-brand-mark,
+  .auth-brand-mark,
+  .brand-mark {
+    background: #111213;
+    color: #ececec;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  /* Login uses the same mark, type and field as the workspace. */
+  .auth-shell {
+    background: var(--canvas);
+  }
+
+  .auth-card {
+    width: min(420px, 100%);
+    background: #fff;
+    border: 1px solid var(--hairline);
+    border-radius: 16px;
+    padding: 32px 28px;
+    box-shadow: none;
+  }
+
+  .auth-card:not(.auth-loading) {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .auth-brand,
+  .auth-heading {
+    margin-bottom: 0;
+  }
+
+  .auth-brand strong {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .auth-heading h1,
+  .clinical-title-wrap h1,
+  .day-board-head h1,
+  .info-title,
+  .assessment-card h3,
+  .clinical-modal-head h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.03em;
+    color: var(--text);
+  }
+
+  .auth-heading h1 {
+    margin: 0 0 8px;
+    font-size: 34px;
+    line-height: 1.05;
+  }
+
+  .auth-eyebrow,
+  .clinical-kicker,
+  .info-kicker {
+    color: var(--soft);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+  }
+
+  .clinical-kicker-dot {
+    background: var(--text);
+  }
+
+  .auth-heading p,
+  .clinical-title-wrap p {
+    color: var(--soft);
+    line-height: 1.55;
+  }
+
+  .auth-submit-btn {
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .auth-shell .empty-state-card {
+    width: min(420px, 100%);
+    background: #fff;
+  }
+
+  .form-error,
+  .shell-alert {
+    margin: 0;
+    color: var(--danger-ink);
+    font-size: 13.5px;
+  }
+
+  .shell-alert {
+    max-width: var(--shell);
+    margin: 16px auto 0;
+    padding: 0 24px;
+  }
+
+  /* Desktop chrome: identity on the first row, workspace on the second.
+     The public site link stays in the footer, not beside the account. */
+  .workspace-tabs {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .portal-tab,
+  .portal-tab.active,
+  .clinical-tab-btn.active {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .clinical-tab-btn.active {
+    color: var(--text);
+    border-bottom-color: var(--text);
+  }
+
+  .empty-state-card {
+    background: #fff;
+    border-color: var(--hairline);
+    color: var(--soft);
+  }
+
+  .metric-card,
+  .assessment-card,
+  .modern-table-card,
+  .client-table-wrap,
+  .prep-card {
+    background: #fff;
+    box-shadow: none;
+  }
+
+  .metric-card:hover,
+  .assessment-card:hover,
+  .btn-primary:hover:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .form-group input,
+  .form-group select,
+  .form-group textarea,
+  .filter-select,
+  .search-input-wrap input {
+    background: #fff;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    box-shadow: none;
+    color: var(--text);
+  }
+
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus,
+  .filter-select:focus,
+  .search-input-wrap input:focus,
+  .field input:focus,
+  .field textarea:focus {
+    border-color: var(--text);
+    box-shadow: none;
+    outline: none;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
+
+  .mobile-nav-panel .mobile-nav-link.active {
+    background: var(--bg-soft);
+    border-color: var(--hairline);
+    color: var(--text);
+  }
+
+  .mobile-nav-panel .mobile-nav-link.active svg {
+    color: var(--text);
+  }
+
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .report-split {
+    display: grid;
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .report-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .report-list-label {
+    margin: 0 0 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--soft);
+  }
+
+  .report-list-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 12px 14px;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: #fff;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+  }
+
+  .report-list-item strong {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .report-list-item span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+    color: var(--soft);
+  }
+
+  .report-list-item small {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .report-list-item.is-selected {
+    border-color: var(--text);
+    box-shadow: inset 3px 0 0 var(--text);
+  }
+
+  .report-create {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .print-report-sheet {
+    background: #fff;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .day-board {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .day-board .clinical-header,
+  .day-board .stats-grid-4 {
+    margin-bottom: 0;
+  }
+
+  .section-row {
+    margin-bottom: 10px;
+  }
+}
+
+@media screen and (min-width: 901px) {
+  .header-inner {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 24px;
+  }
+
+  .header-user {
+    margin-left: auto;
+    gap: 12px;
+  }
+}
+
+@media screen and (max-width: 960px) {
+  .report-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

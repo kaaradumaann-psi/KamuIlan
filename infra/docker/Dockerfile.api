@@ -1,4 +1,4 @@
-# KamuRadar — API ve worker imajı (Node 22)
+# Kamuİlan — API ve worker imajı (Node 22)
 #
 # Bu imaj hem API hem worker hem de (compose içinde) Vite dev sunucusu için
 # kullanılır. Üretimde aynı imaj `npx tsx src/server/main.ts` / `src/worker/main.ts`

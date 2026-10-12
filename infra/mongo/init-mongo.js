@@ -1,4 +1,4 @@
-// KamuRadar — MongoDB başlangıç betiği (yalnızca geliştirme)
+// Kamuİlan — MongoDB başlangıç betiği (yalnızca geliştirme)
 //
 // Koleksiyonları ve uygulamanın beklediği indeksleri burada OLUŞTURMAYIZ:
 // indeksler `npm run db:indexes` (ve uygulama açılışı) tarafından, şemayla tek
@@ -6,7 +6,7 @@
 //
 // Bu betik yalnızca veritabanını hazırlar ve doğrulama seviyesini yükseltir.
 
-const dbName = process.env.MONGO_INITDB_DATABASE || 'kamuradar';
+const dbName = process.env.MONGO_INITDB_DATABASE || 'kamuilan';
 const database = db.getSiblingDB(dbName);
 
 // Şemada belgelenen koleksiyonlar (boş olsa bile oluşturulur ki operatör
@@ -42,9 +42,9 @@ for (const name of collections) {
 
 // İlanlar ve kaynak bağlantıları için minimal doğrulama (uygulama şeması esas,
 // burada yalnızca yanlış koleksiyona yazımı erken yakalarız).
-database.createCollection('_kamuradar_init', {
+database.createCollection('_kamuilan_init', {
   validator: { $jsonSchema: { bsonType: 'object', required: ['initializedAt'] } },
 });
-database._kamuradar_init.updateOne({}, { $set: { initializedAt: new Date(), note: 'KamuRadar init' } }, { upsert: true });
+database._kamuilan_init.updateOne({}, { $set: { initializedAt: new Date(), note: 'Kamuİlan init' } }, { upsert: true });
 
-print(`KamuRadar: ${collections.length} koleksiyon hazır (${dbName}).`);
+print(`Kamuİlan: ${collections.length} koleksiyon hazır (${dbName}).`);

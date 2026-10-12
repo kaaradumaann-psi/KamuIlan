@@ -8,18 +8,28 @@
 - **Parola kuralı**: en az 10 karakter; e-posta/kullanıcı adı içeremez; yaygın
   parolalar reddedilir (`src/server/passwords.ts`).
 - **Oturum**: rastgele 32 baytlık jeton, veritabanında yalnızca **SHA-256 özeti**
-  saklanır. Çerez: `kamuradar_session` — `HttpOnly`, `SameSite=Lax`,
+  saklanır. Çerez: `kamuilan_session` — `HttpOnly`, `SameSite=Lax`,
   üretimde `Secure`, `Path=/`, TTL `SESSION_TTL_HOURS` (öntanımlı 14 gün).
-- **CSRF**: Çift gönderim deseni. `kamuradar_csrf` çerezi (JS okuyabilir) + her
+- **CSRF**: Çift gönderim deseni. `kamuilan_csrf` çerezi (JS okuyabilir) + her
   yazan istekte `x-csrf-token` başlığı. Oturuma bağlı ve `timingSafeEqual` ile
   karşılaştırılır. Yalnızca `GET/HEAD/OPTIONS` muaf tutulur.
-- **E-posta doğrulama**: Kayıt sonrası doğrulama jetonu (tek kullanımlık,
-  24 saat) e-posta ile gönderilir. **Doğrulanmamış adrese bildirim gönderilmez.**
+- **Kayıt politikası**: Dışarıdan **kendi kendine kayıt kapalıdır**
+  (`ALLOW_PUBLIC_REGISTRATION=0`). Hesaplar yalnızca yönetici tarafından açılır
+  (`POST /api/admin/users`): hesap giriş yapılamaz durumda oluşturulur, davetliye
+  tek kullanımlık (72 saat) şifre belirleme bağlantısı gider ve parolayı kullanıcı
+  kendisi seçer. Düz metin parola hiçbir aşamada üretilmez/gönderilmez/loglanmaz.
+  `ALLOW_PUBLIC_REGISTRATION=1` yalnızca geçici test içindir; `npm run env:check`
+  bu durumda uyarı verir.
+- **E-posta doğrulama**: Doğrulama jetonu (tek kullanımlık, 24 saat) e-posta ile
+  gönderilir. **Doğrulanmamış adrese bildirim gönderilmez.**
 - **Şifre sıfırlama**: Tek kullanımlık jeton (1 saat). Kullanıcı varlığını sızdırmamak
   için yanıt her zaman aynıdır; sıfırlama sonrası tüm oturumlar iptal edilir.
 - **Hız sınırı**: Genel `RATE_LIMIT_MAX_REQUESTS`/pencere; kimlik uçlarında
-  (`register`, `login`, `forgot-password`, `resend-verification`) daha sıkı
+  (`login`, `forgot-password`, `reset-password`, davet) daha sıkı
   `AUTH_RATE_LIMIT_MAX_REQUESTS`. Sınır aşılırsa `429` + `retry-after`.
+- **Sır yönetimi**: `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_URL`
+  ve `APP_SECRET` yalnızca sunucu ortamında tutulur; repoda yalnızca
+  `.env.example` (boş/örnek değerler) bulunur. Üretimde sır yöneticisi kullanın.
 - **RBAC**: `/api/admin/*` yalnızca `role: 'admin'`. Kullanıcı kendi verisine
   erişir; başka kullanıcının kaynağına erişim `404/403` ile engellenir
   (test: "kullanıcı yalnızca kendi bildirim geçmişini görür").
@@ -69,8 +79,9 @@
   İlan sahibi kişilere ait veriler **toplanmaz**; yalnızca kurumsal ilan metni işlenir.
 - **Amaç sınırı**: Veriler yalnızca bildirim göndermek, oturum yönetmek ve
   güvenliği sağlamak için kullanılır; üçüncü taraflara satılmaz/aktarılmaz.
-- **Bildirim izni**: Kayıt sırasında açık onay kutusu zorunludur. Kullanıcı
-  bildirimleri duraklatabilir veya tek tıkla abonelikten çıkabilir (jetonlu bağlantı).
+- **Bildirim izni**: Davetle açılan hesap bildirim aboneliği **başlatmaz**;
+  kullanıcı tercihlerini açıkça kaydeder. Kullanıcı bildirimleri duraklatabilir
+  veya tek tıkla abonelikten çıkabilir (jetonlu bağlantı).
 - **Haklar**: Arayüzde "Hesabımı ve kişisel verilerimi sil" işlemi vardır
   (`confirm: 'SIL'` + parola doğrulaması). İşlem: kişisel alanlar (ad, e-posta,
   parola özeti) anonimleştirilir, tüm oturum ve jetonlar iptal edilir, tercihler

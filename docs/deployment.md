@@ -3,10 +3,12 @@
 ## Özet kontrol listesi
 
 - [ ] `NODE_ENV=production`, `APP_SECRET` en az 32 karakter rastgele değer (sır yöneticisi)
-- [ ] `MONGODB_URI` kalıcı MongoDB (yedekleme açık)
-- [ ] `REDIS_URL` (kuyruk; çok örnekli çalışma için önerilir)
-- [ ] Gerçek SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`
-- [ ] `APP_BASE_URL` üretim adresi (e-posta bağlantıları buradan üretilir)
+- [ ] `DATABASE_DRIVER=supabase` + `POSTGRES_URL` (Supabase bağlantı dizesi, `POSTGRES_SSL=true`)
+- [ ] `APP_DOMAIN=kamuilan.halilkaraduman.com.tr` + `APP_BASE_URL` (e-posta bağlantıları buradan üretilir)
+- [ ] E-posta: `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, **doğrulanmış** `EMAIL_FROM`
+- [ ] `REDIS_URL` (isteğe bağlı; çok örnekli worker için önerilir)
+- [ ] `ALLOW_PUBLIC_REGISTRATION=0` (dışarıdan kayıt kapalı; hesaplar davetle)
+- [ ] Tarama sıklığı: testte `SCAN_INTERVAL_MINUTES=1`, üretimde `0` veya 30–360
 - [ ] Ters vekil (reverse proxy) + TLS; API ve worker ayrı süreçler
 - [ ] İndeksler oluşturuldu (`npm run db:indexes`)
 - [ ] Kaynak envanteri + zamanlanmış görevler yazıldı (`npm run db:migrate`)
@@ -14,8 +16,41 @@
 - [ ] Sağlık kontrolü izleniyor (`GET /api/health`)
 
 Başlangıç doğrulaması: uygulama `src/config/env.ts` ile ortam değişkenlerini
-doğrular; üretimde `SMTP_HOST` yoksa **başlatılmaz** (e-postaların sessizce
-kaybolmasını engellemek için).
+doğrular; üretimde `RESEND_API_KEY` **ve** `SMTP_HOST` yoksa ya da dosya deposu
+seçilmişse **başlatılmaz** (e-postanın/kaydın sessizce kaybolmasını engellemek için).
+
+## Önerilen üretim topolojisi: Cloudflare + Supabase + Resend
+
+```text
+Kullanıcı → Cloudflare (kamuilan.halilkaraduman.com.tr, TLS, WAF, önbellek)
+              ├── statik arayüz (npm run build → dist/)
+              └── /api/*  → API süreci  ──► Supabase Postgres (kamuilan_* tabloları)
+                                              ▲
+                          worker (tarama + e-posta) ──► Resend HTTPS API
+```
+
+1. **Supabase**
+   ```bash
+   # Supabase → Project Settings → Database → Connection string
+   DATABASE_DRIVER=supabase POSTGRES_URL='postgresql://...' npm run db:indexes
+   DATABASE_DRIVER=supabase POSTGRES_URL='postgresql://...' npm run db:migrate
+   ```
+   `db:indexes` tabloları (`kamuilan_jobs`, `kamuilan_sources`, …), GIN indeksini
+   ve envanterdeki benzersiz/ifade indekslerini kurar; idempotenttir ve API
+   açılışında da çalışır. Servis rolü anahtarı yalnızca sunucuda tutulur.
+2. **Arayüz (Cloudflare)**
+   ```bash
+   npm run build          # dist/
+   npx wrangler pages deploy dist --project-name kamuilan
+   ```
+   `/api/*` yönlendirmesi Cloudflare tarafında (Pages Functions/WAF kuralı) ya da
+   Nginx örneğindeki gibi (`infra/docker/nginx.conf`) API'ye proxy'lenir. Özel
+   alan adı: `kamuilan.halilkaraduman.com.tr`.
+3. **API + worker**: ayrı süreçler olarak daimi bir ortamda (Cloudflare Container,
+   VPS, Fly.io…) çalıştırılır: `npm run start` ve `npm run start:worker`.
+4. **Resend**: alan adını doğrulayın (SPF/DKIM kayıtları DNS'te), `EMAIL_FROM`
+   adresini o alan adından seçin. Test aşamasında Resend'in test modu gerçek
+   alıcılara göndermez; üretim öncesi kendi adresinizle doğrulayın.
 
 ## Süreçler
 
@@ -28,7 +63,7 @@ kaybolmasını engellemek için).
 Ayrı süreçler olması bilinçlidir: tarama/e-posta yükü API'yi yavaşlatmaz ve
 worker yeniden başlatıldığında işler kaybolmaz (durum veritabanındadır).
 
-## Docker ile geliştirme
+## Alternatif: Docker Compose
 
 ```bash
 cd infra/docker
@@ -42,8 +77,8 @@ proxy'lenir.
 Üretim arayüz imajı:
 
 ```bash
-docker build -f infra/docker/Dockerfile.web -t kamuradar-web .
-docker run -p 8080:80 -e API_ORIGIN=http://api:3000 kamuradar-web
+docker build -f infra/docker/Dockerfile.web -t kamuilan-web .
+docker run -p 8080:80 -e API_ORIGIN=http://api:3000 kamuilan-web
 ```
 
 Nginx yapılandırması: `infra/docker/nginx.conf` (SPA yönlendirmesi, `/api`
@@ -54,32 +89,32 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
 1. **Kod ve bağımlılıklar**
 
    ```bash
-   git clone <repo> /opt/kamuradar && cd /opt/kamuradar
+   git clone <repo> /opt/kamuilan && cd /opt/kamuilan
    npm ci --omit=dev    # tarayıcı gerekiyorsa: npx playwright install --with-deps chromium
    npm run build        # dist/ (arayüz)
    ```
 
-2. **Ortam dosyası** — sırlar sürüm kontrolüne girmez. `/etc/kamuradar/kamuradar.env`
+2. **Ortam dosyası** — sırlar sürüm kontrolüne girmez. `/etc/kamuilan/kamuilan.env`
    dosyasını yalnızca servis kullanıcısı okuyabilir (`chmod 600`). Secret manager
    kullanılıyorsa değerler çalışma anında enjekte edilir.
 
 3. **Veritabanı hazırlığı**
 
    ```bash
-   set -a; . /etc/kamuradar/kamuradar.env; set +a
+   set -a; . /etc/kamuilan/kamuilan.env; set +a
    npm run db:indexes && npm run db:migrate
    ```
 
-4. **Servisler** (`/etc/systemd/system/kamuradar-api.service`):
+4. **Servisler** (`/etc/systemd/system/kamuilan-api.service`):
 
    ```ini
    [Unit]
-   Description=KamuRadar API
+   Description=Kamuİlan API
    After=network-online.target mongod.service
    [Service]
-   User=kamuradar
-   WorkingDirectory=/opt/kamuradar
-   EnvironmentFile=/etc/kamuradar/kamuradar.env
+   User=kamuilan
+   WorkingDirectory=/opt/kamuilan
+   EnvironmentFile=/etc/kamuilan/kamuilan.env
    ExecStart=/usr/bin/npm run start
    Restart=always
    RestartSec=5
@@ -88,9 +123,9 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
    ```
 
    Worker için aynı dosyanın `ExecStart=/usr/bin/npm run start:worker` hâli.
-   `systemctl enable --now kamuradar-api kamuradar-worker`
+   `systemctl enable --now kamuilan-api kamuilan-worker`
 
-5. **Ters vekil** — `https://kamuradar.example.com` → arayüz `dist/`,
+5. **Ters vekil** — `https://kamuilan.example.com` → arayüz `dist/`,
    `/api` → `http://127.0.0.1:3000`, `/api/docs` üretimde kapatılabilir.
    TLS için Let's Encrypt (certbot) yeterlidir.
 
@@ -133,7 +168,7 @@ süreç uyuduğunda hiçbir tarama yapılmaz. Bu nedenle:
 - **MongoDB**: `mongodump`/`mongorestore`; `jobs`, `jobSources`, `jobRevisions`,
   `sources`, `users`, `notificationPreferences`, `emailOutbox`, `scrapeRuns`,
   `auditLogs` koleksiyonları kritiktir.
-- **Dosya deposu (yalnızca geliştirme)**: `data/kamuradar.json` dosyasını kopyalayın.
+- **Dosya deposu (yalnızca geliştirme)**: `data/kamuilan.json` dosyasını kopyalayın.
 - Ayrıntılı prosedür: [operations.md](./operations.md).
 
 ## CI

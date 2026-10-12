@@ -45,9 +45,11 @@ gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
    planları, kapalı dizüstü) tarama yapılmaz. Worker 7/24 çalışan bir ortamda
    koşmalıdır; kesintiler `scheduleLagWarning` ve worker kalp atışı ile görünür
    hale gelir.
-2. **Üretim SMTP'si bu depoda yoktur.** Gerçek gönderim, dağıtımda sağlanan
-   kimlik bilgileriyle yapılır. Geliştirme posta sunucusu mesajları yalnızca
-   diske yazar ("teslim edildi" bilgisi vermez).
+2. **Gerçek gönderim anahtarı bu depoda yoktur.** Üretim yolu Resend HTTPS
+   API'sidir (`RESEND_API_KEY` + doğrulanmış alan adı) ve dağıtımda sağlanır;
+   bu depoda test edilen şey istek biçimi, hata yorumu ve yeniden deneme
+   davranışıdır, sağlayıcının teslim performansı değildir. Geliştirmede iletiler
+   yalnızca diske yazılır; hiçbir yerde "teslim edildi" denmez.
 3. **Gerçek kaynak davranışı ortama bağlıdır.** Bazı kurumlar coğrafi kısıt, WAF
    veya bakım nedeniyle dönemsel olarak erişilemez olur; bu durum kaynak
    sağlığında görünür ve mevcut ilanlar SİLİNMEZ.

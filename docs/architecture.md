@@ -1,6 +1,6 @@
 # Mimari
 
-KamuRadar tek bir Node.js/TypeScript paketidir (npm, tek `package.json`).
+Kamuİlan tek bir Node.js/TypeScript paketidir (npm, tek `package.json`).
 Mikroservis yoktur; API, worker ve arayüz aynı kod tabanını paylaşır.
 Amaç: kamu personel alım ilanlarını **kaynaklı** biçimde toplamak, sınıflandırmak,
 tekilleştirmek, yapılandırılmış alanlara ayırmak ve kullanıcı tercihlerine göre
@@ -23,7 +23,7 @@ src/
   ingest/        kabul hattı: sürümleme, tekilleştirme, inceleme kuyruğu,
                  bildirim olayı üretimi, tarama orkestrasyonu
   notifications/ tercih eşleştirme (matcher) + bildirim olayı/outbox üretimi
-  email/         SMTP/dosya taşıyıcıları, şablonlar (TR), gönderim servisi
+  email/         Resend/SMTP/dosya taşıyıcıları, şablonlar (TR), gönderim servisi
   worker/        kalıcı kuyruk tüketicisi, zamanlayıcı, kurtarma/kilitleme
   server/        Fastify HTTP API (zod şemaları, RBAC, hız sınırı, dokümanlar)
   pages/, components/, lib/, styles/   React arayüzü (Vite + Tailwind)
@@ -73,21 +73,30 @@ infra/           docker-compose + Dockerfile + MongoDB başlangıç betiği
 - **Kaynak envanteri veridedir**: kaynaklar kod değil, `sources` koleksiyonu
   kayıtlarıdır (`src/config/sources.ts` başlangıç envanteri). Yeni kaynak eklemek
   için kod değişikliği şart değildir; adaptör eşleşmesi `adapterKey` ile yapılır.
-- **Kalıcı kuyruk**: `setInterval` yoktur. Kuyruk ya MongoDB tabanlı yerleşik
-  kuyruk ya da Redis/BullMQ'dur; iş durumu veritabanındadır.
+- **Kalıcı kuyruk**: `setInterval` yoktur. Kuyruk ya depo tabanlı yerleşik kuyruk
+  (Postgres/MongoDB) ya da Redis/BullMQ'dur; iş durumu veritabanındadır.
 - **Tek paket, güçlü sınırlar**: adaptörler birbirinden bağımsızdır, iş mantığı
   HTTP katmanında değildir, paylaşılan tipler `src/domain` + `src/db/schemas`te
   toplanır.
 
 ## Depolama
 
-- **Geliştirme** (öntanımlı): `data/kamuradar.json` dosya deposu. Kurulum
+- **Geliştirme** (öntanımlı): `data/kamuilan.json` dosya deposu. Kurulum
   gerektirmez; atomik yazma (tmp + rename) ve süreçler arası değişiklik algılama
   (dosya zaman damgası) kullanır. API, worker ve betikler bu dosyayı paylaşabilir;
-  yine de paylaşımlı kilit yoktur, bu yüzden üretimde MongoDB zorunludur
-  (uygulama üretimde dosya deposuyla başlamayı reddeder).
-- **Üretim**: MongoDB (`MONGODB_URI`), indeksler `src/db/indexes.ts`ten
-  `npm run db:indexes` ile (ve API açılışında) oluşturulur.
+  yine de paylaşımlı kilit yoktur, bu yüzden üretimde kalıcı bir veritabanı
+  (Supabase Postgres ya da MongoDB) zorunludur — uygulama üretimde dosya
+  deposuyla başlamayı reddeder.
+- **Üretim (öntanımlı)**: **Supabase Postgres** (`DATABASE_DRIVER=supabase`,
+  `POSTGRES_URL`). Her koleksiyon ayrı bir JSONB tablosudur
+  (`kamuilan_<koleksiyon>`: `id text PK`, `data jsonb`, `updated_at`) + GIN
+  (`jsonb_path_ops`) indeksi. Sorgularda SQL yalnızca **ön filtre**dir; nihai
+  karar üç sürücüde de aynı kod yolundan (`matchesQuery`/`sortDocuments`) gelir —
+  hızlı ama yanlış bir SQL çevirisi riski yoktur. Ön filtre `MAX_SCAN_ROWS`
+  (20 000) satırı aşarsa sessizce kırpmak yerine açık hata verir.
+- **Alternatif üretim deposu**: MongoDB (`MONGODB_URI`) — aynı `StoragePort`.
+- **İndeksler**: `src/db/indexes.ts`ten `npm run db:indexes` ile (ve API
+  açılışında) oluşturulur.
 - **Kuyruk**: `REDIS_URL` varsa BullMQ, yoksa yerleşik (veritabanı) kuyruk.
 
 ## İlgili belgeler

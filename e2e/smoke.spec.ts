@@ -1,21 +1,40 @@
 /**
  * Duman testleri: temel sayfalar gerçekten açılıyor mu, konsol hatası var mı,
- * korumalı alanlar yetkisiz kullanıcıya ne gösteriyor?
+ * korumalı alanlar oturumsuz kullanıcıya ne gösteriyor?
  *
- * Veritabanı boş olabilir: boş durumda da bu testler geçmelidir.
+ * Veritabanı boş olabilir: boş durumda da bu testler geçmelidir. Testler
+ * Kamuİlan'ın kuralına uyar: dışarıdan kayıt YOKTUR, bu yüzden hiçbir test
+ * "kayıt ol" akışını aramaz; oturum gerektiren sayfalar giriş kartı gösterir.
  */
 import { expect, test } from '@playwright/test';
 import { collectPageErrors, expectHeading } from './support/api';
 
 test.describe('temel sayfalar', () => {
-  test('ana sayfa açılır ve sistem durumunu gösterir', async ({ page }) => {
+  test('ana sayfa açılır, sistem durumunu ve dürüst kapsam notunu gösterir', async ({ page }) => {
     const errors = collectPageErrors(page);
     await page.goto('/');
 
-    await expectHeading(page, 'Kamu personel alım ilanları — tek yerde, kaynaklı');
-    // Veri olmasa bile sistem durumu bölümü görünür olmalı (dürüst boş durum).
-    await expect(page.getByRole('heading', { name: 'Sistem durumu' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'İlanları ara' })).toBeVisible();
+    await expectHeading(page, 'Kamu personel alım ilanları — kaynaklı, tekilleştirilmiş, takvime bağlı');
+    // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum).
+    await expect(page.getByText(/Son başarılı tarama|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'İlanlarda ara' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sistem nasıl çalışıyor?' })).toBeVisible();
+    await expect(page.getByText(/Kapsam eksiktir/).first()).toBeVisible();
+
+    expect(errors).toEqual([]);
+  });
+
+  test('ana sayfa araması ilan listesine sorgu parametreleriyle taşınır', async ({ page }) => {
+    const errors = collectPageErrors(page);
+    await page.goto('/');
+
+    await page.getByLabel('Arama terimi').fill('hemşire');
+    await page.getByLabel('İl').fill('Ankara');
+    await page.getByRole('button', { name: 'İlanlarda ara' }).click();
+
+    await expect(page).toHaveURL(/\/ilanlar\?/);
+    await expect(page).toHaveURL(/q=hem%C5%9Fire|q=hemşire/);
+    await expect(page).toHaveURL(/city=Ankara/);
 
     expect(errors).toEqual([]);
   });
@@ -23,7 +42,7 @@ test.describe('temel sayfalar', () => {
   test('ilan listesi filtreleri URL üzerinden paylaşılabilir', async ({ page }) => {
     const errors = collectPageErrors(page);
     await page.goto('/ilanlar');
-    await expectHeading(page, 'İlanlar');
+    await expectHeading(page, 'Kamu personel alım ilanları');
 
     const form = page.getByRole('form', { name: 'İlan filtreleri' });
     await expect(form).toBeVisible();
@@ -33,6 +52,9 @@ test.describe('temel sayfalar', () => {
     // Filtre URL'de kalıcı olmalı: bağlantı kopyalanınca aynı sonuç açılır.
     await expect(page).toHaveURL(/city=Ankara/);
     await page.reload();
+    // Filtre etkinken panel kapalı başlar; bağlantı korunmuş olmalı.
+    await expect(page).toHaveURL(/city=Ankara/);
+    await page.getByRole('button', { name: /Filtreler/ }).click();
     await expect(page.getByLabel('İl')).toHaveValue('Ankara');
 
     expect(errors).toEqual([]);
@@ -43,26 +65,41 @@ test.describe('temel sayfalar', () => {
     await page.goto('/kaynaklar');
 
     await expectHeading(page, 'Kaynaklar ve kapsam');
-    await expect(page.getByRole('table', { name: /Kaynak listesi/ }).or(page.getByText('Kaynak listesi'))).toBeVisible();
+    await expect(page.getByRole('table', { name: /Kaynak listesi ve sağlık durumu/ })).toBeVisible();
     // Kapsamın eksik olduğu açıkça yazılır (abartılı iddia yok).
-    await expect(page.getByText(/Kapsam eksiktir ve bunu saklamıyoruz/)).toBeVisible();
-    await expect(page.getByText(/Canlı doğrulanmış/).first()).toBeVisible();
+    await expect(page.getByText(/Kapsam eksiktir/).first()).toBeVisible();
+    // "Canlı doğrulanmış" ile "adaptörü yazılmış" ayrımı korunur.
+    await expect(page.getByText('Canlı doğrulanmış').first()).toBeVisible();
+    await expect(page.getByText('Adaptörü yazılmış').first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
 
-  test('panel oturum yokken yetki istemez, oturum uyarısı gösterir', async ({ page }) => {
+  test('panel oturumsuz açıldığında giriş kartı gösterir, kayıt bağlantısı sunmaz', async ({ page }) => {
     const errors = collectPageErrors(page);
     await page.goto('/panel');
 
-    await expect(page.getByText('Oturum gerekli')).toBeVisible();
+    await expectHeading(page, 'Giriş yap');
+    await expect(page.getByText('Halka açık kayıt yoktur')).toBeVisible();
+    await expect(page.getByText(/Hesabınız yönetici tarafından açılır/)).toBeVisible();
     expect(errors).toEqual([]);
   });
 
   test('yönetim bölümü RBAC ile korunur', async ({ page }) => {
     await page.goto('/yonetim');
-    await expect(page.getByText('Yetki gerekli')).toBeVisible();
-    await expect(page.getByText('Bu bölüm yalnızca yönetici hesaplarına açıktır.')).toBeVisible();
+    await expectHeading(page, 'Giriş yap');
+    await expect(page.getByText(/Yönetim paneli yalnızca yönetici hesaplarına açıktır/)).toBeVisible();
+  });
+
+  test('bilgi sayfaları (SSS, gizlilik, kullanım) oturumsuz açılır', async ({ page }) => {
+    await page.goto('/sss');
+    await expectHeading(page, 'Sıkça sorulan sorular');
+
+    await page.goto('/gizlilik');
+    await expectHeading(page, 'Gizlilik ve KVKK Politikası');
+
+    await page.goto('/kullanim');
+    await expectHeading(page, 'Kullanım Koşulları');
   });
 
   test('bilinmeyen yol 404 sayfasına düşer', async ({ page }) => {
@@ -79,6 +116,6 @@ test.describe('temel sayfalar', () => {
 
     await page.goto('/');
     // Arayüz de aynı proxy üzerinden veri çekebiliyor (konsol hatası yok).
-    await expect(page.getByText(/Son başarılı tarama/)).toBeVisible();
+    await expect(page.getByText(/Son başarılı tarama/).first()).toBeVisible();
   });
 });
