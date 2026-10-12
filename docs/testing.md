@@ -7,6 +7,7 @@ npm test             # birim + entegrasyon (vitest, ağ erişimi YOK)
 npm run test:watch   # geliştirme sırasında izleme
 npm run test:coverage
 npm run test:e2e     # Playwright (tarayıcı kurulu olmalı)
+npm run test:e2e:local  # yalnızca duman testleri (kurulumu hızlı doğrular)
 SOURCE_LIVE_FETCH=1 npm run test:live   # gerçek kaynaklara canlı doğrulama
 ```
 
@@ -20,6 +21,7 @@ içi SMTP sunucusu kullanılır. Bu sayede CI'da ve çevrimdışı ortamda karar
 | `tests/classification.test.ts` | Kural motoru: kabul/ret/inceleme kararları, tür ve gerekçe |
 | `tests/extraction.test.ts` | Türkçe tarih ayrıştırma, kontenjan, il, kurum/unvan, KPSS, şartlar, bağlantılar |
 | `tests/pdf.test.ts` | PDF metin katmanı, taranmış PDF, bozuk PDF, kırpma |
+| `tests/file-store.test.ts` | Dosya deposu: süreçler arası kayıt kaybı yok, bozuk dosya yedeklenir |
 | `tests/ingest.test.ts` | Kayıt, sürümleme, tekilleştirme, inceleme kuyruğu, bildirim olayı, kilit, kaynak hatası |
 | `tests/email.test.ts` | Şablon, koşullar (doğrulanmamış/duraklatılmış kullanıcı), idempotency, yeniden deneme, ölü mektup, abonelikten çıkma |
 | `tests/email-delivery.test.ts` | Uçtan uca gönderim: fixture → DB → eşleşme → outbox → gerçek SMTP → teslim kaydı |

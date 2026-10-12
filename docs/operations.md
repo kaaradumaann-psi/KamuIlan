@@ -44,6 +44,18 @@ Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çal
 4. **Aralık değiştirme** — Yönetim → Kaynaklar → aralık alanı (dakika). Hızlı
    kaynaklar 30–60 dk, kurumsal sayfalar 2–6 saat, keşif işleri günlük.
 
+## 3.1 Uyarı gürültüsünü önleme
+
+Yönetici uyarıları (uzun süredir başarısız kaynak, ölü kuyruk işi, kalp atışı
+kesilen worker) worker tikinde kontrol edilir; ancak **aynı uyarı yalnızca durum
+değiştiğinde veya 6 saatte bir** tekrarlanır, `auditLogs` kaydı da yalnızca
+durum değişiminde yazılır. Aksi hâlde her tik logu ve denetim kaydını doldururdu.
+
+Geliştirmede `tsx watch` worker'ı her dosya değişiminde yeniden başlattığı için
+eski süreçlerin kalp atışı kayıtları kalır. Worker başlarken `heartbeatStaleMs`
+(2 dakika) eşiğini geçen kayıtlar otomatik olarak **stopped** işaretlenir ve
+bakım işi 7 günden eski kayıtları siler; panelde sahte "çalışıyor" görünmez.
+
 ## 4. Kuyruk ve ölü işler
 
 - **Ölü tarama işi** (`queueJobs.status='dead'`): Yönetim → Kuyruk → "Yeniden dene".

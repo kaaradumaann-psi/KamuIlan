@@ -3,8 +3,9 @@
 # Derleme: `npm run build` (Vite) → dist/
 # Sunum:   nginx, SPA yönlendirmeleri ve /api proxy'si ile.
 #
-# API_ORIGIN build arg'ı derleme sırasında KULLANILMAZ; proxy hedefi çalışma
-# anında ORIGIN_API ortam değişkeniyle verilir (infra/docker/nginx.conf).
+# API_ORIGIN derleme sırasında KULLANILMAZ; proxy hedefi çalışma anında
+# API_ORIGIN ortam değişkeniyle verilir ve nginx giriş betiği şablondaki
+# ${API_ORIGIN} yer tutucusunu doldurur (infra/docker/nginx.conf).
 FROM node:22-alpine AS build
 
 WORKDIR /app

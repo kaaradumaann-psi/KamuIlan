@@ -377,6 +377,33 @@ export class HeartbeatRepo {
   }
 
   /**
+   * Eskimiş kalp atışlarını "durdu" olarak işaretler.
+   *
+   * Neden: geliştirmede `tsx watch` worker'ı her dosya değişiminde yeniden başlatır;
+   * eski süreç kaydı "running" kalır ve panelde çalışıyor gibi görünür (yanlış
+   * "kalp atışı göndermedi" uyarıları da bu yüzden birikir). Süreç öldüyse
+   * kaydın "running" olması yanlıştır; durdurma isteği gelmeyen çalıştırmalar da
+   * (SIGKILL) bir sonraki başlatmada bu yolla düzeltilir.
+   */
+  async markStaleAsStopped(thresholdIso: string): Promise<number> {
+    const stale = await this.store.find(
+      'workerHeartbeats',
+      { lastHeartbeatAt: { $lt: thresholdIso }, status: 'running' },
+      { limit: 200 },
+    );
+    let updated = 0;
+    for (const worker of stale) {
+      const result = await this.store.updateOne(
+        'workerHeartbeats',
+        { id: worker.id },
+        { status: 'stopped' },
+      );
+      if (result) updated += 1;
+    }
+    return updated;
+  }
+
+  /**
    * Çok eski kalp atışı kayıtlarını siler.
    *
    * Neden gerekli: geliştirmede `tsx watch` her dosya değişiminde worker'ı

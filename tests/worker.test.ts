@@ -438,3 +438,87 @@ describe('kuyruk arka ucu', () => {
     expect(thirdClaim).toHaveLength(1);
   });
 });
+
+describe('yönetici uyarıları', () => {
+  async function runtimeWithWarnings(world: World, workerId: string): Promise<WorkerRuntime> {
+    return new WorkerRuntime({
+      repos: world.repos,
+      queue: world.queue,
+      env: TEST_ENV,
+      logger: LOGGER,
+      workerId,
+      transport: new MemoryEmailTransport(),
+      liveFetch: false,
+      now: () => world.repos.clock.now(),
+      coverageWarnings: true,
+    });
+  }
+
+  async function markFailing(world: World, times: number): Promise<void> {
+    for (let index = 0; index < times; index += 1) {
+      await world.repos.sources.recordHealth(FAILING_SOURCE_KEY, {
+        lastRunAt: world.repos.clock.now().toISOString(),
+        success: false,
+        durationMs: 120,
+        discoveredCount: 0,
+        acceptedCount: 0,
+        errorMessage: 'Test hatası',
+      });
+    }
+  }
+
+  it('aynı kaynak uyarısını her tikte tekrarlamaz, denetim kaydını bir kez yazar', async () => {
+    const world = await makeWorld();
+    await markFailing(world, 3);
+    const runtime = await runtimeWithWarnings(world, 'worker-test');
+
+    // Uyarılar her tikte üretilirse log ve denetim kaydı dolar; aynı durum için
+    // yalnızca BİR uyarı ve BİR denetim kaydı beklenir.
+    const first = await runtime.tick();
+    const second = await runtime.tick();
+
+    const sourceWarnings = (result: { warnings: string[] }): string[] =>
+      result.warnings.filter((warning) => warning.includes('üst üste başarısız'));
+
+    expect(sourceWarnings(first)).toHaveLength(1);
+    expect(sourceWarnings(second)).toHaveLength(0);
+    expect(await world.repos.store.count('auditLogs', { action: 'source.stale' })).toBe(1);
+  });
+
+  it('başarısızlık sayısı artınca yeniden uyarır', async () => {
+    const world = await makeWorld();
+    await markFailing(world, 3);
+    const runtime = await runtimeWithWarnings(world, 'worker-test');
+
+    const first = await runtime.tick();
+    expect(first.warnings.some((warning) => warning.includes('üst üste başarısız'))).toBe(true);
+
+    await markFailing(world, 1); // 4. ardışık başarısızlık: durum değişti
+    const second = await runtime.tick();
+    expect(second.warnings.some((warning) => warning.includes('üst üste başarısız'))).toBe(true);
+    expect(await world.repos.store.count('auditLogs', { action: 'source.stale' })).toBe(2);
+  });
+
+  it('eskimiş kalp atışlarını "durdu" olarak işaretler', async () => {
+    const world = await makeWorld();
+    await world.repos.heartbeats.beat({
+      workerId: 'eski-worker',
+      role: 'worker',
+      version: 'test',
+      status: 'running',
+      processedJobs: 3,
+    });
+    const oldBeat = new Date(NOW.getTime() - 30 * 60_000).toISOString();
+    await world.repos.store.updateOne('workerHeartbeats', { workerId: 'eski-worker' }, { lastHeartbeatAt: oldBeat });
+
+    const stopped = await world.repos.heartbeats.markStaleAsStopped(
+      new Date(NOW.getTime() - 2 * 60_000).toISOString(),
+    );
+    expect(stopped).toBe(1);
+
+    const worker = await world.repos.store.findOne('workerHeartbeats', { workerId: 'eski-worker' });
+    expect(worker?.status).toBe('stopped');
+    // Yakın tarihli (canlı) kayıtlar korunur.
+    expect(await world.repos.store.count('workerHeartbeats', { status: 'running' })).toBe(0);
+  });
+});

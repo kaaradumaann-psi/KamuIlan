@@ -62,6 +62,14 @@ const MAX_SCRAPE_ATTEMPTS = 3;
 const MAX_MAINTENANCE_ATTEMPTS = 2;
 /** Kaynağın bu süreden uzun süredir başarılı taraması yoksa yönetici uyarısı üretilir. */
 const SOURCE_STALE_AFTER_MS = 6 * 3_600_000;
+/**
+ * Aynı uyarının tekrar loglanma aralığı.
+ *
+ * Neden gerekli: `healthChecks` HER tikte çalışır (varsayılan 5 sn). Uyarıları
+ * koşulsuz yazmak logu doldurur ve denetim kaydına (auditLogs) aynı olayı binlerce
+ * kez yazar. Uyarı yalnızca durum DEĞİŞTİĞİNDE veya bu aralık geçtiğinde tekrarlanır.
+ */
+const WARNING_REPEAT_MS = 6 * 3_600_000;
 
 export class WorkerRuntime {
   private readonly repos: Repos;
@@ -77,6 +85,10 @@ export class WorkerRuntime {
   private stopRequested = false;
   private processed = 0;
   private lastError: string | null = null;
+  /** Uyarı tekrarını önlemek için son uyarı durumları (bellekte; süreç ile birlikte sıfırlanır). */
+  private readonly warnedSources = new Map<string, { failures: number; at: number }>();
+  private readonly warnedWorkers = new Set<string>();
+  private warnedDeadJobs: { count: number; at: number } | null = null;
 
   constructor(options: WorkerRuntimeOptions) {
     this.repos = options.repos;
@@ -314,9 +326,24 @@ export class WorkerRuntime {
       for (const source of sources) {
         if (!source.enabled) continue;
         const neverSucceeded = isStale(source.health.lastSuccessAt, now, SOURCE_STALE_AFTER_MS);
-        if (neverSucceeded && source.health.consecutiveFailures >= 3) {
-          const message = `${source.name}: ${source.health.consecutiveFailures} kez üst üste başarısız, son başarı ${source.health.lastSuccessAt ?? 'hiç'}`;
-          warnings.push(message);
+        if (!neverSucceeded || source.health.consecutiveFailures < 3) {
+          this.warnedSources.delete(source.key);
+          continue;
+        }
+        const previous = this.warnedSources.get(source.key);
+        const changed = previous === undefined || previous.failures !== source.health.consecutiveFailures;
+        const repeat = previous !== undefined && now.getTime() - previous.at >= WARNING_REPEAT_MS;
+        if (!changed && !repeat) continue;
+
+        this.warnedSources.set(source.key, {
+          failures: source.health.consecutiveFailures,
+          at: now.getTime(),
+        });
+        warnings.push(
+          `${source.name}: ${source.health.consecutiveFailures} kez üst üste başarısız, son başarı ${source.health.lastSuccessAt ?? 'hiç'}`,
+        );
+        // Denetim kaydı yalnızca durum değiştiğinde yazılır (aksi hâlde her tikte birikirdi).
+        if (changed) {
           await this.repos.audit.append({
             actorUserId: null,
             actorRole: 'worker',
@@ -337,12 +364,25 @@ export class WorkerRuntime {
     const staleWorkers = await this.repos.heartbeats.listStale(staleThreshold);
     for (const worker of staleWorkers) {
       if (worker.workerId === this.workerId) continue;
+      // Aynı ölü worker için her tikte tekrar uyarmak yerine bir kez uyarılır;
+      // kayıt `markStaleAsStopped` ile zaten "durdu" olarak işaretlenir.
+      if (this.warnedWorkers.has(worker.workerId)) continue;
+      this.warnedWorkers.add(worker.workerId);
       warnings.push(`Worker ${worker.workerId} ${worker.lastHeartbeatAt} tarihinden beri kalp atışı göndermedi.`);
     }
 
     const queueStats = await this.queue.stats();
-    if ((queueStats.counts['dead'] ?? 0) > 0) {
-      warnings.push(`Kuyrukta ${queueStats.counts['dead']} ölü iş var; panelden incelenmeli.`);
+    const deadCount = queueStats.counts['dead'] ?? 0;
+    if (deadCount > 0) {
+      const previous = this.warnedDeadJobs;
+      const changed = previous === null || previous.count !== deadCount;
+      const repeat = previous !== null && now.getTime() - previous.at >= WARNING_REPEAT_MS;
+      if (changed || repeat) {
+        this.warnedDeadJobs = { count: deadCount, at: now.getTime() };
+        warnings.push(`Kuyrukta ${deadCount} ölü iş var; panelden incelenmeli.`);
+      }
+    } else {
+      this.warnedDeadJobs = null;
     }
 
     for (const warning of warnings) this.logger.warn({}, warning);
@@ -390,6 +430,14 @@ export class WorkerRuntime {
     );
     await ensureScheduledTasks(this.repos, this.logger);
     await syncTaskIntervals(this.repos);
+
+    // Önceki çalıştırmalardan kalan "running" kayıtlar: süreç öldüyse panelde
+    // sahte "çalışıyor" görünmemeleri için stale eşiğini geçenler durduruldu sayılır.
+    const staleBefore = new Date(this.now().getTime() - HEARTBEAT_STALE_MS).toISOString();
+    const stopped = await this.repos.heartbeats.markStaleAsStopped(staleBefore);
+    if (stopped > 0) {
+      this.logger.info({ stopped }, 'kalp atışı eskimiş worker kayıtları "durdu" olarak işaretlendi');
+    }
 
     if (this.queue.kind === 'redis') {
       // İtmeli arka uç: tarama ve bakım işleri doğrudan işleyiciye bağlanır.

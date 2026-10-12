@@ -79,6 +79,20 @@ services:
       # Canlı kaynaklara istek atılmasın isteniyorsa: SOURCE_LIVE_FETCH=0
     ports:
       - '3000:3000'
+    # Sağlık denetimi: arayüz ancak API ayakta olduğunda başlar; `docker compose ps`
+    # tek bakışta gerçek durumu gösterir. Node 22'de fetch yerleşiktir (ek araç yok).
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       mongo:
         condition: service_healthy
@@ -123,7 +137,8 @@ services:
     ports:
       - '5173:5173'
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   mongo-data:

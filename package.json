@@ -22,7 +22,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:local": "playwright test e2e/critical.spec.ts --project=chromium",
+    "test:e2e:local": "playwright test e2e/smoke.spec.ts --project=chromium",
     "test:live": "tsx scripts/live-check.ts",
     "start": "tsx src/server/main.ts",
     "start:worker": "tsx src/worker/main.ts",
