@@ -33,5 +33,5 @@ export function collectPageErrors(page: Page): string[] {
 
 /** Türkçe başlık için basit yerelleştirilmiş karşılaştırma. */
 export async function expectHeading(page: Page, text: string): Promise<void> {
-  await expect(page.getByRole('heading', { name: text, level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: text, level: 1, exact: true })).toBeVisible();
 }
