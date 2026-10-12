@@ -90,6 +90,8 @@ const envSchema = z.object({
   EMAIL_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
   EMAIL_RETRY_BASE_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
   EMAIL_VERIFICATION_SECRET: z.string().default(''),
+  /** Geliştirme posta görüntüleyicisinin portu (scripts/dev-smtp-server.ts). */
+  DEV_MAIL_VIEWER_PORT: z.coerce.number().int().min(1).max(65_535).default(1080),
 
   // --- Güvenlik ---
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(8_760).default(24 * 14),
