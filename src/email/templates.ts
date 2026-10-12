@@ -218,7 +218,7 @@ function jobBodyHtml(payload: JobEmailPayload): string {
       </ul>
     </div>
     <p style="margin:0 0 12px;font-size:14px;">${links.join(' &middot; ')}</p>
-    ${payload.matchedOn.length > 0 ? `<p style="margin:0;font-size:13px;color:#616e7c;">Eşleşme nedeni: ${escapeHtml(payload.matchedOn.join(', '))}</p>` : ''}
+    ${(payload.matchedOn ?? []).length > 0 ? `<p style="margin:0;font-size:13px;color:#616e7c;">Eşleşme nedeni: ${escapeHtml((payload.matchedOn ?? []).join(', '))}</p>` : ''}
   `;
 }
 
@@ -232,7 +232,8 @@ function jobBodyText(payload: JobEmailPayload): string {
     `Resmî ilan: ${payload.detailUrl}`,
   ];
   if (payload.applicationUrl) lines.push(`Başvuru bağlantısı: ${payload.applicationUrl}`);
-  if (payload.matchedOn.length > 0) lines.push(`Eşleşme nedeni: ${payload.matchedOn.join(', ')}`);
+  const matchedOn = payload.matchedOn ?? [];
+  if (matchedOn.length > 0) lines.push(`Eşleşme nedeni: ${matchedOn.join(', ')}`);
   return lines.join('\n');
 }
 

@@ -31,6 +31,7 @@ export const SCHEDULER_DEFAULTS = {
 } as const;
 
 /** Sınıflandırma ve çıkarım sürümleri — kural değişince artırılır. */
+export const APP_VERSION = '2026.10.1';
 export const CLASSIFICATION_VERSION = '2026.10.1';
 export const EXTRACTION_VERSION = '2026.10.1';
 export const DEDUPE_VERSION = '2026.10.1';

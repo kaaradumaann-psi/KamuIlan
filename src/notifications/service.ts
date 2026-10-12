@@ -120,3 +120,23 @@ export async function queueNotificationsForJob(
 
   return result;
 }
+
+/**
+ * Abonelikten çıkma bağlantısıyla gelen jetonu tüketir ve tüm ilan
+ * bildirimlerini durdurur. Jeton tek kullanımlıktır.
+ *
+ * Not: Hesap silinmez; kullanıcı panelden bildirimleri yeniden açabilir.
+ */
+export async function unsubscribeByToken(
+  repos: Repos,
+  token: string,
+): Promise<{ userId: string } | null> {
+  const consumed = await repos.users.consumeToken(token, 'unsubscribe');
+  if (!consumed) return null;
+  const preference = await repos.notifications.upsertPreference(consumed.userId, {
+    enabled: false,
+    paused: true,
+  });
+  if (!preference) return null;
+  return { userId: consumed.userId };
+}

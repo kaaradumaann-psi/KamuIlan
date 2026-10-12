@@ -67,12 +67,12 @@ function retryDelayMs(attempts: number): number {
 
 export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<SendOutboxBatchResult> {
   const { repos, transport, workerId } = options;
-  const env = getEnv();
+  const now = options.now ?? repos.clock.now();
   const batch = await repos.outbox.claimBatch(workerId, options.limit ?? 20, options.leaseMs ?? 120_000);
   const result: SendOutboxBatchResult = { claimed: batch.length, sent: 0, failed: 0, dead: 0, errors: [] };
 
   for (const item of batch) {
-    const outcome = await sendOne({ repos, transport, item, workerId });
+    const outcome = await sendOne({ repos, transport, item, workerId, now });
     if (outcome.status === 'accepted') result.sent += 1;
     else if (outcome.status === 'dead') result.dead += 1;
     else {
@@ -81,7 +81,6 @@ export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<
     }
   }
 
-  void env;
   return result;
 }
 
@@ -90,9 +89,12 @@ export async function sendOne(input: {
   transport: EmailTransport;
   item: EmailOutboxDoc;
   workerId: string;
+  /** Yeniden deneme zamanı bu ana göre hesaplanır (testlerde sabit saat). */
+  now?: Date;
 }): Promise<{ status: 'accepted' | 'retry' | 'dead'; error?: string }> {
   const { repos, transport, item } = input;
   const env = getEnv();
+  const now = input.now ?? repos.clock.now();
 
   try {
     const unsubscribeUrl = item.userId
@@ -120,7 +122,8 @@ export async function sendOne(input: {
     }
 
     const error = sendResult.error ?? 'Sağlayıcı mesajı kabul etmedi.';
-    const updated = await repos.outbox.markFailed(item.id, error, new Date(Date.now() + retryDelayMs(item.attempts + 1)).toISOString());
+    const retryAt = new Date(now.getTime() + retryDelayMs(item.attempts + 1)).toISOString();
+    const updated = await repos.outbox.markFailed(item.id, error, retryAt);
     if (item.eventId) await repos.notifications.markEvent(item.eventId, 'failed', error);
     return { status: updated?.status === 'dead' ? 'dead' : 'retry', error };
   } catch (error) {

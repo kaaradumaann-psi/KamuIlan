@@ -1,0 +1,501 @@
+/**
+ * Worker çalışma zamanı.
+ *
+ * Bir tik (tick) içinde yapılanlar:
+ *   1. Zamanlayıcı: zamanı gelen taramaları kalıcı kuyruğa yazar.
+ *   2. Tarama kuyruğu: kaynak başına kilit altında tarama çalıştırır.
+ *   3. E-posta kuyruğu: outbox'tan lease'lenen iletileri gönderir (taramadan bağımsız).
+ *   4. Bakım görevleri: süre dolan ilanları kapatma, kilit/hız sınırı temizliği,
+ *      kaynak sağlığı ve kapsam denetimi.
+ *   5. Kalp atışı ve bayat worker denetimi.
+ *
+ * Garantiler:
+ *  - Aynı kaynak iki worker tarafından AYNI ANDA taranmaz (kilit).
+ *  - Hatası alınan iş üstel geri çekilme ile yeniden denenir; sınır dolunca
+ *    ölü mektuba (DLQ) düşer ve panelden yeniden kuyruğa alınabilir.
+ *  - E-posta hatası taramayı, tarama hatası e-postayı durdurmaz.
+ *  - Kaynağa erişilemese bile mevcut ilanlar silinmez.
+ */
+import { getEnv, type Env } from '../config/env';
+import { APP_VERSION } from '../config/app';
+import type { Repos } from '../db/repos';
+import type { JobDoc, ScrapeRunDoc, SourceDoc } from '../db/schemas';
+import { createLogger, type Logger } from '../lib/logger';
+import { createEmailTransport, type EmailTransport } from '../email/transport';
+import { sendOutboxBatch } from '../email/service';
+import { toIstanbulDateOnly } from '../domain/dates';
+import type { SourceAdapter } from '../sources/types';
+import { runSourceScrape } from '../ingest/pipeline';
+import { QUEUE_NAMES, type QueueBackend, type QueueJobPayload } from './queue';
+import { ensureScheduledTasks, isStale, schedulerTick, syncTaskIntervals, HEARTBEAT_STALE_MS } from './scheduler';
+
+export interface WorkerRuntimeOptions {
+  repos: Repos;
+  queue: QueueBackend;
+  env?: Env;
+  logger?: Logger;
+  workerId?: string;
+  transport?: EmailTransport;
+  liveFetch?: boolean;
+  /** Yalnızca testlerde: kalp atışı kaydını devre dışı bırakmaz, saati sabitler. */
+  now?: () => Date;
+  /** Bakım görevlerini kendi kaynak sağlığı denetimiyle değiştir (test). */
+  coverageWarnings?: boolean;
+  /**
+   * Testlerde adaptörü değiştirmek için (ağa çıkılmaz). Üretimde `undefined`
+   * bırakılır ve adaptör kayıt defterinden (registry) çözülür.
+   */
+  adapterOverride?: SourceAdapter;
+}
+
+export interface WorkerTickResult {
+  scheduler: { due: number; enqueued: number; duplicates: number; misses: number };
+  scrapes: { processed: number; succeeded: number; failed: number; skipped: number };
+  emails: { claimed: number; sent: number; failed: number; dead: number };
+  maintenance: { ran: string[]; closedJobs: number; activatedJobs: number; purged: number };
+  warnings: string[];
+}
+
+const LEASE_MS = 5 * 60_000;
+const RETRY_BASE_MS = 30_000;
+const MAX_SCRAPE_ATTEMPTS = 3;
+const MAX_MAINTENANCE_ATTEMPTS = 2;
+/** Kaynağın bu süreden uzun süredir başarılı taraması yoksa yönetici uyarısı üretilir. */
+const SOURCE_STALE_AFTER_MS = 6 * 3_600_000;
+
+export class WorkerRuntime {
+  private readonly repos: Repos;
+  private readonly queue: QueueBackend;
+  private readonly env: Env;
+  private readonly logger: Logger;
+  readonly workerId: string;
+  private readonly transport: EmailTransport | null;
+  private readonly now: () => Date;
+  private readonly coverageWarnings: boolean;
+  private readonly liveFetch: boolean | undefined;
+  private readonly adapterOverride: SourceAdapter | undefined;
+  private stopRequested = false;
+  private processed = 0;
+  private lastError: string | null = null;
+
+  constructor(options: WorkerRuntimeOptions) {
+    this.repos = options.repos;
+    this.queue = options.queue;
+    this.env = options.env ?? getEnv();
+    this.workerId = options.workerId ?? `${this.env.WORKER_NAMESPACE}-${process.pid}`;
+    this.logger = options.logger ?? createLogger('worker', { level: this.env.LOG_LEVEL });
+    this.now = options.now ?? (() => this.repos.clock.now());
+    this.coverageWarnings = options.coverageWarnings ?? true;
+    this.liveFetch = options.liveFetch;
+    this.adapterOverride = options.adapterOverride;
+    this.transport =
+      options.transport ??
+      (this.env.SCHEDULER_ENABLED ? createEmailTransport(this.env).transport : null);
+  }
+
+  /** Tek tik. Testlerde doğrudan çağrılır; üretimde `run()` döngü kurar. */
+  async tick(): Promise<WorkerTickResult> {
+    const now = this.now();
+    const result: WorkerTickResult = {
+      scheduler: { due: 0, enqueued: 0, duplicates: 0, misses: 0 },
+      scrapes: { processed: 0, succeeded: 0, failed: 0, skipped: 0 },
+      emails: { claimed: 0, sent: 0, failed: 0, dead: 0 },
+      maintenance: { ran: [], closedJobs: 0, activatedJobs: 0, purged: 0 },
+      warnings: [],
+    };
+
+    const schedule = await schedulerTick(this.repos, this.queue, { now, logger: this.logger });
+    result.scheduler = {
+      due: schedule.due,
+      enqueued: schedule.enqueued,
+      duplicates: schedule.duplicates,
+      misses: schedule.misses,
+    };
+
+    const scrape = await this.processScrapeQueue();
+    result.scrapes = scrape;
+
+    const email = await this.processEmailQueue(now);
+    result.emails = email;
+
+    const maintenance = await this.processMaintenanceQueue(now);
+    result.maintenance = maintenance;
+
+    result.warnings = await this.healthChecks(now);
+
+    await this.heartbeat(result);
+    return result;
+  }
+
+  private async processScrapeQueue(): Promise<WorkerTickResult['scrapes']> {
+    const stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
+    if (this.queue.kind !== 'builtin') return stats; // Redis yolunda işler push edilir.
+
+    const jobs = await this.queue.claim(QUEUE_NAMES.scrape, this.workerId, this.env.WORKER_CONCURRENCY, LEASE_MS);
+    for (const job of jobs) {
+      const outcome = await this.handleScrapeJob({ id: job.id, payload: job.payload, attempts: job.attempts });
+      stats.processed += 1;
+      if (outcome === 'failed') stats.failed += 1;
+      else if (outcome === 'skipped') stats.skipped += 1;
+      else stats.succeeded += 1;
+    }
+
+    return stats;
+  }
+
+  /**
+   * Tek bir tarama işini işler. Hem yerleşik kuyruk (çekmeli) hem Redis (itmeli)
+   * yolu bu fonksiyonu kullanır; böylece davranış iki arka uçta aynıdır.
+   */
+  private async handleScrapeJob(job: QueueJobPayload): Promise<'succeeded' | 'failed' | 'skipped'> {
+    const sourceKey = String(job.payload['sourceKey'] ?? '');
+    if (!sourceKey) {
+      await this.failJob(job.id, job.attempts, 'İş yükünde sourceKey yok.', MAX_SCRAPE_ATTEMPTS);
+      return 'failed';
+    }
+
+    const source = await this.repos.sources.getByKey(sourceKey);
+    if (!source) {
+      await this.completeJob(job.id);
+      this.logger.warn({ sourceKey, jobId: job.id }, 'kaynak kaydı bulunamadı; iş kapatıldı');
+      return 'skipped';
+    }
+    if (!source.enabled) {
+      await this.completeJob(job.id);
+      return 'skipped';
+    }
+
+    try {
+      const run = await runSourceScrape({
+        repos: this.repos,
+        source,
+        trigger: 'schedule',
+        workerId: this.workerId,
+        scheduledFor: (job.payload['scheduledFor'] as string | undefined) ?? null,
+        ...(this.liveFetch !== undefined ? { liveFetch: this.liveFetch } : {}),
+        ...(this.adapterOverride ? { adapter: this.adapterOverride } : {}),
+        logger: this.logger.child({ sourceKey }),
+      });
+      this.processed += 1;
+
+      if (run.status === 'failed') {
+        await this.failJob(job.id, job.attempts, run.errors[0] ?? 'Tarama başarısız.', MAX_SCRAPE_ATTEMPTS);
+        return 'failed';
+      }
+      await this.completeJob(job.id);
+      // 'skipped' (erişilemedi/değişmedi) ve 'locked' (başka worker tarıyor)
+      // durumları başarısızlık değildir; iş kapatılır.
+      return run.status === 'skipped' || run.status === 'locked' ? 'skipped' : 'succeeded';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = message;
+      this.logger.error({ err: message, sourceKey, jobId: job.id }, 'tarama işi çöküşle sonuçlandı');
+      await this.failJob(job.id, job.attempts, message, MAX_SCRAPE_ATTEMPTS);
+      return 'failed';
+    }
+  }
+
+  private async processEmailQueue(now: Date): Promise<WorkerTickResult['emails']> {
+    if (!this.transport) return { claimed: 0, sent: 0, failed: 0, dead: 0 };
+    try {
+      const batch = await sendOutboxBatch({
+        repos: this.repos,
+        transport: this.transport,
+        workerId: this.workerId,
+        limit: 20,
+        now,
+      });
+      return { claimed: batch.claimed, sent: batch.sent, failed: batch.failed, dead: batch.dead };
+    } catch (error) {
+      // E-posta hatası taramayı durdurmaz; kayıt altına alınır.
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = message;
+      this.logger.error({ err: message }, 'e-posta turu başarısız');
+      return { claimed: 0, sent: 0, failed: 1, dead: 0 };
+    }
+  }
+
+  private async processMaintenanceQueue(now: Date): Promise<WorkerTickResult['maintenance']> {
+    const stats: WorkerTickResult['maintenance'] = { ran: [], closedJobs: 0, activatedJobs: 0, purged: 0 };
+    if (this.queue.kind !== 'builtin') return stats;
+
+    const jobs = await this.queue.claim(QUEUE_NAMES.maintenance, this.workerId, 2, LEASE_MS);
+    for (const job of jobs) {
+      const outcome = await this.handleMaintenanceJob({ id: job.id, payload: job.payload, attempts: job.attempts }, now);
+      if (outcome) {
+        stats.ran.push(outcome.ran);
+        stats.closedJobs += outcome.closedJobs;
+        stats.activatedJobs += outcome.activatedJobs;
+        stats.purged += outcome.purged;
+      }
+    }
+
+    return stats;
+  }
+
+  /** Tek bir bakım işini işler (çekmeli ve itmeli yolda ortak). */
+  private async handleMaintenanceJob(
+    job: QueueJobPayload,
+    now: Date = this.now(),
+  ): Promise<{ ran: string; closedJobs: number; activatedJobs: number; purged: number } | null> {
+    try {
+      const handled = await this.runMaintenanceJob(String(job.payload['kind'] ?? job.payload['name'] ?? ''), job.payload, now);
+      await this.completeJob(job.id);
+      return handled;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error({ err: message, jobId: job.id }, 'bakım görevi başarısız');
+      await this.failJob(job.id, job.attempts, message, MAX_MAINTENANCE_ATTEMPTS);
+      return null;
+    }
+  }
+
+  private async runMaintenanceJob(
+    kind: string,
+    payload: Record<string, unknown>,
+    now: Date,
+  ): Promise<{ ran: string; closedJobs: number; activatedJobs: number; purged: number } | null> {
+    switch (kind) {
+      case 'deadline-refresh': {
+        // Tarihler Türkiye saatine göre karşılaştırılır (gün sınırı Europe/Istanbul).
+        const today = toIstanbulDateOnly(now);
+        const closed = await this.repos.jobs.closeExpiredJobs(today);
+        const activated = await this.repos.jobs.activateStartedJobs(today);
+        return { ran: kind, closedJobs: closed, activatedJobs: activated, purged: 0 };
+      }
+      case 'maintenance': {
+        const purgedLocks = await this.repos.locks.purgeExpired();
+        const purgedLimits = await this.repos.rateLimits.purgeOlderThan(
+          new Date(now.getTime() - 24 * 3_600_000).toISOString(),
+        );
+        const purgedSessions = await this.repos.users.purgeExpiredSessions();
+        return { ran: kind, closedJobs: 0, activatedJobs: 0, purged: purgedLocks + purgedLimits + purgedSessions };
+      }
+      case 'coverage-audit': {
+        const coverage = await this.repos.sources.coverage();
+        await this.repos.audit.append({
+          actorUserId: null,
+          actorRole: 'worker',
+          action: 'coverage.audit',
+          targetType: 'system',
+          targetId: 'coverage',
+          meta: {
+            total: coverage.summary.total,
+            enabled: coverage.summary.enabled,
+            verified: coverage.summary.verified,
+            failing: coverage.summary.failing,
+            stale: coverage.summary.stale,
+            planned: coverage.planned.length,
+            job: payload['taskId'] ?? null,
+          },
+        });
+        return { ran: kind, closedJobs: 0, activatedJobs: 0, purged: 0 };
+      }
+      default:
+        this.logger.warn({ kind }, 'bilinmeyen bakım görevi; yok sayıldı');
+        return null;
+    }
+  }
+
+  /** Uzun süredir başarısız/eskimiş kaynaklar ve bayat worker'lar için uyarı üretir. */
+  private async healthChecks(now: Date): Promise<string[]> {
+    const warnings: string[] = [];
+
+    if (this.coverageWarnings) {
+      const sources = await this.repos.sources.list();
+      for (const source of sources) {
+        if (!source.enabled) continue;
+        const neverSucceeded = isStale(source.health.lastSuccessAt, now, SOURCE_STALE_AFTER_MS);
+        if (neverSucceeded && source.health.consecutiveFailures >= 3) {
+          const message = `${source.name}: ${source.health.consecutiveFailures} kez üst üste başarısız, son başarı ${source.health.lastSuccessAt ?? 'hiç'}`;
+          warnings.push(message);
+          await this.repos.audit.append({
+            actorUserId: null,
+            actorRole: 'worker',
+            action: 'source.stale',
+            targetType: 'source',
+            targetId: source.key,
+            meta: {
+              consecutiveFailures: source.health.consecutiveFailures,
+              lastSuccessAt: source.health.lastSuccessAt,
+              lastErrorMessage: source.health.lastErrorMessage,
+            },
+          });
+        }
+      }
+    }
+
+    const staleThreshold = new Date(now.getTime() - HEARTBEAT_STALE_MS).toISOString();
+    const staleWorkers = await this.repos.heartbeats.listStale(staleThreshold);
+    for (const worker of staleWorkers) {
+      if (worker.workerId === this.workerId) continue;
+      warnings.push(`Worker ${worker.workerId} ${worker.lastHeartbeatAt} tarihinden beri kalp atışı göndermedi.`);
+    }
+
+    const queueStats = await this.queue.stats();
+    if ((queueStats.counts['dead'] ?? 0) > 0) {
+      warnings.push(`Kuyrukta ${queueStats.counts['dead']} ölü iş var; panelden incelenmeli.`);
+    }
+
+    for (const warning of warnings) this.logger.warn({}, warning);
+    return warnings;
+  }
+
+  /** İşi tamamlandı olarak işaretler (Redis yolunda BullMQ durumu kendisi yönetir). */
+  private async completeJob(id: string): Promise<void> {
+    if (this.queue.kind !== 'builtin') return;
+    await this.queue.complete(id);
+  }
+
+  /**
+   * Başarısız işi üstel geri çekilme ile yeniden planlar; sınır dolduysa DLQ.
+   * Redis yolunda deneme/geri çekilme BullMQ'ya aittir; hata fırlatmak yeterlidir.
+   */
+  private async failJob(id: string, attempts: number, error: string, maxAttempts: number): Promise<void> {
+    if (this.queue.kind !== 'builtin') throw new Error(error);
+    const tooMany = attempts >= maxAttempts;
+    const backoff = Math.min(RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), 60 * 60_000);
+    const jitter = Math.round(backoff * (0.8 + Math.random() * 0.4));
+    const retryAt = tooMany ? null : new Date(this.now().getTime() + jitter).toISOString();
+    await this.queue.fail(id, error, retryAt);
+    if (tooMany) {
+      this.logger.error({ jobId: id, attempts, error }, 'iş ölü mektuba düştü (DLQ)');
+    }
+  }
+
+  private async heartbeat(result: WorkerTickResult): Promise<void> {
+    await this.repos.heartbeats.beat({
+      workerId: this.workerId,
+      role: 'worker',
+      version: APP_VERSION,
+      status: this.stopRequested ? 'stopping' : 'running',
+      processedJobs: this.processed,
+      lastError: this.lastError ?? result.warnings[0] ?? null,
+    });
+  }
+
+  /** Kalıcı döngü: tikler arasında beklenir, durdurma isteği ile temiz kapanır. */
+  async run(intervalMs = this.env.SCHEDULER_TICK_MS): Promise<void> {
+    this.logger.info(
+      { workerId: this.workerId, intervalMs, backend: this.queue.kind, sources: 'kaynak envanteri hazır' },
+      'worker başladı',
+    );
+    await ensureScheduledTasks(this.repos, this.logger);
+    await syncTaskIntervals(this.repos);
+
+    if (this.queue.kind === 'redis') {
+      // İtmeli arka uç: tarama ve bakım işleri doğrudan işleyiciye bağlanır.
+      const queue = this.queue;
+      queue.startWorker(
+        QUEUE_NAMES.scrape,
+        async (job) => {
+          await this.handleScrapeJob(job);
+        },
+        this.env.WORKER_CONCURRENCY,
+      );
+      queue.startWorker(QUEUE_NAMES.maintenance, async (job) => {
+        await this.handleMaintenanceJob(job);
+      }, 1);
+      this.logger.info({}, 'Redis işleyicileri bağlandı (tarama ve bakım)');
+    }
+
+    while (!this.stopRequested) {
+      const started = Date.now();
+      try {
+        const result = await this.tick();
+        if (result.scrapes.processed > 0 || result.emails.claimed > 0) {
+          this.logger.info(
+            {
+              scrapes: result.scrapes,
+              emails: result.emails,
+              scheduler: result.scheduler,
+              durationMs: Date.now() - started,
+            },
+            'tik tamamlandı',
+          );
+        }
+      } catch (error) {
+        this.lastError = error instanceof Error ? error.message : String(error);
+        this.logger.error({ err: this.lastError }, 'tik hata ile sonuçlandı');
+      }
+      await this.sleep(intervalMs);
+    }
+
+    await this.queue.close();
+    this.logger.info({ workerId: this.workerId }, 'worker durdu');
+  }
+
+  /** Durdurma isteği: mevcut tik biter, sonra döngü kapanır. */
+  requestStop(): void {
+    if (this.stopRequested) return;
+    this.stopRequested = true;
+    this.logger.info({ workerId: this.workerId }, 'durdurma isteği alındı; mevcut tur tamamlanıyor');
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    // Durdurma isteği beklemeyi keser (kapanış uzun süre asılı kalmasın).
+    const step = 500;
+    let waited = 0;
+    while (waited < ms && !this.stopRequested) {
+      const chunk = Math.min(step, ms - waited);
+      await new Promise((resolve) => setTimeout(resolve, chunk));
+      waited += chunk;
+    }
+  }
+}
+
+/** Panel/CLI için worker durumu özeti. */
+export async function workerStatus(repos: Repos): Promise<{
+  heartbeats: Awaited<ReturnType<Repos['heartbeats']['list']>>;
+  queue: Record<string, number>;
+  deadJobs: number;
+}> {
+  const heartbeats = await repos.heartbeats.list();
+  const queue = await repos.queue.stats();
+  const dead = await repos.queue.listDead(50);
+  return { heartbeats, queue, deadJobs: dead.length };
+}
+
+/** Elle tetikleme: yönetici panelinden tek seferlik tarama. */
+export async function triggerSourceScrape(
+  repos: Repos,
+  queue: QueueBackend,
+  sourceKey: string,
+  requestedBy: string,
+): Promise<{ enqueued: boolean; jobId: string | null; reason?: string }> {
+  const source: SourceDoc | null = await repos.sources.getByKey(sourceKey);
+  if (!source) return { enqueued: false, jobId: null, reason: 'Kaynak bulunamadı.' };
+  const now = repos.clock.now();
+  const dedupeKey = `manual:${sourceKey}:${now.toISOString()}`;
+  const result = await queue.enqueue(QUEUE_NAMES.scrape, {
+    name: 'manual-scrape',
+    dedupeKey,
+    payload: { kind: 'manual-scrape', sourceKey, scheduledFor: now.toISOString(), requestedBy },
+    maxAttempts: 2,
+  });
+  await repos.audit.append({
+    actorUserId: requestedBy,
+    actorRole: 'admin',
+    action: 'source.manual-scrape',
+    targetType: 'source',
+    targetId: sourceKey,
+    meta: { queueJobId: result.id, created: result.created },
+  });
+  return { enqueued: result.created, jobId: result.id };
+}
+
+/** Sağlık denetimi için son tarama özeti (panel göstergesi). */
+export function summarizeRun(run: ScrapeRunDoc): { label: string; value: string }[] {
+  return [
+    { label: 'Kaynak', value: run.sourceKey },
+    { label: 'Durum', value: run.status },
+    { label: 'Bulunan', value: String(run.itemsFound) },
+    { label: 'Kabul', value: String(run.itemsAccepted) },
+    { label: 'Sonuç', value: run.result },
+  ];
+}
+
+/** Bildirim gönderilecek ilanı kısaca tanımlar (log/panel). */
+export function describeJob(job: JobDoc): string {
+  return `${job.title} — ${job.institution}`;
+}
