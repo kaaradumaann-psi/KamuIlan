@@ -28,8 +28,8 @@ test.describe('temel sayfalar', () => {
     const errors = collectPageErrors(page);
     await page.goto('/');
 
-    await page.getByLabel('Arama terimi').fill('hemşire');
-    await page.getByLabel('İl').fill('Ankara');
+    await page.getByLabel('Arama terimi', { exact: true }).fill('hemşire');
+    await page.getByLabel('İl', { exact: true }).fill('Ankara');
     await page.getByRole('button', { name: 'İlanlarda ara' }).click();
 
     await expect(page).toHaveURL(/\/ilanlar\?/);
@@ -46,7 +46,7 @@ test.describe('temel sayfalar', () => {
 
     const form = page.getByRole('form', { name: 'İlan filtreleri' });
     await expect(form).toBeVisible();
-    await page.getByLabel('İl').fill('Ankara');
+    await page.getByLabel('İl', { exact: true }).fill('Ankara');
     await form.getByRole('button', { name: 'Filtrele' }).click();
 
     // Filtre URL'de kalıcı olmalı: bağlantı kopyalanınca aynı sonuç açılır.
@@ -55,7 +55,7 @@ test.describe('temel sayfalar', () => {
     // Filtre etkinken panel kapalı başlar; bağlantı korunmuş olmalı.
     await expect(page).toHaveURL(/city=Ankara/);
     await page.getByRole('button', { name: /Filtreler/ }).click();
-    await expect(page.getByLabel('İl')).toHaveValue('Ankara');
+    await expect(page.getByLabel('İl', { exact: true })).toHaveValue('Ankara');
 
     expect(errors).toEqual([]);
   });
