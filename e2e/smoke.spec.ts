@@ -17,8 +17,8 @@ test.describe('temel sayfalar', () => {
     await expectHeading(page, 'Kamu personel alım ilanları — kaynaklı, tekilleştirilmiş, takvime bağlı');
     // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum).
     await expect(page.getByText(/Son başarılı tarama|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'İlanlarda ara' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Sistem nasıl çalışıyor?' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'İlanlarda ara', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sistem nasıl çalışıyor?', exact: true })).toBeVisible();
     await expect(page.getByText(/Kapsam eksiktir/).first()).toBeVisible();
 
     expect(errors).toEqual([]);
@@ -28,9 +28,9 @@ test.describe('temel sayfalar', () => {
     const errors = collectPageErrors(page);
     await page.goto('/');
 
-    await page.getByLabel('Arama terimi').fill('hemşire');
-    await page.getByLabel('İl').fill('Ankara');
-    await page.getByRole('button', { name: 'İlanlarda ara' }).click();
+    await page.getByLabel('Arama terimi', { exact: true }).fill('hemşire');
+    await page.getByLabel('İl', { exact: true }).fill('Ankara');
+    await page.getByRole('button', { name: 'İlanlarda ara', exact: true }).click();
 
     await expect(page).toHaveURL(/\/ilanlar\?/);
     await expect(page).toHaveURL(/q=hem%C5%9Fire|q=hemşire/);
@@ -44,18 +44,19 @@ test.describe('temel sayfalar', () => {
     await page.goto('/ilanlar');
     await expectHeading(page, 'Kamu personel alım ilanları');
 
-    const form = page.getByRole('form', { name: 'İlan filtreleri' });
+    const form = page.getByRole('form', { name: 'İlan filtreleri', exact: true });
     await expect(form).toBeVisible();
-    await page.getByLabel('İl').fill('Ankara');
-    await form.getByRole('button', { name: 'Filtrele' }).click();
+    await page.getByLabel('İl', { exact: true }).fill('Ankara');
+    await form.getByRole('button', { name: 'Filtrele', exact: true }).click();
 
     // Filtre URL'de kalıcı olmalı: bağlantı kopyalanınca aynı sonuç açılır.
     await expect(page).toHaveURL(/city=Ankara/);
     await page.reload();
     // Filtre etkinken panel kapalı başlar; bağlantı korunmuş olmalı.
     await expect(page).toHaveURL(/city=Ankara/);
-    await page.getByRole('button', { name: /Filtreler/ }).click();
-    await expect(page.getByLabel('İl')).toHaveValue('Ankara');
+    // Etkin filtre sayısı düğmenin adına eklenir ("Filtreler 1"); regex ile karşılanır.
+    await page.getByRole('button', { name: /^Filtreler( \d+)?$/ }).click();
+    await expect(page.getByLabel('İl', { exact: true })).toHaveValue('Ankara');
 
     expect(errors).toEqual([]);
   });
