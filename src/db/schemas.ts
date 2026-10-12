@@ -121,6 +121,20 @@ export const jobSchema = z.object({
     classifiedAt: isoString(),
   }),
   extractionConfidence: z.number().min(0).max(1),
+  /** Alan bazlı kaynak izi: her alanın hangi katmandan geldiği (ilan detayında gösterilir). */
+  fieldSources: z
+    .record(
+      z.string(),
+      z.object({
+        kind: z.enum(['listing', 'detail', 'document', 'link', 'unstated']),
+        snippet: z.string().nullable(),
+      }),
+    )
+    .default({}),
+  /** Alan bazlı kanıt metni (kısa alıntı). */
+  evidence: z.record(z.string(), z.string()).default({}),
+  /** Çıkarım sırasında tespit edilen belirsizlikler ("tarih bulunamadı" gibi). */
+  uncertainties: z.array(z.string()).default([]),
   /** 'scraped' = collected from a real source, 'sample' = seeded demo record. */
   provenance: z.enum(['scraped', 'sample', 'manual']),
   contentHash: z.string().min(8),
@@ -399,14 +413,19 @@ export const lockSchema = z.object({
   owner: z.string().min(1),
   acquiredAt: isoString(),
   expiresAt: isoString(),
+  /** Uzun süren taramada kilidin canlı olduğunu gösterir. */
+  heartbeatAt: isoString(),
 });
 export type LockDoc = z.infer<typeof lockSchema>;
 
 export const rateLimitSchema = z.object({
   id: idString('rlm'),
+  /** Kova anahtarı: IP/e-posta yerine SHA-256 kısaltması saklanır (KVKK). */
   bucket: z.string().min(2),
   windowStart: isoString(),
   count: z.number().int().min(0),
+  /** Pencere sonu; temizleme işi bu alanı kullanır. */
+  expiresAt: isoString(),
 });
 export type RateLimitDoc = z.infer<typeof rateLimitSchema>;
 

@@ -1,13 +1,12 @@
 /**
  * E-posta outbox'ı (transactional outbox deseni).
  *
- * Akış: bildirim olayı kaydedildikten sonra outbox işi AYNI veritabanına yazılır.
- * Kuyruk/işçi çökse bile iş kaybolmaz. Aynı idempotency anahtarıyla ikinci iş
+ * Akış: bildirim olayı kaydedildikten sonra e-posta işi AYNI veritabanına yazılır.
+ * Worker çökse bile iş kaybolmaz. Aynı idempotency anahtarıyla ikinci iş
  * oluşturulamaz (benzersiz indeks).
  *
- * Durum modeli:
- *   pending -> sending (lease) -> accepted | failed -> (retry) | dead
- * "accepted" = sağlayıcı mesajı kabul etti. Teslim edildi iddiası yoktur.
+ * Durum modeli: pending → sending (lease) → accepted | failed → (retry) | dead | suppressed
+ * "accepted" = sağlayıcı mesajı kabul etti. "Teslim edildi" iddiası YOKTUR.
  */
 import { createId, sha256Hex } from '../../domain/ids';
 import type { Clock } from '../../lib/clock';
@@ -25,7 +24,6 @@ export interface EnqueueEmailInput {
   subject: string;
   template: string;
   payload: Record<string, unknown>;
-  /** Aynı mantıksal e-postanın iki kez kuyruğa girmesini engelleyen anahtar. */
   idempotencyKey: string;
   maxAttempts?: number;
 }
@@ -53,7 +51,7 @@ export class OutboxRepo {
       userId: input.userId,
       kind: input.kind,
       toEmail: input.toEmail,
-      subject: input.subject,
+      subject: input.subject.slice(0, 300),
       template: input.template,
       payload: input.payload,
       idempotencyKey: input.idempotencyKey,
@@ -77,18 +75,15 @@ export class OutboxRepo {
   }
 
   /**
-   * Gönderilecek işleri lease'ler. İki worker aynı işi alamaz:
-   * updateOne koşullu çalışır (status=pending VEYA süresi geçmiş sending).
+   * Gönderilecek işleri lease'ler. İki worker aynı işi alamaz: güncelleme
+   * yalnızca durum değişmediyse uygulanır (koşullu yazma).
    */
   async claimBatch(workerId: string, limit: number, leaseMs = 120_000): Promise<EmailOutboxDoc[]> {
     const now = this.clock.now();
     const nowIso = now.toISOString();
     const candidates = await this.store.find(
       'emailOutbox',
-      {
-        status: { $in: ['pending', 'failed', 'sending'] },
-        nextAttemptAt: { $lte: nowIso },
-      },
+      { status: { $in: ['pending', 'failed', 'sending'] }, nextAttemptAt: { $lte: nowIso } },
       { limit: limit * 4, sort: [['nextAttemptAt', 1]] },
     );
 
@@ -96,7 +91,7 @@ export class OutboxRepo {
     for (const candidate of candidates) {
       if (claimed.length >= limit) break;
       if (candidate.status === 'sending') {
-        const lockedUntil = candidate.lockedUntil ? new Date(candidate.lockedUntil).getTime() : 0;
+        const lockedUntil = candidate.lockedUntil ? Date.parse(candidate.lockedUntil) : 0;
         if (lockedUntil > now.getTime()) continue; // başka worker işliyor
       }
       const updated = await this.store.updateOne(
@@ -116,8 +111,8 @@ export class OutboxRepo {
 
   /** Sağlayıcı mesajı kabul etti. Teslim edildiği iddia edilmez. */
   async markAccepted(id: string, providerMessageId: string | null, providerResponse: string | null): Promise<void> {
-    const current = await this.findById(id);
     const now = this.clock.now().toISOString();
+    const current = await this.store.findOne('emailOutbox', { id });
     await this.store.updateOne('emailOutbox', { id }, {
       status: 'accepted',
       providerMessageId,
@@ -131,13 +126,15 @@ export class OutboxRepo {
     });
   }
 
+  /** Başarısız gönderim: yeniden deneme zamanı verilir; sınır dolduysa `dead`. */
   async markFailed(id: string, error: string, retryAt: string | null): Promise<EmailOutboxDoc | null> {
-    const current = await this.findById(id);
+    const current = await this.store.findOne('emailOutbox', { id });
     if (!current) return null;
     const now = this.clock.now().toISOString();
     const attempts = current.attempts + 1;
     const exhausted = attempts >= current.maxAttempts;
     const status: EmailOutboxDoc['status'] = retryAt && !exhausted ? 'pending' : 'dead';
+
     return this.store.updateOne('emailOutbox', { id }, {
       status,
       attempts,
@@ -154,7 +151,10 @@ export class OutboxRepo {
     return this.store.findOne('emailOutbox', { id });
   }
 
-  async list(filter: { status?: EmailOutboxDoc['status']; userId?: string; jobId?: string }, limit = 100): Promise<EmailOutboxDoc[]> {
+  async list(
+    filter: { status?: EmailOutboxDoc['status']; userId?: string; jobId?: string } = {},
+    limit = 100,
+  ): Promise<EmailOutboxDoc[]> {
     const query: Record<string, unknown> = {};
     if (filter.status) query.status = filter.status;
     if (filter.userId) query.userId = filter.userId;
@@ -162,22 +162,34 @@ export class OutboxRepo {
     return this.store.find('emailOutbox', query, { limit, sort: [['createdAt', -1]] });
   }
 
-  async stats(): Promise<{
-    pending: number;
-    sending: number;
-    accepted: number;
-    dead: number;
-    suppressed: number;
-    oldestPendingAt: string | null;
-  }> {
-    const [pending, sending, accepted, dead, suppressed] = await Promise.all([
-      this.store.count('emailOutbox', { status: 'pending' }),
-      this.store.count('emailOutbox', { status: 'sending' }),
-      this.store.count('emailOutbox', { status: 'accepted' }),
-      this.store.count('emailOutbox', { status: 'dead' }),
-      this.store.count('emailOutbox', { status: 'suppressed' }),
-    ]);
-    const oldest = await this.store.find('emailOutbox', { status: 'pending' }, { limit: 1, sort: [['createdAt', 1]] });
-    return { pending, sending, accepted, dead, suppressed, oldestPendingAt: oldest[0]?.createdAt ?? null };
+  async stats(): Promise<Record<EmailOutboxDoc['status'], number>> {
+    const statuses: EmailOutboxDoc['status'][] = ['pending', 'sending', 'accepted', 'failed', 'dead', 'suppressed'];
+    const counts = await Promise.all(statuses.map((status) => this.store.count('emailOutbox', { status })));
+    return statuses.reduce<Record<EmailOutboxDoc['status'], number>>(
+      (acc, status, index) => {
+        acc[status] = counts[index] ?? 0;
+        return acc;
+      },
+      { pending: 0, sending: 0, accepted: 0, failed: 0, dead: 0, suppressed: 0 },
+    );
+  }
+
+  /** Ölü mektuplar: panelde görünür ve tekrar denenebilir. */
+  async listDead(limit = 50): Promise<EmailOutboxDoc[]> {
+    return this.store.find('emailOutbox', { status: 'dead' }, { limit, sort: [['failedAt', -1]] });
+  }
+
+  /** Ölü mektubu elle yeniden kuyruğa alır (yönetici işlemi). */
+  async requeue(id: string): Promise<EmailOutboxDoc | null> {
+    const now = this.clock.now().toISOString();
+    return this.store.updateOne('emailOutbox', { id, status: 'dead' }, {
+      status: 'pending',
+      attempts: 0,
+      nextAttemptAt: now,
+      lastError: null,
+      lockedBy: null,
+      lockedUntil: null,
+      updatedAt: now,
+    });
   }
 }

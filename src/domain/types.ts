@@ -139,7 +139,12 @@ export interface RawAnnouncement {
   applicationEndAt?: string;
   applicationUrl?: string;
   city?: string;
+  district?: string;
   quota?: number;
+  /** Kaynağın verdiği resmî ilan numarası (varsa). */
+  referenceNo?: string;
+  /** İlan metninde geçen bağlantılar (başvuru bağlantısını bulmak için). */
+  links?: { text: string; url: string }[];
   attachments: JobAttachment[];
   /** Category/heading the source itself used (used as a classification signal). */
   sourceCategory?: string;

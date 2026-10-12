@@ -12,7 +12,7 @@
  *    SMTP erişilemese de tarama tamamlanır.
  */
 import { getEnv } from '../config/env';
-import { findSourceDefinition } from '../config/sources';
+import { findSourceDefinition, type SourceDefinition, type SourceGroup, type SourceMethod, type SourceStatus, type SourceType } from '../config/sources';
 import type { RawAnnouncement } from '../domain';
 import { sha256Hex } from '../domain/ids';
 import type { JobDoc, ScrapeRunDoc, SourceDoc } from '../db/schemas';
@@ -20,11 +20,11 @@ import type { Repos } from '../db/repos';
 import type { ScrapeRunTotals } from '../db/repos/runs';
 import { EMPTY_TOTALS } from '../db/repos/runs';
 import { createLogger, type Logger } from '../lib/logger';
-import type { Clock } from '../lib/clock';
-import { HttpFetcher } from '../sources/fetcher';
+import { addMilliseconds, type Clock } from '../lib/clock';
+import { HttpClient } from '../sources/fetcher';
 import { requireAdapter } from '../sources/registry';
 import { AdapterStructureError, AdapterUnavailableError } from '../sources/errors';
-import type { AdapterContext, AdapterLimits, Fetcher, SourceAdapter } from '../sources/types';
+import type { AdapterContext, SourceAdapter } from '../sources/types';
 import { queueNotificationsForJob } from '../notifications/service';
 import { applyRawAnnouncement } from './jobs-service';
 
@@ -33,8 +33,8 @@ export interface RunSourceOptions {
   source: SourceDoc;
   trigger: ScrapeRunDoc['trigger'];
   workerId: string;
-  /** Testlerde sahte fetcher verilir; üretimde HttpFetcher kullanılır. */
-  fetcher?: Fetcher;
+  /** Testlerde sahte istemci verilir; üretimde kaynak başına bir HttpClient kullanılır. */
+  http?: HttpClient;
   logger?: Logger;
   queueNotifications?: boolean;
   liveFetch?: boolean;
@@ -67,16 +67,43 @@ const LOCK_TTL_PADDING_MS = 90_000;
 const ADMIN_WARNING_FAILURE_THRESHOLD = 3;
 const KNOWN_ITEMS_LOOKBACK = 5_000;
 
-/** Adaptör sınırları: kaynak tanımından + ortam ayarlarından türetilir. */
-export function resolveAdapterLimits(source: SourceDoc): AdapterLimits {
-  const env = getEnv();
-  const definition = findSourceDefinition(source.adapterKey, source.listingUrl);
+/** Adaptörün ihtiyaç duyduğu kaynak tanımı (envanter kaydı; yoksa DB kaydından türetilir). */
+export function resolveAdapterSource(doc: SourceDoc): SourceDefinition {
+  const fromInventory = findSourceDefinition(doc.key);
+  if (fromInventory) return fromInventory;
+
+  // Envanterde kaydı olmayan (yönetici tarafından eklenmiş) kaynak: DB kaydından
+  // türetilir. Doğrulama kanıtı yoksa bu kaynak "doğrulanmamış" sayılır.
   return {
-    maxListingPages: definition?.maxListingPages ?? 2,
-    timeoutMs: env.SCRAPE_TIMEOUT_MS,
-    maxDetailFetches: source.method === 'browser' ? 5 : 25,
-    maxDocumentBytes: env.MAX_DOCUMENT_BYTES,
+    key: doc.key,
+    name: doc.name,
+    group: 'kurum' as SourceGroup,
+    sourceType: doc.sourceType as SourceType,
+    institution: doc.institution,
+    listingUrl: doc.listingUrl,
+    homepageUrl: doc.homepageUrl,
+    adapterKey: doc.adapterKey,
+    method: doc.method as SourceMethod,
+    status: doc.status as SourceStatus,
+    statusNote: doc.statusNote,
+    lastVerifiedAt: doc.verification.verifiedAt,
+    verificationEvidence: doc.verification.evidence,
+    coverageNote: doc.coverageNotes,
+    enabled: doc.enabled,
+    intervalMinutes: doc.scrapeIntervalMinutes,
+    minRequestIntervalMs: doc.minRequestIntervalMs,
+    maxConcurrency: doc.maxConcurrency,
+    allowedHosts: doc.allowHosts,
+    conditionalRequests: doc.method === 'html-list' || doc.method === 'pdf-index',
+    tags: doc.tags,
   };
+}
+
+/** Ayrıntı isteği üst sınırı: pahalı yöntemlerde daha az indirilir. */
+export function detailFetchBudget(method: string): number {
+  if (method === 'browser') return 5;
+  if (method === 'pdf-index') return 25;
+  return 25;
 }
 
 /** Daha önce görülmüş kaynak içi kimlikler (pahalı indirmeleri atlamak için). */
@@ -104,9 +131,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const { repos, source, trigger, workerId } = options;
   const now = options.now ?? repos.clock.now();
   const logger = options.logger ?? createLogger('scrape');
-  const limits = resolveAdapterLimits(source);
+  const timeoutMs = env.SCRAPE_TIMEOUT_MS;
   const lockKey = `scrape:${source.key}`;
-  const lockTtl = limits.timeoutMs + LOCK_TTL_PADDING_MS;
+  const lockTtl = timeoutMs + LOCK_TTL_PADDING_MS;
 
   const acquired = await repos.locks.acquire(lockKey, workerId, lockTtl);
   if (!acquired) {
@@ -141,37 +168,47 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
 
   const totals: ScrapeRunTotals = { ...EMPTY_TOTALS, httpStatuses: [], errors: [], notes: [] };
   const notificationCounts = { queued: 0 };
-  const startedAt = Date.now();
+  const startedAt = repos.clock.now().getTime();
   let status: ScrapeRunDoc['status'] = 'success';
   let resultMessage = '';
   let fatalError: Error | null = null;
+  let contentUnchanged = false;
+  let adapterNotes: string[] = [];
+  let etag: string | null = null;
+  let lastModified: string | null = null;
+  let contentHash: string | null = null;
+  const ownedHttp = options.http === undefined;
+  const http = options.http ?? new HttpClient({ logger });
 
   try {
     const adapter = options.adapter ?? requireAdapter(source.adapterKey);
-    const fetcher = options.fetcher ?? new HttpFetcher({ logger });
+    const definition = resolveAdapterSource(source);
     const knownItemIds = await loadKnownItemIds(repos, source.key);
     const liveFetch = options.liveFetch ?? env.SOURCE_LIVE_FETCH;
 
     const ctx: AdapterContext = {
-      fetcher,
+      source: definition,
+      http,
       logger: logger.child({ sourceKey: source.key }),
-      clock: clockAt(now),
-      source,
-      limits,
       liveFetch,
+      fetchedAt: now,
       knownItemIds,
+      maxDetailFetches: detailFetchBudget(source.method),
     };
 
-    const runResult = await withTimeout(adapter.run(ctx), limits.timeoutMs, `${adapter.label} taraması`);
+    const runResult = await withTimeout(adapter.run(ctx), timeoutMs, `${adapter.label} taraması`);
     totals.itemsFound = runResult.items.length;
-    totals.httpStatuses = runResult.httpStatuses.slice(0, 50);
-    totals.notes = runResult.notes.slice(0, 20);
+    totals.httpStatuses = (runResult.httpStatuses ?? []).slice(0, 50);
+    adapterNotes = runResult.notes.slice(0, 20);
+    etag = runResult.etag;
+    lastModified = runResult.lastModified;
 
     if (runResult.notModified) {
-      // İçerik değişmemiş: gereksiz işlem yapılmaz, ilanlar korunur.
+      // İçerik değişmemiş: gereksiz işlem yapılmaz, mevcut ilanlar korunur.
       status = 'skipped';
+      contentUnchanged = true;
       resultMessage = 'Kaynak içeriği değişmemiş (ETag/Last-Modified eşleşti).';
-      totals.notes.push(resultMessage);
+      adapterNotes.push(resultMessage);
     }
 
     for (const item of runResult.items) {
@@ -182,8 +219,10 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         else if (outcome === 'merged') totals.itemsMerged += 1;
         else if (outcome === 'review') totals.itemsReview += 1;
         else if (outcome === 'rejected') totals.itemsRejected += 1;
-        if (outcome === 'created' || outcome === 'updated') totals.itemsAccepted += 1;
-        if (outcome === 'created' || outcome === 'updated') totals.revisionsCreated += 1;
+        if (outcome === 'created' || outcome === 'updated') {
+          totals.itemsAccepted += 1;
+          totals.revisionsCreated += 1;
+        }
         if (outcome === 'created' || outcome === 'updated' || outcome === 'merged' || outcome === 'review') {
           notificationCounts.queued += await notify(item, outcome, {
             repos,
@@ -199,11 +238,22 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       }
     }
 
+    if (!contentUnchanged) {
+      // Görülen kayıt kümesinin parmak izi: aynı ilanlar tekrar geldi mi?
+      contentHash =
+        runResult.items.length > 0
+          ? sha256Hex(runResult.items.map((item) => item.sourceItemId).sort().join('|'))
+          : null;
+    }
+
     if (totals.errors.length > 0) {
       status = 'partial';
       resultMessage = `${totals.errors.length} ilan işlenemedi, ${totals.itemsFound - totals.errors.length} ilan işlendi.`;
     } else if (status !== 'skipped') {
       resultMessage = `${totals.itemsFound} ilan bulundu, ${totals.jobsCreated} yeni kayıt, ${totals.itemsMerged} birleştirme, ${totals.itemsReview} inceleme.`;
+      if (totals.itemsFound === 0) {
+        resultMessage = 'Kaynak erişildi ancak yeni ilan bulunamadı.';
+      }
     }
   } catch (error) {
     fatalError = error instanceof Error ? error : new Error(String(error));
@@ -217,22 +267,29 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         : `Tarama başarısız: ${fatalError.message}`;
     totals.errors.push(resultMessage);
     logger.error({ err: fatalError.message, sourceKey: source.key }, 'tarama başarısız');
+  } finally {
+    if (ownedHttp) {
+      // Kaynak başına yeni istemci açıldıysa bağlantılar bırakılır.
+      await http.close().catch(() => undefined);
+    }
   }
 
+  totals.notes = adapterNotes;
   const finished = await repos.runs.finish(run.id, totals, status, resultMessage);
-  const durationMs = Date.now() - startedAt;
+  const durationMs = repos.clock.now().getTime() - startedAt;
 
   await repos.sources.recordHealth(source.key, {
     lastRunAt: now.toISOString(),
-    lastSuccess: fatalError === null && status !== 'skipped',
+    success: fatalError === null && status !== 'skipped',
     durationMs,
     discoveredCount: totals.itemsFound,
     acceptedCount: totals.itemsAccepted,
     errorMessage: fatalError ? fatalError.message : totals.errors[0] ?? null,
     scheduleDelayMs: finished?.scheduleDelayMs ?? null,
-    etag: undefined,
-    lastModified: undefined,
-    contentHash: totals.itemsFound > 0 ? sha256Hex(totals.itemsFound.toString()) : null,
+    etag,
+    lastModified,
+    contentHash,
+    contentUnchanged,
   });
 
   await warnOnRepeatedFailures({ repos, source, logger, fatalError });
@@ -259,8 +316,14 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   };
 }
 
-function clockAt(now: Date): Clock {
+/** Zamanlanmış taramanın gecikmesini kaydetmek için kullanılan saat (sabit an). */
+export function clockAt(now: Date): Clock {
   return { now: () => now };
+}
+
+/** Kilit süresi: tarama zaman aşımı + pay (worker çökerse kilit kendiliğinden açılır). */
+export function lockExpiry(now: Date, timeoutMs: number): string {
+  return addMilliseconds(now.toISOString(), timeoutMs + LOCK_TTL_PADDING_MS);
 }
 
 async function processItem(

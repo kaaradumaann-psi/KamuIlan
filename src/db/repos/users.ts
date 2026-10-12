@@ -1,12 +1,12 @@
 /**
- * Kullanıcı, oturum ve tek kullanımlık jeton deposu.
+ * Kullanıcı, oturum ve jeton deposu.
  *
- * Gizlilik:
- *  - E-posta adresi normalize edilerek saklanır; loglarda maskelenir.
- *  - Oturum ve jeton değerleri yalnızca hash olarak tutulur.
- *  - Hesap silme (KVKK): kullanıcı verisi anonimleştirilir, oturum/jetonlar iptal edilir.
+ * Güvenlik:
+ *  - Şifreler bu katmanda HASH'lenmiş olarak saklanır (hash üretimi auth katmanında).
+ *  - Oturum ve jeton değerleri yalnızca hash olarak tutulur; düz metin saklanmaz.
+ *  - KVKK: veri silme talebinde kişisel alanlar geri döndürülemez şekilde temizlenir.
  */
-import { createId, sha256Hex } from '../../domain/ids';
+import { createId, randomToken, sha256Hex } from '../../domain/ids';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
 import type { StoragePort } from '../ports';
@@ -14,7 +14,7 @@ import type { SessionDoc, TokenDoc, UserDoc } from '../schemas';
 import { validateDocument } from '../validate';
 
 export function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+  return email.trim().toLocaleLowerCase('tr');
 }
 
 export class UserRepo {
@@ -28,7 +28,7 @@ export class UserRepo {
     passwordHash: string;
     passwordSalt: string;
     displayName?: string | null;
-    role?: 'user' | 'admin';
+    role?: UserDoc['role'];
     emailVerified?: boolean;
   }): Promise<{ user: UserDoc; created: boolean }> {
     const now = this.clock.now().toISOString();
@@ -70,69 +70,83 @@ export class UserRepo {
 
   async markEmailVerified(id: string): Promise<void> {
     const now = this.clock.now().toISOString();
-    await this.update(id, { emailVerified: true, emailVerifiedAt: now });
+    await this.store.updateOne('users', { id }, { emailVerified: true, emailVerifiedAt: now, updatedAt: now });
   }
 
   async recordLogin(id: string): Promise<void> {
-    await this.store.updateOne('users', { id }, { lastLoginAt: this.clock.now().toISOString() });
+    const now = this.clock.now().toISOString();
+    await this.store.updateOne('users', { id }, { lastLoginAt: now, updatedAt: now });
   }
 
-  /** KVKK kapsamında hesap silme: kimlik verisi anonimleştirilir. */
-  async erasePersonalData(id: string): Promise<void> {
+  /**
+   * KVKK: hesap silme talebi.
+   * Kişisel veriler temizlenir, oturumlar iptal edilir; ilan/bildirim kayıtları
+   * istatistik amaçlı anonim kalır (kullanıcı bağı koparılır).
+   */
+  async erasePersonalData(id: string): Promise<{ user: UserDoc | null; sessionsRevoked: number }> {
     const now = this.clock.now().toISOString();
     const user = await this.findById(id);
-    if (!user) return;
-    await this.store.updateOne('users', { id }, {
-      status: 'deleted',
-      email: `deleted+${id}@kamuradar.invalid`,
-      emailNormalized: `deleted+${id}@kamuradar.invalid`,
+    if (!user) return { user: null, sessionsRevoked: 0 };
+
+    const anonymizedEmail = `silinmis-${sha256Hex(id).slice(0, 16)}@example.invalid`;
+    const updated = await this.store.updateOne('users', { id }, {
+      email: anonymizedEmail,
+      emailNormalized: anonymizedEmail,
       displayName: null,
-      passwordHash: 'erased',
-      passwordSalt: 'erased',
+      passwordHash: sha256Hex(`${id}:erased:${now}`),
+      passwordSalt: sha256Hex(`${id}:salt`).slice(0, 32),
+      status: 'deleted',
       emailVerified: false,
       emailVerifiedAt: null,
       deletedAt: now,
       updatedAt: now,
     });
-    await this.store.deleteMany('sessions', { userId: id });
+
+    const sessions = await this.store.find('sessions', { userId: id });
+    for (const session of sessions) {
+      await this.store.updateOne('sessions', { id: session.id }, { revokedAt: now });
+    }
     await this.store.deleteMany('tokens', { userId: id });
-    await this.store.deleteMany('savedJobs', { userId: id });
-    await this.store.updateOne('notificationPreferences', { userId: id }, { enabled: false, paused: true });
+    await this.store.updateMany('notificationPreferences', { userId: id }, { enabled: false, paused: true, updatedAt: now });
+    await this.store.updateMany('emailOutbox', { userId: id, status: 'pending' }, { status: 'suppressed', updatedAt: now });
+    await this.store.updateMany('savedJobs', { userId: id }, { userId: `erased_${sha256Hex(id).slice(0, 20)}` });
+
+    return { user: updated, sessionsRevoked: sessions.length };
   }
 
-  // ---------------------------------------------------------------- oturumlar
+  // ------------------------------------------------------------------ oturumlar
 
   async createSession(input: {
     userId: string;
-    token: string;
-    csrfToken: string;
     ttlHours: number;
-    userAgentHash?: string | null;
-    ipHash?: string | null;
-  }): Promise<SessionDoc> {
+    userAgent?: string | null;
+    ip?: string | null;
+  }): Promise<{ session: SessionDoc; token: string; csrfToken: string }> {
     const now = this.clock.now();
+    const token = randomToken(32);
+    const csrfToken = randomToken(16);
     const doc: SessionDoc = {
       id: createId('ses'),
       userId: input.userId,
-      tokenHash: sha256Hex(input.token),
-      csrfToken: input.csrfToken,
+      tokenHash: sha256Hex(token),
+      csrfToken,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + input.ttlHours * 3_600_000).toISOString(),
       revokedAt: null,
-      userAgentHash: input.userAgentHash ?? null,
-      ipHash: input.ipHash ?? null,
+      userAgentHash: input.userAgent ? sha256Hex(input.userAgent).slice(0, 32) : null,
+      ipHash: input.ip ? sha256Hex(input.ip).slice(0, 32) : null,
       lastSeenAt: now.toISOString(),
     };
     validateDocument('sessions', doc);
     await this.store.insertOne('sessions', doc);
-    return doc;
+    return { session: doc, token, csrfToken };
   }
 
   async findSessionByToken(token: string): Promise<SessionDoc | null> {
     const session = await this.store.findOne('sessions', { tokenHash: sha256Hex(token) });
     if (!session) return null;
     if (session.revokedAt) return null;
-    if (new Date(session.expiresAt).getTime() <= this.clock.now().getTime()) return null;
+    if (Date.parse(session.expiresAt) <= this.clock.now().getTime()) return null;
     return session;
   }
 
@@ -145,14 +159,15 @@ export class UserRepo {
   }
 
   async revokeAllSessions(userId: string): Promise<number> {
-    return this.store.updateMany('sessions', { userId, revokedAt: null }, { revokedAt: this.clock.now().toISOString() });
+    const now = this.clock.now().toISOString();
+    return this.store.updateMany('sessions', { userId, revokedAt: null }, { revokedAt: now });
   }
 
   async purgeExpiredSessions(): Promise<number> {
     return this.store.deleteMany('sessions', { expiresAt: { $lt: this.clock.now().toISOString() } });
   }
 
-  // ------------------------------------------------------------ jetonlar
+  // ------------------------------------------------------------------- jetonlar
 
   async createToken(input: {
     userId: string;
@@ -175,13 +190,20 @@ export class UserRepo {
     return doc;
   }
 
+  /** Tek kullanımlık jeton tüketimi (yarış koşuluna dayanıklı). */
   async consumeToken(token: string, type: TokenDoc['type']): Promise<TokenDoc | null> {
     const doc = await this.store.findOne('tokens', { tokenHash: sha256Hex(token), type });
     if (!doc) return null;
     if (doc.usedAt) return null;
-    if (new Date(doc.expiresAt).getTime() <= this.clock.now().getTime()) return null;
+    if (Date.parse(doc.expiresAt) <= this.clock.now().getTime()) return null;
     const updated = await this.store.updateOne('tokens', { id: doc.id, usedAt: null }, { usedAt: this.clock.now().toISOString() });
-    if (!updated) return null; // eşzamanlı iki kullanımda yalnızca biri kazanır
+    if (!updated) return null;
     return updated;
+  }
+
+  async findToken(token: string, type: TokenDoc['type']): Promise<TokenDoc | null> {
+    const doc = await this.store.findOne('tokens', { tokenHash: sha256Hex(token), type });
+    if (!doc || doc.usedAt || Date.parse(doc.expiresAt) <= this.clock.now().getTime()) return null;
+    return doc;
   }
 }

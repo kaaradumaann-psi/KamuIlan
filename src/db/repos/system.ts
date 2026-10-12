@@ -1,9 +1,11 @@
 /**
- * Sistem altyapısı depoları: dağıtık kilit, hız sınırlama, zamanlanmış görevler,
- * yerleşik kuyruk (Redis yoksa), worker heartbeat, denetim kaydı, kaydedilen ilanlar.
+ * Sistem depoları: kilitler, hız sınırlama, zamanlanmış görevler, kuyruk,
+ * worker kalp atışı, denetim kaydı ve kaydedilen ilanlar.
  */
 import { createId, sha256Hex } from '../../domain/ids';
-import { addMilliseconds, type Clock, systemClock } from '../../lib/clock';
+import { addMilliseconds } from '../../lib/clock';
+import type { Clock } from '../../lib/clock';
+import { systemClock } from '../../lib/clock';
 import type { StoragePort } from '../ports';
 import type {
   AuditLogDoc,
@@ -16,7 +18,10 @@ import type {
 } from '../schemas';
 import { validateDocument } from '../validate';
 
-/** Dağıtık kilit: aynı kaynağın iki kez taranmasını engeller. */
+/**
+ * Dağıtık kilit: bir kaynağın AYNI ANDA iki worker tarafından taranmasını
+ * engeller. Süresi dolan kilit otomatik devralınabilir (worker çökmüş olabilir).
+ */
 export class LockRepo {
   constructor(
     private readonly store: StoragePort,
@@ -25,23 +30,38 @@ export class LockRepo {
 
   async acquire(key: string, owner: string, ttlMs: number): Promise<boolean> {
     const now = this.clock.now();
-    const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
+    const nowIso = now.toISOString();
     const doc: LockDoc = {
       id: createId('lck'),
       key,
       owner,
-      acquiredAt: now.toISOString(),
-      expiresAt,
+      acquiredAt: nowIso,
+      expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+      heartbeatAt: nowIso,
     };
-    const result = await this.store.insertIfAbsent('locks', doc);
-    if (result.inserted) return true;
-    // Süresi geçmiş kilidi devral (koşullu güncelleme: yalnızca süresi dolmuşsa).
-    const takenOver = await this.store.updateOne(
+
+    const inserted = await this.store.insertIfAbsent('locks', doc);
+    if (inserted.inserted) return true;
+
+    const existing = inserted.document;
+    if (Date.parse(existing.expiresAt) > now.getTime()) return false;
+
+    // Süresi dolmuş kilidi devral: yalnızca eski sahip değişmediyse.
+    const taken = await this.store.updateOne(
       'locks',
-      { key, expiresAt: { $lt: now.toISOString() } },
-      { owner, acquiredAt: now.toISOString(), expiresAt },
+      { id: existing.id, owner: existing.owner, expiresAt: existing.expiresAt },
+      { owner, acquiredAt: nowIso, expiresAt: new Date(now.getTime() + ttlMs).toISOString(), heartbeatAt: nowIso },
     );
-    return Boolean(takenOver);
+    return taken !== null;
+  }
+
+  async extend(key: string, owner: string, ttlMs: number): Promise<boolean> {
+    const updated = await this.store.updateOne(
+      'locks',
+      { key, owner },
+      { expiresAt: new Date(this.clock.now().getTime() + ttlMs).toISOString(), heartbeatAt: this.clock.now().toISOString() },
+    );
+    return updated !== null;
   }
 
   async release(key: string, owner: string): Promise<boolean> {
@@ -49,11 +69,15 @@ export class LockRepo {
   }
 
   async list(): Promise<LockDoc[]> {
-    return this.store.find('locks', {}, { limit: 500 });
+    return this.store.find('locks', {}, { limit: 200, sort: [['acquiredAt', -1]] });
+  }
+
+  async purgeExpired(): Promise<number> {
+    return this.store.deleteMany('locks', { expiresAt: { $lt: this.clock.now().toISOString() } });
   }
 }
 
-/** Basit sabit pencere hız sınırlayıcı (API ve scraping istekleri için). */
+/** Basit pencere tabanlı hız sınırlama (API ve giriş denemeleri için). */
 export class RateLimitRepo {
   constructor(
     private readonly store: StoragePort,
@@ -62,24 +86,34 @@ export class RateLimitRepo {
 
   async hit(bucket: string, windowSeconds: number): Promise<{ count: number; windowStart: string; resetAt: string }> {
     const now = this.clock.now();
-    const windowMs = windowSeconds * 1_000;
-    const windowStartMs = Math.floor(now.getTime() / windowMs) * windowMs;
+    const windowStartMs = Math.floor(now.getTime() / (windowSeconds * 1000)) * windowSeconds * 1000;
     const windowStart = new Date(windowStartMs).toISOString();
+    const resetAt = new Date(windowStartMs + windowSeconds * 1000).toISOString();
+    // KVKK: kova anahtarı IP/e-posta içerebilir → hash'lenir.
+    const hashedBucket = sha256Hex(bucket).slice(0, 32);
+
+    const existing = await this.store.findOne('rateLimits', { bucket: hashedBucket, windowStart });
+    if (existing) {
+      const updated = await this.store.updateOne('rateLimits', { id: existing.id }, { count: existing.count + 1 });
+      return { count: updated?.count ?? existing.count + 1, windowStart, resetAt };
+    }
+
     const doc: RateLimitDoc = {
       id: createId('rlm'),
-      bucket,
+      bucket: hashedBucket,
       windowStart,
-      count: 0,
+      count: 1,
+      expiresAt: resetAt,
     };
-    const existing = await this.store.insertIfAbsent('rateLimits', doc);
-    const updated = await this.store.updateOne('rateLimits', { id: existing.document.id }, {
-      count: existing.document.count + 1,
-    });
-    return {
-      count: updated?.count ?? existing.document.count + 1,
-      windowStart,
-      resetAt: new Date(windowStartMs + windowMs).toISOString(),
-    };
+    validateDocument('rateLimits', doc);
+    const inserted = await this.store.insertIfAbsent('rateLimits', doc);
+    if (inserted.inserted) return { count: 1, windowStart, resetAt };
+    const updated = await this.store.updateOne(
+      'rateLimits',
+      { id: inserted.document.id },
+      { count: inserted.document.count + 1 },
+    );
+    return { count: updated?.count ?? inserted.document.count + 1, windowStart, resetAt };
   }
 
   async purgeOlderThan(iso: string): Promise<number> {
@@ -87,41 +121,47 @@ export class RateLimitRepo {
   }
 }
 
-/** Zamanlanmış görevler: her kaynak için bir sonraki tarama zamanı kalıcıdır. */
+/** Kalıcı zamanlanmış görevler (kaynak tarama, bakım, kapsam denetimi). */
 export class ScheduledTaskRepo {
   constructor(
     private readonly store: StoragePort,
     private readonly clock: Clock = systemClock,
   ) {}
 
+  /** Görev yoksa oluşturur; varsa aralığı günceller (konum korunur). */
   async ensure(input: {
     kind: ScheduledTaskDoc['kind'];
     sourceKey: string;
     intervalMinutes: number;
     nextRunAt?: string;
   }): Promise<ScheduledTaskDoc> {
-    const now = this.clock.now().toISOString();
+    const now = this.clock.now();
+    const existing = await this.store.findOne('scheduledTasks', { kind: input.kind, sourceKey: input.sourceKey });
+    if (existing) {
+      const updated = await this.store.updateOne(
+        'scheduledTasks',
+        { id: existing.id },
+        { intervalMinutes: input.intervalMinutes, updatedAt: now.toISOString() },
+      );
+      return updated ?? existing;
+    }
+
     const doc: ScheduledTaskDoc = {
       id: createId('tsk'),
       kind: input.kind,
       sourceKey: input.sourceKey,
       intervalMinutes: input.intervalMinutes,
       enabled: true,
-      nextRunAt: input.nextRunAt ?? now,
+      nextRunAt: input.nextRunAt ?? now.toISOString(),
       lastRunAt: null,
       lastEnqueuedRunId: null,
       lastDequeuedAt: null,
       misses: 0,
-      updatedAt: now,
+      updatedAt: now.toISOString(),
     };
     validateDocument('scheduledTasks', doc);
-    const result = await this.store.upsertOne(
-      'scheduledTasks',
-      { kind: input.kind, sourceKey: input.sourceKey },
-      doc,
-      { intervalMinutes: input.intervalMinutes, updatedAt: now },
-    );
-    return result.document;
+    const inserted = await this.store.insertIfAbsent('scheduledTasks', doc);
+    return inserted.document;
   }
 
   async listDue(nowIso: string, limit = 50): Promise<ScheduledTaskDoc[]> {
@@ -136,7 +176,7 @@ export class ScheduledTaskRepo {
     return this.store.find('scheduledTasks', {}, { limit: 500, sort: [['sourceKey', 1]] });
   }
 
-  /** Görev enqueue edildikten sonra bir sonraki çalışma zamanını ilerletir. */
+  /** Kuyruğa alındıktan sonra bir sonraki çalışma zamanı ilerletilir. */
   async markEnqueued(
     id: string,
     run: { runId: string; intervalMinutes: number; dequeuedAt?: string | null; misses?: number },
@@ -153,23 +193,17 @@ export class ScheduledTaskRepo {
   }
 
   async setInterval(id: string, intervalMinutes: number): Promise<void> {
-    await this.store.updateOne('scheduledTasks', { id }, {
-      intervalMinutes,
-      updatedAt: this.clock.now().toISOString(),
-    });
+    await this.store.updateOne('scheduledTasks', { id }, { intervalMinutes, updatedAt: this.clock.now().toISOString() });
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    await this.store.updateOne('scheduledTasks', { id }, {
-      enabled,
-      updatedAt: this.clock.now().toISOString(),
-    });
+    await this.store.updateOne('scheduledTasks', { id }, { enabled, updatedAt: this.clock.now().toISOString() });
   }
 }
 
 /**
  * Yerleşik kalıcı kuyruk (Redis yoksa).
- * Redis + BullMQ varsa aynı sözleşme BullMQ adaptörüyle karşılanır.
+ * dedupeKey benzersizdir: aynı iş (ör. aynı kaynağın taraması) iki kez kuyruğa girmez.
  */
 export class BuiltinQueueRepo {
   constructor(
@@ -216,10 +250,11 @@ export class BuiltinQueueRepo {
       { queue, status: { $in: ['pending', 'active'] }, runAt: { $lte: nowIso } },
       { limit: limit * 4, sort: [['runAt', 1]] },
     );
+
     const claimed: QueueJobDoc[] = [];
     for (const candidate of candidates) {
       if (claimed.length >= limit) break;
-      if (candidate.status === 'active' && candidate.lockedUntil && new Date(candidate.lockedUntil).getTime() > now.getTime()) {
+      if (candidate.status === 'active' && candidate.lockedUntil && Date.parse(candidate.lockedUntil) > now.getTime()) {
         continue;
       }
       const updated = await this.store.updateOne('queueJobs', { id: candidate.id, status: candidate.status }, {
@@ -245,6 +280,7 @@ export class BuiltinQueueRepo {
     });
   }
 
+  /** Başarısız iş: yeniden deneme zamanı verilir; deneme sınırı dolduysa `dead` (DLQ). */
   async fail(id: string, error: string, retryAt: string | null): Promise<QueueJobDoc | null> {
     const current = await this.store.findOne('queueJobs', { id });
     if (!current) return null;
@@ -261,21 +297,34 @@ export class BuiltinQueueRepo {
   }
 
   async stats(): Promise<Record<QueueJobDoc['status'], number>> {
-    const [pending, active, completed, failed, dead] = await Promise.all([
-      this.store.count('queueJobs', { status: 'pending' }),
-      this.store.count('queueJobs', { status: 'active' }),
-      this.store.count('queueJobs', { status: 'completed' }),
-      this.store.count('queueJobs', { status: 'failed' }),
-      this.store.count('queueJobs', { status: 'dead' }),
-    ]);
-    return { pending, active, completed, failed, dead };
+    const statuses: QueueJobDoc['status'][] = ['pending', 'active', 'completed', 'failed', 'dead'];
+    const counts = await Promise.all(statuses.map((status) => this.store.count('queueJobs', { status })));
+    return statuses.reduce<Record<QueueJobDoc['status'], number>>(
+      (acc, status, index) => {
+        acc[status] = counts[index] ?? 0;
+        return acc;
+      },
+      { pending: 0, active: 0, completed: 0, failed: 0, dead: 0 },
+    );
   }
 
   async listDead(limit = 50): Promise<QueueJobDoc[]> {
     return this.store.find('queueJobs', { status: 'dead' }, { limit, sort: [['updatedAt', -1]] });
   }
+
+  async requeue(id: string): Promise<QueueJobDoc | null> {
+    const now = this.clock.now().toISOString();
+    return this.store.updateOne('queueJobs', { id, status: 'dead' }, {
+      status: 'pending',
+      attempts: 0,
+      runAt: now,
+      lastError: null,
+      updatedAt: now,
+    });
+  }
 }
 
+/** Worker kalp atışı: panelde "worker çalışıyor mu?" sorusunu yanıtlar. */
 export class HeartbeatRepo {
   constructor(
     private readonly store: StoragePort,
@@ -291,13 +340,24 @@ export class HeartbeatRepo {
     lastError?: string | null;
   }): Promise<void> {
     const now = this.clock.now().toISOString();
+    const existing = await this.store.findOne('workerHeartbeats', { workerId: input.workerId });
+    if (existing) {
+      await this.store.updateOne('workerHeartbeats', { workerId: input.workerId }, {
+        lastHeartbeatAt: now,
+        status: input.status,
+        processedJobs: input.processedJobs,
+        lastError: input.lastError ?? null,
+        pid: process.pid,
+      });
+      return;
+    }
     const doc: WorkerHeartbeatDoc = {
       id: createId('wrk'),
       workerId: input.workerId,
       role: input.role,
       version: input.version,
       pid: process.pid,
-      host: process.env.HOSTNAME ?? 'localhost',
+      host: process.env['HOSTNAME'] ?? 'localhost',
       startedAt: now,
       lastHeartbeatAt: now,
       status: input.status,
@@ -305,13 +365,7 @@ export class HeartbeatRepo {
       lastError: input.lastError ?? null,
     };
     validateDocument('workerHeartbeats', doc);
-    await this.store.upsertOne('workerHeartbeats', { workerId: input.workerId }, doc, {
-      lastHeartbeatAt: now,
-      status: input.status,
-      processedJobs: input.processedJobs,
-      lastError: input.lastError ?? null,
-      pid: process.pid,
-    });
+    await this.store.insertIfAbsent('workerHeartbeats', doc);
   }
 
   async list(): Promise<WorkerHeartbeatDoc[]> {
@@ -323,6 +377,7 @@ export class HeartbeatRepo {
   }
 }
 
+/** Yönetici işlemleri denetim kaydı (KVKK ve güvenlik gereği). */
 export class AuditRepo {
   constructor(
     private readonly store: StoragePort,
@@ -361,6 +416,7 @@ export class AuditRepo {
   }
 }
 
+/** Kullanıcının kaydettiği ilanlar (panel). */
 export class SavedJobRepo {
   constructor(
     private readonly store: StoragePort,
@@ -370,15 +426,10 @@ export class SavedJobRepo {
   async toggle(userId: string, jobId: string): Promise<{ saved: boolean }> {
     const existing = await this.store.findOne('savedJobs', { userId, jobId });
     if (existing) {
-      await this.store.deleteOne('savedJobs', { userId, jobId });
+      await this.store.deleteOne('savedJobs', { id: existing.id });
       return { saved: false };
     }
-    const doc: SavedJobDoc = {
-      id: createId('sav'),
-      userId,
-      jobId,
-      createdAt: this.clock.now().toISOString(),
-    };
+    const doc: SavedJobDoc = { id: createId('sav'), userId, jobId, createdAt: this.clock.now().toISOString() };
     validateDocument('savedJobs', doc);
     await this.store.insertIfAbsent('savedJobs', doc);
     return { saved: true };
@@ -389,6 +440,7 @@ export class SavedJobRepo {
   }
 
   async isSaved(userId: string, jobId: string): Promise<boolean> {
-    return (await this.store.findOne('savedJobs', { userId, jobId })) !== null;
+    const doc = await this.store.findOne('savedJobs', { userId, jobId });
+    return doc !== null;
   }
 }

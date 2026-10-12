@@ -10,16 +10,10 @@ import { makeExcerpt, normalizeTr } from '../domain/text';
 import { sha256Hex } from '../domain/ids';
 import { toIstanbulDateOnly } from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
-import type {
-  EmploymentType,
-  JobStatus,
-  RawAnnouncement,
-  ClassificationResult,
-  JobRequirements,
-} from '../domain';
+import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
 import { classify } from '../classification/engine';
-import { extract } from '../extraction/engine';
+import { extract, type ExtractedJob } from '../extraction/engine';
 import type { JobDoc, JobRevisionDoc, SourceDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
 import { DEDUPE_THRESHOLDS, decideDedupe, matchBySourceIdentity } from './dedupe';
@@ -71,17 +65,22 @@ export function buildJobDocument(
   options: { now: Date; provenance: 'scraped' | 'sample' | 'manual' },
 ): Omit<JobDoc, 'id' | 'createdAt' | 'updatedAt' | 'firstSeenAt' | 'lastSeenAt' | 'version'> {
   const detailUrl = normalizeUrl(raw.url);
+  const body = raw.bodyText ?? raw.rawExcerpt ?? '';
   const extraction = extract({
     title: raw.title,
-    body: raw.bodyText ?? raw.rawExcerpt ?? '',
-    institutionHint: raw.institution ?? null,
-    publishedAt: raw.publishedAt ?? null,
-    applicationStartAt: raw.applicationStartAt ?? null,
-    applicationEndAt: raw.applicationEndAt ?? null,
-    cityHint: raw.city ?? null,
-    referenceHint: null,
+    body,
+    // Liste sayfasından gelen yapılandırılmış alanlar otoriter kabul edilir.
+    listing: {
+      institution: raw.institution ?? null,
+      city: raw.city ?? null,
+      district: raw.district ?? null,
+      publishedAt: raw.publishedAt ?? null,
+      referenceNo: raw.referenceNo ?? null,
+      applicationStartAt: raw.applicationStartAt ?? null,
+      applicationEndAt: raw.applicationEndAt ?? null,
+    },
+    links: raw.links ?? [],
     attachments: raw.attachments,
-    baseUrl: raw.url,
     bodySource: raw.bodyText ? 'detail' : 'listing',
   });
 
@@ -98,7 +97,7 @@ export function buildJobDocument(
 
   const institution = extraction.institution ?? raw.institution ?? 'Belirtilmemiş kurum';
   const title = raw.title.trim().slice(0, 400);
-  const requirements = toStoredRequirements(extraction.requirements);
+  const requirements = toStoredRequirements(extraction);
   const textExcerpt = makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 2_500);
 
   const employmentType: EmploymentType = classification.employmentType;
@@ -112,13 +111,13 @@ export function buildJobDocument(
     employmentType,
     status,
     statusReason: status === 'unknown' ? 'Tarih bilgisi bulunamadı' : '',
-    city: extraction.city,
-    district: extraction.district,
-    quota: extraction.quota,
+    city: extraction.city ?? raw.city ?? null,
+    district: extraction.district ?? raw.district ?? null,
+    quota: extraction.quota ?? raw.quota ?? null,
     applicationStartAt,
     applicationEndAt,
     applicationEndDate: extraction.applicationEndDate,
-    publishedAt: raw.publishedAt ?? null,
+    publishedAt: extraction.publishedAt ?? raw.publishedAt ?? null,
     detailUrl,
     normalizedUrl: detailUrl,
     applicationUrl: raw.applicationUrl ? normalizeUrl(raw.applicationUrl) : extraction.applicationUrl,
@@ -126,11 +125,15 @@ export function buildJobDocument(
     requirements,
     titles: extraction.titles,
     textExcerpt,
-    originalRefNo: extraction.originalRefNo ?? extractReferenceFromTitle(raw.sourceItemId) ?? extractReferenceFromTitle(title),
+    originalRefNo:
+      extraction.referenceNo ?? raw.referenceNo ?? extractReferenceFromTitle(raw.sourceItemId) ?? extractReferenceFromTitle(title),
     sourceKeys: [raw.sourceKey],
     primarySourceKey: raw.sourceKey,
     classification: { ...classification, classifiedAt: options.now.toISOString() },
     extractionConfidence: extraction.confidence,
+    fieldSources: extraction.fieldSources,
+    evidence: extraction.evidence,
+    uncertainties: extraction.uncertainties,
     provenance: options.provenance,
     lastVerifiedAt: null,
     contentHash: sha256Hex(`${title}|${raw.bodyText ?? ''}|${applicationEndAt ?? ''}|${extraction.quota ?? ''}`),
@@ -142,19 +145,19 @@ export function buildJobDocument(
  * Çıkarım motorunun `undefined` tabanlı isteğe bağlı alanlarını depo şemasının
  * `null` tabanlı alanlarına çevirir. "Belirtilmemiş" bilgi null olarak saklanır.
  */
-export function toStoredRequirements(requirements: JobRequirements): JobDoc['requirements'] {
+export function toStoredRequirements(extraction: ExtractedJob): JobDoc['requirements'] {
   return {
-    educationLevels: requirements.educationLevels,
-    departments: requirements.departments,
-    kpssScoreTypes: requirements.kpssScoreTypes,
-    kpssMinScore: requirements.kpssMinScore ?? null,
-    kpssYear: requirements.kpssYear ?? null,
-    minAge: requirements.minAge ?? null,
-    maxAge: requirements.maxAge ?? null,
-    certificates: requirements.certificates,
-    minExperienceYears: requirements.minExperienceYears ?? null,
-    foreignLanguages: requirements.foreignLanguages,
-    specialConditions: requirements.specialConditions,
+    educationLevels: extraction.educationLevels,
+    departments: extraction.departments,
+    kpssScoreTypes: extraction.kpssScoreTypes,
+    kpssMinScore: extraction.kpssMinScore,
+    kpssYear: extraction.kpssYear,
+    minAge: extraction.minAge,
+    maxAge: extraction.maxAge,
+    certificates: extraction.certificates,
+    minExperienceYears: extraction.minExperienceYears,
+    foreignLanguages: extraction.foreignLanguages,
+    specialConditions: extraction.specialConditions,
   };
 }
 

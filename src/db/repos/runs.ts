@@ -1,5 +1,5 @@
 /**
- * Tarama kayıtları (scrapeRuns) — gözlemlenebilirlik ve kapsam raporu için.
+ * Tarama çalıştırma kayıtları (scrapeRuns) — gözlemlenebilirlik ve kapsam raporu.
  */
 import { createId } from '../../domain/ids';
 import type { Clock } from '../../lib/clock';
@@ -36,6 +36,12 @@ export const EMPTY_TOTALS: ScrapeRunTotals = {
   notes: [],
 };
 
+/** Sorgu sonucunun ilk kaydı (yoksa null). */
+async function firstOrNull<T>(promise: Promise<T[]>): Promise<T | null> {
+  const rows = await promise;
+  return rows[0] ?? null;
+}
+
 export class ScrapeRunRepo {
   constructor(
     private readonly store: StoragePort,
@@ -49,7 +55,10 @@ export class ScrapeRunRepo {
     scheduledFor?: string | null;
   }): Promise<ScrapeRunDoc> {
     const now = this.clock.now();
-    const scheduleDelayMs = input.scheduledFor ? Math.max(0, now.getTime() - new Date(input.scheduledFor).getTime()) : null;
+    const scheduleDelayMs = input.scheduledFor
+      ? Math.max(0, now.getTime() - new Date(input.scheduledFor).getTime())
+      : null;
+
     const doc: ScrapeRunDoc = {
       id: createId('run'),
       sourceKey: input.sourceKey,
@@ -90,6 +99,7 @@ export class ScrapeRunRepo {
     const current = await this.store.findOne('scrapeRuns', { id: runId });
     if (!current) return null;
     const durationMs = now.getTime() - new Date(current.startedAt).getTime();
+
     const updated = await this.store.updateOne('scrapeRuns', { id: runId }, {
       status,
       finishedAt: now.toISOString(),
@@ -103,7 +113,7 @@ export class ScrapeRunRepo {
       itemsMerged: totals.itemsMerged,
       revisionsCreated: totals.revisionsCreated,
       errorCount: totals.errors.length,
-      httpStatuses: totals.httpStatuses,
+      httpStatuses: totals.httpStatuses.slice(0, 50),
       errors: totals.errors.slice(0, 20),
       result,
       notes: totals.notes.slice(0, 20),
@@ -112,6 +122,7 @@ export class ScrapeRunRepo {
     return updated;
   }
 
+  /** Kilit alınamadığında/hiç çalıştırılmadığında kayıt (çift tarama görünür olsun). */
   async markSkipped(sourceKey: string, workerId: string, reason: string): Promise<ScrapeRunDoc> {
     const now = this.clock.now().toISOString();
     const doc: ScrapeRunDoc = {
@@ -144,7 +155,10 @@ export class ScrapeRunRepo {
     return doc;
   }
 
-  async list(filter: { sourceKey?: string; status?: ScrapeRunDoc['status'] } = {}, limit = 50): Promise<ScrapeRunDoc[]> {
+  async list(
+    filter: { sourceKey?: string; status?: ScrapeRunDoc['status'] } = {},
+    limit = 50,
+  ): Promise<ScrapeRunDoc[]> {
     const query: Record<string, unknown> = {};
     if (filter.sourceKey) query.sourceKey = filter.sourceKey;
     if (filter.status) query.status = filter.status;
@@ -152,11 +166,44 @@ export class ScrapeRunRepo {
   }
 
   async lastRun(sourceKey: string): Promise<ScrapeRunDoc | null> {
-    const rows = await this.list({ sourceKey }, 1);
+    const rows = await this.store.find('scrapeRuns', { sourceKey }, { limit: 1, sort: [['startedAt', -1]] });
     return rows[0] ?? null;
   }
 
   async recentFailures(limit = 20): Promise<ScrapeRunDoc[]> {
     return this.store.find('scrapeRuns', { status: { $in: ['failed', 'partial'] } }, { limit, sort: [['startedAt', -1]] });
+  }
+
+  async summary(): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+    avgDurationMs: number;
+  }> {
+    const [total, success, failed, skipped, lastSuccess, lastFailure] = await Promise.all([
+      this.store.count('scrapeRuns', {}),
+      this.store.count('scrapeRuns', { status: 'success' }),
+      this.store.count('scrapeRuns', { status: { $in: ['failed', 'partial'] } }),
+      this.store.count('scrapeRuns', { status: { $in: ['skipped', 'locked'] } }),
+      firstOrNull(this.store.find('scrapeRuns', { status: 'success' }, { limit: 1, sort: [['startedAt', -1]] })),
+      firstOrNull(this.store.find('scrapeRuns', { status: { $in: ['failed', 'partial'] } }, { limit: 1, sort: [['startedAt', -1]] })),
+    ]);
+
+    const recent = await this.store.find('scrapeRuns', { durationMs: { $ne: null } }, { limit: 50, sort: [['startedAt', -1]] });
+    const durations = recent.map((run) => run.durationMs ?? 0).filter((value) => value > 0);
+    const avgDurationMs = durations.length > 0 ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : 0;
+
+    return {
+      total,
+      success,
+      failed,
+      skipped,
+      lastSuccessAt: lastSuccess?.startedAt ?? null,
+      lastFailureAt: lastFailure?.startedAt ?? null,
+      avgDurationMs,
+    };
   }
 }

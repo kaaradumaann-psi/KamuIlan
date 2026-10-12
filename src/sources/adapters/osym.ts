@@ -1,152 +1,152 @@
 /**
- * ÖSYM duyuru adaptörü.
+ * ÖSYM — Duyurular adaptörü (HTML).
  *
- * Doğrulanmış yapı (12.10.2026, canlı): duyuru listesi tarih + başlık +
- * göreli olmayan bağlantı (`/2026-ales3-basvurularin-alinmasi`) biçiminde.
- * Detay sayfasında duyuru metni, kılavuz ve başvuru bağlantıları bulunur.
- *
- * Süzgeç: ÖSYM duyurularının çoğu sınav sonucu/kılavuz/logistik duyurusudur.
- * Adaptör listeyi olduğu gibi toplar; karar sınıflandırma motoruna aittir
- * (tek karar noktası). Derin bağlantı indirmesi yalnızca sınıflandırmanın
- * "detay gerekli" dediği kayıtlar için yapılır — bu çağrı ingest katmanında
- * yapılır, adaptör burada tüm detayları indirmez.
+ * Not: ÖSYM duyurularının çoğu sınav/sonuç/yerleştirme duyurusudur; bunlar
+ * sınıflandırma motoru tarafından reddedilir. Adaptör hepsini toplar, kararı
+ * sınıflandırma verir (tek karar noktası).
  */
 import { collapseWhitespace } from '../../domain/text';
 import type { RawAnnouncement } from '../../domain';
-import { absoluteUrl, links, loadHtml, readableText } from '../../lib/html';
 import { AdapterStructureError } from '../errors';
-import { parseListingDate } from '../listing-utils';
+import { loadHtml, readableText, absoluteUrl, elementText } from '../../lib/html';
+import { cleanTitle, parseListingDate, extractReferenceNumbers } from '../listing-utils';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
+import { collectAttachments } from './ilan-gov-tr';
 
-interface OsymRow {
-  itemId: string;
-  url: string;
+const LISTING_URL = 'https://www.osym.gov.tr/Duyurular/Index';
+
+interface DuyuruLink {
   title: string;
-  publishedAt: string | null;
+  url: string;
+  date: string | null;
 }
 
 export class OsymAdapter implements SourceAdapter {
   readonly key = 'osym-duyuru';
   readonly label = 'ÖSYM — Duyurular';
-
-  listingUrl(source: { listingUrl: string }): string {
-    return source.listingUrl || 'https://www.osym.gov.tr/Duyurular/Index';
-  }
+  readonly method = 'http-html';
+  readonly notes =
+    'Duyuru listesi HTML olarak okunur; detay sayfasından metin ve ekler alınır. ' +
+    'Sonuç/kılavuz/cevap anahtarı duyuruları sınıflandırma motorunda reddedilir.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
-    const httpStatuses: number[] = [];
-    const notes: string[] = [];
     const items: RawAnnouncement[] = [];
+    const notes: string[] = [];
+    let requestCount = 0;
 
-    const response = await ctx.fetcher.fetchText(this.listingUrl(ctx.source), {
-      source: ctx.source,
-      conditional: { etag: ctx.source.health.etag, lastModified: ctx.source.health.lastModified },
+    if (!ctx.liveFetch) {
+      notes.push('Canlı erişim kapalı: liste okunmadı.');
+      return { items, requestCount, notes, etag: null, lastModified: null, notModified: false };
+    }
+
+    const response = await ctx.http.fetchText(LISTING_URL, {
+      allowedHosts: ctx.source.allowedHosts,
+      minIntervalMs: ctx.source.minRequestIntervalMs,
     });
-    httpStatuses.push(response.status);
+    requestCount += 1;
 
     if (response.notModified) {
-      return { items: [], httpStatuses, notes: ['Duyuru listesi değişmemiş (304).'], notModified: true };
+      return {
+        items,
+        requestCount,
+        notes: ['Duyuru listesi değişmemiş (304).'],
+        etag: response.etag,
+        lastModified: response.lastModified,
+        notModified: true,
+      };
     }
-    if (!response.text) {
-      throw new AdapterStructureError(ctx.source.key, 'ÖSYM duyuru listesi boş yanıt döndü.', response.finalUrl);
-    }
 
-    const rows = this.parseListing(response.text, response.finalUrl);
-    if (rows.length === 0) {
-      throw new AdapterStructureError(
-        ctx.source.key,
-        'ÖSYM duyuru listesinde kayıt bulunamadı: sayfa yapısı değişmiş olabilir.',
-        response.finalUrl,
-      );
-    }
-    notes.push(`${rows.length} duyuru bulundu.`);
+    const html = response.decoded?.text ?? response.body.toString('utf8');
+    const $ = loadHtml(html);
+    const links = this.parseListing($, response.finalUrl);
 
-    const limit = Math.max(ctx.limits.maxDetailFetches, 0);
-    let enriched = 0;
-
-    for (const row of rows) {
-      const known = ctx.knownItemIds?.has(row.itemId) ?? false;
-      let body = '';
-      let attachments: RawAnnouncement['attachments'] = [];
-
-      // Detay yalnızca: canlı erişim açık, kayıt yeni ve sınır içinde.
-      if (ctx.liveFetch && !known && enriched < limit) {
-        enriched += 1;
-        try {
-          const detail = await ctx.fetcher.fetchText(row.url, { source: ctx.source });
-          httpStatuses.push(detail.status);
-          if (detail.text) {
-            const root = loadHtml(detail.text);
-            const container = root('main, article, [class*="content"], .duyuru').first();
-            body = readableText(root, container.length > 0 ? container : root('body')).slice(0, 20_000);
-            attachments = links(root, container.length > 0 ? container : root('body'), detail.finalUrl)
-              .filter((link) => /\.pdf$/i.test(link.url))
-              .slice(0, 10)
-              .map((link) => ({ url: link.url, label: collapseWhitespace(link.text).slice(0, 160) || 'Belge (PDF)', kind: 'pdf' as const }));
-          }
-        } catch (error) {
-          notes.push(`${row.itemId}: detay alınamadı (${(error as Error).message})`);
-        }
+    if (links.length === 0) {
+      const pageText = readableText($, 'body', 2_000).toLocaleLowerCase('tr');
+      if (!pageText.includes('duyuru')) {
+        throw new AdapterStructureError(
+          this.key,
+          'ÖSYM duyuru listesi beklenen biçimde değil.',
+          'Sayfa yüklendi ancak duyuru bağlantısı bulunamadı; HTML yapısı değişmiş olabilir.',
+        );
       }
+      notes.push('Listede duyuru bağlantısı yok (sayfa yapısı doğrulandı).');
+    }
+
+    let detailFetches = 0;
+    for (const link of links) {
+      if (detailFetches >= ctx.maxDetailFetches) {
+        notes.push(`Detay sınırı (${ctx.maxDetailFetches}) doldu; kalan duyurular sonraki taramada alınacak.`);
+        break;
+      }
+      detailFetches += 1;
+
+      const detail = await ctx.http.fetchText(link.url, {
+        allowedHosts: ctx.source.allowedHosts,
+        minIntervalMs: ctx.source.minRequestIntervalMs,
+      });
+      requestCount += 1;
+      const detailHtml = detail.decoded?.text ?? detail.body.toString('utf8');
+      const $detail = loadHtml(detailHtml);
+      const bodyText = readableText($detail, 'main, .content, #content, body', 10_000);
+      const attachments = collectAttachments($detail, detail.finalUrl);
+      const referenceNo = extractReferenceNumbers(`${link.title} ${bodyText}`)[0] ?? null;
 
       items.push({
         sourceKey: ctx.source.key,
-        sourceItemId: row.itemId,
-        url: row.url,
-        title: row.title,
-        bodyText: body || undefined,
+        sourceItemId: `osym:${slugFor(link.url)}`,
+        url: link.url,
+        title: link.title,
+        bodyText,
         institution: 'ÖSYM Başkanlığı',
-        publishedAt: row.publishedAt ?? undefined,
+        ...(link.date ? { publishedAt: `${link.date}T00:00:00+03:00` } : {}),
         attachments,
-        sourceCategory: 'ÖSYM Duyuruları',
-        rawExcerpt: collapseWhitespace(body || row.title).slice(0, 2_000),
-        extractionConfidence: body.length > 200 ? 0.65 : 0.4,
-        notes: [],
+        sourceCategory: 'osym-duyuru',
+        rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
+        extractionConfidence: bodyText.length > 300 ? 0.65 : 0.35,
+        ...(referenceNo ? { notes: [`Duyuru numarası: ${referenceNo}`] } : {}),
       });
     }
 
+    notes.push(`${requestCount} istek, ${items.length} duyuru hazırlandı.`);
     return {
       items,
-      httpStatuses,
+      requestCount,
       notes,
+      etag: response.etag,
+      lastModified: response.lastModified,
       notModified: false,
-      cacheHeaders: {
-        etag: response.etag,
-        lastModified: response.lastModified,
-        contentHash: response.contentHash,
-      },
     };
   }
 
-  /** Duyuru bağlantılarını ve tarihlerini toplar (sınıf adından bağımsız). */
-  parseListing(html: string, baseUrl: string): OsymRow[] {
-    const root = loadHtml(html);
-    const rows: OsymRow[] = [];
+  /** Duyuru listesindeki başlık + tarih + bağlantı üçlülerini bulur. */
+  parseListing($: ReturnType<typeof loadHtml>, pageUrl: string): DuyuruLink[] {
+    const links: DuyuruLink[] = [];
     const seen = new Set<string>();
 
-    root('a[href]').each((_, anchor) => {
-      const element = root(anchor);
-      const href = element.attr('href');
+    $('a[href]').each((_index, element) => {
+      const node = $(element);
+      const href = absoluteUrl(node.attr('href'), pageUrl, $);
       if (!href) return;
-      const url = absoluteUrl(href, baseUrl);
-      if (!url) return;
-      const path = new URL(url).pathname.replace(/\/+$/, '');
-      // Duyuru detayları kök seviyede tek parçalı slug'dır.
-      if (!/^\/[a-z0-9][a-z0-9-]{12,}$/i.test(path)) return;
-      const title = collapseWhitespace(element.text());
-      if (title.length < 20) return;
-      const host = new URL(url).hostname.replace(/^www\./, '');
-      if (host !== 'osym.gov.tr') return;
+      if (!/osym\.gov\.tr/i.test(href)) return;
+      if (/\.(pdf|docx?|xlsx?)($|\?)/i.test(href)) return;
+      if (/\/(Duyurular|TR,\d+|Icerik)/i.test(href) === false && !/\d{4,}/.test(href)) return;
 
-      const itemId = path.slice(1);
-      if (seen.has(itemId)) return;
-      seen.add(itemId);
+      const title = cleanTitle(elementText(node, 400) || node.attr('title') || '');
+      if (title.length < 12) return;
+      const key = href.split('?')[0] ?? href;
+      if (seen.has(key)) return;
+      seen.add(key);
 
-      const rowText = collapseWhitespace(element.parent().text() || element.closest('li,tr,div').text());
-      const publishedAt = parseListingDate(rowText);
-      rows.push({ itemId, url, title, publishedAt });
+      const container = node.closest('li, tr, div, article');
+      const containerText = container.length > 0 ? elementText(container, 400) : '';
+      links.push({ title, url: key, date: parseListingDate(containerText) });
     });
 
-    return rows;
+    return links.slice(0, 40);
   }
+}
+
+function slugFor(url: string): string {
+  const cleaned = url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9]+/g, '-');
+  return cleaned.replace(/^-|-$/g, '').slice(0, 80);
 }

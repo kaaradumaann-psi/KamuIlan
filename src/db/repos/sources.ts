@@ -1,18 +1,18 @@
 /**
- * Kaynak deposu: envanter, sağlık bilgileri ve zamanlama tohumlaması.
+ * Kaynak deposu: envanter kayıtları, sağlık bilgileri ve kapsam özeti.
  */
 import { createId } from '../../domain/ids';
-import { slugifyTr } from '../../domain/text';
-import type { SourceDefinition } from '../../config/sources';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
 import type { StoragePort } from '../ports';
 import type { SourceDoc } from '../schemas';
 import { validateDocument } from '../validate';
+import type { SourceDefinition } from '../../config/sources';
+import { PLANNED_SOURCES, SOURCE_DEFINITIONS } from '../../config/sources';
 
 export interface SourceHealthUpdate {
   lastRunAt: string;
-  lastSuccess: boolean;
+  success: boolean;
   durationMs: number;
   discoveredCount: number;
   acceptedCount: number;
@@ -21,18 +21,31 @@ export interface SourceHealthUpdate {
   etag?: string | null;
   lastModified?: string | null;
   contentHash?: string | null;
+  /** Kaynak 304 döndürdü: "boş tarama" sayılmaz (emptyStreak artırılmaz). */
+  contentUnchanged?: boolean;
 }
 
-export function sourceKeyFor(definition: Pick<SourceDefinition, 'listingUrl' | 'adapterKey' | 'name'>): string {
-  try {
-    const url = new URL(definition.listingUrl);
-    const slug = `${url.hostname}${url.pathname}`.replace(/\/+$/, '');
-    const key = slugifyTr(slug);
-    if (key) return key.slice(0, 80);
-  } catch {
-    /* aşağıdaki yedek kullanılır */
-  }
-  return `${definition.adapterKey}-${slugifyTr(definition.name).slice(0, 40)}`;
+export interface SourceCoverageEntry {
+  key: string;
+  name: string;
+  institution: string;
+  group: string;
+  status: SourceDoc['status'];
+  statusNote: string;
+  enabled: boolean;
+  verified: boolean;
+  lastVerifiedAt: string | null;
+  verificationEvidence: string;
+  coverageNote: string;
+  intervalMinutes: number;
+  health: SourceDoc['health'];
+  lastRun: {
+    startedAt: string;
+    status: string;
+    itemsFound: number;
+    errorCount: number;
+    result: string;
+  } | null;
 }
 
 export class SourceRepo {
@@ -41,19 +54,15 @@ export class SourceRepo {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  /**
-   * Envanteri veritabanına uygular.
-   * Yönetici tarafından değiştirilebilir alanlar (enabled, sıklık, eşzamanlılık)
-   * yalnızca ilk eklemede yazılır; yönetici kararları korunur.
-   */
-  async seed(definitions: readonly SourceDefinition[]): Promise<{ created: number; updated: number }> {
+  /** Envanteri veritabanıyla eşitler (idempotent). */
+  async seed(definitions: readonly SourceDefinition[] = SOURCE_DEFINITIONS): Promise<{ created: number; updated: number }> {
     let created = 0;
     let updated = 0;
     const now = this.clock.now().toISOString();
+
     for (const definition of definitions) {
-      const key = sourceKeyFor(definition);
-      const existing = await this.getByKey(key);
-      const codeFields = {
+      const existing = await this.store.findOne('sources', { key: definition.key });
+      const shared = {
         name: definition.name,
         institution: definition.institution,
         homepageUrl: definition.homepageUrl,
@@ -61,27 +70,35 @@ export class SourceRepo {
         sourceType: definition.sourceType,
         method: definition.method,
         adapterKey: definition.adapterKey,
-        allowHosts: definition.allowHosts,
-        coverageNotes: definition.coverageNotes,
-        statusNote: definition.statusNote,
         status: definition.status,
-        verification: definition.verification,
+        statusNote: definition.statusNote,
+        verification: {
+          verified: definition.status === 'verified' || definition.status === 'scraper-built',
+          verifiedAt: definition.lastVerifiedAt,
+          method: definition.method,
+          evidence: definition.verificationEvidence,
+          scope: definition.coverageNote,
+        },
+        coverageNotes: definition.coverageNote,
+        allowHosts: definition.allowedHosts,
+        tags: definition.tags,
         updatedAt: now,
       };
+
       if (existing) {
-        await this.store.updateOne('sources', { id: existing.id }, codeFields);
+        await this.store.updateOne('sources', { key: definition.key }, shared);
         updated += 1;
         continue;
       }
+
       const doc: SourceDoc = {
         id: createId('src'),
-        key,
-        ...codeFields,
+        key: definition.key,
+        ...shared,
         enabled: definition.enabled,
-        scrapeIntervalMinutes: definition.scrapeIntervalMinutes,
+        scrapeIntervalMinutes: definition.intervalMinutes,
         minRequestIntervalMs: definition.minRequestIntervalMs,
         maxConcurrency: definition.maxConcurrency,
-        tags: [...definition.tags],
         health: {
           lastRunAt: null,
           lastSuccessAt: null,
@@ -100,19 +117,21 @@ export class SourceRepo {
           emptyStreak: 0,
         },
         createdAt: now,
-      };
+      } as SourceDoc;
       validateDocument('sources', doc);
       await this.store.insertOne('sources', doc);
       created += 1;
     }
+
     return { created, updated };
   }
 
-  async list(filter: { enabled?: boolean; status?: SourceDoc['status'] } = {}): Promise<SourceDoc[]> {
-    const query: Record<string, unknown> = {};
-    if (filter.enabled !== undefined) query.enabled = filter.enabled;
-    if (filter.status) query.status = filter.status;
-    return this.store.find('sources', query, { sort: [['name', 1]] });
+  async list(): Promise<SourceDoc[]> {
+    return this.store.find('sources', {}, { sort: [['name', 1]] });
+  }
+
+  async listEnabled(): Promise<SourceDoc[]> {
+    return this.store.find('sources', { enabled: true }, { sort: [['name', 1]] });
   }
 
   async getByKey(key: string): Promise<SourceDoc | null> {
@@ -124,24 +143,39 @@ export class SourceRepo {
   }
 
   async update(key: string, patch: Partial<SourceDoc>): Promise<SourceDoc | null> {
-    const updated = await this.store.updateOne('sources', { key }, { ...patch, updatedAt: this.clock.now().toISOString() });
-    if (updated) validateDocument('sources', updated);
+    const { id: _id, key: _key, createdAt: _createdAt, ...rest } = patch;
+    const updated = await this.store.updateOne('sources', { key }, { ...rest, updatedAt: this.clock.now().toISOString() });
+    if (updated) validateDocument('sources', updated, 'skip');
     return updated;
   }
 
-  /** Tarama sonucunu sağlık alanlarına işler. Hata durumunda ilanlar SİLİNMEZ. */
+  async setEnabled(key: string, enabled: boolean): Promise<SourceDoc | null> {
+    return this.update(key, { enabled });
+  }
+
+  async setStatus(key: string, status: SourceDoc['status'], statusNote?: string): Promise<SourceDoc | null> {
+    return this.update(key, statusNote === undefined ? { status } : { status, statusNote });
+  }
+
+  /**
+   * Tarama sonucunu sağlık alanlarına işler.
+   *
+   * ÖNEMLİ: bu metot hiçbir koşulda ilanları silmez/etkilemez. Kaynak erişilemezse
+   * yalnızca sağlık bilgisi (başarısız deneme, hata mesajı, ardışık hata sayısı)
+   * güncellenir; mevcut ilanlar olduğu gibi kalır.
+   */
   async recordHealth(key: string, update: SourceHealthUpdate): Promise<SourceDoc | null> {
     const current = await this.getByKey(key);
     if (!current) return null;
     const health = current.health;
+    const now = this.clock.now().toISOString();
     const totalRuns = health.totalRuns + 1;
-    const totalSuccesses = health.totalSuccesses + (update.lastSuccess ? 1 : 0);
+    const totalSuccesses = health.totalSuccesses + (update.success ? 1 : 0);
     const avgDurationMs =
       health.avgDurationMs === 0
         ? update.durationMs
         : Math.round((health.avgDurationMs * health.totalRuns + update.durationMs) / totalRuns);
-    const emptyStreak = update.discoveredCount === 0 && update.lastSuccess ? health.emptyStreak + 1 : 0;
-    const now = this.clock.now().toISOString();
+
     const patch = {
       'health.lastRunAt': update.lastRunAt,
       'health.totalRuns': totalRuns,
@@ -149,31 +183,91 @@ export class SourceRepo {
       'health.avgDurationMs': avgDurationMs,
       'health.lastDiscoveredCount': update.discoveredCount,
       'health.lastAcceptedCount': update.acceptedCount,
-      'health.emptyStreak': emptyStreak,
-      'health.consecutiveFailures': update.lastSuccess ? 0 : health.consecutiveFailures + 1,
-      'health.lastSuccessAt': update.lastSuccess ? update.lastRunAt : health.lastSuccessAt,
-      'health.lastErrorAt': update.lastSuccess ? health.lastErrorAt : now,
-      'health.lastErrorMessage': update.lastSuccess ? null : (update.errorMessage ?? 'Bilinmeyen hata'),
+      'health.consecutiveFailures': update.success ? 0 : health.consecutiveFailures + 1,
+      'health.lastSuccessAt': update.success ? update.lastRunAt : health.lastSuccessAt,
+      'health.lastErrorAt': update.success ? health.lastErrorAt : now,
+      'health.lastErrorMessage': update.success ? null : (update.errorMessage ?? health.lastErrorMessage ?? 'Bilinmeyen hata'),
       'health.lastScheduleDelayMs': update.scheduleDelayMs ?? health.lastScheduleDelayMs,
       'health.etag': update.etag !== undefined ? update.etag : health.etag,
       'health.lastModified': update.lastModified !== undefined ? update.lastModified : health.lastModified,
       'health.lastContentHash': update.contentHash !== undefined ? update.contentHash : health.lastContentHash,
+      'health.emptyStreak': update.contentUnchanged
+        ? health.emptyStreak
+        : update.discoveredCount === 0 && update.success
+          ? health.emptyStreak + 1
+          : 0,
       updatedAt: now,
     };
+
     return this.store.updateOne('sources', { key }, patch);
   }
 
-  /** Tüm kaynakların sağlık özetini tek çağrıda verir (yönetici paneli). */
-  async healthOverview(): Promise<
-    { key: string; name: string; status: SourceDoc['status']; enabled: boolean; health: SourceDoc['health'] }[]
-  > {
-    const sources = await this.list();
-    return sources.map((source) => ({
-      key: source.key,
-      name: source.name,
-      status: source.status,
-      enabled: source.enabled,
-      health: source.health,
-    }));
+  /** Kapsam raporu: entegre kaynaklar + henüz entegre edilmemiş hedefler. */
+  async coverage(): Promise<{
+    sources: SourceCoverageEntry[];
+    planned: typeof PLANNED_SOURCES;
+    summary: {
+      total: number;
+      enabled: number;
+      verified: number;
+      failing: number;
+      stale: number;
+      planned: number;
+    };
+  }> {
+    const sources = await this.store.find('sources', {}, { sort: [['name', 1]] });
+    const entries: SourceCoverageEntry[] = [];
+    const staleThreshold = Date.now() - 6 * 3_600_000;
+    let failing = 0;
+    let stale = 0;
+
+    for (const source of sources) {
+      const lastRunRows = await this.store.find(
+        'scrapeRuns',
+        { sourceKey: source.key },
+        { limit: 1, sort: [['startedAt', -1]] },
+      );
+      const lastRun = lastRunRows[0] ?? null;
+      const isStale = !source.health.lastRunAt || Date.parse(source.health.lastRunAt) < staleThreshold;
+      if (source.health.consecutiveFailures > 0) failing += 1;
+      if (source.enabled && isStale) stale += 1;
+      entries.push({
+        key: source.key,
+        name: source.name,
+        institution: source.institution,
+        group: source.tags[0] ?? 'diger',
+        status: source.status,
+        statusNote: source.statusNote,
+        enabled: source.enabled,
+        verified: source.verification.verified,
+        lastVerifiedAt: source.verification.verifiedAt,
+        verificationEvidence: source.verification.evidence,
+        coverageNote: source.coverageNotes,
+        intervalMinutes: source.scrapeIntervalMinutes,
+        health: source.health,
+        lastRun: lastRun
+          ? {
+              startedAt: lastRun.startedAt,
+              status: lastRun.status,
+              itemsFound: lastRun.itemsFound,
+              errorCount: lastRun.errorCount,
+              result: lastRun.result,
+            }
+          : null,
+      });
+    }
+
+    return {
+      sources: entries,
+      planned: PLANNED_SOURCES,
+      summary: {
+        total: entries.length,
+        enabled: entries.filter((entry) => entry.enabled).length,
+        verified: entries.filter((entry) => entry.verified).length,
+        failing,
+        stale,
+        planned: PLANNED_SOURCES.length,
+      },
+    };
   }
 }

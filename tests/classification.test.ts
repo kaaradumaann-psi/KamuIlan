@@ -5,6 +5,7 @@
  * (Resmî Gazete 12.10.2026, ilan.gov.tr kamu-akademik personel kategorisi, ÖSYM
  * duyuru listesi). Hiçbir test dış kaynağa istek atmaz.
  */
+import { CLASSIFICATION_VERSION } from '../src/config/app';
 import { describe, expect, it } from 'vitest';
 import { classify, detectEmploymentType, preFilterListingItem } from '../src/classification/engine';
 
@@ -189,6 +190,8 @@ describe('sınıflandırma: yardımcılar', () => {
 
   it('sınıflandırma sürümünü döner', () => {
     const result = classify({ title: 'Personel Alım İlanı' });
-    expect(result.version).toMatch(/^cls-/);
+    // Sürüm tek bir yerden (config/app.ts) yönetilir; karar kaydı bu sürümü taşır.
+    expect(result.version).toBe(CLASSIFICATION_VERSION);
+    expect(result.version.length).toBeGreaterThan(3);
   });
 });

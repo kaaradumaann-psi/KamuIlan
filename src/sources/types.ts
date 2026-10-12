@@ -1,93 +1,54 @@
 /**
- * Kaynak adaptörü sözleşmesi.
+ * Adaptör sözleşmesi.
  *
- * Adaptörler birbirinden bağımsızdır: her biri yalnızca kendi listeleme
- * yapısını bilir, ortak HTTP/ayrıştırma yardımcılarını kullanır ve
- * `RawAnnouncement` üretir. Sınıflandırma, çıkarım ve tekilleştirme bu
- * katmanın dışındadır (tek yerde yapılır).
+ * Her adaptör yalnızca KENDİ kaynağının listesini bilir ve `RawAnnouncement`
+ * üretir. Sınıflandırma/tekilleştirme/kayıt işini hat (pipeline) yapar; adaptör
+ * karar vermez. Bu ayrım yeni kaynak eklemeyi tek dosyaya indirir.
  */
 import type { RawAnnouncement } from '../domain';
-import type { SourceDoc } from '../db/schemas';
+import type { SourceDefinition } from '../config/sources';
 import type { Logger } from '../lib/logger';
-import type { Clock } from '../lib/clock';
-
-export interface FetchRequestOptions {
-  /** Kaynak kaydı (hız sınırı, allowlist ve koşullu istek bilgisi buradan gelir). */
-  source: SourceDoc;
-  /** Koşullu istek başlıkları (yalnızca ilk sayfa için anlamlı). */
-  conditional?: { etag?: string | null; lastModified?: string | null };
-  accept?: string;
-  timeoutMs?: number;
-  maxBytes?: number;
-  /** Hata sayılan durum kodları için yeniden deneme sayısı. */
-  retries?: number;
-  signal?: AbortSignal;
-}
-
-export interface FetchResponse {
-  url: string;
-  finalUrl: string;
-  status: number;
-  notModified: boolean;
-  contentType: string | null;
-  etag: string | null;
-  lastModified: string | null;
-  contentHash: string;
-  byteLength: number;
-  /** Metin gövdeler (html/xml/json). */
-  text: string | null;
-  /** İkili gövdeler (pdf). */
-  buffer: Buffer | null;
-  charset: string | null;
-  attempts: number;
-  /** Yönlendirme zinciri — denetim/loglama için. */
-  redirectChain: string[];
-}
-
-export interface Fetcher {
-  fetchText(url: string, options: FetchRequestOptions): Promise<FetchResponse>;
-  fetchBinary(url: string, options: FetchRequestOptions): Promise<FetchResponse>;
-}
-
-export interface AdapterLimits {
-  maxListingPages: number;
-  timeoutMs: number;
-  maxDetailFetches: number;
-  /** Belge (PDF) indirme sınırı. */
-  maxDocumentBytes: number;
-}
+import type { FetchResponse, HttpClient } from './fetcher';
 
 export interface AdapterContext {
-  fetcher: Fetcher;
+  /** Kaynak kaydı (DB'den; yönetici alanları buradan okunur). */
+  source: SourceDefinition;
+  /** HTTP istemcisi: hız sınırı, boyut sınırı, yeniden deneme, allowlist dahil. */
+  http: HttpClient;
   logger: Logger;
-  clock: Clock;
-  source: SourceDoc;
-  limits: AdapterLimits;
-  /** Ağ erişimi kapalıysa (SOURCE_LIVE_FETCH=0) adaptör yalnızca doğrulama yapar. */
+  /** Canlı erişim kapalıysa adaptör yalnızca doğrulama yapar ve boş liste döner. */
   liveFetch: boolean;
-  /**
-   * Daha önce görülmüş kaynak içi kimlikler (jobSources'tan). Adaptör bu
-   * kayıtlar için pahalı belge indirmeyi atlar; içerik değişmediyse gereksiz
-   * indirme ve işlem yapılmaz.
-   */
+  fetchedAt: Date;
+  /** Kaynak içi ilerleme: daha önce gördüğümüz kayıt kimlikleri (idempotency için). */
   knownItemIds?: ReadonlySet<string>;
+  /** Adapter'ın indirebileceği ek belge sayısı üst sınırı. */
+  maxDetailFetches: number;
 }
 
 export interface AdapterRunResult {
   items: RawAnnouncement[];
-  httpStatuses: number[];
+  /** Kaç HTTP isteği yapıldı (kaynak sağlığı ve hız denetimi için). */
+  requestCount: number;
+  /** Kaynak sayfası özeti (log/panel). */
   notes: string[];
-  /** 304 döndü: içerik değişmemiş, gereksiz işlem yapılmadı. */
+  /** ETag/Last-Modified (sonraki taramada koşullu istek için). */
+  etag: string | null;
+  lastModified: string | null;
+  /** İçerik değişmediyse true (304). */
   notModified: boolean;
-  /** ETag/Last-Modified bilgisi sonraki turda koşullu istek için saklanır. */
-  cacheHeaders?: { etag?: string | null; lastModified?: string | null; contentHash?: string | null };
+  /** Görülen HTTP durum kodları (opsiyonel; tarama kaydında gösterilir). */
+  httpStatuses?: number[];
 }
 
 export interface SourceAdapter {
-  /** Adaptör anahtarı (config/sources.ts ile eşleşir). */
+  /** registry'deki anahtar; SourceDefinition.adapterKey ile eşleşir. */
   readonly key: string;
   readonly label: string;
-  /** Sonraki tarama için varsayılan listeleme adresi. */
-  listingUrl(source: SourceDoc): string;
+  /** Bu adaptörün yöntemi (panelde gösterilir). */
+  readonly method: string;
+  /** İnsan okur not: kaynak neden bu yöntemle toplanıyor? */
+  readonly notes: string;
   run(ctx: AdapterContext): Promise<AdapterRunResult>;
 }
+
+export type { RawAnnouncement, FetchResponse };

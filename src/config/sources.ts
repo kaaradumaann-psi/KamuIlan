@@ -1,346 +1,486 @@
 /**
  * Kaynak envanteri.
  *
- * DÜRÜSTLÜK KURALI: Burada yalnızca gerçekten doğrulanmış bilgiler "verified"
- * olarak işaretlenir. `verification.evidence` alanı neyin, ne zaman ve nasıl
- * doğrulandığını yazar. URL'si veya listeleme yapısı doğrulanmamış kurumlar
+ * DÜRÜSTLÜK KURALI: Burada yalnızca gerçekten doğrulanmış kaynak kayıtları
+ * "verified"/"scraper-built" durumuyla yer alır. `verificationEvidence` alanı
+ * neyin, ne zaman ve nasıl doğrulandığını yazar. Doğrulanmamış kurumlar
  * SOURCE_DEFINITIONS'a alınmaz; PLANNED_SOURCES listesinde "henüz entegre
  * edilmedi" olarak durur ve kapsam raporunda açıkça gösterilir.
+ *
+ * Kaynak ekleme adımları: docs/source-onboarding.md
  */
-import type { SourceMethod, SourceStatus, SourceType } from '../domain';
+
+export type SourceGroup = 'ulusal' | 'kurum' | 'universite' | 'belediye' | 'sinav';
+export type SourceMethod = 'html-list' | 'pdf-index' | 'json-api' | 'browser' | 'manual-entry';
+export type SourceType =
+  | 'official-portal'
+  | 'official-index'
+  | 'institution-page'
+  | 'exam-authority'
+  | 'regional-restricted'
+  | 'manual';
+export type SourceStatus =
+  | 'verified'
+  | 'scraper-built'
+  | 'accessible'
+  | 'method-defined'
+  | 'researched'
+  | 'not-researched'
+  | 'temporary-error'
+  | 'access-restricted'
+  | 'needs-manual-method'
+  | 'disabled';
 
 export interface SourceDefinition {
-  /** Adaptör anahtarı: aynı adaptör birden fazla kaynak kaydını besleyebilir. */
-  adapterKey: string;
+  /** Kalıcı anahtar (DB `sources.sourceKey` ve loglarda kullanılır). */
+  key: string;
   name: string;
-  institution: string;
-  homepageUrl: string;
-  listingUrl: string;
+  group: SourceGroup;
+  /** DB şemasındaki kaynak türü (kapsam raporunda kullanılır). */
   sourceType: SourceType;
+  institution: string;
+  listingUrl: string;
+  homepageUrl: string;
+  adapterKey: string;
   method: SourceMethod;
-  enabled: boolean;
-  scrapeIntervalMinutes: number;
-  minRequestIntervalMs: number;
-  maxConcurrency: number;
   status: SourceStatus;
   statusNote: string;
-  coverageNotes: string;
-  allowHosts: string[];
+  /** Son doğrulama tarihi (YYYY-MM-DD). Doğrulanmadıysa null. */
+  lastVerifiedAt: string | null;
+  verificationEvidence: string;
+  /** Kapsam: bu kaynağın hangi ilanları getirdiği. */
+  coverageNote: string;
+  enabled: boolean;
+  intervalMinutes: number;
+  minRequestIntervalMs: number;
+  maxConcurrency: number;
+  allowedHosts: string[];
+  /** İçerik değişmediyse (ETag/Last-Modified) ayrıntı isteği yapılmaz. */
+  conditionalRequests?: boolean;
   tags: string[];
-  /** Listeleme sayfası başına en fazla kaç sayfa taranır. */
-  maxListingPages: number;
-  verification: {
-    verified: boolean;
-    verifiedAt: string | null;
-    method: string;
-    evidence: string;
-    scope: string;
-  };
 }
 
 const VERIFIED_AT = '2026-10-12';
 
 export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
   {
-    adapterKey: 'resmigazete-ilan',
+    key: 'resmigazete-cestili-ilanlar',
     name: 'Resmî Gazete — Çeşitli İlânlar (personel alım ilanları)',
-    institution: 'T.C. Cumhurbaşkanlığı İdari İşler Başkanlığı — Resmî Gazete',
-    homepageUrl: 'https://www.resmigazete.gov.tr/',
-    listingUrl: 'https://www.resmigazete.gov.tr/fihrist',
+    group: 'ulusal',
     sourceType: 'official-index',
+    institution: 'T.C. Resmî Gazete',
+    listingUrl: 'https://www.resmigazete.gov.tr/ilanlar',
+    homepageUrl: 'https://www.resmigazete.gov.tr/',
+    adapterKey: 'resmigazete-cestili',
     method: 'pdf-index',
+    status: 'verified',
+    statusNote:
+      'Günlük nüshadaki "Çeşitli İlânlar" bölümü HTML olarak okunur; ilan metni PDF içinde olduğundan PDF metni çıkarılır.',
+    lastVerifiedAt: VERIFIED_AT,
+    verificationEvidence:
+      `${VERIFIED_AT} canlı doğrulama: /fihrist?tarih=2026-10-12 sayfası açıldı; ` +
+      '/ilanlar/eskiilanlar/2026/10/20261012-4.htm içinde 7 ilan başlığı ve her birine ait PDF bağlantısı ' +
+      '(ör. 20261012-4-5.pdf) görüldü; PDF metni metin katmanından okunabildi.',
+    coverageNote:
+      'Personel alım ilanlarının hukuken yayımlandığı asıl kaynak. Yargı (-2), ihale (-3) ve Merkez Bankası (-5) bölümleri kapsam dışıdır.',
     enabled: true,
-    scrapeIntervalMinutes: 60,
+    intervalMinutes: 60,
     minRequestIntervalMs: 1500,
     maxConcurrency: 1,
-    status: 'verified',
-    statusNote:
-      'Günlük fihrist sayfası ve Çeşitli İlânlar bölümü (…-4.htm) HTML olarak okunuyor; her ilan ayrı PDF.',
-    coverageNotes:
-      'Kamu personel alım ilanlarının hukuken yayımlandığı asıl yer. Yargı ilanları (…-2.htm), ihale ilanları (…-3.htm) ve Merkez Bankası değerleri (…-5.htm) kapsam dışıdır.',
-    allowHosts: ['resmigazete.gov.tr'],
-    tags: ['core', 'official-gazette', 'pdf'],
-    maxListingPages: 2,
-    verification: {
-      verified: true,
-      verifiedAt: VERIFIED_AT,
-      method: 'HTTP GET + HTML ayrıştırma (canlı doğrulama)',
-      evidence:
-        '12.10.2026 sayılı nüsha: /ilanlar/eskiilanlar/2026/10/20261012-4.htm içinde 7 ilan başlığı ve her birine ait PDF bağlantısı (örn. 20261012-4-5.pdf Şırnak Üniversitesi Sürekli İşçi Alım İlanı) okundu.',
-      scope: 'İlan başlığı, kurum, PDF bağlantısı ve yayım tarihi (sayfa başlığından) çıkarılıyor.',
-    },
+    allowedHosts: ['resmigazete.gov.tr', 'www.resmigazete.gov.tr'],
+    conditionalRequests: true,
+    tags: ['cekirdek', 'resmi-gazete', 'pdf'],
   },
   {
-    adapterKey: 'ilan-gov-tr',
-    name: 'ilan.gov.tr — Kamu/Akademik Personel kategorisi',
-    institution: 'Basın İlan Kurumu (ilan.gov.tr)',
-    homepageUrl: 'https://www.ilan.gov.tr/',
+    key: 'ilan-gov-tr-personel',
+    name: 'ilan.gov.tr — Kamu / Akademik Personel kategorisi',
+    group: 'ulusal',
+    sourceType: 'official-portal',
+    institution: 'Basın İlan Kurumu',
     listingUrl: 'https://www.ilan.gov.tr/ilan/tum-ilanlar/personel-alimi?ats=5',
-    sourceType: 'official-portal',
+    homepageUrl: 'https://www.ilan.gov.tr/',
+    adapterKey: 'ilan-gov-tr',
     method: 'html-list',
+    status: 'verified',
+    statusNote:
+      '"Personel Alımı" filtresi (ats=5) sayfa sayfa okunur; ilan detayında kurum, ilan numarası ve metin bulunur.',
+    lastVerifiedAt: VERIFIED_AT,
+    verificationEvidence:
+      `${VERIFIED_AT} canlı doğrulama: personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
+      'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü.',
+    coverageNote:
+      'Üniversite ve belediye ilanlarının büyük bölümü burada tek listede toplanır; yüzlerce kurum sayfasını ayrı ayrı taramamak için birincil toplayıcı.',
     enabled: true,
-    scrapeIntervalMinutes: 60,
+    intervalMinutes: 60,
     minRequestIntervalMs: 2000,
     maxConcurrency: 1,
-    status: 'verified',
-    statusNote: 'Liste sayfaları (14 sayfa, 157 aktif ilan) ve ilan detay sayfaları sunucu tarafında HTML üretiliyor.',
-    coverageNotes:
-      'Üniversite ve belediye ilanlarının büyük bölümü burada tek listeye düşüyor; aynı ilanları yüzlerce kurum sitesinden ayrı ayrı çekmemek için birincil toplayıcı kaynak.',
-    allowHosts: ['ilan.gov.tr'],
-    tags: ['core', 'aggregator', 'html'],
-    maxListingPages: 4,
-    verification: {
-      verified: true,
-      verifiedAt: VERIFIED_AT,
-      method: 'HTTP GET + HTML ayrıştırma (canlı doğrulama)',
-      evidence:
-        'Liste sayfası 1 okundu: 157 ilanın ilk sayfasında 10 kayıt; başlık, kurum, ilan numarası (DPB845507 / YOK853479) ve şehir alanları doğrulandı.',
-      scope: 'Başlık, kurum, ilan numarası, şehir, detay bağlantısı ve yayım tarihi çıkarılıyor.',
-    },
+    allowedHosts: ['ilan.gov.tr', 'www.ilan.gov.tr', 'medya.ilan.gov.tr'],
+    tags: ['cekirdek', 'toplayici', 'html'],
   },
   {
-    adapterKey: 'osym-duyuru',
+    key: 'osym-duyurular',
     name: 'ÖSYM — Duyurular (sınav ve alım duyuruları)',
-    institution: 'ÖSYM Başkanlığı',
-    homepageUrl: 'https://www.osym.gov.tr/',
-    listingUrl: 'https://www.osym.gov.tr/Duyurular/Index',
+    group: 'sinav',
     sourceType: 'exam-authority',
+    institution: 'ÖSYM Başkanlığı',
+    listingUrl: 'https://www.osym.gov.tr/Duyurular/Index',
+    homepageUrl: 'https://www.osym.gov.tr/',
+    adapterKey: 'osym-duyuru',
     method: 'html-list',
+    status: 'verified',
+    statusNote:
+      'Duyuru listesi ve duyuru detayları HTML olarak okunur; ekler PDF bağlantısı olarak saklanır.',
+    lastVerifiedAt: VERIFIED_AT,
+    verificationEvidence:
+      `${VERIFIED_AT} canlı doğrulama: ana sayfa duyuru bloklarında tarih + başlık + detay bağlantısı görüldü ` +
+      '(ör. "2026-YDS/2 Geç Başvuru", başvuru penceresi 14.10.2026 10:00–23:59, ücret 1.800,00 TL). AİS (ais.osym.gov.tr) giriş gerektirir; kapsam dışıdır.',
+    coverageNote:
+      'ÖSYM alım/sınav duyuruları. Sonuç, kılavuz, cevap anahtarı türü duyurular sınıflandırma motoru tarafından reddedilir.',
     enabled: true,
-    scrapeIntervalMinutes: 120,
+    intervalMinutes: 120,
     minRequestIntervalMs: 2000,
     maxConcurrency: 1,
-    status: 'verified',
-    statusNote: 'Duyuru listesi ve duyuru detay sayfaları HTML olarak okunuyor; PDF ekleri bağlantı olarak saklanıyor.',
-    coverageNotes:
-      'ÖSYM personel alım/sınav duyuruları buradan izlenir. Sınav sonucu, kılavuz, cevap anahtarı, yerleştirme sonucu gibi duyurular sınıflandırma motoru tarafından reddedilir.',
-    allowHosts: ['osym.gov.tr', 'dokuman.osym.gov.tr'],
-    tags: ['core', 'exam', 'html'],
-    maxListingPages: 2,
-    verification: {
-      verified: true,
-      verifiedAt: VERIFIED_AT,
-      method: 'HTTP GET + HTML ayrıştırma (canlı doğrulama)',
-      evidence:
-        'Ana sayfa duyuru blokları okundu: tarih + başlık + detay bağlantısı (örn. "2026-ALES/3: Başvuruların Alınması").',
-      scope: 'Duyuru tarihi, başlık ve detay bağlantısı; detay sayfasından metin çıkarımı.',
-    },
+    allowedHosts: ['osym.gov.tr', 'www.osym.gov.tr', 'dokuman.osym.gov.tr'],
+    tags: ['cekirdek', 'sinav', 'html'],
   },
   {
-    adapterKey: 'iskur-liste',
+    key: 'iskur-kamu-memur-alim',
     name: 'İŞKUR — Kamu Memur Alım İlanları',
+    group: 'ulusal',
+    sourceType: 'institution-page',
     institution: 'Türkiye İş Kurumu (İŞKUR)',
-    homepageUrl: 'https://www.iskur.gov.tr/',
     listingUrl: 'https://www.iskur.gov.tr/ilanlar/kamu-memur-alim-ilanlari/',
-    sourceType: 'institution-page',
-    method: 'html-list',
-    enabled: true,
-    scrapeIntervalMinutes: 120,
-    minRequestIntervalMs: 2500,
-    maxConcurrency: 1,
-    status: 'method-defined',
-    statusNote:
-      'Listeleme adresi İŞKUR ana sayfasındaki resmî bağlantıdan alındı; liste HTML yapısı bu ortamdan doğrulanamadı (ağ erişimi yok). Canlı doğrulama: npm run test:live',
-    coverageNotes: 'Memur ve sözleşmeli personel duyurularının İŞKUR tarafındaki yayını.',
-    allowHosts: ['iskur.gov.tr'],
-    tags: ['core', 'html'],
-    maxListingPages: 2,
-    verification: {
-      verified: false,
-      verifiedAt: null,
-      method: 'HTTP GET + HTML ayrıştırma (yapı doğrulanmadı)',
-      evidence: 'Adres, iskur.gov.tr ana sayfasındaki "Kamu Memur Alımı" bağlantısından alındı.',
-      scope: 'Başlık, tarih ve detay bağlantısı hedefleniyor; doğrulanmadı.',
-    },
-  },
-  {
-    adapterKey: 'iskur-liste',
-    name: 'İŞKUR — Kurum Dışı Kamu İşçi Alım İlanları',
-    institution: 'Türkiye İş Kurumu (İŞKUR)',
     homepageUrl: 'https://www.iskur.gov.tr/',
+    adapterKey: 'iskur-liste',
+    method: 'html-list',
+    status: 'scraper-built',
+    statusNote:
+      'Listeleme adresi İŞKUR ana sayfasındaki resmî bağlantıdan alındı; liste HTML yapısı bu ortamda canlı doğrulanamadı (ağ erişimi yok), bu yüzden adaptör sayfa değişirse boş liste yerine yapı hatası bildirir.',
+    lastVerifiedAt: null,
+    verificationEvidence:
+      'URL, iskur.gov.tr ana sayfasındaki "Kamu Memur Alımı" bağlantısından alındı. Liste yapısı doğrulanmadı; ' +
+      'canlı doğrulama `npm run test:live` ile yapılır.',
+    coverageNote: 'Memur ve sözleşmeli personel duyurularının İŞKUR tarafındaki yayını.',
+    enabled: true,
+    intervalMinutes: 120,
+    minRequestIntervalMs: 2500,
+    maxConcurrency: 1,
+    allowedHosts: ['iskur.gov.tr', 'www.iskur.gov.tr'],
+    tags: ['cekirdek', 'html'],
+  },
+  {
+    key: 'iskur-kurumdisi-kamu-isci',
+    name: 'İŞKUR — Kurum Dışı Kamu İşçi Alım İlanları',
+    group: 'ulusal',
+    sourceType: 'institution-page',
+    institution: 'Türkiye İş Kurumu (İŞKUR)',
     listingUrl: 'https://www.iskur.gov.tr/ilanlar/kurumdisi-kamu-isci-alim-ilanlari/',
-    sourceType: 'institution-page',
+    homepageUrl: 'https://www.iskur.gov.tr/',
+    adapterKey: 'iskur-liste',
     method: 'html-list',
+    status: 'scraper-built',
+    statusNote:
+      'Adres İŞKUR ana sayfasındaki "Kurum Dışı Kamu İşçi Alımı İlanı" bağlantısından alındı; liste yapısı canlı doğrulanmadı.',
+    lastVerifiedAt: null,
+    verificationEvidence:
+      'URL, iskur.gov.tr ana sayfasındaki bağlantıdan alındı. Liste yapısı doğrulanmadı.',
+    coverageNote: 'Kamu işçisi (sürekli/geçici işçi) alımlarının İŞKUR yayını.',
     enabled: true,
-    scrapeIntervalMinutes: 180,
+    intervalMinutes: 180,
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
-    status: 'method-defined',
-    statusNote:
-      'Adres İŞKUR ana sayfasındaki "Kurum Dışı Kamu İşçi Alımı İlanı" bağlantısından alındı; liste yapısı bu ortamdan doğrulanamadı.',
-    coverageNotes: 'Kamu işçisi (sürekli/geçici işçi) alımlarının İŞKUR yayını.',
-    allowHosts: ['iskur.gov.tr'],
-    tags: ['core', 'worker-jobs', 'html'],
-    maxListingPages: 2,
-    verification: {
-      verified: false,
-      verifiedAt: null,
-      method: 'HTTP GET + HTML ayrıştırma (yapı doğrulanmadı)',
-      evidence: 'Adres, iskur.gov.tr ana sayfasındaki bağlantıdan alındı.',
-      scope: 'Başlık, tarih ve detay bağlantısı hedefleniyor; doğrulanmadı.',
-    },
+    allowedHosts: ['iskur.gov.tr', 'www.iskur.gov.tr'],
+    tags: ['cekirdek', 'isci', 'html'],
   },
   {
-    adapterKey: 'meb-personel',
-    name: 'MEB Personel Genel Müdürlüğü — Duyurular',
-    institution: 'T.C. Millî Eğitim Bakanlığı',
-    homepageUrl: 'https://personel.meb.gov.tr/',
-    listingUrl: 'https://personel.meb.gov.tr/www/haberler/kategori/1',
-    sourceType: 'institution-page',
-    method: 'html-list',
-    enabled: true,
-    scrapeIntervalMinutes: 180,
-    minRequestIntervalMs: 2500,
-    maxConcurrency: 1,
-    status: 'method-defined',
-    statusNote:
-      'Liste adresi MEB Personel Genel Müdürlüğü ana sayfasındaki "TÜM HABERLER" bağlantısından alındı; sayfa yapısı bu ortamdan doğrulanamadı.',
-    coverageNotes:
-      'Öğretmen atama/yer değiştirme duyuruları çok yoğun; sınıflandırma motoru yalnızca personel alımına ilişkin duyuruları kabul eder.',
-    allowHosts: ['personel.meb.gov.tr'],
-    tags: ['institution', 'ministry', 'html'],
-    maxListingPages: 2,
-    verification: {
-      verified: false,
-      verifiedAt: null,
-      method: 'HTTP GET + HTML ayrıştırma (yapı doğrulanmadı)',
-      evidence: 'Adres, personel.meb.gov.tr ana sayfasındaki bağlantıdan alındı; liste HTML yapısı doğrulanmadı.',
-      scope: 'Başlık, tarih ve detay bağlantısı hedefleniyor; doğrulanmadı.',
-    },
-  },
-  {
-    adapterKey: 'kariyerkapisi',
+    key: 'kariyerkapisi-isealim',
     name: 'Kariyer Kapısı — Kamu İşe Alım',
-    institution: 'T.C. Cumhurbaşkanlığı (Kariyer Kapısı)',
-    homepageUrl: 'https://kariyerkapisi.gov.tr/',
-    listingUrl: 'https://kariyerkapisi.gov.tr/isealim',
+    group: 'ulusal',
     sourceType: 'official-portal',
+    institution: 'T.C. Cumhurbaşkanlığı (Kariyer Kapısı)',
+    listingUrl: 'https://kariyerkapisi.gov.tr/isealim',
+    homepageUrl: 'https://kariyerkapisi.gov.tr/',
+    adapterKey: 'kariyerkapisi',
     method: 'browser',
-    enabled: false,
-    scrapeIntervalMinutes: 60,
-    minRequestIntervalMs: 3000,
-    maxConcurrency: 1,
     status: 'accessible',
     statusNote:
-      'Sayfa açılıyor ancak ilan listesi tarayıcıda (JavaScript) oluşturuluyor. Düz HTTP isteğiyle liste okunamaz; Playwright gerekir. Varsayılan olarak kapalı.',
-    coverageNotes:
-      'Aktif ilan bulunmadığında sayfa "Şu an aktif bir ilan bulunmamaktadır." gösterir. Bu kaynak açıldığında kurum bazlı alım ilanlarının birincil başvuru ekranı izlenir.',
-    allowHosts: ['kariyerkapisi.gov.tr'],
-    tags: ['core', 'requires-browser', 'disabled-by-default'],
-    maxListingPages: 1,
-    verification: {
-      verified: false,
-      verifiedAt: null,
-      method: 'HTTP GET (liste JS ile üretiliyor)',
-      evidence:
-        '12.10.2026 canlı kontrol: sayfa 200 döndü, "Aktif İlanlar" bölümü boş geldi; ilan tablosu sunucu HTML’inde yok.',
-      scope: 'Liste çıkarımı doğrulanmadı; tarayıcı tabanlı adaptör gerekir.',
-    },
-  },
-  {
-    adapterKey: 'esube-iskur',
-    name: 'İŞKUR e-Şube — Açık İş İlanları',
-    institution: 'Türkiye İş Kurumu (İŞKUR)',
-    homepageUrl: 'https://esube.iskur.gov.tr/',
-    listingUrl: 'https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx',
-    sourceType: 'institution-page',
-    method: 'manual-entry',
-    enabled: false,
-    scrapeIntervalMinutes: 360,
-    minRequestIntervalMs: 5000,
-    maxConcurrency: 1,
-    status: 'needs-manual-method',
-    statusNote:
-      'İlan arama ekranı ASP.NET postback + oturum (viewstate) ile çalışıyor. Otomatik toplama, kaynağın kullanım koşullarını zorlayacağı için kapalı tutulur; manuel kayıt veya resmî duyuru bağlantısı ile izlenir.',
-    coverageNotes:
-      'Kamu işçisi ilanlarının bir kısmı burada yayımlanır; ilan.gov.tr ve Resmî Gazete üzerinden dolaylı kapsama sağlanır.',
-    allowHosts: ['esube.iskur.gov.tr'],
-    tags: ['access-constraint', 'manual'],
-    maxListingPages: 1,
-    verification: {
-      verified: false,
-      verifiedAt: null,
-      method: 'İncelendi: otomatik toplama uygun değil',
-      evidence: 'Ekran postback tabanlı; oturum/viewstate gerekiyor. CAPTCHA veya erişim kontrolü aşılmaz.',
-      scope: 'Kapsam dışı (manuel yöntem).',
-    },
-  },
-  {
-    adapterKey: 'kamuilan-sbb',
-    name: 'Kamu İlan (Strateji ve Bütçe Başkanlığı)',
-    institution: 'T.C. Cumhurbaşkanlığı Strateji ve Bütçe Başkanlığı',
-    homepageUrl: 'https://kamuilan.sbb.gov.tr/',
-    listingUrl: 'https://kamuilan.sbb.gov.tr/',
-    sourceType: 'regional-restricted',
-    method: 'html-list',
-    enabled: false,
-    scrapeIntervalMinutes: 120,
+      'Sayfa açılıyor ancak ilan listesi tarayıcıda (JavaScript) oluşturulıyor; düz HTTP isteğiyle liste okunamaz. Playwright kuruluysa devreye girer, değilse tarama "atlandı" olarak kaydedilir ve panelde görünür.',
+    lastVerifiedAt: VERIFIED_AT,
+    verificationEvidence:
+      `${VERIFIED_AT} canlı doğrulama: /isealim sayfası HTTP 200 döndü; "Aktif İlanlar" tablosu o an boş geldi ` +
+      '("Şu an aktif bir ilan bulunmamaktadır.") ve ilan satırları sunucu HTML’inde yok — istemci tarafında üretiliyor.',
+    coverageNote:
+      'Kurumların merkezî başvuru ekranı. Liste Playwright ile okunur; her ilanın resmî başvuru bağlantısı buradadır.',
+    enabled: true,
+    intervalMinutes: 60,
     minRequestIntervalMs: 3000,
     maxConcurrency: 1,
+    allowedHosts: ['kariyerkapisi.gov.tr', 'www.kariyerkapisi.gov.tr'],
+    tags: ['cekirdek', 'tarayici', 'playwright'],
+  },
+  {
+    key: 'meb-personel-duyurular',
+    name: 'MEB Personel Genel Müdürlüğü — Duyurular',
+    group: 'kurum',
+    sourceType: 'institution-page',
+    institution: 'T.C. Millî Eğitim Bakanlığı',
+    listingUrl: 'https://personel.meb.gov.tr/www/haberler/kategori/1',
+    homepageUrl: 'https://personel.meb.gov.tr/',
+    adapterKey: 'meb-liste',
+    method: 'html-list',
+    status: 'method-defined',
+    statusNote:
+      'Liste adresi MEB Personel Genel Müdürlüğü ana sayfasındaki "TÜM HABERLER" bağlantısından alındı; sayfa yapısı canlı doğrulanmadı.',
+    lastVerifiedAt: null,
+    verificationEvidence:
+      'URL ana sayfadaki bağlantıdan alındı; mevcut duyurular ağırlıklı olarak öğretmen yer değiştirme/atama ' +
+      'içerikliydi ve sınıflandırma motoru bunları reddeder.',
+    coverageNote:
+      'Öğretmen ve personel alım duyuruları. Yoğun atama/yer değiştirme içeriği nedeniyle yalnızca alım ilanları kabul edilir.',
+    enabled: true,
+    intervalMinutes: 180,
+    minRequestIntervalMs: 2500,
+    maxConcurrency: 1,
+    allowedHosts: ['personel.meb.gov.tr'],
+    tags: ['kurum', 'bakanlik', 'html'],
+  },
+  {
+    key: 'kamuilan-sbb',
+    name: 'Kamu İlan (Strateji ve Bütçe Başkanlığı)',
+    group: 'ulusal',
+    sourceType: 'regional-restricted',
+    institution: 'T.C. Cumhurbaşkanlığı Strateji ve Bütçe Başkanlığı',
+    listingUrl: 'https://kamuilan.sbb.gov.tr/',
+    homepageUrl: 'https://kamuilan.sbb.gov.tr/',
+    adapterKey: 'sbb-kamuilan',
+    method: 'html-list',
     status: 'access-restricted',
     statusNote:
-      'Kamu ilanlarını kurum ayrımı yapmadan listeleyen merkezî ekran. Bu ortamdan erişim coğrafi/WAF kısıtıyla 403 döndü ("Geographic Restriction"). Türkiye’den çalışan bir dağıtımda açılabilir; kısıt aşılmaya çalışılmaz.',
-    coverageNotes: 'Erişim sağlandığında memur, sözleşmeli, işçi ve akademik ilanları tek listeden toplayan en geniş kaynak.',
-    allowHosts: ['kamuilan.sbb.gov.tr'],
-    tags: ['core', 'aggregator', 'access-restricted'],
-    maxListingPages: 2,
-    verification: {
-      verified: false,
-      verifiedAt: null,
-      method: 'HTTP GET (canlı deneme)',
-      evidence: '12.10.2026: HTTP 403 — "Geographic Restriction / Access Denied" (altosec WAF).',
-      scope: 'Erişim engeli nedeniyle kapsam alınamadı.',
-    },
+      'Merkezî kamu ilan ekranı. Bu ortamdan erişim WAF tarafından 403 "Geographic Restriction" ile engellendi; ' +
+      'Türkiye’den çalışan bir kurulumda açılabilir. Kısıt aşılmaya çalışılmaz, ancak engellenmediği ortamlarda otomatik açılır.',
+    lastVerifiedAt: VERIFIED_AT,
+    verificationEvidence: `${VERIFIED_AT}: HTTP 403 — "Geographic Restriction / Access Denied" (WAF).`,
+    coverageNote:
+      'Memur, sözleşmeli, işçi ve akademik ilanları kurum ayrımı olmadan listeleyen en geniş merkezî kaynak.',
+    enabled: true,
+    intervalMinutes: 120,
+    minRequestIntervalMs: 3000,
+    maxConcurrency: 1,
+    allowedHosts: ['kamuilan.sbb.gov.tr'],
+    tags: ['cekirdek', 'toplayici', 'erisim-kisitli'],
+  },
+  {
+    key: 'iskur-esube-acik-is',
+    name: 'İŞKUR e-Şube — Açık İş İlanları',
+    group: 'ulusal',
+    sourceType: 'institution-page',
+    institution: 'Türkiye İş Kurumu (İŞKUR)',
+    listingUrl: 'https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx',
+    homepageUrl: 'https://esube.iskur.gov.tr/',
+    adapterKey: 'manual-entry',
+    method: 'manual-entry',
+    status: 'needs-manual-method',
+    statusNote:
+      'Arama ekranı ASP.NET postback + oturum (viewstate) ile çalışır. Otomatik toplama kaynağın kullanım koşullarını zorlayacağı için KAPALI tutulur ve ilanlar manuel eklenir; sistem bunu kapsam raporunda açıkça gösterir.',
+    lastVerifiedAt: VERIFIED_AT,
+    verificationEvidence:
+      'Ekran incelendi: filtreler postback ile gönderiliyor, oturum/viewstate gerekiyor. CAPTCHA/erişim kontrolü aşılmaz.',
+    coverageNote:
+      'Kamu işçisi ilanlarının bir bölümü. Kapsam İŞKUR ilan listeleri ve Resmî Gazete üzerinden dolaylı sağlanır; bu kaynak manuel girişle beslenir.',
+    enabled: false,
+    intervalMinutes: 360,
+    minRequestIntervalMs: 5000,
+    maxConcurrency: 1,
+    allowedHosts: ['esube.iskur.gov.tr'],
+    tags: ['manuel', 'erisim-kisitli'],
   },
 ] as const;
 
 /**
- * Envanterde olan ancak henüz entegre edilmemiş kaynaklar.
- * Bu liste yönetici panelinde "henüz entegre edilmedi" olarak sayılır ve
- * docs/source-onboarding.md adımlarıyla gerçek kaynağa dönüştürülür.
+ * Kapsam hedefi — HENÜZ ENTEGRE EDİLMEMİŞ kaynaklar.
+ *
+ * Buradaki kayıtlar "eksik kapsam"ı dürüstçe gösterir; hiçbiri çalışan bir
+ * kaynak gibi sunulmaz. Kimisi zaten merkezî kaynaklarla (Resmî Gazete,
+ * ilan.gov.tr) dolaylı kapsanır — bu da coverageNote ile belirtilir.
  */
 export interface PlannedSource {
   id: string;
   name: string;
-  group: 'bakanlik' | 'kurum' | 'universite' | 'belediye' | 'diger';
+  institution: string;
+  /** Dolaylı kapsam: bu kurumun ilanları hangi merkezî kaynaktan zaten geliyor? */
+  indirectCoverage: string | null;
+  /** Bilinen listeleme adresi (doğrulanmadıysa null — uydurulmaz). */
+  candidateUrl: string | null;
   note: string;
 }
 
 export const PLANNED_SOURCES: readonly PlannedSource[] = [
-  { id: 'saglik-bakanligi', name: 'Sağlık Bakanlığı — personel alım duyuruları', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı; 4/B ve sözleşmeli alım duyuruları kendi sitesinde yayımlanıyor.' },
-  { id: 'aile-sosyal-hizmetler', name: 'Aile ve Sosyal Hizmetler Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'adalet-bakanligi', name: 'Adalet Bakanlığı (zabıt kâtibi, infaz koruma memuru)', group: 'bakanlik', note: 'İlanlar çoğunlukla Resmî Gazete ve ilan.gov.tr üzerinden geliyor; kendi sayfası da izlenebilir.' },
-  { id: 'icisleri-bakanligi', name: 'İçişleri Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'calisma-sosyal-guvenlik', name: 'Çalışma ve Sosyal Güvenlik Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'genclik-spor-bakanligi', name: 'Gençlik ve Spor Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'hazine-maliye', name: 'Hazine ve Maliye Bakanlığı', group: 'bakanlik', note: 'Uzman yardımcılığı sınavları kendi sayfasında ve Resmî Gazete’de.' },
-  { id: 'ticaret-bakanligi', name: 'Ticaret Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'tarim-orman', name: 'Tarım ve Orman Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'ulastirma-altyapi', name: 'Ulaştırma ve Altyapı Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'cevre-sehircilik', name: 'Çevre, Şehircilik ve İklim Değişikliği Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'kultur-turizm', name: 'Kültür ve Turizm Bakanlığı', group: 'bakanlik', note: 'Vakıflar Genel Müdürlüğü ilanları Resmî Gazete’de doğrulandı; bakanlık sayfası ayrıca izlenebilir.' },
-  { id: 'sanayi-teknoloji', name: 'Sanayi ve Teknoloji Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'enerji-tabii-kaynaklar', name: 'Enerji ve Tabii Kaynaklar Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'disisleri', name: 'Dışişleri Bakanlığı', group: 'bakanlik', note: 'Kariyer memurluğu sınavları kendi sayfasında.' },
-  { id: 'milli-savunma', name: 'Millî Savunma Bakanlığı', group: 'bakanlik', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'goc-idaresi', name: 'Göç İdaresi Başkanlığı', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'afad', name: 'AFAD', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'sgk', name: 'Sosyal Güvenlik Kurumu', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'gelir-idaresi', name: 'Gelir İdaresi Başkanlığı', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'tuik', name: 'TÜİK', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'dsi', name: 'Devlet Su İşleri Genel Müdürlüğü', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'kgm', name: 'Karayolları Genel Müdürlüğü', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'tapu-kadastro', name: 'Tapu ve Kadastro Genel Müdürlüğü', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'tubitak', name: 'TÜBİTAK', group: 'kurum', note: 'İlan listeleme adresi doğrulanmadı.' },
-  { id: 'yok', name: 'Yükseköğretim Kurulu (YÖK)', group: 'kurum', note: 'Akademik ilanlar ilan.gov.tr üzerinden doğrulandı; YÖK sayfası ayrıca izlenebilir.' },
-  { id: 'universiteler', name: 'Devlet üniversiteleri (125 kurum)', group: 'universite', note: 'Yüzlerce siteyi ayrı ayrı taramamak için ilan.gov.tr akademik kategorisi ve Resmî Gazete kullanılıyor; kuruma özel ekler onboarding ile eklenir.' },
-  { id: 'universite-hastaneleri', name: 'Üniversite hastaneleri', group: 'universite', note: 'İlanlar Sağlık Bakanlığı/ilan.gov.tr üzerinden dolaylı izleniyor.' },
-  { id: 'buyuksehir-belediyeleri', name: 'Büyükşehir belediyeleri', group: 'belediye', note: 'İlan.gov.tr ve Resmî Gazete üzerinden kapsanıyor; kuruma özel sayfalar onboarding ile eklenir.' },
-  { id: 'ilce-belediyeleri', name: 'İlçe belediyeleri', group: 'belediye', note: 'İlan.gov.tr üzerinden kapsanıyor.' },
-  { id: 'belediye-bagli-idareler', name: 'Belediye bağlı idareleri ve yerel yönetim kuruluşları', group: 'belediye', note: 'İlan.gov.tr üzerinden kapsanıyor.' },
-  { id: 'duzenleyici-kurumlar', name: 'Düzenleyici ve denetleyici kurumlar (BDDK, SPK, EPDK, RTÜK vb.)', group: 'diger', note: 'Kariyer meslek ilanları Resmî Gazete’de doğrulandı (örn. TMSF).' },
-] as const;
+  {
+    id: 'saglik-bakanligi',
+    name: 'Sağlık Bakanlığı — personel alım duyuruları',
+    institution: 'T.C. Sağlık Bakanlığı',
+    indirectCoverage: 'Kurum ilanları Resmî Gazete ve ilan.gov.tr üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı. Onboarding: doğrulanınca adaptör + kaynak kaydı eklenir.',
+  },
+  {
+    id: 'adalet-bakanligi',
+    name: 'Adalet Bakanlığı — zabıt kâtibi / infaz koruma memuru alımları',
+    institution: 'T.C. Adalet Bakanlığı',
+    indirectCoverage: 'İlanlar ağırlıklı olarak Resmî Gazete ve ilan.gov.tr üzerinden gelir.',
+    candidateUrl: null,
+    note: 'Kuruma özel sayfa izlenebilir; mevcut kapsam merkezî kaynaklarla sağlanıyor.',
+  },
+  {
+    id: 'icisleri-bakanligi',
+    name: 'İçişleri Bakanlığı — personel alımları',
+    institution: 'T.C. İçişleri Bakanlığı',
+    indirectCoverage: 'ilan.gov.tr üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'goc-idaresi',
+    name: 'Göç İdaresi Başkanlığı — sözleşmeli personel alımları',
+    institution: 'T.C. İçişleri Bakanlığı Göç İdaresi Başkanlığı',
+    indirectCoverage: 'Resmî Gazete üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'afad',
+    name: 'AFAD — personel alımları',
+    institution: 'Afet ve Acil Durum Yönetimi Başkanlığı',
+    indirectCoverage: null,
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı; öncelikli onboarding hedefi.',
+  },
+  {
+    id: 'sgk',
+    name: 'Sosyal Güvenlik Kurumu — personel alımları',
+    institution: 'Sosyal Güvenlik Kurumu',
+    indirectCoverage: 'Resmî Gazete üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'gib',
+    name: 'Gelir İdaresi Başkanlığı — gelir uzman yardımcılığı vb.',
+    institution: 'T.C. Hazine ve Maliye Bakanlığı Gelir İdaresi Başkanlığı',
+    indirectCoverage: 'Resmî Gazete üzerinden gelir.',
+    candidateUrl: null,
+    note: 'Sınav duyuruları kendi sayfasında; adres doğrulanmadı.',
+  },
+  {
+    id: 'tuik',
+    name: 'TÜİK — personel alımları',
+    institution: 'Türkiye İstatistik Kurumu',
+    indirectCoverage: 'Resmî Gazete üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'dsi',
+    name: 'Devlet Su İşleri Genel Müdürlüğü — personel alımları',
+    institution: 'DSİ Genel Müdürlüğü',
+    indirectCoverage: 'ilan.gov.tr ve Resmî Gazete üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'kgm',
+    name: 'Karayolları Genel Müdürlüğü — personel alımları',
+    institution: 'KGM',
+    indirectCoverage: 'ilan.gov.tr üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'tapu-kadastro',
+    name: 'Tapu ve Kadastro Genel Müdürlüğü — personel alımları',
+    institution: 'Tapu ve Kadastro Genel Müdürlüğü',
+    indirectCoverage: 'Resmî Gazete üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'tubitak',
+    name: 'TÜBİTAK — proje personeli ve uzman alımları',
+    institution: 'TÜBİTAK',
+    indirectCoverage: null,
+    candidateUrl: null,
+    note: 'Listeleme adresi doğrulanmadı.',
+  },
+  {
+    id: 'yok',
+    name: 'Yükseköğretim Kurulu — akademik ilan duyuruları',
+    institution: 'YÖK',
+    indirectCoverage: 'Akademik ilanlar ilan.gov.tr ve üniversite sayfaları üzerinden gelir.',
+    candidateUrl: null,
+    note: 'ÖSYM/ilan.gov.tr ile kısmi kapsam; kurul sayfası onboarding ile eklenir.',
+  },
+  {
+    id: 'devlet-universiteleri',
+    name: 'Devlet üniversiteleri (125 kurum) ve rektörlükleri',
+    institution: 'Çeşitli devlet üniversiteleri',
+    indirectCoverage:
+      'İlanların çoğu ilan.gov.tr ve Resmî Gazete üzerinden gelir; kuruma özel ek ilanlar (ör. hastane alımları) eksik kalabilir.',
+    candidateUrl: null,
+    note: 'Yüzlerce site tek tek taranmaz; merkezî kaynaklar birincil. Kuruma özel sayfalar onboarding listesine eklenir.',
+  },
+  {
+    id: 'universite-hastaneleri',
+    name: 'Üniversite hastaneleri — sözleşmeli sağlık personeli',
+    institution: 'Üniversite hastaneleri',
+    indirectCoverage: 'İlanlar ilan.gov.tr ve Resmî Gazete üzerinden kısmen gelir.',
+    candidateUrl: null,
+    note: 'Bazı hastaneler yalnızca kendi sitesinde ilan yayımlar; onboarding hedefi.',
+  },
+  {
+    id: 'buyuksehir-belediyeleri',
+    name: 'Büyükşehir belediyeleri ve bağlı idareleri',
+    institution: 'Büyükşehir belediyeleri',
+    indirectCoverage: 'İlanlar ilan.gov.tr ve Resmî Gazete üzerinden büyük ölçüde gelir.',
+    candidateUrl: null,
+    note: 'İstanbul, Ankara, İzmir vb. kuruma özel sayfalar onboarding ile eklenir.',
+  },
+  {
+    id: 'il-ilce-belediyeleri',
+    name: 'İl ve ilçe belediyeleri',
+    institution: 'İl/ilçe belediyeleri',
+    indirectCoverage: 'İlanlar ilan.gov.tr ve Resmî Gazete üzerinden gelir.',
+    candidateUrl: null,
+    note: 'Tek tek tarama yerine merkezî kaynaklar kullanılır.',
+  },
+  {
+    id: 'duzenleyici-kurumlar',
+    name: 'Düzenleyici ve denetleyici kurumlar (BDDK, SPK, EPDK, RTÜK, TMSF vb.)',
+    institution: 'Düzenleyici kurumlar',
+    indirectCoverage: 'Kariyer mesleği ilanları Resmî Gazete üzerinden gelir (ör. TMSF ilanı doğrulandı).',
+    candidateUrl: null,
+    note: 'Kuruma özel sayfalar onboarding ile eklenir.',
+  },
+];
 
-export function findSourceDefinition(adapterKey: string, listingUrl: string): SourceDefinition | undefined {
-  return SOURCE_DEFINITIONS.find((source) => source.adapterKey === adapterKey && source.listingUrl === listingUrl);
+export function findSourceDefinition(key: string): SourceDefinition | undefined {
+  return SOURCE_DEFINITIONS.find((source) => source.key === key);
+}
+
+/** Kapsam özeti: kaynak sayıları (coverage raporunda kullanılır). */
+export function sourceInventorySummary(): {
+  total: number;
+  enabled: number;
+  verified: number;
+  byStatus: Record<string, number>;
+} {
+  const byStatus: Record<string, number> = {};
+  for (const source of SOURCE_DEFINITIONS) {
+    byStatus[source.status] = (byStatus[source.status] ?? 0) + 1;
+  }
+  return {
+    total: SOURCE_DEFINITIONS.length,
+    enabled: SOURCE_DEFINITIONS.filter((source) => source.enabled).length,
+    verified: SOURCE_DEFINITIONS.filter((source) => source.status === 'verified').length,
+    byStatus,
+  };
 }

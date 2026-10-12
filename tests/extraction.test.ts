@@ -1,10 +1,9 @@
 /**
- * Çıkarım motoru testleri — Türkçe tarih, kontenjan, şehir, şartlar.
+ * Çıkarım motoru testleri — Türkçe tarih, kontenjan, şehir, şartlar, kanıt izleri.
  * Metinler gerçek ilan diline yakın örneklerdir; dış kaynağa istek atılmaz.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  collectAttachmentLinks,
   extract,
   extractAge,
   extractApplicationUrl,
@@ -12,6 +11,7 @@ import {
   extractEducationLevels,
   extractKpss,
   extractQuota,
+  uniqueAttachments,
 } from '../src/extraction/engine';
 
 describe('tarih çıkarımı', () => {
@@ -43,14 +43,14 @@ describe('tarih çıkarımı', () => {
     expect(result.applicationEndAt?.slice(0, 10)).toBe('2026-10-26');
   });
 
-  it('yıl yoksa tarih uydurmaz ve bunu not olarak bildirir', () => {
+  it('yıl yoksa tarih uydurmaz ve bunu belirsizlik olarak bildirir', () => {
     const result = extract({
       title: 'Personel Alım İlanı',
       body: 'Son başvuru 24 Eylül tarihine kadar yapılacaktır. Başvuru formu ektedir.',
     });
     expect(result.applicationEndAt).toBeNull();
     expect(result.applicationEndDate).toBeNull();
-    expect(result.notes.join(' ')).toContain('yıl belirtilmediği');
+    expect(result.uncertainties.join(' ')).toContain('yıl belirtilmediği');
   });
 
   it('tarih içermeyen metinde tarih üretmez', () => {
@@ -62,32 +62,33 @@ describe('tarih çıkarımı', () => {
     expect(result.applicationEndAt).toBeNull();
   });
 
-  it('kaynağın verdiği yapılandırılmış tarihleri korur', () => {
+  it('kaynağın verdiği yapılandırılmış tarihleri korur ve izini "listing" olarak işaretler', () => {
     const result = extract({
       title: 'Personel Alım İlanı',
       body: 'Başvurular e-Devlet üzerinden alınacaktır.',
-      applicationEndAt: '2026-11-01T23:59:00+03:00',
-      bodySource: 'listing',
+      listing: { applicationEndAt: '2026-11-01T23:59:00+03:00' },
     });
     expect(result.applicationEndDate).toBe('2026-11-01');
-    expect(result.fieldSources.applicationEndDate).toBe('listing');
+    expect(result.applicationEndAt).toBe('2026-11-01T23:59:00+03:00');
+    expect(result.fieldSources.applicationEndDate?.kind).toBe('listing');
   });
 });
 
 describe('kontenjan ve şehir', () => {
   it('kontenjanı kişi/adet ifadesinden çıkarır', () => {
-    expect(extractQuota('Kontenjan 25 kişidir.').quota).toBe(25);
-    expect(extractQuota('30 adet sözleşmeli personel alınacaktır.').quota).toBe(30);
-    expect(extractQuota('Toplam 120 personel alınacak.').quota).toBe(120);
+    expect(extractQuota('Kontenjan 25 kişidir.')?.value).toBe(25);
+    expect(extractQuota('30 adet sözleşmeli personel alınacaktır.')?.value).toBe(30);
+    expect(extractQuota('Toplam 120 personel alınacak.')?.value).toBe(120);
   });
 
   it('kanun/puan sayılarını kontenjan sanmaz', () => {
-    expect(extractQuota('657 sayılı Devlet Memurları Kanunu kapsamında alım yapılacaktır.').quota).toBeNull();
+    expect(extractQuota('657 sayılı Devlet Memurları Kanunu kapsamında alım yapılacaktır.')).toBeNull();
+    expect(extractQuota('2026 KPSS P3 puan türünden en az 70 puan almak gerekir.')).toBeNull();
   });
 
   it('metinden ili bulur', () => {
-    expect(extractCity('Görev yeri Ankara’dır. Ankara ve İstanbul için kontenjan ayrılmıştır.').city).toBe('Ankara');
-    expect(extractCity('İlan metninde şehir bilgisi yoktur.').city).toBeNull();
+    expect(extractCity('Görev yeri Ankara’dır. Ankara ve İstanbul için kontenjan ayrılmıştır.')).toBe('Ankara');
+    expect(extractCity('İlan metninde şehir bilgisi yoktur.')).toBeNull();
   });
 
   it('il bilgisini ilan çıktısına taşır', () => {
@@ -97,6 +98,7 @@ describe('kontenjan ve şehir', () => {
     });
     expect(result.city).toBe('Şanlıurfa');
     expect(result.quota).toBe(40);
+    expect(result.fieldSources.city?.kind).toBe('detail');
   });
 });
 
@@ -113,10 +115,10 @@ describe('kurum, unvan ve şartlar', () => {
     const result = extract({
       title: 'Personel Alım İlanı',
       body: 'Kurumumuz personel alacaktır.',
-      institutionHint: 'ORTAHİSAR BELEDİYE BAŞKANLIĞI',
+      listing: { institution: 'ORTAHİSAR BELEDİYE BAŞKANLIĞI' },
     });
     expect(result.institution).toBe('ORTAHİSAR BELEDİYE BAŞKANLIĞI');
-    expect(result.fieldSources.institution).toBe('listing');
+    expect(result.fieldSources.institution?.kind).toBe('listing');
   });
 
   it('unvanları sözlükten bulur ve jenerik unvanları ayıklar', () => {
@@ -124,20 +126,22 @@ describe('kurum, unvan ve şartlar', () => {
       title: 'Psikolog ve Sosyal Çalışmacı Alım İlanı',
       body: 'Kurumumuza psikolog ve sosyal çalışmacı alınacaktır.',
     });
-    expect(result.titles).toContain('psikolog');
-    expect(result.titles).toContain('sosyal çalışmacı');
+    // Sözlük görünen adı korur ("Psikolog"), karşılaştırma Türkçe küçük harfle yapılır.
+    const titles = result.titles.map((title) => title.toLocaleLowerCase('tr-TR'));
+    expect(titles).toContain('psikolog');
+    expect(titles).toContain('sosyal çalışmacı');
   });
 
   it('öğrenim seviyelerini çıkarır', () => {
-    expect(extractEducationLevels('En az lisans mezunu olmak').levels).toEqual(['lisans']);
-    expect(extractEducationLevels('Ön lisans mezunları başvurabilir.').levels).toEqual(['onlisans']);
-    expect(extractEducationLevels('Ortaöğretim (lise) mezunu olmak şarttır.').levels).toEqual(['ortaogretim']);
-    expect(extractEducationLevels('Metinde öğrenim bilgisi yer almıyor.').levels).toEqual([]);
+    expect(extractEducationLevels('En az lisans mezunu olmak')).toEqual(['lisans']);
+    expect(extractEducationLevels('Ön lisans mezunları başvurabilir.')).toEqual(['onlisans']);
+    expect(extractEducationLevels('Ortaöğretim (lise) mezunu olmak şarttır.')).toEqual(['ortaogretim']);
+    expect(extractEducationLevels('Metinde öğrenim bilgisi yer almıyor.')).toEqual([]);
   });
 
   it('KPSS puan türü, taban puan ve yılı çıkarır', () => {
     const kpss = extractKpss('2026 KPSS P3 puan türünden en az 70 puan almış olmak gerekmektedir.');
-    expect(kpss.scoreTypes).toEqual(['P3']);
+    expect(kpss.types).toEqual(['P3']);
     expect(kpss.minScore).toBe(70);
     expect(kpss.year).toBe(2026);
   });
@@ -156,11 +160,12 @@ describe('kurum, unvan ve şartlar', () => {
         'En az 2 yıl deneyim sahibi olmak. B sınıfı sürücü belgesi (ehliyet) sahibi olmak. ' +
         'İngilizce bilmek tercih sebebidir.',
     });
-    expect(result.requirements.departments).toContain('psikoloji');
-    expect(result.requirements.departments).toContain('sosyal hizmet');
-    expect(result.requirements.minExperienceYears).toBe(2);
-    expect(result.requirements.certificates.length).toBeGreaterThan(0);
-    expect(result.requirements.foreignLanguages).toContain('İngilizce');
+    const departments = result.departments.map((department) => department.toLocaleLowerCase('tr-TR'));
+    expect(departments).toContain('psikoloji');
+    expect(departments).toContain('sosyal hizmet');
+    expect(result.minExperienceYears).toBe(2);
+    expect(result.certificates.length).toBeGreaterThan(0);
+    expect(result.foreignLanguages).toContain('İngilizce');
   });
 
   it('özel koşulları işaretler', () => {
@@ -168,43 +173,68 @@ describe('kurum, unvan ve şartlar', () => {
       title: 'Güvenlik Görevlisi Alım İlanı',
       body: 'Adayların güvenlik soruşturması ve arşiv araştırması yapılacaktır. Askerliğini yapmış olmak gerekir.',
     });
-    expect(result.requirements.specialConditions).toContain('Güvenlik soruşturması şartı');
-    expect(result.requirements.specialConditions).toContain('Askerlik durumu şartı');
+    expect(result.specialConditions).toContain('Güvenlik soruşturması şartı');
+    expect(result.specialConditions).toContain('Askerlik durumu şartı');
   });
 });
 
 describe('başvuru bağlantıları ve ekler', () => {
   it('başvuru ekranı bağlantısını bulur', () => {
-    const url = extractApplicationUrl([
-      { text: 'Aday İşlemleri Sistemi', url: 'https://ais.osym.gov.tr/' },
-      { text: 'Ayrıntı', url: 'https://www.osym.gov.tr/duyuru/1' },
-    ]);
+    const url = extractApplicationUrl(
+      [
+        { text: 'Aday İşlemleri Sistemi', url: 'https://ais.osym.gov.tr/' },
+        { text: 'Ayrıntı', url: 'https://www.osym.gov.tr/duyuru/1' },
+      ],
+      'Sözleşmeli Personel Alım İlanı',
+      'Başvurular Aday İşlemleri Sistemi üzerinden alınacaktır.',
+    );
     expect(url).toContain('ais.osym.gov.tr');
   });
 
   it('Kariyer Kapısı bağlantısını tanır', () => {
-    const url = extractApplicationUrl([{ text: 'Başvuru Yap', url: 'https://kariyerkapisi.gov.tr/isealim' }]);
+    const url = extractApplicationUrl(
+      [{ text: 'Başvuru Yap', url: 'https://kariyerkapisi.gov.tr/isealim' }],
+      'Personel Alım İlanı',
+      'Başvurular Kariyer Kapısı üzerinden yapılacaktır.',
+    );
     expect(url).toContain('kariyerkapisi.gov.tr');
   });
 
   it('sosyal medya ve belge bağlantılarını başvuru sanmaz', () => {
-    const url = extractApplicationUrl([
-      { text: 'Başvuru formu', url: 'https://example.gov.tr/basvuru-formu.pdf' },
-      { text: 'Twitter', url: 'https://twitter.com/kurum' },
-    ]);
+    const url = extractApplicationUrl(
+      [
+        { text: 'Başvuru formu', url: 'https://example.gov.tr/basvuru-formu.pdf' },
+        { text: 'Twitter', url: 'https://twitter.com/kurum' },
+      ],
+      'Personel Alım İlanı',
+      'Başvuru formu ilanda ektedir.',
+    );
+    expect(url).toBeNull();
+  });
+
+  it('ilan listeleme sitelerinin detay bağlantısını başvuru saymaz', () => {
+    const url = extractApplicationUrl(
+      [{ text: 'İlanı görüntüle', url: 'https://www.ilan.gov.tr/ilan/123456/ornek-kurum-personel-alimi' }],
+      'Personel Alım İlanı',
+      'İlan metni ekte yer almaktadır.',
+    );
     expect(url).toBeNull();
   });
 
   it('başvuru bağlantısı yoksa uydurmaz', () => {
-    const url = extractApplicationUrl([{ text: 'Ana sayfa', url: 'https://ordu.edu.tr' }]);
+    const url = extractApplicationUrl(
+      [{ text: 'Ana sayfa', url: 'https://ordu.edu.tr' }],
+      'Personel Alım İlanı',
+      'Başvurular kurumumuz internet sitesinde açıklanacaktır.',
+    );
     expect(url).toBeNull();
   });
 
-  it('PDF eklerini listeler', () => {
-    const attachments = collectAttachmentLinks([
-      { text: 'İlan Metni (PDF)', url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf' },
-      { text: 'Başvuru Formu', url: 'https://example.gov.tr/form.docx' },
-      { text: 'Ana sayfa', url: 'https://example.gov.tr/' },
+  it('ekleri tekilleştirir ve sırayı korur', () => {
+    const attachments = uniqueAttachments([
+      { url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf', label: 'İlan Metni', kind: 'pdf' },
+      { url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf', label: 'İlan Metni (tekrar)', kind: 'pdf' },
+      { url: 'https://example.gov.tr/basvuru-formu.docx', label: 'Başvuru Formu', kind: 'doc' },
     ]);
     expect(attachments).toHaveLength(2);
     expect(attachments[0]?.kind).toBe('pdf');

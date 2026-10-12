@@ -1,48 +1,42 @@
 /**
- * Marka ve uygulama sabitleri.
- * İsim, logo metni ve iletişim adresleri burada tek yerde durur; sonradan
- * değiştirilebilir olması için arayüz/e-posta şablonları bu değerleri okur.
+ * Uygulama kimliği ve işletim varsayılanları.
+ *
+ * Ürün adı tek yerden değiştirilebilir (marka değişikliği isteği) — arayüz,
+ * e-posta ve meta etiketleri `BRANDING` üzerinden okur.
  */
-import { getEnv } from './env';
-
-export interface Branding {
-  name: string;
-  shortName: string;
-  tagline: string;
-  logoText: string;
-  contactEmail: string;
-  repositoryUrl: string;
-}
-
-export function branding(): Branding {
-  return {
-    name: getEnv().APP_DISPLAY_NAME,
-    shortName: 'KamuRadar',
-    tagline: 'Kamu personel alım ilanları — toplanmış, doğrulanmış, tek yerde',
-    logoText: 'KR',
-    contactEmail: 'destek@kamuradar.example',
-    repositoryUrl: 'https://github.com/kaaradumaann-psi/kamuradar',
-  };
-}
-
-/** Zamanlayıcı ve kota varsayılanları. */
-export const RUNTIME_DEFAULTS = {
-  /** Kaynak uzun süre başarısız olursa yönetici panelinde uyarı eşiği. */
-  sourceFailureWarningThreshold: 3,
-  /** Kaynak kaç kez üst üste boş dönerse "yapı değişmiş olabilir" uyarısı üretilir. */
-  emptyResultWarningThreshold: 3,
-  /** Kuyruk birikimi uyarı eşiği (bekleyen e-posta işi). */
-  emailQueueWarningThreshold: 25,
-  /** Tarama gecikmesi (planlanan - gerçek) uyarı eşiği (ms). */
-  scheduleDelayWarningMs: 15 * 60_000,
-  /** Worker heartbeat bayatlık eşiği (ms). */
-  workerHeartbeatStaleMs: 5 * 60_000,
-  /** E-posta gönderim eşzamanlılığı. */
-  emailConcurrency: 2,
-  /** Kaynak tarama işçi eşzamanlılığı. */
-  scrapeConcurrency: 2,
+export const BRANDING = {
+  name: 'KamuRadar',
+  shortName: 'KamuRadar',
+  tagline: 'Türkiye genelinde kamu personel alım ilanları — tek yerde, kaynaklı ve doğrulanmış.',
+  description:
+    'Resmî kaynaklardan toplanan memur, sözleşmeli personel, kamu işçisi ve akademik kadro ilanlarını sınıflandıran, tekilleştiren ve e-posta ile bildiren açık platform.',
+  supportEmail: 'destek@example.com',
 } as const;
 
-export const CLASSIFICATION_VERSION = 'cls-2026.10.1';
-export const EXTRACTION_VERSION = 'ext-2026.10.1';
-export const DEDUPE_VERSION = 'dedupe-2026.10.1';
+/** Zamanlanmış işler için varsayılanlar (kaynak kayıtları bunları geçebilir). */
+export const SCHEDULER_DEFAULTS = {
+  /** Hızlı kaynaklar: Resmî Gazete, ilan.gov.tr, Kariyer Kapısı. */
+  fastIntervalMinutes: 60,
+  /** Kurumsal sayfalar (bakanlık, kurum). */
+  institutionalIntervalMinutes: 180,
+  /** Günlük keşif: yeni kaynak/kurum listelerinin taraması. */
+  discoveryIntervalMinutes: 60 * 24,
+  /** Bütünlük denetimi: yayımlanmış ilanların yeniden doğrulanması. */
+  auditIntervalMinutes: 60 * 24,
+  /** Worker kilidi/lease süreleri. */
+  scrapeLockTtlMs: 5 * 60_000,
+  heartbeatIntervalMs: 15_000,
+  /** Bu süreden uzun süre kalp atışı gelmeyen worker "ölü" sayılır. */
+  heartbeatStaleMs: 120_000,
+} as const;
+
+/** Sınıflandırma ve çıkarım sürümleri — kural değişince artırılır. */
+export const CLASSIFICATION_VERSION = '2026.10.1';
+export const EXTRACTION_VERSION = '2026.10.1';
+export const DEDUPE_VERSION = '2026.10.1';
+
+/** Sayfalama sınırları. */
+export const PAGINATION = {
+  defaultPageSize: 20,
+  maxPageSize: 100,
+} as const;

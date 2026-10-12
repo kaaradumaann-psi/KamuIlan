@@ -16,7 +16,6 @@ import { runSourceScrape } from '../src/ingest/pipeline';
 import { queueNotificationsForJob } from '../src/notifications/service';
 import { createLogger } from '../src/lib/logger';
 import { AdapterStructureError } from '../src/sources/errors';
-import { sourceKeyFor } from '../src/db/repos/sources';
 import type { SourceDefinition } from '../src/config/sources';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../src/sources/types';
 import type { RawAnnouncement } from '../src/domain';
@@ -46,29 +45,31 @@ async function apply(repos: Repos, item: RawAnnouncement, provenance: 'scraped' 
 }
 
 const TEST_DEFINITION: SourceDefinition = {
-  adapterKey: 'test-liste',
+  key: 'test-liste-kaynagi',
   name: 'Test Kaynağı',
+  group: 'kurum',
+  sourceType: 'institution-page',
   institution: 'Test Kurumu',
   homepageUrl: 'https://ornek.test/',
   listingUrl: 'https://ornek.test/ilanlar',
-  sourceType: 'institution-page',
+  adapterKey: 'test-liste',
   method: 'html-list',
+  status: 'method-defined',
+  statusNote: 'Yalnızca testler için sahte kaynak tanımı.',
+  lastVerifiedAt: null,
+  verificationEvidence: 'Testlerde canlı erişim yapılmaz.',
+  coverageNote: 'Test kapsamı.',
   enabled: true,
-  scrapeIntervalMinutes: 60,
+  intervalMinutes: 60,
   minRequestIntervalMs: 0,
   maxConcurrency: 1,
-  status: 'method-defined',
-  statusNote: 'test',
-  coverageNotes: 'test',
-  allowHosts: ['ornek.test'],
+  allowedHosts: ['ornek.test'],
   tags: ['test'],
-  maxListingPages: 1,
-  verification: { verified: false, verifiedAt: null, method: 'test', evidence: 'test', scope: 'test' },
 };
 
 async function seedSource(repos: Repos): Promise<SourceDoc> {
   await repos.sources.seed([TEST_DEFINITION]);
-  const source = await repos.sources.getByKey(sourceKeyFor(TEST_DEFINITION));
+  const source = await repos.sources.getByKey(TEST_DEFINITION.key);
   if (!source) throw new Error('Test kaynağı oluşturulamadı');
   return source;
 }
@@ -77,12 +78,16 @@ function fakeAdapter(items: RawAnnouncement[], notes: string[] = []): SourceAdap
   return {
     key: 'test-liste',
     label: 'Test listesi',
-    listingUrl: () => TEST_DEFINITION.listingUrl,
+    method: 'html-list',
+    notes: 'Testlerde kullanılan sahte adaptör; ağa çıkmaz.',
     run: async (_ctx: AdapterContext): Promise<AdapterRunResult> => ({
       items,
-      httpStatuses: [200],
+      requestCount: 1,
       notes,
+      etag: null,
+      lastModified: null,
       notModified: false,
+      httpStatuses: [200],
     }),
   };
 }
@@ -381,7 +386,8 @@ describe('tarama hattı', () => {
     const failing: SourceAdapter = {
       key: 'test-liste',
       label: 'Test listesi',
-      listingUrl: () => TEST_DEFINITION.listingUrl,
+      method: 'html-list',
+      notes: 'Testlerde kullanılan hatalı adaptör; kaynak yapısı değişimini taklit eder.',
       run: async () => {
         throw new AdapterStructureError('test-liste', 'Beklenen ilan tablosu bulunamadı; sayfa yapısı değişmiş olabilir.');
       },

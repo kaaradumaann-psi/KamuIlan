@@ -1,12 +1,11 @@
 /**
  * Bildirim tercihleri ve bildirim olayları.
  *
- * Idempotency: her (kullanıcı, ilan, tür [, sürüm]) için benzersiz anahtar
- * üretilir. Benzersiz indeks sayesinde aynı olay iki kez oluşturulamaz —
- * dolayısıyla aynı ilan için ikinci e-posta gönderilmez.
+ * Idempotency: her (kullanıcı, ilan, tür[, sürüm]) için deterministik anahtar
+ * üretilir; benzersiz indeks sayesinde aynı olay ikinci kez oluşturulamaz.
+ * Böylece aynı ilan için iki kez e-posta gönderilemez.
  */
 import { createId, sha256Hex } from '../../domain/ids';
-import { normalizeTr } from '../../domain/text';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
 import type { StoragePort } from '../ports';
@@ -39,13 +38,19 @@ export const EMPTY_FILTERS: PreferenceFilters = {
   minDaysUntilDeadline: null,
 };
 
+/** (kullanıcı, ilan, tür, sürüm) → benzersiz anahtar. */
 export function eventIdempotencyKey(input: {
   userId: string;
   jobId: string;
   kind: NotificationEventDoc['kind'];
   jobVersion?: number;
 }): string {
-  const parts = [input.userId, input.jobId, input.kind, input.kind === 'job-changed' ? String(input.jobVersion ?? 0) : ''];
+  const parts = [
+    input.userId,
+    input.jobId,
+    input.kind,
+    input.kind === 'job-changed' ? String(input.jobVersion ?? 0) : '',
+  ];
   return sha256Hex(parts.join('|')).slice(0, 48);
 }
 
@@ -59,25 +64,25 @@ export class NotificationRepo {
     return this.store.findOne('notificationPreferences', { userId });
   }
 
+  /** Tercih yoksa varsayılanlarla oluşturur; varsa yalnızca verilen alanları günceller. */
   async upsertPreference(
     userId: string,
-    input: Omit<
-      Partial<NotificationPreferenceDoc>,
-      'id' | 'userId' | 'createdAt' | 'updatedAt' | 'filters'
-    > & {
-      /** Filtreler kısmi verilebilir; verilmeyen alanlar mevcut/korunur. */
+    input: Partial<Omit<NotificationPreferenceDoc, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'filters'>> & {
       filters?: Partial<PreferenceFilters>;
     },
   ): Promise<NotificationPreferenceDoc> {
     const now = this.clock.now().toISOString();
     const existing = await this.getPreference(userId);
+
     if (existing) {
       const filters: PreferenceFilters = { ...existing.filters, ...(input.filters ?? {}) };
       const patch = { ...input, filters, updatedAt: now };
       const updated = await this.store.updateOne('notificationPreferences', { userId }, patch);
+      if (!updated) throw new Error('Bildirim tercihi güncellenemedi.');
       validateDocument('notificationPreferences', updated);
-      return updated as NotificationPreferenceDoc;
+      return updated;
     }
+
     const doc: NotificationPreferenceDoc = {
       id: createId('npr'),
       userId,
@@ -97,13 +102,18 @@ export class NotificationRepo {
     return doc;
   }
 
-  /** Bildirim gönderilebilecek (aktif, duraklatılmamış) tercihler. */
+  /** Bildirim alabilecek (kapalı/duraklatılmış olmayan) tercihler. */
   async listNotifiable(cursorUserId?: string, limit = 200): Promise<NotificationPreferenceDoc[]> {
     const filter: Record<string, unknown> = { enabled: true, paused: false };
     if (cursorUserId) filter.userId = { $gt: cursorUserId };
     return this.store.find('notificationPreferences', filter, { limit, sort: [['userId', 1]] });
   }
 
+  async countNotifiable(): Promise<number> {
+    return this.store.count('notificationPreferences', { enabled: true, paused: false });
+  }
+
+  /** Olayı yalnızca bir kez oluşturur. */
   async recordEvent(input: {
     userId: string;
     jobId: string;
@@ -146,26 +156,16 @@ export class NotificationRepo {
   }
 
   async listEventsForJob(jobId: string): Promise<NotificationEventDoc[]> {
-    return this.store.find('notificationEvents', { jobId }, { limit: 500 });
+    return this.store.find('notificationEvents', { jobId }, { limit: 500, sort: [['createdAt', -1]] });
   }
-}
 
-/** Tercihleri okunabilir bir özet metne çevirir (e-posta "hangi kriter" satırı). */
-export function describeFilters(filters: PreferenceFilters): string[] {
-  const parts: string[] = [];
-  if (filters.keywords.length) parts.push(`anahtar kelime: ${filters.keywords.join(', ')}`);
-  if (filters.titles.length) parts.push(`unvan: ${filters.titles.join(', ')}`);
-  if (filters.institutions.length) parts.push(`kurum: ${filters.institutions.join(', ')}`);
-  if (filters.cities.length) parts.push(`il: ${filters.cities.join(', ')}`);
-  if (filters.employmentTypes.length) parts.push(`istihdam türü: ${filters.employmentTypes.length} seçim`);
-  if (filters.educationLevels.length) parts.push(`öğrenim: ${filters.educationLevels.length} seçim`);
-  if (filters.departments.length) parts.push(`bölüm: ${filters.departments.join(', ')}`);
-  if (filters.kpssScoreTypes.length) parts.push(`KPSS puan türü: ${filters.kpssScoreTypes.join(', ')}`);
-  if (filters.kpssMinScore !== null) parts.push(`en az ${filters.kpssMinScore} KPSS puanı`);
-  if (filters.minDaysUntilDeadline !== null) parts.push(`son başvuruya en az ${filters.minDaysUntilDeadline} gün`);
-  return parts.length > 0 ? parts : ['tüm kamu personel ilanları'];
-}
-
-export function normalizeFilterValues(values: string[]): string[] {
-  return values.map((value) => normalizeTr(value)).filter(Boolean);
+  async eventStats(): Promise<{ created: number; queued: number; suppressed: number; failed: number }> {
+    const [created, queued, suppressed, failed] = await Promise.all([
+      this.store.count('notificationEvents', { status: 'created' }),
+      this.store.count('notificationEvents', { status: 'queued' }),
+      this.store.count('notificationEvents', { status: 'suppressed' }),
+      this.store.count('notificationEvents', { status: 'failed' }),
+    ]);
+    return { created, queued, suppressed, failed };
+  }
 }

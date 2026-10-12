@@ -1,75 +1,108 @@
 /**
- * HTTP gövdesi kod çözümü.
+ * Karakter kodlaması çözümü.
  *
- * Kamu sitelerinde hâlâ windows-1254 / iso-8859-9 içerik görülüyor. Yanlış kod
- * çözümü Türkçe karakterleri bozar ve sınıflandırma anahtar kelimeleri tutmaz.
+ * Türk kamu sitelerinin bir kısmı ISO-8859-9 / Windows-1254 kullanır; UTF-8
+ * varsayımı Türkçe karakterleri bozar (ş, ğ, ı, İ). Bu modül Content-Type
+ * başlığından veya <meta charset> etiketinden kodlamayı bulur ve metni çözer.
  */
 import iconv from 'iconv-lite';
-import { normalizeTr } from '../domain/text';
 
-const TURKISH_CHARSETS = new Set(['windows-1254', 'iso-8859-9', 'iso88599', 'latin5', 'cp1254', 'tr']);
+const CHARSET_ALIASES: Record<string, string> = {
+  'iso-8859-9': 'iso-8859-9',
+  'iso8859-9': 'iso-8859-9',
+  latin5: 'iso-8859-9',
+  'windows-1254': 'windows-1254',
+  cp1254: 'windows-1254',
+  'tr-tr': 'iso-8859-9',
+  'utf-8': 'utf-8',
+  utf8: 'utf-8',
+  'iso-8859-1': 'iso-8859-1',
+  latin1: 'iso-8859-1',
+};
 
-export function charsetFromContentType(contentType: string | null | undefined): string | null {
-  if (!contentType) return null;
-  const match = /charset\s*=\s*"?([\w-]+)"?/i.exec(contentType);
-  return match?.[1]?.toLowerCase() ?? null;
+export function normalizeCharsetLabel(label: string | null | undefined): string | null {
+  if (!label) return null;
+  const cleaned = label.trim().toLowerCase().replace(/["']/g, '');
+  if (!cleaned) return null;
+  return CHARSET_ALIASES[cleaned] ?? cleaned;
 }
 
-/** HTML başındaki <meta charset> / http-equiv bilgisini okur. */
-export function charsetFromHtml(head: Buffer): string | null {
-  const ascii = head.subarray(0, 4096).toString('latin1');
-  const metaCharset = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/i.exec(ascii);
-  if (metaCharset?.[1]) return metaCharset[1].toLowerCase();
-  const httpEquiv = /content\s*=\s*["'][^"']*charset\s*=\s*([\w-]+)/i.exec(ascii);
-  return httpEquiv?.[1]?.toLowerCase() ?? null;
+/** Content-Type başlığından charset çıkarır: text/html; charset=iso-8859-9 */
+export function charsetFromContentType(contentType: string | null): string | null {
+  if (!contentType) return null;
+  const match = /charset\s*=\s*([^;,\s]+)/i.exec(contentType);
+  return normalizeCharsetLabel(match?.[1] ?? null);
+}
+
+/** HTML/XML başlığındaki <meta charset> ya da <?xml encoding> bildirimini bulur. */
+export function charsetFromMarkup(head: Buffer): string | null {
+  const ascii = head.toString('latin1');
+  const meta = /<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9_-]+)/i.exec(ascii);
+  if (meta?.[1]) return normalizeCharsetLabel(meta[1]);
+  const httpEquiv = /<meta[^>]+content\s*=\s*["'][^"']*charset\s*=\s*([a-z0-9_-]+)/i.exec(ascii);
+  if (httpEquiv?.[1]) return normalizeCharsetLabel(httpEquiv[1]);
+  const xml = /<\?xml[^>]+encoding\s*=\s*["']([a-z0-9_-]+)["']/i.exec(ascii);
+  if (xml?.[1]) return normalizeCharsetLabel(xml[1]);
+  return null;
+}
+
+/** Geçerli çözümlenebilir mi? Bilinmeyen etiketlerde UTF-8'e düşeriz. */
+export function canDecode(charset: string): boolean {
+  try {
+    return iconv.encodingExists(charset);
+  } catch {
+    return false;
+  }
+}
+
+export interface DecodedBody {
+  text: string;
+  charset: string;
+  /** Kodlama tahmin edildi mi (başlıkta belirtilmemişti)? */
+  charsetGuessed: boolean;
 }
 
 /**
- * Gövdeyi metne çevirir. Sıra: Content-Type charset → meta charset → UTF-8
- * doğrulaması → Türkçe kod sayfaları.
+ * Gövdeyi metne çevirir.
+ * Öncelik: Content-Type charset → meta bildirimi → UTF-8 (geçersizse ISO-8859-9).
  */
-export function decodeBody(buffer: Buffer, contentType?: string | null): { text: string; charset: string } {
-  const declared = charsetFromContentType(contentType);
-  const candidates: string[] = [];
-  if (declared) candidates.push(declared);
-  void TURKISH_CHARSETS;
-  const meta = charsetFromHtml(buffer);
-  if (meta && !candidates.includes(meta)) candidates.push(meta);
+export function decodeBody(buffer: Buffer, contentType: string | null = null, headLimit = 4096): DecodedBody {
+  const fromHeader = charsetFromContentType(contentType);
+  const head = buffer.subarray(0, Math.min(buffer.length, headLimit));
+  const fromMarkup = charsetFromMarkup(head);
 
-  for (const charset of candidates) {
-    if (charset === 'utf-8' || charset === 'utf8') {
-      const text = buffer.toString('utf8');
-      if (!text.includes('\uFFFD')) return { text, charset: 'utf-8' };
-      continue;
-    }
-    if (iconv.encodingExists(charset)) {
-      return { text: iconv.decode(buffer, charset), charset };
+  let charset = fromHeader ?? fromMarkup ?? 'utf-8';
+  let guessed = !(fromHeader ?? fromMarkup);
+
+  if (!canDecode(charset)) {
+    charset = 'utf-8';
+    guessed = true;
+  }
+
+  let text = decodeWith(buffer, charset);
+  if (charset === 'utf-8' && text.includes('\uFFFD') && !guessed) {
+    // Başlık UTF-8 diyor ama gövde bozuk: Türkçe için en olası kodlama.
+    text = decodeWith(buffer, 'iso-8859-9');
+    charset = 'iso-8859-9';
+    guessed = true;
+  } else if (charset === 'utf-8' && text.includes('\uFFFD')) {
+    const fallback = decodeWith(buffer, 'iso-8859-9');
+    if (!fallback.includes('\uFFFD') || countReplacement(fallback) < countReplacement(text)) {
+      text = fallback;
+      charset = 'iso-8859-9';
     }
   }
 
-  const utf8 = buffer.toString('utf8');
-  if (!utf8.includes('\uFFFD')) return { text: utf8, charset: 'utf-8' };
-
-  // UTF-8 çözümü bozulduyse Türkçe kod sayfalarını sırayla dene; en az
-  // bozulma üreteni seç.
-  for (const charset of ['windows-1254', 'iso-8859-9', 'windows-1252']) {
-    if (!iconv.encodingExists(charset)) continue;
-    const text = iconv.decode(buffer, charset);
-    const score = turkishScore(text);
-    if (score > 0) return { text, charset };
-  }
-  return { text: iconv.decode(buffer, 'windows-1254'), charset: 'windows-1254' };
+  return { text, charset, charsetGuessed: guessed };
 }
 
-/** Türkçe karakterleri yanlış çözümde bozulmaya karşı puanlar. */
-export function turkishScore(text: string): number {
-  const markers = ['ı', 'ş', 'ğ', 'ü', 'ö', 'ç', 'İ', 'Ş', 'Ğ', 'Ü', 'Ö', 'Ç', 'personel', 'ilan'];
-  const folded = normalizeTr(text);
-  let score = 0;
-  for (const marker of markers) {
-    if (folded.includes(normalizeTr(marker))) score += 1;
-  }
-  // Bozulma göstergeleri
-  score -= (text.match(/Ã/g) ?? []).length > 3 ? 5 : 0;
-  return score;
+function decodeWith(buffer: Buffer, charset: string): string {
+  if (charset === 'utf-8') return buffer.toString('utf8');
+  return iconv.decode(buffer, charset);
+}
+
+function countReplacement(value: string): number {
+  let count = 0;
+  for (const char of value) if (char === '\uFFFD') count += 1;
+  return count;
 }

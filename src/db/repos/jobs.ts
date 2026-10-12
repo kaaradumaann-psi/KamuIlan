@@ -1,8 +1,8 @@
 /**
- * İlan deposu: tekilleştirilmiş ilanlar, kaynak bağları, sürüm geçmişi ve arama.
+ * İlan deposu: tekil ilanlar, kaynak bağları, sürüm geçmişi ve arama.
  */
 import { createId } from '../../domain/ids';
-import { lowerTr, normalizeTr } from '../../domain/text';
+import { normalizeTr } from '../../domain/text';
 import { toIstanbulDateOnly } from '../../domain/dates';
 import type { JobStatus } from '../../domain';
 import type { Clock } from '../../lib/clock';
@@ -14,8 +14,8 @@ import type { Query, SortSpec } from '../query';
 
 export interface JobSearchFilters {
   q?: string;
-  institution?: string[];
-  titles?: string[];
+  institution?: string;
+  title?: string;
   cities?: string[];
   employmentTypes?: string[];
   educationLevels?: string[];
@@ -23,38 +23,20 @@ export interface JobSearchFilters {
   kpssScoreTypes?: string[];
   sourceKeys?: string[];
   status?: JobStatus[];
-  /** Başvuru bitiş tarihi (YYYY-MM-DD) aralığı. */
   deadlineFrom?: string;
   deadlineTo?: string;
-  createdFrom?: string;
-  createdTo?: string;
-  publishedFrom?: string;
-  publishedTo?: string;
+  minQuota?: number;
+  onlyWithApplicationUrl?: boolean;
 }
 
 export type JobSort = 'newest' | 'deadline' | 'published' | 'institution' | 'title';
 
 const SORTS: Record<JobSort, SortSpec> = {
-  newest: [
-    ['createdAt', -1],
-    ['id', -1],
-  ],
-  deadline: [
-    ['applicationEndDate', 1],
-    ['createdAt', -1],
-  ],
-  published: [
-    ['publishedAt', -1],
-    ['createdAt', -1],
-  ],
-  institution: [
-    ['institutionNormalized', 1],
-    ['createdAt', -1],
-  ],
-  title: [
-    ['titleNormalized', 1],
-    ['createdAt', -1],
-  ],
+  newest: [['createdAt', -1]],
+  deadline: [['applicationEndDate', 1]],
+  published: [['publishedAt', -1]],
+  institution: [['institutionNormalized', 1]],
+  title: [['titleNormalized', 1]],
 };
 
 export interface JobSearchResult {
@@ -62,6 +44,14 @@ export interface JobSearchResult {
   total: number;
   page: number;
   pageSize: number;
+}
+
+export interface JobSearchOptions {
+  page?: number;
+  pageSize?: number;
+  sort?: JobSort;
+  /** Yönetici aramalarında taslak/incelemedeki kayıtlar da görünür. */
+  includeNonAccepted?: boolean;
 }
 
 export class JobRepo {
@@ -82,9 +72,18 @@ export class JobRepo {
     return this.store.findOne('jobs', { normalizedUrl });
   }
 
+  /** Kaynak içi kimlik eşleşmesi: aynı kaynak aynı ilanı yeniden yayımladı. */
+  async findLinkBySourceItem(sourceKey: string, sourceItemId: string): Promise<JobSourceDoc | null> {
+    return this.store.findOne('jobSources', { sourceKey, sourceItemId });
+  }
+
+  async listSourceLinks(jobId: string): Promise<JobSourceDoc[]> {
+    return this.store.find('jobSources', { jobId }, { sort: [['firstSeenAt', 1]] });
+  }
+
   /**
-   * Aynı ilan metnini/başlığını taşıyan adayları bulur (tekilleştirme adımı 4).
-   * Tam eşleşme değil, aday listesidir; karar dedupe motorunda verilir.
+   * Tekilleştirme adayları: aynı kurum, benzer başlık ya da aynı başvuru dönemi.
+   * Karar burada verilmez; aday listesi dedupe motoruna verilir.
    */
   async findDedupeCandidates(params: {
     institutionNormalized: string;
@@ -92,19 +91,24 @@ export class JobRepo {
     applicationEndDate?: string | null;
     limit?: number;
   }): Promise<JobDoc[]> {
-    const direct = await this.store.find('jobs', {
-      institutionNormalized: params.institutionNormalized,
-      titleNormalized: params.titleNormalized,
-    }, { limit: params.limit ?? 5 });
-    if (direct.length > 0) return direct;
-    return this.store.find(
+    const limit = params.limit ?? 40;
+    const byInstitution = await this.store.find(
       'jobs',
-      {
-        institutionNormalized: params.institutionNormalized,
-        applicationEndDate: params.applicationEndDate ?? null,
-      },
-      { limit: params.limit ?? 5, sort: [['createdAt', -1]] },
+      { institutionNormalized: { $regex: params.institutionNormalized.slice(0, 24), $regexFlags: 'i' } },
+      { limit, sort: [['createdAt', -1]] },
     );
+    const byTitle = await this.store.find(
+      'jobs',
+      { titleNormalized: { $regex: params.titleNormalized.slice(0, 24), $regexFlags: 'i' } },
+      { limit, sort: [['createdAt', -1]] },
+    );
+    const byPeriod = params.applicationEndDate
+      ? await this.store.find('jobs', { applicationEndDate: params.applicationEndDate }, { limit })
+      : [];
+
+    const map = new Map<string, JobDoc>();
+    for (const job of [...byInstitution, ...byTitle, ...byPeriod]) map.set(job.id, job);
+    return [...map.values()];
   }
 
   async insertJob(doc: JobDoc): Promise<{ job: JobDoc; created: boolean }> {
@@ -128,14 +132,6 @@ export class JobRepo {
     return { link: result.document, created: result.inserted };
   }
 
-  async listSourceLinks(jobId: string): Promise<JobSourceDoc[]> {
-    return this.store.find('jobSources', { jobId }, { sort: [['firstSeenAt', 1]] });
-  }
-
-  async findLinkBySourceItem(sourceKey: string, sourceItemId: string): Promise<JobSourceDoc | null> {
-    return this.store.findOne('jobSources', { sourceKey, sourceItemId });
-  }
-
   async touchSourceLink(linkId: string, patch: { lastSeenAt: string; title?: string; active?: boolean }): Promise<void> {
     await this.store.updateOne('jobSources', { id: linkId }, patch);
   }
@@ -150,131 +146,120 @@ export class JobRepo {
     return this.store.find('jobRevisions', { jobId }, { sort: [['version', -1]] });
   }
 
-  async search(filters: JobSearchFilters, sort: JobSort = 'newest', page = 1, pageSize = 20): Promise<JobSearchResult> {
+  async search(filters: JobSearchFilters, options: JobSearchOptions = {}): Promise<JobSearchResult> {
+    const pageSize = Math.min(Math.max(options.pageSize ?? 20, 1), 100);
+    const page = Math.max(options.page ?? 1, 1);
+    const query = this.buildFilter(filters, options.includeNonAccepted ?? false);
+    const total = await this.store.count('jobs', query);
+    const items = await this.store.find('jobs', query, {
+      sort: SORTS[options.sort ?? 'newest'],
+      limit: pageSize,
+      skip: (page - 1) * pageSize,
+    });
+    return { items, total, page, pageSize };
+  }
+
+  buildFilter(filters: JobSearchFilters, includeNonAccepted = false): Query {
     const clauses: Query[] = [];
+    if (!includeNonAccepted) clauses.push({ 'classification.decision': 'accept' });
     if (filters.status && filters.status.length > 0) clauses.push({ status: { $in: filters.status } });
     if (filters.employmentTypes && filters.employmentTypes.length > 0) {
       clauses.push({ employmentType: { $in: filters.employmentTypes } });
     }
-    if (filters.cities && filters.cities.length > 0) clauses.push({ city: { $in: filters.cities } });
-    if (filters.sourceKeys && filters.sourceKeys.length > 0) clauses.push({ sourceKeys: { $in: filters.sourceKeys } });
-    if (filters.institution && filters.institution.length > 0) {
-      clauses.push({ institutionNormalized: { $in: filters.institution.map((value) => normalizeTr(value)) } });
+    if (filters.cities && filters.cities.length > 0) {
+      clauses.push({ city: { $in: filters.cities.map((city) => city) } });
     }
+    if (filters.sourceKeys && filters.sourceKeys.length > 0) clauses.push({ sourceKeys: { $in: filters.sourceKeys } });
     if (filters.educationLevels && filters.educationLevels.length > 0) {
       clauses.push({ 'requirements.educationLevels': { $in: filters.educationLevels } });
+    }
+    if (filters.departments && filters.departments.length > 0) {
+      clauses.push({
+        'requirements.departments': { $in: filters.departments.map((value) => value) },
+      });
     }
     if (filters.kpssScoreTypes && filters.kpssScoreTypes.length > 0) {
       clauses.push({ 'requirements.kpssScoreTypes': { $in: filters.kpssScoreTypes } });
     }
-    if (filters.departments && filters.departments.length > 0) {
-      clauses.push({ 'requirements.departments': { $in: filters.departments.map((value) => normalizeTr(value)) } });
-    }
-    if (filters.titles && filters.titles.length > 0) {
-      clauses.push({
-        $or: filters.titles.map((title) => ({
-          titles: { $regex: escapeRegex(normalizeTr(title)), $regexFlags: 'i' },
-        })),
-      });
-    }
-    if (filters.q && filters.q.trim().length > 0) {
-      const needle = escapeRegex(normalizeTr(filters.q));
+    if (filters.institution) clauses.push({ institutionNormalized: { $regex: normalizeTr(filters.institution), $regexFlags: 'i' } });
+    if (filters.title) clauses.push({ titleNormalized: { $regex: normalizeTr(filters.title), $regexFlags: 'i' } });
+    if (filters.q) {
+      const needle = normalizeTr(filters.q);
       clauses.push({
         $or: [
           { titleNormalized: { $regex: needle, $regexFlags: 'i' } },
           { institutionNormalized: { $regex: needle, $regexFlags: 'i' } },
           { textExcerpt: { $regex: needle, $regexFlags: 'i' } },
-          { titles: { $regex: needle, $regexFlags: 'i' } },
         ],
       });
     }
     if (filters.deadlineFrom) clauses.push({ applicationEndDate: { $gte: filters.deadlineFrom } });
     if (filters.deadlineTo) clauses.push({ applicationEndDate: { $lte: filters.deadlineTo } });
-    if (filters.createdFrom) clauses.push({ createdAt: { $gte: filters.createdFrom } });
-    if (filters.createdTo) clauses.push({ createdAt: { $lte: filters.createdTo } });
-    if (filters.publishedFrom) clauses.push({ publishedAt: { $gte: filters.publishedFrom } });
-    if (filters.publishedTo) clauses.push({ publishedAt: { $lte: filters.publishedTo } });
-
-    const query: Query = clauses.length > 0 ? { $and: clauses } : {};
-    // Ana akışta reddedilen/incelemedeki kayıtlar görünmez.
-    query.classification = { decision: 'accept' };
-
-    const total = await this.store.count('jobs', query);
-    const safePageSize = Math.min(Math.max(pageSize, 1), 100);
-    const safePage = Math.max(page, 1);
-    const items = await this.store.find('jobs', query, {
-      sort: SORTS[sort],
-      limit: safePageSize,
-      skip: (safePage - 1) * safePageSize,
-    });
-    return { items, total, page: safePage, pageSize: safePageSize };
+    if (filters.minQuota !== undefined) clauses.push({ quota: { $gte: filters.minQuota } });
+    if (filters.onlyWithApplicationUrl) clauses.push({ applicationUrl: { $ne: null } });
+    return clauses.length > 0 ? { $and: clauses } : {};
   }
 
-  /** Ana sayfa istatistikleri — veriden üretilir, uydurma sayı yoktur. */
+  /** Ana sayfa istatistikleri — yalnızca gerçek verilerden üretilir. */
   async dashboardStats(now: Date = this.clock.now()): Promise<{
     total: number;
     active: number;
     upcoming: number;
     closed: number;
+    closingSoon: number;
     addedToday: number;
-    addedLast7Days: number;
-    deadlineSoon: number;
     byEmploymentType: { key: string; count: number }[];
-    byCity: { key: string; count: number }[];
+    lastSuccessfulScanAt: string | null;
   }> {
-    const base: Query = { classification: { decision: 'accept' } };
+    const base: Query = { 'classification.decision': 'accept' };
     const today = toIstanbulDateOnly(now);
-    const in7 = toIstanbulDateOnly(new Date(now.getTime() + 7 * 86_400_000));
-    const iso7 = new Date(now.getTime() - 7 * 86_400_000).toISOString();
-    const isoToday = new Date(`${today}T00:00:00+03:00`).toISOString();
+    const soon = toIstanbulDateOnly(new Date(now.getTime() + 7 * 86_400_000));
 
-    const [total, active, upcoming, closed, addedToday, addedLast7Days, deadlineSoon] = await Promise.all([
+    const [total, active, upcoming, closed, closingSoon, addedToday, jobs] = await Promise.all([
       this.store.count('jobs', base),
       this.store.count('jobs', { ...base, status: 'active' }),
       this.store.count('jobs', { ...base, status: 'upcoming' }),
       this.store.count('jobs', { ...base, status: 'closed' }),
-      this.store.count('jobs', { ...base, createdAt: { $gte: isoToday } }),
-      this.store.count('jobs', { ...base, createdAt: { $gte: iso7 } }),
-      this.store.count('jobs', { ...base, status: 'active', applicationEndDate: { $gte: today, $lte: in7 } }),
+      this.store.count('jobs', {
+        ...base,
+        status: 'active',
+        applicationEndDate: { $gte: today, $lte: soon },
+      }),
+      this.store.count('jobs', { ...base, publishedAt: { $gte: `${today}T00:00:00+03:00` } }),
+      this.store.find('jobs', base, { limit: 2_000, sort: [['createdAt', -1]] }),
     ]);
 
-    const accepted = await this.store.find('jobs', base, { limit: 5_000 });
-    const typeCounts = new Map<string, number>();
-    const cityCounts = new Map<string, number>();
-    for (const job of accepted) {
-      typeCounts.set(job.employmentType, (typeCounts.get(job.employmentType) ?? 0) + 1);
-      if (job.city) cityCounts.set(job.city, (cityCounts.get(job.city) ?? 0) + 1);
-    }
-    const top = (map: Map<string, number>, limit: number) =>
-      [...map.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, limit)
-        .map(([key, count]) => ({ key, count }));
+    const counts = new Map<string, number>();
+    for (const job of jobs) counts.set(job.employmentType, (counts.get(job.employmentType) ?? 0) + 1);
+
+    const lastRuns = await this.store.find('scrapeRuns', { status: 'success' }, { limit: 1, sort: [['startedAt', -1]] });
+    const lastRun = lastRuns[0];
 
     return {
       total,
       active,
       upcoming,
       closed,
+      closingSoon,
       addedToday,
-      addedLast7Days,
-      deadlineSoon,
-      byEmploymentType: top(typeCounts, 8),
-      byCity: top(cityCounts, 8),
+      byEmploymentType: [...counts.entries()]
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => b.count - a.count),
+      lastSuccessfulScanAt: lastRun?.startedAt ?? null,
     };
   }
 
-  /** Kapanan ilanların durum güncellemesi (başvuru bitiş tarihi geçenler). */
+  /** Kapanan ilanların durumunu günceller (başvuru bitiş tarihi geçti). */
   async closeExpiredJobs(todayDateOnly: string): Promise<number> {
     const now = this.clock.now().toISOString();
     return this.store.updateMany(
       'jobs',
-      { status: { $in: ['active', 'upcoming'] }, applicationEndDate: { $lt: todayDateOnly }, classification: { decision: 'accept' } },
-      { status: 'closed', statusReason: 'Başvuru bitiş tarihi geçti (otomatik)', updatedAt: now },
+      { status: { $in: ['active', 'upcoming'] }, applicationEndDate: { $lt: todayDateOnly } },
+      { status: 'closed', statusReason: 'Başvuru süresi doldu.', updatedAt: now },
     );
   }
 
-  /** Başvuru penceresi bugün açılan ilanları aktif işaretler. */
+  /** Başvurusu bugün başlayan ilanları "aktif" durumuna alır. */
   async activateStartedJobs(todayDateOnly: string): Promise<number> {
     const now = this.clock.now().toISOString();
     return this.store.updateMany(
@@ -284,22 +269,13 @@ export class JobRepo {
         applicationStartAt: { $lte: `${todayDateOnly}T23:59:59+03:00` },
         applicationEndDate: { $gte: todayDateOnly },
       },
-      { status: 'active', statusReason: 'Başvuru penceresi açıldı (otomatik)', updatedAt: now },
+      { status: 'active', statusReason: 'Başvuru penceresi açıldı.', updatedAt: now },
     );
   }
 
-  async findBySourceKey(sourceKey: string, limit = 500): Promise<JobDoc[]> {
-    return this.store.find('jobs', { sourceKeys: sourceKey }, { limit, sort: [['createdAt', -1]] });
-  }
-
-  async countAccepted(): Promise<number> {
-    return this.store.count('jobs', { classification: { decision: 'accept' } });
-  }
-
-  /** Yeni ilan kaydı oluşturur (kimlik, normalize alanlar ve zaman damgaları). */
-  buildJobDocument(input: Omit<JobDoc, 'id' | 'createdAt' | 'updatedAt' | 'firstSeenAt' | 'lastSeenAt' | 'version'> & {
-    seenAt: string;
-  }): JobDoc {
+  buildJobDocument(
+    input: Omit<JobDoc, 'id' | 'createdAt' | 'updatedAt' | 'firstSeenAt' | 'lastSeenAt' | 'version'> & { seenAt: string },
+  ): JobDoc {
     const { seenAt, ...rest } = input;
     return {
       ...rest,
@@ -319,8 +295,4 @@ export class JobRepo {
   static normalizedTitle(value: string): string {
     return normalizeTr(value);
   }
-}
-
-function escapeRegex(value: string): string {
-  return lowerTr(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

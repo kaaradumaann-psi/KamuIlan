@@ -1,230 +1,229 @@
 /**
- * Resmî Gazete — Çeşitli İlânlar adaptörü.
+ * Resmî Gazete — Çeşitli İlânlar adaptörü (PDF tabanlı).
  *
  * Doğrulanmış akış (12.10.2026, canlı):
- *   /fihrist?tarih=YYYY-MM-DD  → günün nüshası ve bölüm bağlantıları
+ *   /fihrist?tarih=YYYY-MM-DD  → günün bölüm bağlantıları
  *   /ilanlar/eskiilanlar/YYYY/MM/YYYYMMDD-4.htm → "ÇEŞİTLİ İLÂNLAR" tablosu
- *   satırlar: kurum adı (…-4-N.pdf bağlantısı) → ilan metni PDF içinde
+ *   Her satır bir kurum ilanı ve ilgili PDF'e (…-4-N.pdf) bağlantı verir.
  *
- * Not: Personel alım ilanlarının hukuken yayımlandığı yer burasıdır. Yargı (-2),
- * ihale (-3) ve Merkez Bankası (-5) bölümleri kapsam dışıdır.
- *
- * İlan başlığı yalnızca PDF metninden çıkarılabilir; bu yüzden PDF metni
- * indirilir. Aynı ilan birden çok nüshada yayımlanabildiği için daha önce
- * görülmüş ve metni çıkarılmış kayıtlar tekrar indirilmez.
+ * İlan metninin TAMAMI PDF içindedir; bu yüzden PDF indirilip metin katmanı
+ * okunur. Taranmış PDF'lerde metin katmanı bulunmaz: bu durumda kayıt yine
+ * oluşturulur (ek saklanır, durum "metin katmanı yok" olarak bildirilir) ve
+ * metin gerektiren alanlar boş bırakılır — tahmin yürütülmez.
  */
 import { collapseWhitespace } from '../../domain/text';
-import type { RawAnnouncement } from '../../domain';
-import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
-import { addDaysDateOnly, toIstanbulDateOnly } from '../../domain/dates';
-import { extractPdfTextFromBuffer } from '../../extraction/pdf';
+import { firstDateOnlyIn } from '../../domain/dates';
+import { addDaysDateOnly, toIstanbulDateOnly, toIstanbulIso } from '../../domain/dates';
+import type { JobAttachment, RawAnnouncement } from '../../domain';
 import { AdapterStructureError } from '../errors';
-import { cleanInstitution, extractReferenceNo } from '../listing-utils';
+import { cleanInstitution } from '../listing-utils';
+import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
+import { extractPdfText } from '../../extraction/pdf';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 
-const BASE = 'https://www.resmigazete.gov.tr';
-const BOLUM_PATTERN = /-\d+\.htm$/;
+const RESMI_GAZETE_HOST = 'https://www.resmigazete.gov.tr';
+const SECTION_PATTERN = /-\d+\.htm$/i;
+const PDF_PATTERN = /\.pdf$/i;
 
-interface IssueSection {
-  dateOnly: string;
-  cesitliIlanlarUrl: string | null;
-  issueNumber: string | null;
+interface SectionRow {
+  index: number;
+  pdfUrl: string;
+  rowText: string;
 }
 
 export class ResmiGazeteAdapter implements SourceAdapter {
-  readonly key = 'resmigazete-ilan';
+  readonly key = 'resmigazete-cestili';
   readonly label = 'Resmî Gazete — Çeşitli İlânlar';
-
-  listingUrl(): string {
-    return `${BASE}/ilanlar`;
-  }
+  readonly method = 'pdf-index';
+  readonly notes =
+    'Günlük nüshadaki Çeşitli İlânlar bölümü HTML olarak okunur, ilan metni PDF metin katmanından çıkarılır. ' +
+    'Yargı/ihale bölümleri kapsam dışıdır.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
-    const httpStatuses: number[] = [];
-    const notes: string[] = [];
     const items: RawAnnouncement[] = [];
-    const today = toIstanbulDateOnly(ctx.clock.now());
-    const days = Math.min(Math.max(ctx.limits.maxListingPages, 1), 3);
+    const notes: string[] = [];
+    let requestCount = 0;
+    let etag: string | null = null;
+    let lastModified: string | null = null;
     let notModified = false;
+    let detailFetches = 0;
 
-    for (let offset = 0; offset < days; offset += 1) {
+    if (!ctx.liveFetch) {
+      notes.push('Canlı erişim kapalı (SOURCE_LIVE_FETCH=0): adaptör yalnızca yapılandırma doğrulaması yaptı.');
+      return { items, requestCount, notes, etag, lastModified, notModified };
+    }
+
+    const today = toIstanbulDateOnly(ctx.fetchedAt);
+    const days = [0, 1]; // Bugün yayımlanmadıysa dünkü nüsha okunur.
+
+    for (const offset of days) {
       const dateOnly = addDaysDateOnly(today, -offset);
-      const fihristUrl = `${BASE}/fihrist?tarih=${dateOnly}`;
-      const response = await ctx.fetcher.fetchText(fihristUrl, {
-        source: ctx.source,
-        conditional: offset === 0 ? { etag: ctx.source.health.etag, lastModified: ctx.source.health.lastModified } : undefined,
+      const sectionUrl = this.sectionUrl(dateOnly);
+      const response = await ctx.http.fetchText(sectionUrl, {
+        allowedHosts: ctx.source.allowedHosts,
+        minIntervalMs: ctx.source.minRequestIntervalMs,
+        // Yalnızca bugünün sayfası için koşullu istek anlamlıdır.
+        ...(offset === 0 ? {} : {}),
       });
-      httpStatuses.push(response.status);
+      requestCount += 1;
 
       if (response.notModified && offset === 0) {
         notModified = true;
         notes.push(`${dateOnly} nüshası değişmemiş (304).`);
-        continue;
-      }
-      if (!response.text) {
-        notes.push(`${dateOnly} fihristi boş yanıt döndü.`);
-        continue;
+        break;
       }
 
-      const issue = this.parseFihrist(response.text, dateOnly, response.finalUrl);
-      if (!issue.cesitliIlanlarUrl) {
-        notes.push(`${dateOnly} nüshasında "Çeşitli İlânlar" bölümü bulunamadı (tatil günü olabilir).`);
-        continue;
-      }
+      const html = response.decoded?.text ?? response.body.toString('utf8');
+      const $ = loadHtml(html);
+      const rows = this.parseSectionRows($, sectionUrl);
 
-      const sectionResponse = await ctx.fetcher.fetchText(issue.cesitliIlanlarUrl, { source: ctx.source });
-      httpStatuses.push(sectionResponse.status);
-      if (!sectionResponse.text) {
-        notes.push(`${dateOnly} Çeşitli İlânlar sayfası okunamadı.`);
-        continue;
-      }
-
-      const rows = this.parseSection(sectionResponse.text, sectionResponse.finalUrl);
-      if (rows.length === 0) {
+      const pageText = readableText($, 'body', 5_000).toLocaleLowerCase('tr');
+      const isAnnouncementPage = pageText.includes('ilân') || pageText.includes('ilan') || rows.length > 0;
+      if (!isAnnouncementPage) {
         throw new AdapterStructureError(
-          ctx.source.key,
-          `${dateOnly} nüshasında ilan satırı bulunamadı: sayfa yapısı değişmiş olabilir.`,
-          sectionResponse.finalUrl,
+          this.key,
+          `Resmî Gazete Çeşitli İlânlar sayfası beklenen biçimde değil (${sectionUrl}).`,
+          'Sayfa yüklendi ancak ne ilan bağlantısı ne de ilan metni bulundu; HTML yapısı değişmiş olabilir.',
         );
       }
-      notes.push(`${dateOnly}: ${rows.length} ilan başlığı bulundu.`);
+
+      if (rows.length === 0) {
+        notes.push(`${dateOnly} nüshasında Çeşitli İlânlar bölümü boş görünüyor (yapı doğrulandı).`);
+        continue;
+      }
+
+      if (offset === 0) {
+        etag = response.etag;
+        lastModified = response.lastModified;
+      }
 
       for (const row of rows) {
-        const itemId = row.pdfUrl.split('/').pop() ?? row.pdfUrl;
-        const known = ctx.knownItemIds?.has(itemId) ?? false;
-        let body = '';
-        let documentMissingText = false;
-        let attachmentSize: number | undefined;
-
-        if (ctx.liveFetch && !known) {
-          try {
-            const pdfResponse = await ctx.fetcher.fetchBinary(row.pdfUrl, { source: ctx.source });
-            httpStatuses.push(pdfResponse.status);
-            if (pdfResponse.buffer) {
-              attachmentSize = pdfResponse.byteLength;
-              const extracted = await extractPdfTextFromBuffer(pdfResponse.buffer, { maxPages: 12, maxChars: 120_000 });
-              if (extracted.hasTextLayer) {
-                body = extracted.text;
-              } else {
-                documentMissingText = true;
-                notes.push(`${itemId}: PDF metin katmanı yok (OCR gerekir) — ek bağlantısı korundu.`);
-              }
-              if (extracted.error) notes.push(`${itemId}: ${extracted.error}`);
-            }
-          } catch (error) {
-            documentMissingText = true;
-            notes.push(`${itemId}: PDF indirilemedi (${(error as Error).message})`);
-          }
-        } else if (known) {
-          notes.push(`${itemId}: daha önce görüldü, PDF tekrar indirilmedi.`);
+        const sourceItemId = this.sourceItemId(row.pdfUrl);
+        const alreadyKnown = ctx.knownItemIds?.has(sourceItemId) ?? false;
+        if (alreadyKnown || detailFetches >= ctx.maxDetailFetches) {
+          if (!alreadyKnown) notes.push(`Belge indirme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`);
+          continue;
         }
 
-        const title = this.deriveTitle(body, row.institution);
+        detailFetches += 1;
+        const pdfResponse = await ctx.http.fetchBinary(row.pdfUrl, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+          maxBytes: 15_728_640,
+        });
+        requestCount += 1;
+
+        const pdf = await extractPdfText(new Uint8Array(pdfResponse.body), { maxPages: 16, maxChars: 60_000 });
+        const itemNotes: string[] = [];
+        if (pdf.error) itemNotes.push(`PDF okunamadı: ${pdf.error}`);
+        if (pdf.noTextLayer && !pdf.error) {
+          itemNotes.push('PDF metin katmanı yok (taranmış görüntü olabilir); metin alanları boş bırakıldı, belge saklandı.');
+        }
+
+        const rowInstitution = cleanInstitution(row.rowText);
+        const title = deriveTitle(pdf.text, row.rowText, rowInstitution, dateOnly);
+        const bodyText = pdf.text;
+        const publishedAt = toIstanbulIso(dateOnly, '00:00');
+
+        const attachment: JobAttachment = {
+          url: row.pdfUrl,
+          label: 'Resmî Gazete ilan belgesi (PDF)',
+          kind: 'pdf',
+          sizeBytes: pdfResponse.bytes,
+        };
+
         items.push({
           sourceKey: ctx.source.key,
-          sourceItemId: itemId,
+          sourceItemId,
           url: row.pdfUrl,
           title,
-          bodyText: body || undefined,
-          institution: row.institution ?? undefined,
-          publishedAt: `${dateOnly}T00:00:00+03:00`,
-          attachments: [{ url: row.pdfUrl, label: 'İlan metni (PDF)', kind: 'pdf', sizeBytes: attachmentSize }],
-          sourceCategory: 'Resmî Gazete — Çeşitli İlânlar',
-          rawExcerpt: collapseWhitespace(body).slice(0, 2_000) || row.institution || '',
-          extractionConfidence: body ? 0.75 : 0.35,
-          notes: documentMissingText ? ['PDF metin katmanı yok; alanlar ek bağlantısından doğrulanmalı.'] : [],
+          bodyText,
+          ...(rowInstitution ? { institution: rowInstitution } : {}),
+          publishedAt,
+          attachments: [attachment],
+          sourceCategory: 'resmi-gazete-cesitli-ilanlar',
+          rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
+          extractionConfidence: pdf.noTextLayer ? 0.2 : pdf.error ? 0.1 : 0.6,
+          ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
         });
       }
     }
 
-    return {
-      items,
-      httpStatuses,
-      notes,
-      notModified,
-      cacheHeaders: {
-        etag: ctx.source.health.etag,
-        lastModified: ctx.source.health.lastModified,
-        contentHash: null,
-      },
-    };
+    notes.push(
+      `${requestCount} istek yapıldı, ${items.length} ilan hazırlandı. ` +
+        'Çeşitli İlânlar bölümünde yayımlanan her ilan ayrı bir PDF’tir; metin katmanı olmayan belgeler insan incelemesine düşer.',
+    );
+
+    return { items, requestCount, notes, etag, lastModified, notModified };
   }
 
-  /** Fihrist sayfasından günün nüshasını ve Çeşitli İlânlar bölümünü bulur. */
-  parseFihrist(html: string, dateOnly: string, baseUrl: string): IssueSection {
-    const root = loadHtml(html);
-    const issueNumberMatch = /(\d{4,6})\s*Sayılı\s*Resmî Gazete/i.exec(readableText(root));
-    let cesitliIlanlarUrl: string | null = null;
-
-    root('a[href]').each((_, anchor) => {
-      const element = root(anchor);
-      const text = collapseWhitespace(element.text()).toLocaleLowerCase('tr');
-      const href = absoluteUrl(element.attr('href'), baseUrl);
-      if (!href) return;
-      if (!BOLUM_PATTERN.test(new URL(href).pathname)) return;
-      // "c - Çeşitli İlânlar" satırı
-      if (/çeşitli\s*il[âa]nlar/.test(text) && /(^|\s)c\s*-/.test(text)) {
-        cesitliIlanlarUrl = href;
-      }
-    });
-
-    // Bazı günlerde bağlantı metni farklı olabilir; yol sonuna göre yedek arama:
-    if (!cesitliIlanlarUrl) {
-      const compact = dateOnly.replace(/-/g, '');
-      const guess = `${BASE}/ilanlar/eskiilanlar/${dateOnly.slice(0, 4)}/${dateOnly.slice(5, 7)}/${compact}-4.htm`;
-      if (html.includes(`${compact}-4.htm`)) cesitliIlanlarUrl = guess;
-    }
-
-    return { dateOnly, cesitliIlanlarUrl, issueNumber: issueNumberMatch?.[1] ?? null };
+  private sectionUrl(dateOnly: string): string {
+    const [year, month, day] = dateOnly.split('-');
+    return `${RESMI_GAZETE_HOST}/ilanlar/eskiilanlar/${year}/${month}/${year}${month}${day}-4.htm`;
   }
 
-  /** Çeşitli İlânlar tablosundan kurum + PDF bağlantılarını okur. */
-  parseSection(html: string, baseUrl: string): { institution: string | null; pdfUrl: string }[] {
-    const root = loadHtml(html);
-    const rows: { institution: string | null; pdfUrl: string }[] = [];
+  private sourceItemId(pdfUrl: string): string {
+    const file = pdfUrl.split('/').pop() ?? pdfUrl;
+    return `resmigazete:${file}`;
+  }
+
+  /** Bölüm sayfasındaki ilan satırlarını (kurum → PDF) çıkarır. */
+  parseSectionRows($: ReturnType<typeof loadHtml>, pageUrl: string): SectionRow[] {
+    const rows: SectionRow[] = [];
     const seen = new Set<string>();
 
-    root('a[href]').each((_, anchor) => {
-      const element = root(anchor);
-      const href = element.attr('href');
-      if (!href || !/\.pdf$/i.test(href)) return;
-      const url = absoluteUrl(href, baseUrl);
-      if (!url || seen.has(url)) return;
-      seen.add(url);
-      const institution = cleanInstitution(collapseWhitespace(element.text()) || null);
-      rows.push({ institution, pdfUrl: url });
+    $('a[href]').each((_index, element) => {
+      const node = $(element);
+      const href = absoluteUrl(node.attr('href'), pageUrl, $);
+      if (!href || !PDF_PATTERN.test(href)) return;
+      if (!SECTION_PATTERN.test(new URL(href).pathname.replace(PDF_PATTERN, '.htm'))) {
+        // Belge adı "-4-N.pdf" biçiminde olmalı.
+        if (!/-\d+-\d+\.pdf$/i.test(new URL(href).pathname)) return;
+      }
+      if (seen.has(href)) return;
+      seen.add(href);
+
+      const container = node.closest('td, li, tr, div');
+      const rowText = collapseWhitespace(
+        (container.length > 0 ? container.text() : node.parent().text()) || node.text(),
+      )
+        .replace(/\s*\(?PDF\)?\s*$/i, '')
+        .trim();
+
+      rows.push({
+        index: rows.length,
+        pdfUrl: href,
+        rowText: rowText.length >= 4 ? rowText : (node.text() ?? '').trim(),
+      });
     });
 
-    if (rows.length === 0) {
-      // Bazı sayfalarda bağlantı yerine düz PDF adı geçebilir.
-      const referenceMatch = /eskiilanlar\/(\d{4})\/(\d{2})\/(\d{8})-\d+\.pdf/g;
-      const text = readableText(root);
-      for (const match of text.matchAll(referenceMatch)) {
-        const url = `${BASE}/ilanlar/eskiilanlar/${match[1]}/${match[2]}/${match[0].split('/').pop()}`;
-        if (!seen.has(url)) {
-          seen.add(url);
-          rows.push({ institution: null, pdfUrl: url });
-        }
-      }
-    }
     return rows;
   }
 
-  /** PDF metninden ilan başlığını üretir; kurum adına düşer. */
-  deriveTitle(body: string, institution: string | null): string {
-    if (body) {
-      const head = body.slice(0, 500);
-      const match = /^([\s\S]{5,220}?(?:İlanı|İlanları|İlânı|İlânları|Duyurusu|İlandır|İlan Metni|Alım İlanı|Sınav İlanı|Temin İlanı))\b/u.exec(head);
-      if (match?.[1]) return collapseWhitespace(match[1]).replace(/[:.]$/, '');
-      const firstSentence = /^([\s\S]{10,180}?[.:])\s/.exec(head);
-      if (firstSentence?.[1]) return collapseWhitespace(firstSentence[1]).replace(/[:.]$/, '');
-    }
-    if (institution) return collapseWhitespace(institution.replace(/[:.]$/, ''));
-    return 'Resmî Gazete ilanı';
-  }
-
-  /** İlan numarası PDF adından/başlıktan çıkarılır. */
-  referenceOf(item: { url: string; title: string }): string | null {
-    return extractReferenceNo(item.title) ?? extractReferenceNo(item.url);
+  /** İnsan tarafından okunabilir ilk başlığı bulur; bulunamazsa satır metni kullanılır. */
+  static deriveTitleFromRow(rowText: string): string {
+    return collapseWhitespace(rowText.replace(/[:;]\s*$/, ''));
   }
 }
+
+function deriveTitle(pdfText: string, rowText: string, institution: string | null, dateOnly: string): string {
+  const normalizedRow = collapseWhitespace(rowText.replace(/[:;]\s*$/, ''));
+  if (pdfText) {
+    const lines = pdfText
+      .split('\n')
+      .map((line) => collapseWhitespace(line))
+      .filter((line) => line.length >= 12);
+    const heading = lines.find((line) =>
+      /\b(?:ilan[ıi]?|al[ıi]m[ıi]?|alım|duyuru|sınav|kadro|personel|ba[şs]vuru)\b/iu.test(line) && !/^\d/.test(line),
+    );
+    if (heading) {
+      const cleaned = heading.replace(/\s{2,}/g, ' ').replace(/[:;]$/, '').trim();
+      if (cleaned.length >= 12) return cleaned.slice(0, 300);
+    }
+  }
+  if (normalizedRow.length >= 8) return `${normalizedRow} — ${dateOnly}`.slice(0, 300);
+  if (institution) return `${institution} ilanı — ${dateOnly}`.slice(0, 300);
+  return `Resmî Gazete ilanı — ${dateOnly}`;
+}
+
+export { deriveTitle, firstDateOnlyIn };

@@ -1,125 +1,122 @@
 /**
- * Liste sayfaları için ortak yardımcılar.
- * Adaptörler bu fonksiyonları kullanır; böylece tarih/kurum ayıklama tek yerde kalır.
+ * Liste sayfaları için ortak yardımcılar (adaptörler arasında paylaşılır).
  */
-import type { CheerioAPI } from 'cheerio';
-import { collapseWhitespace, normalizeTr } from '../domain/text';
+import type { CheerioAPI } from '../lib/html';
+import { absoluteUrl, cleanAnchorText, elementText } from '../lib/html';
 import { parseTurkishDate } from '../domain/dates';
-import { absoluteUrl } from '../lib/html';
+import { collapseWhitespace } from '../domain/text';
+import type { AnyNode, Cheerio } from '../lib/html';
 
-const TR_MONTHS =
-  '(ocak|şubat|subat|mart|nisan|mayıs|mayis|haziran|temmuz|ağustos|agustos|eylül|eylul|ekim|kasım|kasim|aralık|aralik)';
-
-/** Liste satırındaki tarih metnini ISO damgasına çevirir; yıl yoksa null. */
-export function parseListingDate(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const parsed = parseTurkishDate(raw);
-  return parsed?.iso ?? null;
+/** Listede görülen yayım/duyuru tarihini YYYY-MM-DD olarak döner. */
+export function parseListingDate(text: string | null | undefined): string | null {
+  if (!text) return null;
+  return parseTurkishDate(text)?.dateOnly ?? null;
 }
 
-/**
- * ÖSYM/MEB gibi sitelerde tarih `dd.MM.yyyy` biçiminde ayrı bir sütunda durur.
- * Bu fonksiyon metnin tamamından ilk tarihi bulur.
- */
-export function firstDateIn(text: string): string | null {
-  const parsed = parseTurkishDate(text);
-  return parsed?.iso ?? null;
+const REFERENCE_PATTERNS: readonly RegExp[] = [
+  // YOK853479, DPB845507, ILN0250539595 gibi resmî ilan numaraları
+  /\b([A-Z]{2,4})[-\s]?(\d{5,12})\b/g,
+  /\bİlan\s*(?:No|Numarası)\s*[:.]?\s*([A-Z0-9-]{4,20})\b/gi,
+];
+
+/** Metinden resmî ilan numaralarını çıkarır (tekilleştirme için değerli). */
+export function extractReferenceNumbers(text: string): string[] {
+  const found: string[] = [];
+  for (const pattern of REFERENCE_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const value = (match[1] && match[2] ? `${match[1]}${match[2]}` : match[1])?.trim();
+      if (value && value.length >= 5) found.push(value.toUpperCase());
+    }
+  }
+  return [...new Set(found)];
 }
 
-/** "12 Ekim 2026" / "12.10.2026" gibi ifadeleri bulan genel kalıp. */
-export const DATE_TEXT_PATTERN = new RegExp(
-  `(\\d{1,2}\\s*[./-]\\s*\\d{1,2}\\s*[./-]\\s*\\d{4}|\\d{1,2}\\s+${TR_MONTHS}\\s+\\d{4})`,
-  'i',
-);
+/** Başlık temizliği: tarih/numaralandırma/jenerik ekler ayıklanır. */
+export function cleanTitle(raw: string): string {
+  let title = collapseWhitespace(raw);
+  title = title.replace(/\s*[-–—]\s*\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}\s*$/u, '');
+  title = title.replace(/\b(YOK|DPB|ILN)\s?-?\s?\d{5,12}\b/gi, ' ');
+  title = title.replace(/\s*\(?\d{2}[.\-/]\d{2}[.\-/]\d{4}\s*(?:tarihli|tarihinde)?\s*\)?\s*/giu, ' ');
+  title = title.replace(/\s*İlan\s*(?:No|Numarası)\s*[:.]?\s*[A-Z0-9-]{4,20}\s*/gi, ' ');
+  title = title.replace(/\s{2,}/g, ' ').trim();
+  return title.replace(/[:;,–—-]\s*$/u, '').trim();
+}
 
-/** Kurum adı sütunundan temizlik: fazla boşluk, tire ve etiketler kaldırılır. */
+/** Kurum adı temizliği: sonundaki iki nokta, fazla boşluk, "- İlan" ekleri. */
 export function cleanInstitution(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const cleaned = collapseWhitespace(
-    raw
-      .replace(/\s*[-–—]\s*$/, '')
-      .replace(/^[-–—•]\s*/, '')
-      .replace(/\s+/g, ' '),
-  );
-  return cleaned.length >= 3 ? cleaned : null;
+  const value = collapseWhitespace(raw)
+    .replace(/\s*[-–—]\s*(?:İlan|Duyuru|Personel).*$/iu, '')
+    .replace(/[:;]\s*$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return value.length >= 4 ? value : null;
 }
 
-/** Başlık temizliği: baştaki/sondaki ilan numarası ve etiketleri ayıklar. */
-export function cleanTitle(raw: string | null | undefined): string {
-  if (!raw) return '';
-  return collapseWhitespace(
-    raw
-      .replace(/^\s*[-–—•\d.]+\s*/, '')
-      .replace(/\s*[-–—•]\s*(?:YOK|DPB|ILN)\d+\s*$/i, '')
-      .replace(/\s+/g, ' '),
-  );
+/** Bağlantı metni bir ilan/detay bağlantısına mı benziyor? */
+export function isLikelyDetailLink(text: string, href: string): boolean {
+  if (/\b(?:detay|devam|incele|tümü|tumu|daha fazla|tüm haberler)\b/i.test(text)) return true;
+  if (/\/(?:ilan|duyuru|haber|icerik|detay)[/-]/i.test(href)) return true;
+  if (/\d{4,}\/?$/.test(href.replace(/\/$/, ''))) return true;
+  return false;
+}
+
+export interface PagedLink {
+  url: string;
+  page: number;
 }
 
 /**
- * İlan numarası: "YOK853480", "DPB845507", "ILN02566625" gibi resmî referanslar.
- * Tekilleştirmede kaynağın resmî kimliği olarak kullanılır.
+ * "Sonraki sayfa" bağlantılarını bulur (currentPage=N, sayfa=N, ?p=N gibi).
+ * Sayfalama adı çeşitli olduğundan desen listesiyle aranır; ilk sayfa hariç.
  */
-export function extractReferenceNo(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const match = /\b(?:YOK|DPB|ILN|ILN0?)[\s-]?(\d{4,12})\b/i.exec(text);
-  if (!match) return null;
-  const prefix = /\b(YOK|DPB|ILN)\b/i.exec(match[0])?.[1] ?? '';
-  return `${prefix}${match[1]}`.toUpperCase();
+export function findPaginationLinks(
+  $: CheerioAPI,
+  baseUrl: string,
+  options: { param: string; maxPage: number; currentPage?: number },
+): PagedLink[] {
+  const links: PagedLink[] = [];
+  const parameter = options.param.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`[?&]${parameter}=(\\d+)`, 'i');
+
+  $('a[href]').each((_index, element) => {
+    const node = $(element);
+    const href = absoluteUrl(node.attr('href'), baseUrl, $);
+    if (!href) return;
+    const match = pattern.exec(href);
+    if (!match?.[1]) return;
+    const page = Number(match[1]);
+    if (!Number.isFinite(page) || page < 1 || page > options.maxPage) return;
+    if (options.currentPage !== undefined && page === options.currentPage) return;
+    links.push({ url: href, page });
+  });
+
+  return links
+    .filter((link, index, array) => array.findIndex((candidate) => candidate.page === link.page) === index)
+    .sort((a, b) => a.page - b.page);
 }
 
-/** Bir bağlantı metninden/URL'inden ilan kimliği üretir (kaynak içi kararlı kimlik). */
-export function sourceItemIdFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/+$/, '');
-    const parts = path.split('/').filter(Boolean);
-    const last = parts[parts.length - 1] ?? '';
-    return last.replace(/\.[a-z0-9]{1,5}$/i, '') || normalizeTr(parsed.hostname);
-  } catch {
-    return normalizeTr(url).slice(0, 60);
-  }
-}
-
-/** Sayfadaki "sayfalama" bağlantılarından sonraki sayfa adresini bulur. */
-export function findNextPageUrl(root: CheerioAPI, container: string, base: string): string | null {
-  const selectors = [
-    'a[rel="next"]',
-    '.pagination a.next',
-    '.pagination a[aria-label*="Sonraki" i]',
-    'a[title*="Sonraki" i]',
-    'li.next a',
-    '.pager a:contains("Sonraki")',
-    'a:contains("Sonraki sayfa")',
-  ];
-  for (const selector of selectors) {
-    const href = root(`${container} ${selector}`).first().attr('href') ?? root(selector).first().attr('href');
-    const url = absoluteUrl(href, base);
-    if (url) return url;
-  }
-  return null;
-}
-
-/** Türkçe ay adını sayıya çevirir (liste sıralaması/doğrulama için). */
-export function parseTurkishMonthName(name: string): number | null {
-  const map: Record<string, number> = {
-    ocak: 1,
-    şubat: 2,
-    subat: 2,
-    mart: 3,
-    nisan: 4,
-    mayıs: 5,
-    mayis: 5,
-    haziran: 6,
-    temmuz: 7,
-    ağustos: 8,
-    agustos: 8,
-    eylül: 9,
-    eylul: 9,
-    ekim: 10,
-    kasım: 11,
-    kasim: 11,
-    aralık: 12,
-    aralik: 12,
+/**
+ * Bir tablo satırını/ liste öğesini "başlık + tarih + bağlantı" olarak okur.
+ * Farklı kaynaklarda ortak olan en küçük ortak payda budur.
+ */
+export function readListRow(
+  $: CheerioAPI,
+  element: Cheerio<AnyNode>,
+  baseUrl: string,
+): { title: string; date: string | null; href: string | null; referenceNo: string | null } | null {
+  const anchor = element.find('a[href]').first();
+  const href = anchor.length > 0 ? absoluteUrl(anchor.attr('href'), baseUrl, $) : null;
+  const text = elementText(element, 1_500);
+  const title = cleanTitle(anchor.length > 0 ? elementText(anchor, 400) || text : text);
+  if (title.length < 8) return null;
+  const dateText = text.match(/\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}/)?.[0] ?? text;
+  return {
+    title,
+    date: parseListingDate(dateText),
+    href,
+    referenceNo: extractReferenceNumbers(text)[0] ?? null,
   };
-  return map[normalizeTr(name)] ?? null;
 }
+
+export { cleanAnchorText };

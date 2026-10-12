@@ -1,184 +1,245 @@
 /**
- * Tarih + başlık biçimindeki kurumsal duyuru listeleri için ortak adaptör.
+ * Genel "bağlantı listesi" adaptörü.
  *
- * İŞKUR ve MEB Personel sayfaları bu yapıya uyar: liste hâlinde bağlantılar,
- * yanlarında yayım tarihi. Sınıf adları bilinmediği için ayrıştırma
- * yapısal bağlantı kalıplarına dayanır; kayıt bulunamazsa yapı uyarısı üretilir.
+ * Aynı yapıyı paylaşan kurumsal duyuru listeleri (İŞKUR kamu ilan listeleri,
+ * MEB personel duyuruları gibi) için tek, yapılandırılabilir uygulama.
  *
- * Ayrıştırma kuralları (yapılandırılabilir):
- *  - `hrefPattern`: detay bağlantısı kalıbı (ör. /ilanlar/…, /icerik/…)
- *  - `minTitleLength`: başlık uzunluğu eşiği
- *  - `containerSelector`: liste kapsayıcısı (opsiyonel)
+ * Liste sayfası beklenen kalıbı taşımıyorsa boş liste yerine yapı hatası verir.
+ * 17.10 kuralı: yeni bir kurum eklemek için kod yazmak gerekmez — kaynak kaydı
+ * yeterlidir (registry bu adaptörü paylaşır).
  */
 import { collapseWhitespace } from '../../domain/text';
 import type { RawAnnouncement } from '../../domain';
-import { absoluteUrl, loadHtml, readableText } from '../../lib/html';
 import { AdapterStructureError } from '../errors';
-import { cleanInstitution, cleanTitle, firstDateIn, sourceItemIdFromUrl } from '../listing-utils';
+import { loadHtml, readableText, absoluteUrl, elementText } from '../../lib/html';
+import { cleanTitle, findPaginationLinks, parseListingDate } from '../listing-utils';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
+import { collectAttachments } from './ilan-gov-tr';
 
 export interface AnchorListConfig {
-  hrefPattern: RegExp;
-  minTitleLength: number;
-  /** Başlıkların arandığı kapsayıcı; boşsa tüm belge. */
-  containerSelector?: string;
-  /** Bağlantı metninde aranan zorunlu ifade (opsiyonel). */
-  titleMustContain?: RegExp;
-  /** Detay sayfaları indirilsin mi? */
-  fetchDetails?: boolean;
+  key: string;
+  label: string;
+  notes: string;
+  /** Liste sayfasındaki bağlantıların uyması gereken desen. */
+  linkPattern: RegExp;
+  /** Detay sayfası okunacak mı? (liste sayfası yeterliyse false) */
+  fetchDetail: boolean;
+  /** Aynı anda taranacak en fazla liste sayfası. */
+  maxPages?: number;
+  /** Sayfalama parametresi (varsa). */
+  paginationParam?: string;
+  /** Detay sayfasında ilan metninin bulunduğu olası seçiciler. */
+  detailSelectors?: string;
 }
 
 export class AnchorListAdapter implements SourceAdapter {
   readonly key: string;
   readonly label: string;
+  readonly method = 'http-html';
+  readonly notes: string;
   private readonly config: AnchorListConfig;
 
-  constructor(key: string, label: string, config: AnchorListConfig) {
-    this.key = key;
-    this.label = label;
+  constructor(config: AnchorListConfig) {
     this.config = config;
-  }
-
-  listingUrl(source: { listingUrl: string }): string {
-    return source.listingUrl;
+    this.key = config.key;
+    this.label = config.label;
+    this.notes = config.notes;
   }
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
-    const httpStatuses: number[] = [];
-    const notes: string[] = [];
     const items: RawAnnouncement[] = [];
+    const notes: string[] = [];
+    let requestCount = 0;
 
-    const response = await ctx.fetcher.fetchText(this.listingUrl(ctx.source), {
-      source: ctx.source,
-      conditional: { etag: ctx.source.health.etag, lastModified: ctx.source.health.lastModified },
+    if (!ctx.liveFetch) {
+      notes.push('Canlı erişim kapalı: liste okunmadı.');
+      return { items, requestCount, notes, etag: null, lastModified: null, notModified: false };
+    }
+
+    const listingUrl = ctx.source.listingUrl;
+    const firstPage = await ctx.http.fetchText(listingUrl, {
+      allowedHosts: ctx.source.allowedHosts,
+      minIntervalMs: ctx.source.minRequestIntervalMs,
     });
-    httpStatuses.push(response.status);
+    requestCount += 1;
 
-    if (response.notModified) {
-      return { items: [], httpStatuses, notes: ['Liste değişmemiş (304).'], notModified: true };
+    if (firstPage.notModified) {
+      return {
+        items,
+        requestCount,
+        notes: ['Liste içeriği değişmemiş (304).'],
+        etag: firstPage.etag,
+        lastModified: firstPage.lastModified,
+        notModified: true,
+      };
     }
-    if (!response.text) {
-      throw new AdapterStructureError(this.key, 'Liste sayfası boş döndü.', response.finalUrl);
+
+    const maxPages = this.config.maxPages ?? 2;
+    const firstHtml = firstPage.decoded?.text ?? firstPage.body.toString('utf8');
+    const $first = loadHtml(firstHtml);
+    const pageUrls = [listingUrl];
+
+    if (this.config.paginationParam) {
+      const pagination = findPaginationLinks($first, listingUrl, {
+        param: this.config.paginationParam,
+        maxPage: maxPages,
+        currentPage: 1,
+      });
+      for (const link of pagination) if (pageUrls.length < maxPages) pageUrls.push(link.url);
     }
 
-    const rows = this.parseRows(response.text, response.finalUrl);
-    if (rows.length === 0) {
-      throw new AdapterStructureError(
-        this.key,
-        'Liste sayfasında kayıt bulunamadı: HTML yapısı değişmiş olabilir. Kaynak devre dışı bırakılmadan önce yönetici incelemesi gerekir.',
-        response.finalUrl,
-      );
-    }
-    notes.push(`${rows.length} kayıt bulundu.`);
+    let found = 0;
+    let detailFetches = 0;
 
-    const detailBudget = this.config.fetchDetails ? ctx.limits.maxDetailFetches : 0;
-    let fetched = 0;
-
-    for (const row of rows) {
-      let body = '';
-      if (ctx.liveFetch && detailBudget > 0 && fetched < detailBudget && !(ctx.knownItemIds?.has(row.itemId) ?? false)) {
-        fetched += 1;
-        try {
-          const detail = await ctx.fetcher.fetchText(row.url, { source: ctx.source });
-          httpStatuses.push(detail.status);
-          if (detail.text) {
-            const root = loadHtml(detail.text);
-            const container = root('article, main, [class*="content"], .icerik').first();
-            body = readableText(root, container.length > 0 ? container : root('body')).slice(0, 20_000);
-          }
-        } catch (error) {
-          notes.push(`${row.itemId}: detay alınamadı (${(error as Error).message})`);
-        }
+    for (const pageUrl of pageUrls) {
+      let $ = $first;
+      if (pageUrl !== listingUrl) {
+        const page = await ctx.http.fetchText(pageUrl, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+        });
+        requestCount += 1;
+        $ = loadHtml(page.decoded?.text ?? '');
       }
 
-      items.push({
-        sourceKey: ctx.source.key,
-        sourceItemId: row.itemId,
-        url: row.url,
-        title: row.title,
-        bodyText: body || undefined,
-        institution: row.institution ?? undefined,
-        publishedAt: row.publishedAt ?? undefined,
-        attachments: [],
-        sourceCategory: ctx.source.name,
-        rawExcerpt: collapseWhitespace(body || row.title).slice(0, 2_000),
-        extractionConfidence: body.length > 200 ? 0.6 : 0.35,
-        notes: [],
-      });
+      const links = this.parseLinks($, pageUrl);
+      found += links.length;
+
+      for (const link of links) {
+        const sourceItemId = `${this.key}:${slugFor(link.url)}`;
+        const known = ctx.knownItemIds?.has(sourceItemId) ?? false;
+        if (known) continue;
+        if (this.config.fetchDetail && detailFetches >= ctx.maxDetailFetches) {
+          notes.push(`Detay sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`);
+          break;
+        }
+
+        let bodyText = link.summary;
+        let attachments: RawAnnouncement['attachments'] = [];
+        let institution: string | null = null;
+
+        if (this.config.fetchDetail) {
+          detailFetches += 1;
+          const detail = await ctx.http.fetchText(link.url, {
+            allowedHosts: ctx.source.allowedHosts,
+            minIntervalMs: ctx.source.minRequestIntervalMs,
+          });
+          requestCount += 1;
+          const detailHtml = detail.decoded?.text ?? detail.body.toString('utf8');
+          const $detail = loadHtml(detailHtml);
+          bodyText = readableText(
+            $detail,
+            this.config.detailSelectors ?? 'main, .content, #content, .icerik, article, body',
+            12_000,
+          );
+          attachments = collectAttachments($detail, detail.finalUrl);
+          institution = cleanTitle(readableText($detail, '.kurum, .institution', 120)) || null;
+        }
+
+        items.push({
+          sourceKey: ctx.source.key,
+          sourceItemId,
+          url: link.url,
+          title: link.title,
+          bodyText,
+          ...(institution ? { institution } : {}),
+          ...(link.date ? { publishedAt: `${link.date}T00:00:00+03:00` } : {}),
+          attachments,
+          sourceCategory: this.key,
+          rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
+          extractionConfidence: bodyText.length > 300 ? 0.6 : 0.35,
+        });
+      }
     }
 
+    if (found === 0) {
+      const pageText = readableText($first, 'body', 2_000).toLocaleLowerCase('tr');
+      if (!pageText.includes('ilan') && !pageText.includes('duyuru')) {
+        throw new AdapterStructureError(
+          this.key,
+          `${this.label} liste sayfası beklenen biçimde değil.`,
+          'Sayfa yüklendi ancak ilan/duyuru bağlantısı bulunamadı; HTML yapısı değişmiş olabilir.',
+        );
+      }
+      notes.push('Listede şu anda ilan bağlantısı yok (sayfa yapısı doğrulandı).');
+    }
+
+    notes.push(`${requestCount} istek, ${items.length} ilan hazırlandı.`);
     return {
       items,
-      httpStatuses,
+      requestCount,
       notes,
+      etag: firstPage.etag,
+      lastModified: firstPage.lastModified,
       notModified: false,
-      cacheHeaders: { etag: response.etag, lastModified: response.lastModified, contentHash: response.contentHash },
     };
   }
 
-  parseRows(
-    html: string,
-    baseUrl: string,
-  ): { itemId: string; url: string; title: string; publishedAt: string | null; institution: string | null }[] {
-    const root = loadHtml(html);
-    const scope = this.config.containerSelector ? root(this.config.containerSelector) : root('body');
-    const rows: { itemId: string; url: string; title: string; publishedAt: string | null; institution: string | null }[] = [];
+  /** Sayfadaki ilan bağlantılarını toplar (başlık + tarih + özet). */
+  parseLinks(
+    $: ReturnType<typeof loadHtml>,
+    pageUrl: string,
+  ): { title: string; url: string; date: string | null; summary: string }[] {
+    const links: { title: string; url: string; date: string | null; summary: string }[] = [];
     const seen = new Set<string>();
 
-    scope.find('a[href]').each((_, anchor) => {
-      const element = root(anchor);
-      const url = absoluteUrl(element.attr('href'), baseUrl);
-      if (!url) return;
-      if (!this.config.hrefPattern.test(new URL(url).pathname)) return;
+    $('a[href]').each((_index, element) => {
+      const node = $(element);
+      const href = absoluteUrl(node.attr('href'), pageUrl, $);
+      if (!href) return;
+      if (!this.config.linkPattern.test(href)) return;
+      if (/\.(pdf|docx?|xlsx?|jpg|png)($|\?)/i.test(href)) return;
 
-      const rawTitle = collapseWhitespace(element.text());
-      if (rawTitle.length < this.config.minTitleLength) return;
-      if (this.config.titleMustContain && !this.config.titleMustContain.test(rawTitle)) return;
+      const title = cleanTitle(elementText(node, 400) || node.attr('title') || '');
+      if (title.length < 12) return;
+      const key = href.split('?')[0] ?? href;
+      if (seen.has(key)) return;
+      seen.add(key);
 
-      const itemId = sourceItemIdFromUrl(url);
-      if (seen.has(itemId)) return;
-      seen.add(itemId);
-
-      const contextElement = element.closest('li, tr, article, div[class*="item"], div[class*="card"]');
-      const contextText = collapseWhitespace(contextElement.length > 0 ? contextElement.text() : element.parent().text());
-      rows.push({
-        itemId,
-        url,
-        title: cleanTitle(rawTitle),
-        publishedAt: firstDateIn(contextText),
-        institution: cleanInstitution(this.institutionFromContext(contextText, rawTitle)),
+      const container = node.closest('li, tr, div, article');
+      const containerText = container.length > 0 ? elementText(container, 600) : title;
+      links.push({
+        title,
+        url: key,
+        date: parseListingDate(containerText),
+        summary: collapseWhitespace(containerText.replace(title, '')).slice(0, 600),
       });
     });
 
-    return rows;
-  }
-
-  private institutionFromContext(contextText: string, title: string): string | null {
-    const pattern = /([A-ZÇĞİÖŞÜ][\wçğıöşüÇĞİÖŞÜ.,'’\- ]{5,90}(?:Bakanlığı|Başkanlığı|Müdürlüğü|Belediyesi|Üniversitesi|Kurumu|Valiliği))/u;
-    const match = pattern.exec(contextText);
-    if (match?.[1]) return match[1];
-    const upperMatch = /([A-ZÇĞİÖŞÜ]{4,}(?:\s+[A-ZÇĞİÖŞÜ]{2,}){1,6})/.exec(contextText);
-    if (upperMatch?.[1] && !title.includes(upperMatch[1])) return upperMatch[1];
-    return null;
+    return links.slice(0, 40);
   }
 }
 
-/** İŞKUR ilan listeleri (memur ve kurum dışı işçi alımı). */
+function slugFor(url: string): string {
+  return url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 90);
+}
+
+/** İŞKUR kamu ilan listeleri için yapılandırma. */
 export function createIskurAdapter(): AnchorListAdapter {
-  return new AnchorListAdapter('iskur-liste', 'İŞKUR — İlan listesi', {
-    hrefPattern: /\/ilan/i,
-    minTitleLength: 12,
-    containerSelector: 'main, #content, .content, body',
-    fetchDetails: true,
+  return new AnchorListAdapter({
+    key: 'iskur-liste',
+    label: 'İŞKUR — Kamu İlan Listeleri',
+    notes:
+      'Kamu memur ve kurum dışı kamu işçi alım ilanları listeleri HTML olarak okunur; ' +
+      'ilan detay sayfası varsa metin ve ekler alınır, yoksa liste özeti kullanılır.',
+    linkPattern: /iskur\.gov\.tr\/.*(?:ilan|duyuru|haber)/i,
+    fetchDetail: true,
+    maxPages: 2,
+    paginationParam: 'page',
   });
 }
 
-/** MEB Personel Genel Müdürlüğü haber/duyuru listesi. */
+/** MEB personel duyuruları için yapılandırma. */
 export function createMebAdapter(): AnchorListAdapter {
-  return new AnchorListAdapter('meb-personel', 'MEB Personel — Duyurular', {
-    hrefPattern: /\/icerik\//,
-    minTitleLength: 12,
-    containerSelector: 'main, #content, .content, body',
-    fetchDetails: true,
+  return new AnchorListAdapter({
+    key: 'meb-liste',
+    label: 'MEB Personel Genel Müdürlüğü — Duyurular',
+    notes:
+      'Personel Genel Müdürlüğü duyuru listesi okunur. Atama/yer değiştirme içerikleri ' +
+      'sınıflandırma motorunda reddedilir; yalnızca alım ilanları yayımlanır.',
+    linkPattern: /personel\.meb\.gov\.tr\/.*(?:haber|duyuru|icerik)/i,
+    fetchDetail: true,
+    maxPages: 2,
+    paginationParam: 'sayfa',
   });
 }

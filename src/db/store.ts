@@ -1,46 +1,59 @@
 /**
- * Depo seçimi.
+ * Depo (storage) seçimi ve tek örnek yönetimi.
  *
- * MONGODB_URI varsa MongoDB, yoksa kalıcı dosya deposu. Testler `createStore`
- * çağrısına kendi veri dizinini vererek izole çalışır.
+ * Kural: üretimde YALNIZCA MongoDB kullanılır (kalıcılık + çok örnekli güvenlik).
+ * Geliştirme/testte tek dosyalık depo kullanılır; her ikisi de aynı `StoragePort`
+ * sözleşmesini uygular, bu yüzden iş mantığı değişmez.
  */
-import { getEnv } from '../config/env';
+import { join } from 'node:path';
+import { getEnv, type Env } from '../config/env';
 import { FileStore } from './file-store';
 import { MongoStore } from './mongo-store';
 import type { StoragePort } from './ports';
 
-export interface CreateStoreOptions {
-  dataDir?: string;
-  mongoUri?: string;
-  mongoDbName?: string;
-  /** Testlerde dosya adını izole etmek için. */
-  fileName?: string;
+export function createStore(env: Env = getEnv(), fileName = 'kamuradar.json'): StoragePort {
+  if (env.DATABASE_DRIVER === 'mongo' || env.MONGODB_URI) {
+    if (!env.MONGODB_URI) {
+      throw new Error('DATABASE_DRIVER=mongo için MONGODB_URI zorunludur.');
+    }
+    return new MongoStore({ uri: env.MONGODB_URI, dbName: env.MONGODB_DB });
+  }
+  return new FileStore(env.DATA_DIR, fileName);
 }
 
-export function createStore(options: CreateStoreOptions = {}): StoragePort {
-  const env = getEnv();
-  const mongoUri = options.mongoUri ?? env.MONGODB_URI;
-  if (mongoUri) {
-    return new MongoStore({
-      uri: mongoUri,
-      dbName: options.mongoDbName ?? env.MONGODB_DB,
-    });
-  }
-  return new FileStore(options.dataDir ?? env.DATA_DIR, options.fileName ?? 'kamuradar.json');
+/** Testler için: ayrı dosya adıyla izole depo. */
+export function createTestStore(dataDir: string, fileName = 'test.json'): StoragePort {
+  return new FileStore(dataDir, fileName);
+}
+
+export function fileStorePath(env: Env = getEnv(), fileName = 'kamuradar.json'): string {
+  return join(env.DATA_DIR, fileName);
 }
 
 let singleton: StoragePort | null = null;
 
-/** Süreç genelinde tek depo (API ve worker). */
+/** Depoyu hazırlar (indeksler dahil). Uygulama başlangıcında bir kez çağrılır. */
+export async function initStore(store?: StoragePort): Promise<StoragePort> {
+  if (singleton && !store) return singleton;
+  const instance = store ?? createStore();
+  await instance.init();
+  await instance.ensureIndexes();
+  singleton = instance;
+  return instance;
+}
+
 export function getStore(): StoragePort {
-  if (!singleton) singleton = createStore();
+  if (!singleton) {
+    throw new Error('Depo başlatılmadı: önce initStore() çağrılmalıdır.');
+  }
   return singleton;
 }
 
-export function setStore(store: StoragePort): void {
+export function setStore(store: StoragePort | null): void {
   singleton = store;
 }
 
-export function resetStore(): void {
+export async function closeStore(): Promise<void> {
+  await singleton?.close();
   singleton = null;
 }
