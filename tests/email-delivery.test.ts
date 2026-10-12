@@ -23,7 +23,7 @@ import { sendOutboxBatch } from '../src/email/service';
 import { SmtpEmailTransport } from '../src/email/transport';
 import { hashPassword } from '../src/server/passwords';
 import { fixedClock } from '../src/lib/clock';
-import { decodeMimeWords, parseMessage } from '../src/lib/mime';
+import { decodeMimeWords, decodeQuotedPrintable, parseMessage } from '../src/lib/mime';
 import type { JobDoc } from '../src/db/schemas';
 import type { SourceDefinition } from '../src/config/sources';
 import { TEST_SOURCE_KEY, sozlesmeliPersonelIlani } from './fixtures/announcements';
@@ -155,6 +155,18 @@ function preferencesFor(job: JobDoc): {
     minDaysUntilDeadline: null,
   };
 }
+
+describe('MIME başlık çözümlemesi (regresyon)', () => {
+  it('yan yana kodlanmış kelimeleri tek boşlukla birleştirir', () => {
+    const encoded = '=?UTF-8?Q?Mu=C5=9F=27ta_s=C3=B6zle=C5=9Fmeli?= =?UTF-8?Q?_personel_al=C4=B1m_ilan=C4=B1?=';
+    expect(decodeMimeWords(encoded)).toBe("Muş'ta sözleşmeli personel alım ilanı");
+  });
+
+  it('quoted-printable gövdeyi bayt bazında UTF-8 olarak çözer', () => {
+    // Eskiden karakter bazlı çözülüyordu: "Ãrnek" gibi bozuk çıktı üretiyordu.
+    expect(decodeQuotedPrintable('G=C3=B6rev yeri =C5=9Eanl=C4=B1urfa')).toBe('Görev yeri Şanlıurfa');
+  });
+});
 
 describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → SMTP → kayıt', () => {
   it('eşleşen ilan için gerçek SMTP üzerinden Türkçe bildirim gönderir ve teslimi kaydeder', async () => {

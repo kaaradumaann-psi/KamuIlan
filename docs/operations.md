@@ -23,7 +23,8 @@ nedenle sorunlu olduğunu yazar.
 | İndeks kontrolü | Dağıtım sonrası | `npm run db:indexes` |
 | Kaynak envanteri + görevler | Dağıtım sonrası | `npm run db:migrate` |
 | Kapsam raporu | Haftalık | `npm run sources:report` (`--json` CI için) |
-| Süresi geçmiş kilit/oturum temizliği | Günlük | Worker otomatik yapar (bakım işi) |
+| Süresi geçmiş kilit/oturum/hız sınırı temizliği | Günlük | Worker otomatik yapar (bakım işi) |
+| 7 günden eski worker kalp atışı kayıtları | Günlük | Worker otomatik yapar (geliştirmede yeniden başlatmalar yanlış alarm üretmesin) |
 | Son başvuru durumlarının yenilenmesi | 12 saatte bir | Worker ("deadline-refresh" görevi) |
 | Kapsam denetimi | Günlük | Worker ("coverage-audit" görevi) |
 | Yedek | Günlük | aşağıya bakın |

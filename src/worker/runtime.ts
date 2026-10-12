@@ -269,7 +269,15 @@ export class WorkerRuntime {
           new Date(now.getTime() - 24 * 3_600_000).toISOString(),
         );
         const purgedSessions = await this.repos.users.purgeExpiredSessions();
-        return { ran: kind, closedJobs: 0, activatedJobs: 0, purged: purgedLocks + purgedLimits + purgedSessions };
+        const purgedHeartbeats = await this.repos.heartbeats.purgeOlderThan(
+          new Date(now.getTime() - 7 * 24 * 3_600_000).toISOString(),
+        );
+        return {
+          ran: kind,
+          closedJobs: 0,
+          activatedJobs: 0,
+          purged: purgedLocks + purgedLimits + purgedSessions + purgedHeartbeats,
+        };
       }
       case 'coverage-audit': {
         const coverage = await this.repos.sources.coverage();

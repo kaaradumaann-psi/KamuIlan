@@ -43,9 +43,16 @@ export function decodeBodyPart(body: string, encoding: string | null): string {
   return body;
 }
 
-/** RFC 2047 kodlanmış başlıkları çözer (=?UTF-8?Q?...?= / B). */
+/**
+ * RFC 2047 kodlanmış başlıkları çözer (=?UTF-8?Q?...?= / B).
+ *
+ * Not: Yan yana gelen kodlanmış kelimeler arasındaki boşluk yok sayılır (RFC 2047
+ * §6.2). Aksi hâlde uzun Türkçe konu satırları "sözleşmeli  personel" gibi çift
+ * boşluklu görünür.
+ */
 export function decodeMimeWords(value: string): string {
-  return value.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_match, _charset: string, encoding: string, text: string) => {
+  const joined = value.replace(/\?=\s+=\?/g, '?==?');
+  return joined.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_match, _charset: string, encoding: string, text: string) => {
     if (encoding.toUpperCase() === 'B') {
       try {
         return Buffer.from(text, 'base64').toString('utf8');

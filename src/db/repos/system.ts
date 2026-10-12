@@ -375,6 +375,19 @@ export class HeartbeatRepo {
   async listStale(thresholdIso: string): Promise<WorkerHeartbeatDoc[]> {
     return this.store.find('workerHeartbeats', { lastHeartbeatAt: { $lt: thresholdIso } }, { limit: 50 });
   }
+
+  /**
+   * Çok eski kalp atışı kayıtlarını siler.
+   *
+   * Neden gerekli: geliştirmede `tsx watch` her dosya değişiminde worker'ı
+   * yeniden başlatır ve eski süreçlerin kayıtları kalır. Bu kayıtlar
+   * temizlenmezse panel sürekli "kalp atışı göndermedi" uyarısı üretir ve
+   * gerçek bir kesinti ayırt edilemez. Yakın tarihli kayıtlar (varsayılan 7 gün)
+   * tanı için korunur.
+   */
+  async purgeOlderThan(iso: string): Promise<number> {
+    return this.store.deleteMany('workerHeartbeats', { lastHeartbeatAt: { $lt: iso } });
+  }
 }
 
 /** Yönetici işlemleri denetim kaydı (KVKK ve güvenlik gereği). */

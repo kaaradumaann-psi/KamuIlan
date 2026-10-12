@@ -106,8 +106,9 @@ React 19 + Vite + Tailwind, vitest + Playwright, pino günlükleri.
 
 ## Testler
 
-104 birim/entegrasyon testi, 8 dosya; hiçbiri dış ağa çıkmaz. Zorunlu 22 senaryo
-eşlemesi ve E2E akışı: [docs/testing.md](./docs/testing.md).
+108 birim/entegrasyon testi, 9 dosya; hiçbiri dış ağa çıkmaz (sahte adaptör,
+fixture HTML/PDF ve süreç içi SMTP sunucusu). Zorunlu 22 senaryonun eşlemesi,
+uçtan uca gönderim testi ve E2E akışı: [docs/testing.md](./docs/testing.md).
 
 ## Lisans ve kullanım
 
