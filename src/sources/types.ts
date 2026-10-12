@@ -65,6 +65,12 @@ export interface AdapterContext {
   limits: AdapterLimits;
   /** Ağ erişimi kapalıysa (SOURCE_LIVE_FETCH=0) adaptör yalnızca doğrulama yapar. */
   liveFetch: boolean;
+  /**
+   * Daha önce görülmüş kaynak içi kimlikler (jobSources'tan). Adaptör bu
+   * kayıtlar için pahalı belge indirmeyi atlar; içerik değişmediyse gereksiz
+   * indirme ve işlem yapılmaz.
+   */
+  knownItemIds?: ReadonlySet<string>;
 }
 
 export interface AdapterRunResult {

@@ -163,7 +163,11 @@ export type JobSourceDoc = z.infer<typeof jobSourceSchema>;
 export const jobRevisionSchema = z.object({
   id: idString('rev'),
   jobId: idString('job'),
-  version: z.number().int().min(2),
+  /**
+   * Sürüm numarası: 1 = ilanın ilk kaydı ("new" değişikliği), 2+ = sonraki
+   * değişiklikler. Sürüm geçmişi ilk kaydı da içerir.
+   */
+  version: z.number().int().min(1),
   changeTypes: z.array(
     z.enum(['new', 'content', 'deadline', 'quota', 'requirements', 'application-url', 'closed', 'withdrawn', 'source-added']),
   ),

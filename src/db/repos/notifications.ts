@@ -61,7 +61,11 @@ export class NotificationRepo {
 
   async upsertPreference(
     userId: string,
-    input: Partial<Omit<NotificationPreferenceDoc, 'id' | 'userId' | 'createdAt' | 'updatedAt'>> & {
+    input: Omit<
+      Partial<NotificationPreferenceDoc>,
+      'id' | 'userId' | 'createdAt' | 'updatedAt' | 'filters'
+    > & {
+      /** Filtreler kısmi verilebilir; verilmeyen alanlar mevcut/korunur. */
       filters?: Partial<PreferenceFilters>;
     },
   ): Promise<NotificationPreferenceDoc> {
