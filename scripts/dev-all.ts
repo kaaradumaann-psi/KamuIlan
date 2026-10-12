@@ -18,10 +18,20 @@ const env = getEnv();
 const children: ChildProcess[] = [];
 const isWindows = process.platform === 'win32';
 
+/**
+ * Tarama aralığı: test aşamasında varsayılan **1 dakika**dır; böylece ilanlar
+ * kaynaklardan dakikada bir toplanır. Üretimde kaynak temsiline saygı için
+ * `.env` içinde `SCAN_INTERVAL_MINUTES=0` (kaynak başına) veya 30–360 verin.
+ * Bu varsayılan YALNIZCA geliştirme komutunu etkiler; üretim süreçleri
+ * (`npm run start` / `start:worker`) ortamdan gelen değeri kullanır.
+ */
+const scanIntervalMinutes = process.env.SCAN_INTERVAL_MINUTES?.trim() || '1';
+const childEnv: NodeJS.ProcessEnv = { ...process.env, SCAN_INTERVAL_MINUTES: scanIntervalMinutes };
+
 function run(name: string, args: string[]): void {
   const child = spawn(isWindows ? 'npm.cmd' : 'npm', args, {
     stdio: 'inherit',
-    env: process.env,
+    env: childEnv,
   });
   child.on('exit', (code, signal) => {
     if (code !== 0 && signal === null) {
@@ -45,7 +55,7 @@ process.on('SIGTERM', shutdown);
 async function main(): Promise<void> {
   console.log('[dev] veritabanı bakımı çalıştırılıyor (kaynak envanteri + görevler)…');
   await new Promise<void>((resolve, reject) => {
-    const migrate = spawn(isWindows ? 'npm.cmd' : 'npm', ['run', 'db:migrate'], { stdio: 'inherit', env: process.env });
+    const migrate = spawn(isWindows ? 'npm.cmd' : 'npm', ['run', 'db:migrate'], { stdio: 'inherit', env: childEnv });
     migrate.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`db:migrate başarısız (${code})`))));
   }).catch((error: unknown) => {
     console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`);
@@ -69,6 +79,7 @@ async function main(): Promise<void> {
   • API dokümanı  http://localhost:${env.PORT}/api/docs
   • Posta kutusu  ${env.SMTP_HOST ? '(harici SMTP kullanılıyor)' : `http://localhost:${env.DEV_MAIL_VIEWER_PORT}`}
   • Kapsam raporu npm run sources:report
+  • Tarama        her ${scanIntervalMinutes === '0' ? 'kaynağın kendi aralığında' : `${scanIntervalMinutes} dakikada bir`} (SCAN_INTERVAL_MINUTES=${scanIntervalMinutes})
 Kapatmak için Ctrl+C.
 `);
 }

@@ -49,17 +49,17 @@ Doğrulama özeti (bu depoda çalıştırılan komutlarla):
 | 9 | Rol tabanlı yönetim paneli | ✅ | `src/pages/Admin.tsx`, `src/server/routes/admin.ts` |
 | 10 | Zod doğrulamalı REST API + OpenAPI | ✅ | `src/server/routes/*`, `/api/docs` |
 | 11 | Güvenlik: parola, çerez, CSRF, hız sınırı, SSRF, KVKK | ✅ | `src/server/passwords.ts`, `src/lib/x-csrf.ts`, `src/sources/fetcher.ts`, `docs/security-kvkk.md` |
-| 12 | Testler (fixture tabanlı, canlı çağrı yok) | ✅ | `tests/*` — 11 dosya / 131 test |
-| 13 | Docker ile tek komut ortam + CI | ✅ | `infra/docker/*`, `.github/workflows/ci.yml` |
+| 12 | Testler (fixture tabanlı, canlı çağrı yok) | ✅ | `tests/*` — 12 dosya / 136 test + CI'da tarayıcı (E2E) 12 test |
+| 13 | Docker ile tek komut ortam + CI | ✅ | `infra/docker/*`, `.github/workflows/ci.yml` (typecheck → lint → test → build → env:check → API/arayüz → E2E) |
 | 14 | **Dışarıdan kayıt yok** | ✅ | `POST /api/auth/register` varsayılan 403; hesaplar `POST /api/admin/users` ile davet edilir |
 | 15 | **Tasarım psikolog/MMPI ile aynı** | ✅ | `src/styles/{screen,site,coherence,theme,workspace,dashboard,mobile,responsive,auth}.css` bu repolarla **bayt bayt aynı**; Kamuİlan katmanı `kamuilan.css` |
 | 16 | **Ad Kamuİlan + alt alan adı** | ✅ | `src/site.ts`, `index.html`, e-posta şablonları, `APP_DOMAIN` |
-| 17 | **Test aşamasında dakikada bir tarama** | ✅ | `.env.example` → `SCAN_INTERVAL_MINUTES=1`; kaynak başına aralık `intervalMinutes` |
+| 17 | **Test aşamasında dakikada bir tarama** | ✅ | `npm run dev` varsayılanı `SCAN_INTERVAL_MINUTES=1` (`scripts/dev-all.ts`), `.env.example` → `SCAN_INTERVAL_MINUTES=1`, `infra/docker/docker-compose.yml`; üretimde kaynak başına aralık `intervalMinutes` |
 | 18 | **Veritabanı Supabase** | ✅ | `src/db/postgres-store.ts` (gerçek `pg` + PGlite ile test edilen SQL ön filtre), `DATABASE_DRIVER=supabase|postgres` |
-| 19 | **Barındırma Cloudflare** | ✅ | `dist/` statik SPA + `wrangler.jsonc` (`not_found_handling: single-page-application`, custom domain) |
+| 19 | **Barındırma Cloudflare** | ✅ | `dist/` statik SPA + `wrangler.jsonc` (`assets.not_found_handling: single-page-application`, `routes.custom_domain`) + `/api` vekili `infra/cloudflare/api-proxy.ts` |
 | 20 | **E-posta Resend** | ✅ | `src/email/transport.ts` (`ResendEmailTransport`, 9 test), `EMAIL_PROVIDER=resend` |
 | 21 | **Bu mühendislik raporu** | ✅ | Bu dosya |
-| 22 | **PR aç ve birleştir** | ✅ | `arena/7f4c2af6-kamuradar` → `main` |
+| 22 | **PR aç ve birleştir** | ✅ | PR #1 ve #2 birleştirildi (`main` yeşil); bu değişiklikler PR #3 ile birleştirilir |
 
 ---
 
@@ -308,9 +308,14 @@ hâlde çalışır ve "dürüstlük" kontrollerini yapar (ör. arayüzdeki "canl
 işaretli satır sayısına eşit olması).
 
 **Bu ortamda çalıştırılan komutlar ve sonuçları:** `npm run typecheck` ✅ · `npm run lint` ✅ ·
-`npm test` ✅ 136/136 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
-Playwright tarayıcıları bu ortamda indirilemediği için **E2E koşulamadı** (kurulum adımları
-`docs/testing.md` içinde).
+`npm test` ✅ 136/136 (12 dosya) · `npm run build` ✅ · `npm run env:check` ✅ ·
+`npm run sources:report` ✅ · `npm run dev` ✅ (API + worker + arayüz + posta kutusu ayakta).
+
+**Uçtan uca tarayıcı testleri (E2E):** bu ortamda Playwright tarayıcısı indirilemediği için yerelde
+koşulamaz; **CI'da chromium ile 12/12 test geçer** (iş akışı 38257292536: ana sayfa araması, kamu
+sayfaları, filtrelerin URL'de kalıcılığı, kapsam dürüstlüğü, oturumsuz panelde giriş kartı ve
+**kayıt bağlantısının hiçbir yerde bulunmaması**). Playwright test seçicilerinde bir hata
+(`getByLabel('İl')` alt dize eşleşmesi) bu koşuda bulunup `exact: true` ile düzeltilmiştir.
 
 ---
 
@@ -351,7 +356,9 @@ Ayrıntılı tablo: `docs/setup.md` § Ortam değişkenleri.
    tarafından doğrulanmalıdır** (kontrol listesi: `docs/deployment.md`).
 4. **Günlük özet (daily-digest) modu** veri modelinde ve tercihlerde var; gönderim planı bir sonraki
    sürümde zamanlanacaktır. Şu an `instant` akışı uçtan uca çalışır.
-5. **E2E testleri bu ortamda koşulamadı** (tarayıcı indirmesi engelli). CI iş akışı bunu otomatik yapar.
+5. **E2E yerelde koşulamıyor** (bu ortamda tarayıcı indirmesi engelli), ancak CI her push'ta
+   chromium ile koşar ve 12/12 test geçer. Kullanıcı kendi makinesinde `npx playwright install
+   --with-deps chromium && npm run test:e2e` ile aynı testleri çalıştırabilir.
 6. Kariyer Kapısı yalnızca Playwright kuruluysa taranır; kurulu değilse tarama "atlandı" olarak kaydedilir
    ve panelde görünür — sistem bu durumda çökelmez, ilan silmez.
 7. Kozmetik: `users.emailNormalized` benzersiz indeks adı bir kez `uniq`, ikinci kez `uniq` ekini alıyor

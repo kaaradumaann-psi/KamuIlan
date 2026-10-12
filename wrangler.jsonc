@@ -1,0 +1,35 @@
+{
+  // Kamuİlan — Cloudflare dağıtımı (statik arayüz + /api vekili).
+  // Referans alınan yapı: psikolog / MMPI repolarındaki wrangler.jsonc.
+  // Ayrıntı: docs/deployment.md
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "kamuilan",
+  "compatibility_date": "2026-10-12",
+  "workers_dev": true,
+  "preview_urls": true,
+  // Arayüz dist/ altından servis edilir; SPA yolları index.html'e düşer.
+  // `binding` zorunludur çünkü vekil worker dosyalara env.ASSETS üzerinden erişir.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "html_handling": "auto-trailing-slash"
+  },
+  // /api/* istekleri API sürecine proxy'lenir (bkz. infra/cloudflare/api-proxy.ts).
+  // Tarayıcı yalnızca kendi alan adıyla konuşur: oturum çerezi birinci taraf kalır.
+  "main": "infra/cloudflare/api-proxy.ts",
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "kamuilan.halilkaraduman.com.tr/*",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    // API sürecinin adresi. Üretimde kendi barındırma adresinizle değiştirin
+    // (ör. https://api.kamuilan.halilkaraduman.com.tr) ya da `wrangler secret put`.
+    "API_ORIGIN": "https://api.kamuilan.halilkaraduman.com.tr"
+  }
+}

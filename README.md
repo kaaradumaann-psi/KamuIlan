@@ -112,13 +112,16 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | Katman | Seçim | Not |
 | --- | --- | --- |
 | Veritabanı | **Supabase Postgres** (`DATABASE_DRIVER=supabase`) | Koleksiyonlar `kamuilan_<koleksiyon>` tablolarında JSONB olarak durur; GIN indeksi + ifade indeksleri `npm run db:indexes` ile kurulur |
-| Alan adı / barındırma | **Cloudflare** (`kamuilan.halilkaraduman.com.tr`) | Arayüz statik derleme olarak Cloudflare'de; `/api` API'ye yönlendirilir |
+| Alan adı / barındırma | **Cloudflare** (`kamuilan.halilkaraduman.com.tr`) | Arayüz statik derleme olarak Cloudflare'de (`npx wrangler deploy`, `wrangler.jsonc` → SPA yönlendirmesi + özel alan adı); `/api/*` istekleri `infra/cloudflare/api-proxy.ts` vekiliyle API sürecine aktarılır (çerez birinci taraf kalır) |
 | E-posta | **Resend** (`EMAIL_PROVIDER=resend`) | `RESEND_API_KEY` sunucu tarafında; taşıyıcı HTTPS API'dir, SDK bağımlılığı yoktur |
 | Alternatifler | MongoDB (eski kurulum), SMTP, Docker Compose | Kod tabanı üç depo sürücüsünü ve dört e-posta taşıyıcısını destekler |
 
-**Test aşaması:** `SCAN_INTERVAL_MINUTES=1` (her dakika tarama) ile gelinir; bu
-ayar yalnızca test içindir, üretimde kaynak temsiline saygı için 30–360 dakika
-önerilir (`SCAN_INTERVAL_MINUTES=0` → kaynak başına `intervalMinutes` kullanılır).
+**Test aşaması:** `npm run dev` taramayı **varsayılan olarak her 1 dakikada** yapar
+(`scripts/dev-all.ts` → `SCAN_INTERVAL_MINUTES=1`); `.env.example` ve Docker Compose da
+`1` ile gelir. Bu ayar yalnızca test/geliştirme içindir; üretimde kaynak temsiline saygı
+için 30–360 dakika önerilir (`SCAN_INTERVAL_MINUTES=0` → kaynak başına `intervalMinutes`
+kullanılır). Üretim süreçleri (`npm run start`, `start:worker`) bu varsayılanı almaz,
+ortamdan gelen değeri kullanır.
 
 ## Arayüz tasarımı
 

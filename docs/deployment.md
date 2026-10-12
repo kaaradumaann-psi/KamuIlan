@@ -38,14 +38,21 @@ Kullanıcı → Cloudflare (kamuilan.halilkaraduman.com.tr, TLS, WAF, önbellek)
    `db:indexes` tabloları (`kamuilan_jobs`, `kamuilan_sources`, …), GIN indeksini
    ve envanterdeki benzersiz/ifade indekslerini kurar; idempotenttir ve API
    açılışında da çalışır. Servis rolü anahtarı yalnızca sunucuda tutulur.
-2. **Arayüz (Cloudflare)**
+2. **Arayüz + `/api` vekili (Cloudflare)**
    ```bash
-   npm run build          # dist/
-   npx wrangler pages deploy dist --project-name kamuilan
+   npm run build            # dist/
+   npx wrangler deploy      # wrangler.jsonc: assets ./dist + özel alan adı
    ```
-   `/api/*` yönlendirmesi Cloudflare tarafında (Pages Functions/WAF kuralı) ya da
-   Nginx örneğindeki gibi (`infra/docker/nginx.conf`) API'ye proxy'lenir. Özel
-   alan adı: `kamuilan.halilkaraduman.com.tr`.
+   `wrangler.jsonc` (psikolog/MMPI repolarındaki yapıyla aynı) statik arayüzü
+   `dist/` altından yayınlar ve `kamuilan.halilkaraduman.com.tr` özel alan adına
+   bağlar. Aynı dosyada `main: infra/cloudflare/api-proxy.ts` tanımlıdır:
+   `/api/*` isteklerini `API_ORIGIN` adresindeki API sürecine aktarır, diğer tüm
+   istekleri statik varlıklara bırakır (SPA yönlendirmesi açık).
+   - `API_ORIGIN` değişkenini kendi API adresinizle değiştirin:
+     `npx wrangler secret put API_ORIGIN` (önerilir) ya da `wrangler.jsonc → vars`.
+   - Vekil sayesinde tarayıcı YALNIZCA kendi alan adıyla konuşur: oturum çerezi
+     birinci taraf (`SameSite=Lax`) kalır, CORS yapılandırması gerekmez.
+   - Nginx alternatifi: `infra/docker/nginx.conf` (aynı vekil davranışı).
 3. **API + worker**: ayrı süreçler olarak daimi bir ortamda (Cloudflare Container,
    VPS, Fly.io…) çalıştırılır: `npm run start` ve `npm run start:worker`.
 4. **Resend**: alan adını doğrulayın (SPF/DKIM kayıtları DNS'te), `EMAIL_FROM`
@@ -70,9 +77,11 @@ cd infra/docker
 docker compose up --build
 ```
 
-Servisler: `mongo`, `redis`, `mail` (mailpit: SMTP 1025, arayüz 1080), `api`,
-`worker`, `web` (Vite dev sunucusu, 5173). Tüm trafik göreli `/api` üzerinden
-proxy'lenir.
+Servisler: `mail` (mailpit: SMTP 1025, arayüz 1080), `postgres` (**isteğe bağlı**,
+`--profile postgres`; Supabase bağlantısı verirseniz gerekmez), `api`
+(0.0.0.0:3000), `worker` (zamanlayıcı + e-posta), `web` (Vite dev sunucusu, 5173).
+Tüm trafik göreli `/api` üzerinden proxy'lenir; test aşamasında
+`SCAN_INTERVAL_MINUTES=1` ile dakikada bir tarama yapılır.
 
 Üretim arayüz imajı:
 
@@ -110,7 +119,7 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
    ```ini
    [Unit]
    Description=Kamuİlan API
-   After=network-online.target mongod.service
+   After=network-online.target
    [Service]
    User=kamuilan
    WorkingDirectory=/opt/kamuilan
