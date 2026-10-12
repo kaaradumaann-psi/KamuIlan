@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+data/
+fixtures/live/
+test-results/
+playwright-report/
+.DS_Store
+*.tsbuildinfo
+.eslintcache
