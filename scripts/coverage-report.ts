@@ -22,6 +22,40 @@ async function main(): Promise<void> {
   const coverage = await repos.sources.coverage();
   const now = repos.clock.now();
 
+  // CI/otomasyon için makine okunur çıktı: `npm run sources:report -- --json`
+  if (process.argv.includes('--json')) {
+    const adapters = new Map(listAdapters().map((adapter) => [adapter.key, adapter]));
+    console.log(
+      JSON.stringify(
+        {
+          generatedAt: now.toISOString(),
+          summary: coverage.summary,
+          sources: coverage.sources.map((entry) => ({
+            key: entry.key,
+            status: entry.status,
+            enabled: entry.enabled,
+            verified: entry.verified,
+            built: entry.built,
+            adapterRegistered: adapters.has(
+              SOURCE_DEFINITIONS.find((definition) => definition.key === entry.key)?.adapterKey ?? '',
+            ),
+            intervalMinutes: entry.intervalMinutes,
+            lastSuccessAt: entry.health.lastSuccessAt,
+            consecutiveFailures: entry.health.consecutiveFailures,
+            verificationEvidence: entry.verificationEvidence,
+          })),
+          planned: coverage.planned.map((planned) => ({ id: planned.id, name: planned.name })),
+          disclaimer:
+            'Kapsam eksiktir: bazı kurumlar yalnızca kendi sayfalarında ilan yayımlar. Planlanan kaynaklar listede açıkça durur.',
+        },
+        null,
+        2,
+      ),
+    );
+    await closeStore();
+    return;
+  }
+
   console.log(`\nKamuRadar kaynak kapsamı — ${toIstanbulDateOnly(now)}`);
   console.log(
     `${coverage.summary.total} kayıtlı kaynak (etkin ${coverage.summary.enabled}, canlı doğrulanmış ${coverage.summary.verified}, ` +

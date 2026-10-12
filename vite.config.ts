@@ -29,6 +29,13 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
     allowedHosts: ['.e2b.app'],
+    // Önizleme modunda da tarayıcı göreli /api çağırır; proxy burada da gerekir.
+    proxy: {
+      '/api': {
+        target: process.env.API_ORIGIN ?? 'http://127.0.0.1:3000',
+        changeOrigin: false,
+      },
+    },
   },
   build: {
     outDir: 'dist',

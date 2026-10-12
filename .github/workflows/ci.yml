@@ -8,6 +8,12 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      # CI'da hiçbir gerçek kaynağa istek atılmaz; testler sahte adaptör/fetcher kullanır.
+      SOURCE_LIVE_FETCH: '0'
+      NODE_ENV: test
+      APP_SECRET: ci-icin-gecici-anahtar-en-az-32-karakter
+      DATA_DIR: ./.ci-data
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,11 +25,40 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - name: Kapsam raporu (senkron, ağ erişimsiz)
-        run: npm run sources:report -- --json
+
+      - name: Ortam değişkeni doğrulaması
+        run: npm run env:check
+
+      - name: Kapsam raporu (makine okunur)
+        run: npm run sources:report -- --json > coverage-report.json
+
+      # --- Uçtan uca (tarayıcı) testler -------------------------------------
+      # API + derlenmiş arayüz başlatılır; Playwright bu adrese karşı koşar.
+      - name: API ve arayüzü başlat
+        run: |
+          npm run start > api.log 2>&1 &
+          npm run preview > web.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:3000/api/health >/dev/null && break
+            sleep 1
+          done
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:4173 >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:3000/api/health >/dev/null || { echo 'API başlamadı'; cat api.log; exit 1; }
+          curl -sf http://localhost:4173 >/dev/null || { echo 'Arayüz başlamadı'; cat web.log; exit 1; }
+
       - name: Playwright tarayıcıları
         run: npx playwright install --with-deps chromium
+
       - name: Uçtan uca testler
         run: npm run test:e2e -- --project=chromium
         env:
           E2E_BASE_URL: http://localhost:4173
+
+      - name: Hata durumunda günlükler
+        if: failure()
+        run: |
+          echo '--- api.log ---'; tail -n 200 api.log || true
+          echo '--- web.log ---'; tail -n 100 web.log || true

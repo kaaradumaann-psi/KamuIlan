@@ -32,7 +32,8 @@
     "sources:report": "tsx scripts/coverage-report.ts",
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts"
+    "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",
+    "seed:admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",
