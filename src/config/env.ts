@@ -80,11 +80,13 @@ const envSchema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   SCRAPE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(60_000),
   SCRAPE_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
-  // HTTP başlıkları ASCII ister: Türkçe karakter undici'yi UND_ERR_INVALID_ARG
-  // ile düşürür. Varsayılan saf ASCII; kullanıcı değeri de çevrilir.
+  // Standart bot biçimi (Googlebot/Bingbot düzeni): kimlik gizlenmez, ad ve
+  // iletişim adresi açıkça yazılır. Bazı resmî sunucular "Mozilla" ile
+  // başlamayan istekleri yavaşlattığı (tarpit) için bu düzen kullanılır;
+  // HTTP başlıkları ASCII ister, Türkçe karakter çevrilir.
   SCRAPE_USER_AGENT: z
     .string()
-    .default('KamuIlanBot/0.2 (+https://kamuilan.halilkaraduman.com.tr; ilan toplayici)')
+    .default('Mozilla/5.0 (compatible; KamuIlanBot/0.2; +https://kamuilan.halilkaraduman.com.tr)')
     .transform(toHeaderSafeAscii),
   SOURCE_MIN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   /** Kaynak alan adı beyaz listesi dışına çıkan yönlendirmeler engellenir (SSRF). */

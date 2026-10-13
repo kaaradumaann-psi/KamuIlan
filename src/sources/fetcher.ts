@@ -234,7 +234,9 @@ export class HttpClient {
   constructor(options: HttpClientOptions = {}) {
     this.ownsAgent = options.dispatcher === undefined;
     this.logger = options.logger ?? createLogger('fetch');
-    this.userAgent = toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) || 'KamuIlanBot/1.0';
+    this.userAgent =
+      toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) ||
+      'Mozilla/5.0 (compatible; KamuIlanBot/1.0; +https://kamuilan.halilkaraduman.com.tr)';
     this.sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.agent = options.dispatcher ?? this.createAgent(loadTrustBundle());
   }
