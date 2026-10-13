@@ -50,6 +50,18 @@ ilk canlı tarama, kullanıcının ağında `npm run test:live` ile doğrulanır
    kimlik POST uçlarında; test: `tests/server.test.ts`.
 5. **E2E giriş yardımcısı** yıldızlı etiket ("E-posta *") yüzünden exact
    eşleşmede bulamıyordu — düzeltildi.
+6. **Canlı tarama hiç ağa çıkamıyordu (en kritik bulgu)** — varsayılan
+   `SCRAPE_USER_AGENT` içindeki Türkçe `ı` karakteri HTTP başlık aralığı
+   dışında olduğu için undici her isteği `UND_ERR_INVALID_ARG: invalid
+   user-agent header` ile, ağa hiç çıkmadan reddediyordu. Belirti yanıltıcı
+   biçimde `status: null` olarak görünüyordu. Kullanıcının canlı koşum
+   çıktısıyla yakalandı. Düzeltme üç katmanlı: varsayılan saf ASCII;
+   env değeri `toHeaderSafeAscii` ile çevrilir; `HttpClient` tüketim
+   noktasında tekrar temizler. Ayrıca hata nedeni (undici `cause` zinciri)
+   artık günlüğe ve hata mesajına yazılıyor — bu teşhis o sayede mümkün
+   oldu. Test: `tests/fetcher.test.ts` (9 test, başlık eşleşmesi dahil).
+   Bu hatanın düzeltilmesi, kullanıcının canlı `npm run test:live`
+   koşumunu yeniden yapmasını gerektirir; sonuç bu kayda eklenecektir.
 
 ## Koşum sonuçları (13.10.2026)
 

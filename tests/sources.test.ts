@@ -19,6 +19,8 @@ import { blockElementText, loadHtml } from '../src/lib/html';
 import { createLogger } from '../src/lib/logger';
 import { extractReferenceNumbers } from '../src/sources/listing-utils';
 import { IlanGovTrAdapter } from '../src/sources/adapters/ilan-gov-tr';
+import { ResmiGazeteAdapter } from '../src/sources/adapters/resmigazete';
+import { FetchError } from '../src/sources/fetcher';
 import type { FetchResponse, HttpClient } from '../src/sources/fetcher';
 import { getAdapter, listAdapters, requireAdapter } from '../src/sources/registry';
 import type { AdapterContext, SourceAdapter } from '../src/sources/types';
@@ -366,5 +368,39 @@ describe('genel kurum adaptörü — doğrulanmış sayfa biçimleri', () => {
     );
     expect(yok.items.length).toBe(1);
     expect(yok.items[0]?.institution).toBe('Yükseköğretim Kurulu');
+  });
+});
+
+describe('Resmî Gazete adaptörü dayanıklılığı', () => {
+  it('tek PDF indirilemezse diğer ilanlar yine de gelir, hata not düşülür', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const sectionHtml = `<html><body><table>
+      <tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-1.pdf">(PDF)</a></td></tr>
+      <tr><td>ÖRNEK BELEDİYESİ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-2.pdf">(PDF)</a></td></tr>
+    </table></body></html>`;
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        // Dünkü nüsha boş: adaptör iki günü de dener, ikincisinde satır bulamaz.
+        if (url.includes('20261011')) return htmlResponse(url, '<html><body>ÇEŞİTLİ İLÂNLAR</body></html>');
+        return htmlResponse(url, sectionHtml);
+      },
+      async fetchBinary(url: string): Promise<FetchResponse> {
+        if (url.endsWith('-4-2.pdf')) {
+          throw new FetchError(url, 'UND_ERR_HEADERS_TIMEOUT: Headers Timeout Error', null, true);
+        }
+        const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
+        return { ...htmlResponse(url, ''), body, bytes: body.byteLength, contentType: 'application/pdf', decoded: undefined };
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261012-4-1.pdf');
+    expect(result.requestCount).toBe(4);
+    expect(result.notes.some((note) => note.includes('PDF indirilemedi'))).toBe(true);
   });
 });

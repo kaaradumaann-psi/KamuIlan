@@ -174,9 +174,13 @@ export class HttpClient {
       options.dispatcher ??
       new Agent({
         connections: 8,
-        headersTimeout: 30_000,
+        // Yavaş resmî sunucular başlıkları geç gönderebilir; başlık bütçesi
+        // çağrı bütçesinin (SCRAPE_TIMEOUT_MS, 60 sn) altında olmamalı.
+        headersTimeout: 60_000,
         bodyTimeout: 60_000,
-        keepAliveTimeout: 10_000,
+        // Resmî sunucular boşta bağlantıyı erken kapatır; uzun keep-alive
+        // bayat sokete istek yazıp başlık zaman aşımına yol açabilir.
+        keepAliveTimeout: 4_000,
         // Kırık IPv6 yolu olan ağlarda (ev bağlantıları) tek aileye takılıp
         // zaman aşımına düşmemek için adres ailesi otomatik seçilir.
         connect: { autoSelectFamily: true, timeout: 15_000 },

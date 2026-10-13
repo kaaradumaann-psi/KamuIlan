@@ -19,6 +19,7 @@ import { AdapterStructureError } from '../errors';
 import { cleanInstitution } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
+import type { FetchResponse } from '../fetcher';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 
 const RESMI_GAZETE_HOST = 'https://www.resmigazete.gov.tr';
@@ -106,12 +107,26 @@ export class ResmiGazeteAdapter implements SourceAdapter {
         }
 
         detailFetches += 1;
-        const pdfResponse = await ctx.http.fetchBinary(row.pdfUrl, {
-          allowedHosts: ctx.source.allowedHosts,
-          minIntervalMs: ctx.source.minRequestIntervalMs,
-          maxBytes: 15_728_640,
-        });
         requestCount += 1;
+        // Tek yavaş/erişilemez PDF tüm nüshayı düşürmemeli: hata yalıtılır,
+        // ilan atlanır ve not düşülür (kayıt oluşmadığı için sonraki
+        // taramada kendiliğinden yeniden denenir).
+        let pdfResponse: FetchResponse;
+        try {
+          pdfResponse = await ctx.http.fetchBinary(row.pdfUrl, {
+            allowedHosts: ctx.source.allowedHosts,
+            minIntervalMs: ctx.source.minRequestIntervalMs,
+            maxBytes: 15_728_640,
+            timeoutMs: 60_000,
+            retries: 1,
+          });
+        } catch (error) {
+          notes.push(
+            `PDF indirilemedi, ilan atlandı (sonraki taramada yeniden denenecek): ` +
+              `${row.pdfUrl.split('/').pop() ?? row.pdfUrl} — ${error instanceof Error ? error.message : String(error)}`,
+          );
+          continue;
+        }
 
         const pdf = await extractPdfText(new Uint8Array(pdfResponse.body), { maxPages: 16, maxChars: 60_000 });
         const itemNotes: string[] = [];
