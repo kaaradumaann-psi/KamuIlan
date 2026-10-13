@@ -5,19 +5,22 @@
  *  1. `db:migrate` (kaynak envanteri + zamanlanmış görevler + indeksler)
  *  2. Yerel posta sunucusu (SMTP 1025 + görüntüleyici 1080) — dış SMTP tanımlı değilse
  *  3. API (0.0.0.0:$PORT)      → /api, /api/docs
- *  4. API HAZIR olana kadar beklenir (health kontrolü)
+ *  4. API portu TCP üzerinden dinlemeye başlayana kadar beklenir
  *  5. Worker (kalıcı kuyruk)   → zamanlanmış tarama + e-posta
  *  6. Vite arayüz (0.0.0.0:5173, /api proxy)
  *
  * Neden API beklenir: Vite, `/api` isteklerini 127.0.0.1:$PORT'a proxy'ler.
  * API daha dinlemeye başlamadan Vite açılırsa ilk istekler
  * "connect ECONNREFUSED 127.0.0.1:3000" ile düşer ve kullanıcı, giriş
- * ekranında sebepsiz bir hata görür. Bu yarış yalnızca bekleme ile kapanır.
+ * ekranında sebepsiz bir hata görür. API'nin kapsamlı `/api/health` ucu veritabanı
+ * ve kaynak ölçümleri için çok sayıda sorgu yaptığından, hazır olma sinyali
+ * olarak HTTP yanıtını değil hedef API portuna TCP bağlantısını kullanırız.
  *
  * Not: Zamanlanmış tarama bu süreçlerden BİRİNDE (worker) çalışır; tarayıcı
  * sekmesinin açık kalmasına bağlı değildir.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createConnection } from 'node:net';
 import { getEnv } from '../src/config/env';
 import { describeDriver, effectiveDriver } from '../src/db/store';
 
@@ -61,17 +64,30 @@ function shutdown(): void {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-/** API `/api/health` yanıt verene kadar bekler (yanlış adrese proxy yapılmaz). */
+/** Vite proxy'nin hedef API portu erişilebilir olana kadar TCP ile bekler. */
+function canConnectToApi(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: '127.0.0.1', port: env.PORT });
+    let settled = false;
+    const timeout = setTimeout(() => finish(false), 1_000);
+
+    function finish(ready: boolean): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      resolve(ready);
+    }
+
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
+}
+
 async function waitForApi(timeoutMs = 60_000): Promise<boolean> {
-  const url = `http://127.0.0.1:${env.PORT}/api/health`;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
-      if (response.ok) return true;
-    } catch {
-      // Henüz dinlemiyor; kısa bir bekleme ile tekrar denenir.
-    }
+    if (await canConnectToApi()) return true;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return false;
@@ -111,8 +127,8 @@ async function main(): Promise<void> {
   const apiReady = await waitForApi();
   if (!apiReady) {
     console.error(
-      `[dev] API ${env.PORT} portunda başlamadı. Süreç günlüklerini kontrol edin ` +
-        '(ortam doğrulaması ya da veritabanı bağlantısı başarısız olabilir).',
+      `[dev] API ${env.PORT} portunda bağlantı kabul etmiyor. Süreç günlüklerini kontrol edin ` +
+        '(ortam doğrulaması, veritabanı bağlantısı ya da port kullanımı sorunlu olabilir).',
     );
     shutdown();
     process.exitCode = 1;

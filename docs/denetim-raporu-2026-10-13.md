@@ -108,8 +108,12 @@ Denetim "sadece mutlu yol" değil, aşağıdaki katmanların tamamını kapsadı
   ekranında bağlantı hatası görünüyordu.
 - **Kök neden:** `npm run dev`, API `/api/health` yanıt vermeden arayüzü
   başlatıyordu.
-- **Düzeltme:** `scripts/dev-all.ts` artık API sağlık kontrolünü bekler, sonra
-  Vite'ı başlatır; açılışta etkin veritabanını ve ilk yönetici komutunu yazar.
+- **Düzeltme:** `scripts/dev-all.ts` Vite başlamadan önce API'nin gerçek proxy
+  hedefi `127.0.0.1:$PORT` üzerinde TCP bağlantısı kabul etmesini bekler. `/api/health`
+  kapsamlı ölçümler için kaynak başına çok sayıda veritabanı sorgusu yaptığı için
+  kısa HTTP zaman aşımı, API zaten dinliyor olsa da istekleri iptal edip yanlış
+  "başlamadı" alarmına yol açabiliyordu. TCP kontrolü istek üretmeden portun
+  dinlediğini doğrular. Açılışta etkin veritabanı ve ilk yönetici komutu da yazılır.
   `.env.example` da "olduğu gibi çalışır" hâle getirildi (varsayılan
   `EMAIL_PROVIDER=smtp` + `SMTP_HOST=127.0.0.1` + `SMTP_PORT=1025`): resend
   seçiliyken anahtar boşsa uygulama bilinçli olarak başlamıyordu.
