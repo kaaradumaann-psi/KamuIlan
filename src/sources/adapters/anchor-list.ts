@@ -97,7 +97,7 @@ export class AnchorListAdapter implements SourceAdapter {
           }
         : {}),
     });
-    let requestCount = 1;
+    const requestCount = 1;
     httpStatuses.push(listing.status);
 
     if (listing.notModified) {
