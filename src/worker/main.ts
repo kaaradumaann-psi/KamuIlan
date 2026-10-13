@@ -61,9 +61,18 @@ export async function startWorker(): Promise<void> {
   }
 }
 
-const isDirectRun = process.argv[1]?.includes('worker/main') ?? false;
+/**
+ * `process.argv[1]` keeps the host platform's path separator. In Windows,
+ * `tsx watch` supplies `C:\\repo\\src\\worker\\main.ts`, so a POSIX-only
+ * `worker/main` substring check silently skips the worker bootstrap.
+ */
+export function isDirectWorkerExecution(entry = process.argv[1]): boolean {
+  if (!entry) return false;
+  const normalized = entry.replace(/\\/g, '/');
+  return /(?:^|\/)worker\/main\.(?:[cm]?[jt]s|tsx?)$/i.test(normalized);
+}
 
-if (isDirectRun) {
+if (isDirectWorkerExecution()) {
   startWorker().catch((error: unknown) => {
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
     // Üretimde sessizce çıkmak yok: hata basılır ve süreç hata kodu ile biter.

@@ -32,6 +32,9 @@ interface AuthContextValue {
   loading: boolean;
   /** Oturum bilgisi şu an yenileniyor (ör. giriş sonrası tazeleme). */
   sessionFetching: boolean;
+  /** İlk oturum denetimi başarısızsa kullanıcıyı yanlışlıkla oturumsuz sayma. */
+  sessionError: unknown | null;
+  retrySession: () => Promise<void>;
   isAdmin: boolean;
   roleLabel: string;
   displayName: string;
@@ -60,7 +63,7 @@ export function displayNameOf(user: SessionUser | null): string {
 export function useSessionQuery() {
   return useQuery({
     queryKey: ['session'],
-    queryFn: () => api.get<SessionResponse>('/api/auth/session'),
+    queryFn: ({ signal }) => api.get<SessionResponse>('/api/auth/session', undefined, signal),
     staleTime: 30_000,
     retry: 0,
   });
@@ -91,6 +94,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       user,
       loading: session.isLoading,
       sessionFetching: session.isFetching,
+      sessionError: session.error ?? null,
+      retrySession: async () => {
+        await session.refetch();
+      },
       isAdmin: user?.role === 'admin',
       roleLabel: user?.role === 'admin' ? 'Yönetici' : user ? 'Kayıtlı kullanıcı' : 'Ziyaretçi',
       displayName: displayNameOf(user),
@@ -101,7 +108,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         await logout.mutateAsync();
       },
     };
-  }, [session.data, session.isLoading, session.isFetching, login, logout]);
+  }, [session.data, session.isLoading, session.isFetching, session.error, session.refetch, login, logout]);
 
   return createElement(AuthContext.Provider, { value }, children);
 }

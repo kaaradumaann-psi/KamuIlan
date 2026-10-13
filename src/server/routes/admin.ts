@@ -108,6 +108,8 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         now - Date.parse(beat.lastHeartbeatAt) > SCHEDULER_DEFAULTS.heartbeatStaleMs,
       lastError: beat.lastError,
     }));
+    const hasActiveWorker = workers.some((worker) => worker.status === 'running' && !worker.stale);
+    const hasStaleWorker = workers.some((worker) => worker.stale);
     return {
       appVersion: APP_VERSION,
       versions: {
@@ -125,9 +127,10 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       // `counts.pending` okurken patlar (beyaz ekran).
       queue: { backend: repos.store.driver, counts: queueStats, dead: queueStats.dead ?? 0 },
       workers,
-      workerWarning:
-        workers.some((worker) => worker.stale) || workers.length === 0
-          ? 'Worker kalp atışı yok veya bayat: zamanlanmış tarama çalışmıyor olabilir. `npm run dev:worker` sürecini kontrol edin.'
+      workerWarning: !hasActiveWorker
+        ? 'Aktif worker kalp atışı yok: zamanlanmış taramalar şu an yürütülmüyor. `npm run dev:worker` sürecini kontrol edin.'
+        : hasStaleWorker
+          ? 'En az bir worker kalp atışı bayat; ilgili sürecin günlüklerini kontrol edin.'
           : null,
       auditEntries: auditCount,
       generatedAt: repos.clock.now().toISOString(),

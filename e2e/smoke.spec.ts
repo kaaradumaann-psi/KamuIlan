@@ -18,7 +18,7 @@ test.describe('temel sayfalar', () => {
 
     await expectHeading(page, 'Kamu personel alım ilanları');
     // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum).
-    await expect(page.getByText(/İlanlar en son:/).first()).toBeVisible();
+    await expect(page.getByText(/İlanlar en son|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'İlanlarda ara', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Bu site nasıl çalışıyor?', exact: true })).toBeVisible();
     await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
@@ -71,7 +71,7 @@ test.describe('temel sayfalar', () => {
     await page.goto('/kaynaklar');
 
     await expectHeading(page, 'İlanları nereden alıyoruz?');
-    await expect(page.getByRole('table', { name: /Kaynak listesi ve durumu/ })).toBeVisible();
+    await expect(page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ })).toBeVisible();
     // Kapsamın eksik olduğu açıkça yazılır (abartılı iddia yok).
     await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
     // "Gerçek veriyle doğrulanan" ile "hazırlanan" ayrımı korunur.
@@ -128,6 +128,6 @@ test.describe('temel sayfalar', () => {
     await loginAsAdmin(page);
     await page.goto('/');
     // Arayüz de aynı proxy üzerinden veri çekebiliyor (konsol hatası yok).
-    await expect(page.getByText(/İlanlar en son:/).first()).toBeVisible();
+    await expect(page.getByText(/İlanlar en son|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
   });
 });

@@ -469,11 +469,19 @@ export class WorkerRuntime {
   /** Kalıcı döngü: tikler arasında beklenir, durdurma isteği ile temiz kapanır. */
   async run(intervalMs = this.env.SCHEDULER_TICK_MS): Promise<void> {
     this.logger.info(
-      { workerId: this.workerId, intervalMs, backend: this.queue.kind, sources: 'kaynak envanteri hazır' },
+      {
+        workerId: this.workerId,
+        intervalMs,
+        backend: this.queue.kind,
+        sources: 'kaynak envanteri hazır',
+        scanIntervalMinutes: this.env.SCAN_INTERVAL_MINUTES || 'kaynak başına',
+      },
       'worker başladı',
     );
-    await ensureScheduledTasks(this.repos, this.logger);
-    await syncTaskIntervals(this.repos);
+    // Tek bir global aralık verilmişse hem yeni görevler hem var olan görevler
+    // aynı aralığa çekilir; 0 ise her kaynağın kendi aralığı korunur.
+    await ensureScheduledTasks(this.repos, this.logger, this.env.SCAN_INTERVAL_MINUTES);
+    await syncTaskIntervals(this.repos, this.env.SCAN_INTERVAL_MINUTES);
 
     // Önceki çalıştırmalardan kalan "running" kayıtlar: süreç öldüyse panelde
     // sahte "çalışıyor" görünmemeleri için stale eşiğini geçenler durduruldu sayılır.

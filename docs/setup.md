@@ -50,9 +50,13 @@ Geliştirme için çoğu değer boş kalabilir. En az:
   oturumlar çalışır ama başlangıçta uyarı loglanır.
 - `DATA_DIR` — dosya deposu ve geliştirme posta kutusu dizini (öntanımlı `./data`).
 - `SOURCE_LIVE_FETCH=1` — gerçek kaynaklara istek atılmasını sağlar. `0` iken
-  adaptörler ağa çıkmaz (demo/test için).
-- `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: her kaynak dakikada bir
-  taranır. Üretimde `0` (kaynak başına `intervalMinutes`) veya 30–360 önerilir.
+  worker ağa çıkmaz (demo/test için): deneme `skipped` kaydedilir; başarılı tarama
+  zamanı/ilan bulundu sayısı üretilmez ve kaynak erişilmiş gibi gösterilmez.
+- `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: tüm etkin kaynakların
+  zamanlanmış görevi dakikada bir çalışır. `db:migrate` ve worker başlangıcında
+  yeni/mevcut görev aralıkları bu değere eşitlenir. Üretimde `0` (kaynak başına
+  `intervalMinutes`) veya kaynaklara uygun 30–360 önerilir; kaynak hız sınırları
+  (`minRequestIntervalMs`) her durumda korunur.
 - `TRUST_PROXY`, `CORS_ORIGINS`, `DOCS_ENABLED` — güvenlik anahtarları;
   varsayılanları güvenli seçeneklerdir. Yalnızca ters vekil/CORS gerçekten
   gerektiğinde değiştirin:

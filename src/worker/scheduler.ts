@@ -35,8 +35,13 @@ export interface EnsureTasksResult {
  * Zamanlanmış görevleri kaynak envanterine göre kurar/günceller.
  * Devre dışı kaynakların görevleri SİLİNMEZ, yalnızca devre dışı bırakılır.
  */
-export async function ensureScheduledTasks(repos: Repos, logger: Logger = createLogger('scheduler')): Promise<EnsureTasksResult> {
+export async function ensureScheduledTasks(
+  repos: Repos,
+  logger: Logger = createLogger('scheduler'),
+  scanIntervalMinutes = 0,
+): Promise<EnsureTasksResult> {
   const result: EnsureTasksResult = { created: 0, updated: 0, disabled: 0, total: 0 };
+  const globalIntervalMinutes = scanIntervalMinutes > 0 ? scanIntervalMinutes : null;
   const sources = await repos.sources.list();
   const before = await repos.scheduledTasks.listAll();
   const existingKeys = new Set(before.map((task) => `${task.kind}:${task.sourceKey}`));
@@ -45,7 +50,7 @@ export async function ensureScheduledTasks(repos: Repos, logger: Logger = create
     const task = await repos.scheduledTasks.ensure({
       kind: 'source-scrape',
       sourceKey: source.key,
-      intervalMinutes: source.scrapeIntervalMinutes,
+      intervalMinutes: globalIntervalMinutes ?? source.scrapeIntervalMinutes,
     });
     if (!source.enabled && task.enabled) {
       await repos.scheduledTasks.setEnabled(task.id, false);
@@ -195,16 +200,17 @@ export async function rescheduleTask(repos: Repos, id: string, delayMinutes = 0)
   await repos.store.updateOne('scheduledTasks', { id }, { nextRunAt: next, updatedAt: now.toISOString() });
 }
 
-/** Kaynak tanımındaki aralık ile görevi hizalar (panelden aralık değişince). */
-export async function syncTaskIntervals(repos: Repos): Promise<number> {
+/** Global override varsa ona, yoksa kaynak tanımındaki aralığa göre görevleri hizalar. */
+export async function syncTaskIntervals(repos: Repos, scanIntervalMinutes = 0): Promise<number> {
   const sources = await repos.sources.list();
   const tasks = await repos.scheduledTasks.listAll();
+  const globalIntervalMinutes = scanIntervalMinutes > 0 ? scanIntervalMinutes : null;
   let changed = 0;
   for (const task of tasks) {
     if (task.kind !== 'source-scrape' || task.sourceKey === SYSTEM_TASK_KEY) continue;
     const source = sources.find((item) => item.key === task.sourceKey);
     const definition = SOURCE_DEFINITIONS.find((item) => item.key === task.sourceKey);
-    const desired = source?.scrapeIntervalMinutes ?? definition?.intervalMinutes;
+    const desired = globalIntervalMinutes ?? source?.scrapeIntervalMinutes ?? definition?.intervalMinutes;
     if (desired && desired !== task.intervalMinutes) {
       await repos.scheduledTasks.setInterval(task.id, desired);
       changed += 1;

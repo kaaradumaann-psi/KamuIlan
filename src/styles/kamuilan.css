@@ -927,10 +927,31 @@
     font-family: inherit;
   }
 
-  .search-input-wrap input,
   .search-input-wrapper input,
-  .form-group .search-input-wrap input {
+  .form-group .search-input-wrap > input[type='search'] {
     padding-left: 38px;
+  }
+
+  /* Spinner bileşeninde dönen halka yalnızca iç .spinner öğesidir. */
+  .spinner-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    animation: none;
+    color: var(--soft);
+  }
+
+  .spinner-inline .spinner {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    flex: 0 0 14px;
+    border-width: 2px;
   }
 
   .input:focus,

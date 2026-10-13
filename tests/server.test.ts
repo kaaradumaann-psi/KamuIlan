@@ -155,6 +155,7 @@ describe('sağlık ve güvenlik başlıkları', () => {
       status: string;
       database: { healthy: boolean; driver: string };
       scans: { totalRuns: number };
+      workers: { running: number };
       sources: { total: number };
       warnings: string[];
     };
@@ -163,6 +164,8 @@ describe('sağlık ve güvenlik başlıkları', () => {
     expect(body.database.driver).toBe('file');
     expect(body.scans.totalRuns).toBeGreaterThanOrEqual(0);
     expect(body.sources.total).toBeGreaterThan(0);
+    expect(body.workers.running).toBe(0);
+    expect(body.warnings).toContain('Aktif worker kalp atışı yok; zamanlanmış taramalar şu an yürütülmüyor.');
     expect(Array.isArray(body.warnings)).toBe(true);
 
     expect(response.headers['x-content-type-options']).toBe('nosniff');
@@ -236,19 +239,56 @@ describe('ilan uçları', () => {
 });
 
 describe('kaynak şeffaflığı', () => {
-  it('kapsam listesi doğrulanan ve planlanan kaynakları birlikte gösterir', async () => {
+  it('kapsam listesi doğrulamayı, planlanan kaynakları ve eşlenmiş sağlık sayaçlarını gösterir', async () => {
+    const source = (await world.repos.sources.list())[0];
+    expect(source).toBeDefined();
+    await world.repos.sources.recordHealth(source!.key, {
+      lastRunAt: NOW.toISOString(),
+      success: true,
+      durationMs: 120,
+      discoveredCount: 2,
+      acceptedCount: 1,
+    });
+    await world.repos.sources.recordHealth(source!.key, {
+      lastRunAt: NOW.toISOString(),
+      success: false,
+      durationMs: 180,
+      discoveredCount: 0,
+      acceptedCount: 0,
+      errorMessage: 'Regresyon testi hatası.',
+    });
+
     const response = await world.app.inject({ method: 'GET', url: '/api/sources' });
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
-      sources: { key: string; enabled: boolean; verified: boolean }[];
+      sources: {
+        key: string;
+        enabled: boolean;
+        verified: boolean;
+        health: {
+          totalRuns: number;
+          successRuns: number;
+          failureRuns: number;
+          lastError: string | null;
+          itemsFound: number;
+        };
+      }[];
       planned: { id: string }[];
       summary: { total: number; verified: number; planned: number };
       disclaimer: string;
     };
+    const coveredSource = body.sources.find((entry) => entry.key === source!.key);
     expect(body.sources.length).toBeGreaterThan(0);
     expect(body.planned.length).toBeGreaterThan(0);
     expect(body.summary.planned).toBe(body.planned.length);
     expect(body.disclaimer).toContain('eksiksiz değildir');
+    expect(coveredSource?.health).toMatchObject({
+      totalRuns: 2,
+      successRuns: 1,
+      failureRuns: 1,
+      lastError: 'Regresyon testi hatası.',
+      itemsFound: 0,
+    });
   });
 });
 
@@ -436,7 +476,7 @@ describe('yetkilendirme ve izolasyon', () => {
     const body = overview.json() as { jobs: { total: number }; workers: unknown[]; workerWarning: string | null; auditEntries: number };
     expect(body.jobs.total).toBeGreaterThan(0);
     expect(Array.isArray(body.workers)).toBe(true);
-    expect(body.workerWarning).toContain('Worker');
+    expect(body.workerWarning).toMatch(/worker/i);
   });
 });
 

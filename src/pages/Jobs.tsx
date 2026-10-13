@@ -54,7 +54,7 @@ export function JobsPage() {
 
   const jobs = useQuery({
     queryKey: ['jobs', JSON.stringify(query)],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<JobListResponse>('/api/jobs', {
         q: query.q || undefined,
         city: query.city || undefined,
@@ -74,7 +74,7 @@ export function JobsPage() {
         sort: query.sort,
         page,
         pageSize: PAGE_SIZE,
-      }),
+      }, signal),
     placeholderData: (previous) => previous,
   });
 

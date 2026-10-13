@@ -128,7 +128,7 @@ export class ScheduledTaskRepo {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  /** Görev yoksa oluşturur; varsa aralığı günceller (konum korunur). */
+  /** Görev yoksa oluşturur; aralık değişirse nextRunAt son kuyruklanma zamanından yeniden hesaplanır. */
   async ensure(input: {
     kind: ScheduledTaskDoc['kind'];
     sourceKey: string;
@@ -138,10 +138,15 @@ export class ScheduledTaskRepo {
     const now = this.clock.now();
     const existing = await this.store.findOne('scheduledTasks', { kind: input.kind, sourceKey: input.sourceKey });
     if (existing) {
+      const intervalChanged = existing.intervalMinutes !== input.intervalMinutes;
+      const nextRunAt =
+        intervalChanged && existing.lastRunAt
+          ? addMilliseconds(existing.lastRunAt, input.intervalMinutes * 60_000)
+          : existing.nextRunAt;
       const updated = await this.store.updateOne(
         'scheduledTasks',
         { id: existing.id },
-        { intervalMinutes: input.intervalMinutes, updatedAt: now.toISOString() },
+        { intervalMinutes: input.intervalMinutes, nextRunAt, updatedAt: now.toISOString() },
       );
       return updated ?? existing;
     }
@@ -193,7 +198,17 @@ export class ScheduledTaskRepo {
   }
 
   async setInterval(id: string, intervalMinutes: number): Promise<void> {
-    await this.store.updateOne('scheduledTasks', { id }, { intervalMinutes, updatedAt: this.clock.now().toISOString() });
+    const existing = await this.store.findOne('scheduledTasks', { id });
+    if (!existing || existing.intervalMinutes === intervalMinutes) return;
+    const now = this.clock.now();
+    const nextRunAt = existing.lastRunAt
+      ? addMilliseconds(existing.lastRunAt, intervalMinutes * 60_000)
+      : existing.nextRunAt;
+    await this.store.updateOne('scheduledTasks', { id }, {
+      intervalMinutes,
+      nextRunAt,
+      updatedAt: now.toISOString(),
+    });
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<void> {

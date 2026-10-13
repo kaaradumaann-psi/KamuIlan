@@ -180,82 +180,94 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   let etag: string | null = null;
   let lastModified: string | null = null;
   let contentHash: string | null = null;
+  const liveFetch = options.liveFetch ?? env.SOURCE_LIVE_FETCH;
+  // SOURCE_LIVE_FETCH=0 gerçek kaynak taramasını kapatır. Bu durumda bir "boş
+  // başarılı tarama" yazmak yerine denemeyi atlandı olarak kaydet; ancak testte
+  // açıkça verilen sahte adaptör ağa çıkmadığı için çalıştırılmaya devam eder.
+  const liveScanDisabled = !liveFetch && options.adapter === undefined;
   const ownedHttp = options.http === undefined;
   const http = options.http ?? new HttpClient({ logger });
 
   try {
-    const adapter = options.adapter ?? requireAdapter(source.adapterKey);
-    const definition = resolveAdapterSource(source);
-    const knownItemIds = await loadKnownItemIds(repos, source.key);
-    const liveFetch = options.liveFetch ?? env.SOURCE_LIVE_FETCH;
-
-    const ctx: AdapterContext = {
-      source: definition,
-      http,
-      logger: logger.child({ sourceKey: source.key }),
-      liveFetch,
-      fetchedAt: now,
-      knownItemIds,
-      maxDetailFetches: detailFetchBudget(source.method),
-    };
-
-    const runResult = await withTimeout(adapter.run(ctx), timeoutMs, `${adapter.label} taraması`);
-    totals.itemsFound = runResult.items.length;
-    totals.httpStatuses = (runResult.httpStatuses ?? []).slice(0, 50);
-    adapterNotes = runResult.notes.slice(0, 20);
-    etag = runResult.etag;
-    lastModified = runResult.lastModified;
-
-    if (runResult.notModified) {
-      // İçerik değişmemiş: gereksiz işlem yapılmaz, mevcut ilanlar korunur.
+    if (liveScanDisabled) {
       status = 'skipped';
-      contentUnchanged = true;
-      resultMessage = 'Kaynak içeriği değişmemiş (ETag/Last-Modified eşleşti).';
-      adapterNotes.push(resultMessage);
-    }
+      resultMessage = 'Canlı kaynak erişimi kapalı (SOURCE_LIVE_FETCH=0); ilan taraması yapılmadı.';
+      adapterNotes = [resultMessage];
+    } else {
+      const adapter = options.adapter ?? requireAdapter(source.adapterKey);
+      const definition = resolveAdapterSource(source);
+      const knownItemIds = await loadKnownItemIds(repos, source.key);
 
-    for (const item of runResult.items) {
-      try {
-        const outcome = await processItem(item, { repos, now, workerId, logger });
-        if (outcome === 'created') totals.jobsCreated += 1;
-        else if (outcome === 'updated') totals.jobsUpdated += 1;
-        else if (outcome === 'merged') totals.itemsMerged += 1;
-        else if (outcome === 'review') totals.itemsReview += 1;
-        else if (outcome === 'rejected') totals.itemsRejected += 1;
-        if (outcome === 'created' || outcome === 'updated') {
-          totals.itemsAccepted += 1;
-          totals.revisionsCreated += 1;
-        }
-        if (outcome === 'created' || outcome === 'updated' || outcome === 'merged' || outcome === 'review') {
-          notificationCounts.queued += await notify(item, outcome, {
-            repos,
-            logger,
-            now,
-            enabled: options.queueNotifications ?? true,
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        totals.errors.push(`${item.url}: ${message}`);
-        logger.error({ err: message, url: item.url }, 'ilan işlenemedi');
+      const ctx: AdapterContext = {
+        source: definition,
+        http,
+        logger: logger.child({ sourceKey: source.key }),
+        liveFetch,
+        fetchedAt: now,
+        knownItemIds,
+        maxDetailFetches: detailFetchBudget(source.method),
+      };
+
+      const runResult = await withTimeout(adapter.run(ctx), timeoutMs, `${adapter.label} taraması`);
+      totals.itemsFound = runResult.items.length;
+      totals.httpStatuses = (runResult.httpStatuses ?? []).slice(0, 50);
+      adapterNotes = runResult.notes.slice(0, 20);
+      etag = runResult.etag;
+      lastModified = runResult.lastModified;
+
+      if (runResult.notModified) {
+        // HTTP 304 kanıtı başarılı kontroldür: ilanlar korunur, son başarı güncellenir.
+        status = 'success';
+        contentUnchanged = true;
+        resultMessage = 'Kaynak içeriği değişmemiş (ETag/Last-Modified eşleşti).';
+        adapterNotes.push(resultMessage);
       }
-    }
 
-    if (!contentUnchanged) {
-      // Görülen kayıt kümesinin parmak izi: aynı ilanlar tekrar geldi mi?
-      contentHash =
-        runResult.items.length > 0
-          ? sha256Hex(runResult.items.map((item) => item.sourceItemId).sort().join('|'))
-          : null;
-    }
+      for (const item of runResult.items) {
+        try {
+          const outcome = await processItem(item, { repos, now, workerId, logger });
+          if (outcome === 'created') totals.jobsCreated += 1;
+          else if (outcome === 'updated') totals.jobsUpdated += 1;
+          else if (outcome === 'merged') totals.itemsMerged += 1;
+          else if (outcome === 'review') totals.itemsReview += 1;
+          else if (outcome === 'rejected') totals.itemsRejected += 1;
+          if (outcome === 'created' || outcome === 'updated') {
+            totals.itemsAccepted += 1;
+            totals.revisionsCreated += 1;
+          }
+          if (outcome === 'created' || outcome === 'updated' || outcome === 'merged' || outcome === 'review') {
+            notificationCounts.queued += await notify(item, outcome, {
+              repos,
+              logger,
+              now,
+              enabled: options.queueNotifications ?? true,
+            });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          totals.errors.push(`${item.url}: ${message}`);
+          logger.error({ err: message, url: item.url }, 'ilan işlenemedi');
+        }
+      }
 
-    if (totals.errors.length > 0) {
-      status = 'partial';
-      resultMessage = `${totals.errors.length} ilan işlenemedi, ${totals.itemsFound - totals.errors.length} ilan işlendi.`;
-    } else if (status !== 'skipped') {
-      resultMessage = `${totals.itemsFound} ilan bulundu, ${totals.jobsCreated} yeni kayıt, ${totals.itemsMerged} birleştirme, ${totals.itemsReview} inceleme.`;
-      if (totals.itemsFound === 0) {
-        resultMessage = 'Kaynak erişildi ancak yeni ilan bulunamadı.';
+      if (!contentUnchanged) {
+        // Görülen kayıt kümesinin parmak izi: aynı ilanlar tekrar geldi mi?
+        contentHash =
+          runResult.items.length > 0
+            ? sha256Hex(runResult.items.map((item) => item.sourceItemId).sort().join('|'))
+            : null;
+      }
+
+      if (totals.errors.length > 0) {
+        status = 'partial';
+        resultMessage = `${totals.errors.length} ilan işlenemedi, ${totals.itemsFound - totals.errors.length} ilan işlendi.`;
+      } else if (contentUnchanged) {
+        // 304 doğrulanmış bir kontrol olsa da yeni ilan içeriği üretmez.
+      } else {
+        resultMessage = `${totals.itemsFound} ilan bulundu, ${totals.jobsCreated} yeni kayıt, ${totals.itemsMerged} birleştirme, ${totals.itemsReview} inceleme.`;
+        if (totals.itemsFound === 0) {
+          resultMessage = 'Kaynak erişildi ancak yeni ilan bulunamadı.';
+        }
       }
     }
   } catch (error) {
@@ -281,24 +293,26 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const finished = await repos.runs.finish(run.id, totals, status, resultMessage);
   const durationMs = repos.clock.now().getTime() - startedAt;
 
-  await repos.sources.recordHealth(source.key, {
-    lastRunAt: now.toISOString(),
-    success: fatalError === null && status !== 'skipped',
-    durationMs,
-    discoveredCount: totals.itemsFound,
-    acceptedCount: totals.itemsAccepted,
-    errorMessage: fatalError ? fatalError.message : totals.errors[0] ?? null,
-    scheduleDelayMs: finished?.scheduleDelayMs ?? null,
-    etag,
-    lastModified,
-    contentHash,
-    contentUnchanged,
-    skipped: status === 'skipped',
-  });
+  if (!liveScanDisabled) {
+    await repos.sources.recordHealth(source.key, {
+      lastRunAt: now.toISOString(),
+      success: fatalError === null && status !== 'skipped',
+      durationMs,
+      discoveredCount: totals.itemsFound,
+      acceptedCount: totals.itemsAccepted,
+      errorMessage: fatalError ? fatalError.message : totals.errors[0] ?? null,
+      scheduleDelayMs: finished?.scheduleDelayMs ?? null,
+      etag: contentUnchanged && etag === null ? undefined : etag,
+      lastModified: contentUnchanged && lastModified === null ? undefined : lastModified,
+      contentHash: contentUnchanged ? undefined : contentHash,
+      contentUnchanged,
+      skipped: status === 'skipped',
+    });
 
-  // Atlanan tarama da yöneticiyi ilgilendirir (kaynak hiç toplanamıyor); uyarı
-  // metni atlama ile hatayı ayırır ve uyarılar 6 saatte bir tekrarlanır.
-  await warnOnRepeatedFailures({ repos, source, logger, fatalError, skipped: status === 'skipped' });
+    // Atlanan tarama da yöneticiyi ilgilendirir (kaynak hiç toplanamıyor); uyarı
+    // metni atlama ile hatayı ayırır ve uyarılar 6 saatte bir tekrarlanır.
+    await warnOnRepeatedFailures({ repos, source, logger, fatalError, skipped: status === 'skipped' });
+  }
 
   await repos.locks.release(lockKey, workerId);
 

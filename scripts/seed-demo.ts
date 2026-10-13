@@ -178,7 +178,7 @@ async function main(): Promise<void> {
     console.log(`• ${outcome.action}: ${raw.title.slice(0, 70)}`);
   }
 
-  const tasks = await ensureScheduledTasks(repos, LOGGER);
+  const tasks = await ensureScheduledTasks(repos, LOGGER, env.SCAN_INTERVAL_MINUTES);
   console.log(`• zamanlanmış görevler: toplam ${tasks.total} (yeni ${tasks.created})`);
 
   if (env.ADMIN_EMAIL && env.ADMIN_PASSWORD) {

@@ -8,12 +8,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const authState = vi.hoisted(() => ({ loggedIn: false }));
+const authState = vi.hoisted(() => ({ loggedIn: false, sessionError: false }));
 
 vi.mock('../src/lib/api', () => ({
   api: {
     get: vi.fn(async (url: string) => {
       if (url.includes('/api/auth/session')) {
+        if (authState.sessionError) throw new Error('Sunucu 12 saniye içinde yanıt vermedi.');
         // Gerçek ağ gecikmesi: oturum cevabı anında gelmez. Bu gecikme
         // olmadan jsdom yarışı gizler (önbellek çoktan güncellenir).
         if (authState.loggedIn) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -51,6 +52,8 @@ afterEach(() => cleanup());
 
 describe('Giriş kapısı', () => {
   it('oturumsuz kullanıcıda kabuk açılmaz, giriş ekranı gelir', async () => {
+    authState.loggedIn = false;
+    authState.sessionError = false;
     const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
     render(
       <QueryClientProvider client={client}>
@@ -66,11 +69,32 @@ describe('Giriş kapısı', () => {
     expect(screen.queryByText('Kaydettiklerim')).toBeNull();
     expect(screen.queryByText('Bildirim kur')).toBeNull();
   });
+
+  it('oturum API hatasında spinnerda veya yanlış giriş yönlendirmesinde kalmaz', async () => {
+    authState.loggedIn = false;
+    authState.sessionError = true;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/ilanlar']}>
+          <SessionProvider>
+            <App />
+          </SessionProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Oturum doğrulanamadı' })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('Sunucu 12 saniye içinde yanıt vermedi.');
+    expect(screen.getByRole('button', { name: 'Yeniden dene' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Giriş yap' })).toBeNull();
+  });
 });
 
 describe('giriş sonrası geçiş', () => {
   it('giriş başarılı olunca kullanıcı giriş ekranında takılmaz, uygulamaya geçer', async () => {
     authState.loggedIn = false;
+    authState.sessionError = false;
     const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
     render(
       <QueryClientProvider client={client}>

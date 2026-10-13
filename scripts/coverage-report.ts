@@ -56,10 +56,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  const adapterCount = coverage.sources.filter((entry) => entry.built).length;
   console.log(`\nKamuİlan kaynak kapsamı — ${toIstanbulDateOnly(now)}`);
   console.log(
-    `${coverage.summary.total} kayıtlı kaynak (etkin ${coverage.summary.enabled}, canlı doğrulanmış ${coverage.summary.verified}, ` +
-      `adaptörü yazılmış ${coverage.summary.built}), ` +
+    `${coverage.summary.total} kayıtlı kaynak (etkin ${coverage.summary.enabled}, geçmiş canlı doğrulama kaydı bulunan ${coverage.summary.verified}, ` +
+      `adaptörü yazılmış ${adapterCount}, canlı doğrulama bekleyen hazır ${coverage.summary.built}), ` +
       `planlanan ${coverage.summary.planned}, üst üste başarısız ${coverage.summary.failing}, bayat ${coverage.summary.stale}\n`,
   );
 

@@ -20,7 +20,7 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
 
   const saved = useQuery({
     queryKey: ['saved-jobs'],
-    queryFn: () => api.get<SavedJobsResponse>('/api/me/saved-jobs'),
+    queryFn: ({ signal }) => api.get<SavedJobsResponse>('/api/me/saved-jobs', undefined, signal),
     enabled: Boolean(user),
     staleTime: 30_000,
   });

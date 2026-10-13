@@ -17,10 +17,12 @@ import { createRepos } from '../src/db/repos';
 import { ensureScheduledTasks } from '../src/worker/scheduler';
 import { createLogger } from '../src/lib/logger';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
+import { getEnv } from '../src/config/env';
 import { normalizeTr } from '../src/domain/text';
 
 async function main(): Promise<void> {
-  const logger = createLogger('migrate', { level: 'info' });
+  const env = getEnv();
+  const logger = createLogger('migrate', { level: env.LOG_LEVEL });
   const store = await initStore();
   const repos = createRepos(store);
 
@@ -30,7 +32,7 @@ async function main(): Promise<void> {
   const seed = await repos.sources.seed(SOURCE_DEFINITIONS);
   console.log(`• kaynak envanteri: ${seed.created} eklendi, ${seed.updated} güncellendi (toplam ${SOURCE_DEFINITIONS.length})`);
 
-  const tasks = await ensureScheduledTasks(repos, logger);
+  const tasks = await ensureScheduledTasks(repos, logger, env.SCAN_INTERVAL_MINUTES);
   console.log(
     `• zamanlanmış görevler: toplam ${tasks.total} (yeni ${tasks.created}, güncellenen ${tasks.updated}, devre dışı ${tasks.disabled})`,
   );

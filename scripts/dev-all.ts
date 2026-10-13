@@ -6,7 +6,7 @@
  *  2. Yerel posta sunucusu (SMTP 1025 + görüntüleyici 1080) — dış SMTP tanımlı değilse
  *  3. API (0.0.0.0:$PORT)      → /api, /api/docs
  *  4. API portu TCP üzerinden dinlemeye başlayana kadar beklenir
- *  5. Worker (kalıcı kuyruk)   → zamanlanmış tarama + e-posta
+ *  5. Worker (kalıcı kuyruk)   → zamanlanmış tarama + e-posta; DB kalp atışı beklenir
  *  6. Vite arayüz (0.0.0.0:5173, /api proxy)
  *
  * Neden API beklenir: Vite, `/api` isteklerini 127.0.0.1:$PORT'a proxy'ler.
@@ -93,6 +93,29 @@ async function waitForApi(timeoutMs = 60_000): Promise<boolean> {
   return false;
 }
 
+/** API sağlık yanıtındaki taze worker kalp atışıyla worker başlangıcını doğrular. */
+async function hasRunningWorker(): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${env.PORT}/api/health`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return false;
+    const health = (await response.json()) as { workers?: { running?: unknown } };
+    return typeof health.workers?.running === 'number' && health.workers.running > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForWorker(timeoutMs = 20_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await hasRunningWorker()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
 async function main(): Promise<void> {
   // Tanılama: hesabın HANGİ veritabanına yazıldığı burada ve giriş ekranında
   // aynı biçimde görünür (yanlış veritabanına hesap eklemek girişte 401 verir).
@@ -136,6 +159,14 @@ async function main(): Promise<void> {
   }
 
   run('worker', ['run', 'dev:worker']);
+  console.log('[dev] worker başlangıcı doğrulanıyor (veritabanı kalp atışı bekleniyor)…');
+  if (await waitForWorker()) {
+    console.log('[dev] worker kalp atışı alındı; zamanlanmış işler çalışıyor.');
+  } else {
+    console.error(
+      '[dev] worker kalp atışı alınamadı. Worker günlüklerini, veritabanı ayarını ve `npm run dev:worker` girişini kontrol edin.',
+    );
+  }
   run('web', ['run', 'dev:web']);
 
   console.log(`

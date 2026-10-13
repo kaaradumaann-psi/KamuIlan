@@ -12,6 +12,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { formatNumber, formatRelative } from '../lib/format';
 import type { HealthResponse } from '../types';
 import { Icon } from './Icon';
@@ -29,10 +30,9 @@ function readDismissed(): boolean {
 export function StatusBanner() {
   const [dismissed, setDismissed] = useState(readDismissed);
   const health = useQuery({
-    queryKey: ['health', 'banner'],
-    queryFn: () => api.get<HealthResponse>('/api/health'),
+    queryKey: HEALTH_QUERY_KEY,
+    queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
     refetchInterval: 60_000,
-    retry: 1,
   });
 
   if (dismissed) return null;
@@ -48,13 +48,18 @@ export function StatusBanner() {
   const parts: string[] = [];
   parts.push(
     data.scans.lastSuccessAt
-      ? `İlanlar en son ${formatRelative(data.scans.lastSuccessAt)} güncellendi.`
-      : 'Henüz güncelleme kaydı yok.',
+      ? `İlanlar en son ${formatRelative(data.scans.lastSuccessAt)} başarıyla tarandı.`
+      : 'Henüz başarılı tarama kaydı yok.',
   );
-  parts.push(`${formatNumber(data.sources.enabled)} kaynak düzenli izleniyor.`);
+  parts.push(`${formatNumber(data.sources.enabled)} kaynak tarama için etkin olarak tanımlı.`);
   if (failing) parts.push(`${formatNumber(data.sources.failing)} kaynağa şu an ulaşılamıyor.`);
-  if (noWorker) parts.push('Otomatik kontrol şu an çalışmıyor; yeni ilanlar gecikebilir.');
-  if (stale) parts.push('Bilgiler bir günden eski olabilir.');
+  if (noWorker) {
+    parts.push('Tarama worker’ı şu an çalışmıyor; zamanlanmış taramalar yürütülmüyor.');
+  } else if (!data.scans.lastSuccessAt) {
+    parts.push('İlk başarılı taramanın tamamlanması bekleniyor.');
+  }
+  if (data.sources.stale > 0) parts.push(`${formatNumber(data.sources.stale)} etkin kaynakta yakın zamanda başarılı tarama yok.`);
+  if (stale) parts.push('Son başarılı tarama bir günden eski olabilir.');
   parts.push('Bazı kurumlar ilanını yalnızca kendi sayfasında duyurur; her ilanı bulamayabiliriz.');
 
   function dismiss() {

@@ -49,10 +49,12 @@ Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çal
    sayacını artırır, çünkü kaynak hiç toplanamıyordur; çözüm ya bağımlılığı
    kurmak (`npx playwright install chromium`) ya da kaynağı `needs-manual-method`
    olarak işaretlemektir. **Engel aşılmaz.**
-6. **Test aşamasında dakikalık tarama** — `SCAN_INTERVAL_MINUTES=1` iken bir
-   kaynak saatte 60 kez denenir. Kaynak başına `minRequestIntervalMs` yine
-   uygulanır ve aynı kaynak iki kez eşzamanlı taranmaz; ancak üretime çıkmadan
-   önce bu ayarı 30–360 aralığına çekin (kaynak temsili + kota).
+6. **Test aşamasında dakikalık tarama** — `SCAN_INTERVAL_MINUTES=1` tüm etkin
+   kaynak görevlerine dakikalık aralık uygular; ayar `db:migrate` ve worker
+   başlangıcında mevcut görevlere de yazılır. Her kaynağın
+   `minRequestIntervalMs` sınırı yine uygulanır ve aynı kaynak iki kez eşzamanlı
+   taranmaz. Üretime çıkmadan önce `SCAN_INTERVAL_MINUTES=0` ile kaynak başına
+   aralığa dönün veya bilinçli bir 30–360 dakika değeri seçin.
 
 ## 3.1 Uyarı gürültüsünü önleme
 

@@ -74,7 +74,7 @@ async function seedSource(repos: Repos): Promise<SourceDoc> {
   return source;
 }
 
-function fakeAdapter(items: RawAnnouncement[], notes: string[] = []): SourceAdapter {
+function fakeAdapter(items: RawAnnouncement[], notes: string[] = [], notModified = false): SourceAdapter {
   return {
     key: 'test-liste',
     label: 'Test listesi',
@@ -86,8 +86,8 @@ function fakeAdapter(items: RawAnnouncement[], notes: string[] = []): SourceAdap
       notes,
       etag: null,
       lastModified: null,
-      notModified: false,
-      httpStatuses: [200],
+      notModified,
+      httpStatuses: [notModified ? 304 : 200],
     }),
   };
 }
@@ -378,6 +378,77 @@ describe('tarama hattı', () => {
     expect(refreshed?.health.consecutiveFailures).toBe(0);
     expect(refreshed?.health.lastSuccessAt).toBe(NOW.toISOString());
     expect(await repos.outbox.list({}, 10)).toHaveLength(1);
+  });
+
+  it('canlı erişim kapalıysa boş sonucu başarılı tarama gibi göstermez', async () => {
+    const repos = await makeRepos();
+    const source = await seedSource(repos);
+
+    const result = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'schedule',
+      workerId: WORKER,
+      liveFetch: false,
+      logger: createLogger('test', { level: 'silent' }),
+    });
+
+    expect(result.status).toBe('skipped');
+    expect(result.errors).toHaveLength(0);
+    expect(result.notes.join(' ')).toContain('SOURCE_LIVE_FETCH=0');
+    const run = await repos.runs.lastRun(source.key);
+    expect(run?.status).toBe('skipped');
+    expect(run?.result).toContain('ilan taraması yapılmadı');
+
+    const refreshed = await repos.sources.getByKey(source.key);
+    expect(refreshed?.health.lastRunAt).toBeNull();
+    expect(refreshed?.health.lastSuccessAt).toBeNull();
+    expect(refreshed?.health.totalRuns).toBe(0);
+
+    const summary = await repos.runs.summary();
+    expect(summary.success).toBe(0);
+    expect(summary.skipped).toBe(1);
+    expect(summary.lastSuccessAt).toBeNull();
+    expect((await repos.sources.coverage()).summary.stale).toBe(1);
+  });
+
+  it('HTTP 304 içerik değiştirmese de başarılı kontrol sayılır ve önbellek korunur', async () => {
+    const repos = await makeRepos();
+    const source = await seedSource(repos);
+    const previousSuccessAt = new Date(NOW.getTime() - 60 * 60_000).toISOString();
+    await repos.sources.recordHealth(source.key, {
+      lastRunAt: previousSuccessAt,
+      success: true,
+      durationMs: 400,
+      discoveredCount: 2,
+      acceptedCount: 1,
+      etag: '"ilanlar-v1"',
+      lastModified: 'Mon, 12 Oct 2026 06:00:00 GMT',
+      contentHash: 'previous-content-hash',
+    });
+
+    const result = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'schedule',
+      workerId: WORKER,
+      liveFetch: false,
+      adapter: fakeAdapter([], ['HTTP 304'], true),
+      logger: createLogger('test', { level: 'silent' }),
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.itemsFound).toBe(0);
+    const run = await repos.runs.lastRun(source.key);
+    expect(run?.status).toBe('success');
+    expect(run?.result).toContain('değişmemiş');
+
+    const refreshed = await repos.sources.getByKey(source.key);
+    expect(refreshed?.health.lastSuccessAt).toBe(NOW.toISOString());
+    expect(refreshed?.health.lastContentHash).toBe('previous-content-hash');
+    expect(refreshed?.health.etag).toBe('"ilanlar-v1"');
+    expect(refreshed?.health.lastModified).toBe('Mon, 12 Oct 2026 06:00:00 GMT');
+    expect(refreshed?.health.emptyStreak).toBe(0);
   });
 
   it('aynı kaynağı eşzamanlı iki kez taramaz (kilit)', async () => {

@@ -40,11 +40,11 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
   const { logout } = useAuth();
   const preferences = useQuery({
     queryKey: ['preferences'],
-    queryFn: () => api.get<PreferencesResponse>('/api/notifications/preferences'),
+    queryFn: ({ signal }) => api.get<PreferencesResponse>('/api/notifications/preferences', undefined, signal),
   });
   const history = useQuery({
     queryKey: ['history'],
-    queryFn: () => api.get<NotificationHistoryResponse>('/api/notifications/history'),
+    queryFn: ({ signal }) => api.get<NotificationHistoryResponse>('/api/notifications/history', undefined, signal),
   });
   const [filters, setFilters] = useState<PreferenceFilters>(EMPTY_FILTERS);
   const [draft, setDraft] = useState<Record<string, string>>({});

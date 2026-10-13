@@ -21,15 +21,34 @@ import type { SourceListResponse } from '../types';
 import { Card, DataTable, EmptyState, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
 import { Icon } from '../components/Icon';
 
-/** Kaynak etiketi: çalışıyor / hazırlanıyor / diğer durumlar ayrımı korunur. */
+/** Son tarama sonucu, statik doğrulama bilgisinden ayrı gösterilir. */
 function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
-  if (source.verified) return <Tag tone="success" icon="check">ilanları düzenli okunuyor</Tag>;
-  if (source.built) return <Tag tone="warning" icon="info">hazırlanıyor</Tag>;
-  return <Tag tone="neutral">{sourceStatusLabel(source.status)}</Tag>;
+  switch (source.lastRun?.status) {
+    case 'success':
+      return <Tag tone="success" icon="check">son tarama başarılı</Tag>;
+    case 'partial':
+      return <Tag tone="warning" icon="info">son tarama kısmi</Tag>;
+    case 'failed':
+      return <Tag tone="danger" icon="alert">son tarama sorunlu</Tag>;
+    case 'skipped':
+    case 'locked':
+      return <Tag tone="warning" icon="info">son tarama atlandı</Tag>;
+    case 'queued':
+      return <Tag tone="info">tarama sırada</Tag>;
+    case 'running':
+      return <Tag tone="info">tarama çalışıyor</Tag>;
+    default:
+      if (source.verified) return <Tag tone="info" icon="check">yöntemi doğrulandı</Tag>;
+      if (source.built) return <Tag tone="warning" icon="info">uyarlayıcı hazır</Tag>;
+      return <Tag tone="neutral">{sourceStatusLabel(source.status)}</Tag>;
+  }
 }
 
 export function SourcesPage(): ReactNode {
-  const query = useQuery({ queryKey: ['sources'], queryFn: () => api.get<SourceListResponse>('/api/sources') });
+  const query = useQuery({
+    queryKey: ['sources'],
+    queryFn: ({ signal }) => api.get<SourceListResponse>('/api/sources', undefined, signal),
+  });
 
   return (
     <div className="page-stack">
@@ -38,8 +57,9 @@ export function SourcesPage(): ReactNode {
           <span className="kicker">İlan kaynakları</span>
           <h1 className="page-title">İlanları nereden alıyoruz?</h1>
           <p className="info-lede">
-            Her ilanı bulamayabiliriz; bunu saklamıyoruz. Aşağıda hangi kurumlara düzenli baktığımızı,
-            hangilerine henüz başlamadığımızı ve en son ne zaman baktığımızı görürsünüz.
+            Her ilanı bulamayabiliriz; bunu saklamıyoruz. Aşağıda etkin tanımlı kaynakları, her birinin
+            son tarama sonucunu ve son başarılı tarama zamanını görürsünüz. Yöntemin doğrulanmış olması,
+            worker'ın şu anda çalıştığı anlamına gelmez.
           </p>
         </div>
       </header>
@@ -57,7 +77,13 @@ export function SourcesPage(): ReactNode {
         <>
           <section className="stats-grid-4" aria-label="Kaynak özeti">
             <StatCard label="Toplam kaynak" value={formatNumber(query.data.summary.total)} icon="list" />
-            <StatCard label="İzlenen" value={formatNumber(query.data.summary.enabled)} icon="server" tone="accent" />
+            <StatCard
+              label="Etkin kaynak"
+              value={formatNumber(query.data.summary.enabled)}
+              icon="server"
+              tone="accent"
+              hint="Taramaya açık olarak tanımlı."
+            />
             <StatCard
               label="Gerçek veriyle doğrulanan"
               value={formatNumber(query.data.summary.verified)}
@@ -68,7 +94,7 @@ export function SourcesPage(): ReactNode {
               label="Hazırlanan"
               value={formatNumber(query.data.summary.built ?? 0)}
               icon="layers"
-              hint="Henüz düzenli okunmuyor."
+              hint="Adaptörü var, canlı doğrulaması henüz yok."
             />
             <StatCard label="Henüz başlamadı" value={formatNumber(query.data.summary.planned)} icon="clock" />
             <StatCard
@@ -82,12 +108,16 @@ export function SourcesPage(): ReactNode {
           <InfoNote title="Durumlar ne demek?">
             <ul className="checklist">
               <li>
-                <strong>İlanları düzenli okunuyor:</strong> Bu kurumun ilan sayfasına düzenli bakıyoruz ve
-                ilanları gerçekten okuyabildiğimizi gördük.
+                <strong>Son tarama başarılı:</strong> En son deneme başarılı tamamlandı. Bu geçmiş sonucu,
+                worker'ın şu anda çalıştığını tek başına göstermez; canlı worker durumu üst bölümde yer alır.
               </li>
               <li>
-                <strong>Hazırlanıyor:</strong> Bağlantı üzerinde çalışıyoruz; henüz düzenli okumuyoruz.
-                Bu ikisi aynı şey değildir, o yüzden ayrı gösteriyoruz.
+                <strong>Yöntemi doğrulandı:</strong> Kaynak gerçek veriye erişilerek daha önce kontrol edildi;
+                son tarama kaydı yoksa düzenli okuma yapıldığı iddia edilmez.
+              </li>
+              <li>
+                <strong>Uyarlayıcı hazır:</strong> Kaynak için kod hazır, ancak canlı doğrulama/başarılı tarama
+                kanıtı henüz yok.
               </li>
               <li>
                 <strong>Henüz başlamadı:</strong> Bu kurumlara doğrudan bakmıyoruz; ilanları başka
@@ -100,10 +130,13 @@ export function SourcesPage(): ReactNode {
             {query.data.disclaimer}
           </InfoNote>
 
-          <Card title="Baktığımız kaynaklar" description="Son kontrol bilgileri günceldir.">
+          <Card
+            title="Kaynak listesi"
+            description="Aralık planlanan sıklıktır; son deneme ve son başarı ayrı gösterilir."
+          >
             <DataTable
-              caption="Kaynak listesi ve durumu"
-              head={['Kaynak', 'Durum', 'Ne sıklıkla bakılıyor', 'Son kontrol', 'Sorun var mı']}
+              caption="Kaynak listesi ve son tarama durumu"
+              head={['Kaynak', 'Durum', 'Planlanan aralık', 'Son başarılı tarama / son deneme', 'Sorun var mı']}
             >
               {query.data.sources.map((source) => (
                 <tr key={source.key}>
@@ -114,31 +147,28 @@ export function SourcesPage(): ReactNode {
                   </td>
                   <td data-label="Durum">
                     {sourceTag(source)}
-                    {/* Etiket zaten durumu söylüyorsa aynı metni tekrar yazma. */}
-                    {source.verified || source.built ? (
-                      source.enabled ? null : <span className="cell-subtitle">kapalı</span>
-                    ) : (
-                      <span className="cell-subtitle">
-                        {sourceStatusLabel(source.status)}
-                        {source.enabled ? '' : ' · kapalı'}
-                      </span>
-                    )}
+                    {!source.enabled && <span className="cell-subtitle">kapalı</span>}
                   </td>
-                  <td data-label="Ne sıklıkla bakılıyor">
-                    <span className="cell-num">{source.intervalMinutes} dakikada bir</span>
+                  <td data-label="Planlanan aralık">
+                    <span className="cell-num">{source.intervalMinutes} dakikada bir planlı</span>
                   </td>
-                  <td data-label="Son kontrol">
+                  <td data-label="Son başarılı tarama / son deneme">
                     {source.health.lastSuccessAt ? (
                       <>
-                        <span>{formatRelative(source.health.lastSuccessAt)}</span>
+                        <span>Son başarı: {formatRelative(source.health.lastSuccessAt)}</span>
                         <span className="cell-subtitle">{formatDateTime(source.health.lastSuccessAt)}</span>
                       </>
+                    ) : source.lastRun ? (
+                      <>
+                        <span>Henüz başarılı tarama yok</span>
+                        <span className="cell-subtitle">Son deneme: {formatDateTime(source.lastRun.startedAt)}</span>
+                      </>
                     ) : (
-                      <span className="cell-subtitle">henüz bakılmadı</span>
+                      <span className="cell-subtitle">Henüz tarama yapılmadı</span>
                     )}
                     {source.lastRun && (
                       <span className="cell-subtitle">
-                        Son bakışta: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
+                        Son sonuç: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
                         {formatNumber(source.lastRun.itemsFound)} ilan · {formatDuration(source.health.avgDurationMs)}
                       </span>
                     )}

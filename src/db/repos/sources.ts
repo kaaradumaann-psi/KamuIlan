@@ -238,6 +238,7 @@ export class SourceRepo {
       total: number;
       enabled: number;
       verified: number;
+      /** Hazır adaptörü olan ama canlı doğrulaması olmayan kaynak sayısı. */
       built: number;
       failing: number;
       stale: number;
@@ -248,8 +249,10 @@ export class SourceRepo {
     // Demo/örnek veri kaydı gerçek bir tarama kaynağı değildir; kapsam sayılarına
     // girmez (seed:demo bunu coverageNote alanında taahhüt ediyor).
     const sources = allSources.filter((source) => !source.tags.includes('demo'));
+    const scheduledTasks = await this.store.find('scheduledTasks', { kind: 'source-scrape' }, { limit: 500 });
+    const scheduledIntervals = new Map(scheduledTasks.map((task) => [task.sourceKey, task.intervalMinutes]));
     const entries: SourceCoverageEntry[] = [];
-    const staleThreshold = Date.now() - 6 * 3_600_000;
+    const staleThreshold = this.clock.now().getTime() - 6 * 3_600_000;
     let failing = 0;
     let stale = 0;
 
@@ -260,7 +263,9 @@ export class SourceRepo {
         { limit: 1, sort: [['startedAt', -1]] },
       );
       const lastRun = lastRunRows[0] ?? null;
-      const isStale = !source.health.lastRunAt || Date.parse(source.health.lastRunAt) < staleThreshold;
+      // Son deneme değil, son gerçek başarı belirleyicidir: başarısız/atlanan
+      // deneme kaynağı "yakın zamanda tarandı" gibi gösteremez.
+      const isStale = !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
       if (source.health.consecutiveFailures > 0) failing += 1;
       if (source.enabled && isStale) stale += 1;
       entries.push({
@@ -276,7 +281,7 @@ export class SourceRepo {
         lastVerifiedAt: source.verification.verifiedAt,
         verificationEvidence: source.verification.evidence,
         coverageNote: source.coverageNotes,
-        intervalMinutes: source.scrapeIntervalMinutes,
+        intervalMinutes: scheduledIntervals.get(source.key) ?? source.scrapeIntervalMinutes,
         health: source.health,
         lastRun: lastRun
           ? {
@@ -297,7 +302,8 @@ export class SourceRepo {
         total: entries.length,
         enabled: entries.filter((entry) => entry.enabled).length,
         verified: entries.filter((entry) => entry.verified).length,
-        built: entries.filter((entry) => entry.built).length,
+        // "Hazırlanan": adaptörü var ama henüz canlı doğrulaması yapılmamış kaynak.
+        built: entries.filter((entry) => entry.built && !entry.verified).length,
         failing,
         stale,
         planned: PLANNED_SOURCES.length,

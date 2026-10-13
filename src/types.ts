@@ -170,7 +170,7 @@ export interface SourceCoverageEntry {
   status: string;
   statusNote: string;
   enabled: boolean;
-  /** Canlı erişimle doğrulandı (adaptörü olmak yetmez). */
+  /** Geçmiş canlı doğrulama kaydı var; güncel erişim/worker durumunu tek başına kanıtlamaz. */
   verified: boolean;
   /** Adaptör yazıldı; canlı doğrulama kanıtı olmayabilir. */
   built: boolean;
@@ -215,6 +215,7 @@ export interface SourceListResponse {
     total: number;
     enabled: number;
     verified: number;
+    /** Adaptörü hazır ancak henüz canlı doğrulanmamış kaynak sayısı. */
     built?: number;
     failing: number;
     stale: number;

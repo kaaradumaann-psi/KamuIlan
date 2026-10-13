@@ -175,6 +175,20 @@ describe('tasarım sistemi sözleşmesi', () => {
     }
   });
 
+  it('arama ikonu alanı ve spinner sarmalayıcısı ortak CSS katmanını doğru ezer', () => {
+    const appCss = readFileSync(join(STYLES_DIR, 'kamuilan.css'), 'utf8');
+    const sharedInputSelector = ".form-group input:not([type='checkbox']):not([type='radio'])";
+    const iconInputSelector = ".form-group .search-input-wrap > input[type='search']";
+    const sharedInputIndex = appCss.indexOf(sharedInputSelector);
+    const iconInputIndex = appCss.indexOf(iconInputSelector);
+    expect(sharedInputIndex).toBeGreaterThanOrEqual(0);
+    expect(iconInputIndex).toBeGreaterThan(sharedInputIndex);
+    expect(appCss.slice(iconInputIndex, appCss.indexOf('}', iconInputIndex))).toContain('padding-left: 38px');
+
+    expect(appCss).toMatch(/\.spinner-inline\s*\{[^}]*display:\s*inline-flex;[^}]*border:\s*0;[^}]*animation:\s*none;/s);
+    expect(appCss).toMatch(/\.spinner-inline \.spinner\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/s);
+  });
+
   it('arayüzde tanımsız sınıf kullanılmaz', () => {
     const defined = definedClasses();
     const unknown = usedClasses().filter(

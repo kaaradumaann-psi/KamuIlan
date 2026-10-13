@@ -32,7 +32,7 @@ export function JobDetailPage(): ReactNode {
   const { id = '' } = useParams();
   const query = useQuery({
     queryKey: ['job', id],
-    queryFn: () => api.get<PublicJobDetail>(`/api/jobs/${encodeURIComponent(id)}`),
+    queryFn: ({ signal }) => api.get<PublicJobDetail>(`/api/jobs/${encodeURIComponent(id)}`, undefined, signal),
     enabled: id.length > 0,
     retry: 0,
   });

@@ -23,7 +23,7 @@ import { fixedClock, type Clock } from '../src/lib/clock';
 import { createLogger } from '../src/lib/logger';
 import { applyRawAnnouncement } from '../src/ingest/jobs-service';
 import { BuiltinQueueBackend, QUEUE_NAMES } from '../src/worker/queue';
-import { ensureScheduledTasks, schedulerTick } from '../src/worker/scheduler';
+import { ensureScheduledTasks, schedulerTick, syncTaskIntervals } from '../src/worker/scheduler';
 import { WorkerRuntime } from '../src/worker/runtime';
 import { AdapterUnavailableError } from '../src/sources/errors';
 import type { SourceAdapter } from '../src/sources/types';
@@ -176,6 +176,42 @@ describe('zamanlayıcı', () => {
 
     const stats = await world.repos.queue.stats();
     expect(stats.pending).toBe(first.enqueued);
+  });
+
+  it('global tarama aralığını yeni ve mevcut görevlere uygular; 0 iken kaynak aralığına döner', async () => {
+    const world = await makeWorld();
+    await ensureScheduledTasks(world.repos, LOGGER);
+    await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
+
+    const existing = (await world.repos.scheduledTasks.listAll()).find((task) => task.sourceKey === OK_SOURCE_KEY);
+    expect(existing?.nextRunAt).toBe(new Date(NOW.getTime() + 60 * 60_000).toISOString());
+
+    await world.repos.sources.seed([definition('test-kaynak-yeni', 'Yeni Test Kaynağı', 'ornek3.test')]);
+    const overridden = await ensureScheduledTasks(world.repos, LOGGER, 1);
+    expect(overridden.updated).toBeGreaterThanOrEqual(2);
+    expect(overridden.created).toBeGreaterThanOrEqual(1);
+    await syncTaskIntervals(world.repos, 1);
+
+    let tasks = await world.repos.scheduledTasks.listAll();
+    const sourceTasks = tasks.filter((task) => task.kind === 'source-scrape');
+    expect(sourceTasks).toHaveLength(DEFINITIONS.length + 1);
+    expect(sourceTasks.every((task) => task.intervalMinutes === 1)).toBe(true);
+    const rescheduledExisting = sourceTasks.find((task) => task.sourceKey === OK_SOURCE_KEY);
+    expect(rescheduledExisting?.nextRunAt).toBe(new Date(NOW.getTime() + 60_000).toISOString());
+    const newlyScheduled = sourceTasks.find((task) => task.sourceKey === 'test-kaynak-yeni');
+    expect(newlyScheduled?.nextRunAt).toBe(NOW.toISOString());
+
+    await world.repos.sources.update(OK_SOURCE_KEY, { scrapeIntervalMinutes: 5 });
+    expect(await syncTaskIntervals(world.repos, 0)).toBe(DEFINITIONS.length + 1);
+    const changedTask = (await world.repos.scheduledTasks.listAll()).find((task) => task.sourceKey === OK_SOURCE_KEY);
+    expect(changedTask?.intervalMinutes).toBe(5);
+    expect(changedTask?.nextRunAt).toBe(new Date(NOW.getTime() + 5 * 60_000).toISOString());
+
+    await world.repos.sources.update(OK_SOURCE_KEY, { scrapeIntervalMinutes: 60 });
+    await syncTaskIntervals(world.repos, 0);
+    tasks = await world.repos.scheduledTasks.listAll();
+    const restoredTasks = tasks.filter((task) => task.kind === 'source-scrape');
+    expect(restoredTasks.map((task) => task.intervalMinutes).sort()).toEqual([60, 60, 60]);
   });
 
   it('aralık dolunca yeni çalışma üretir ve bir sonraki zamanı ileri yazar', async () => {

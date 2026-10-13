@@ -246,7 +246,18 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
     verificationEvidence: entry.verificationEvidence,
     coverageNote: entry.coverageNote,
     intervalMinutes: entry.intervalMinutes,
-    health: entry.health,
+    health: {
+      lastRunAt: entry.health.lastRunAt,
+      lastSuccessAt: entry.health.lastSuccessAt,
+      consecutiveFailures: entry.health.consecutiveFailures,
+      totalRuns: entry.health.totalRuns,
+      successRuns: entry.health.totalSuccesses,
+      failureRuns: Math.max(0, entry.health.totalRuns - entry.health.totalSuccesses),
+      avgDurationMs: entry.health.avgDurationMs,
+      lastError: entry.health.lastErrorMessage,
+      itemsFound: entry.health.lastDiscoveredCount,
+      emptyStreak: entry.health.emptyStreak,
+    },
     lastRun: entry.lastRun,
   };
 }

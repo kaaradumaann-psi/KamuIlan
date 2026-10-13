@@ -94,6 +94,9 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
       const staleWorkers = heartbeats.filter(
         (beat) => beat.status !== 'stopped' && beat.lastHeartbeatAt < staleThreshold,
       );
+      const runningWorkers = heartbeats.filter(
+        (beat) => beat.status === 'running' && beat.lastHeartbeatAt >= staleThreshold,
+      ).length;
       const warnings: string[] = [];
       if (!health.ok) warnings.push('Veritabanına erişilemiyor.');
       if (coverage.summary.failing > 0) warnings.push(`${coverage.summary.failing} kaynak üst üste başarısız.`);
@@ -101,7 +104,7 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
         warnings.push(`${coverage.summary.stale} kaynağın uzun süredir başarılı taraması yok.`);
       }
       if ((queueStats.dead ?? 0) > 0) warnings.push(`${queueStats.dead} iş ölü mektup kuyruğunda.`);
-      if (heartbeats.length === 0) warnings.push('Kayıtlı worker kalp atışı yok; zamanlanmış tarama çalışmıyor olabilir.');
+      if (runningWorkers === 0) warnings.push('Aktif worker kalp atışı yok; zamanlanmış taramalar şu an yürütülmüyor.');
 
       const minutesSinceSuccess = runSummary.lastSuccessAt
         ? Math.round((now.getTime() - Date.parse(runSummary.lastSuccessAt)) / 60_000)
@@ -136,9 +139,7 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
         workers: {
           total: heartbeats.length,
           // "çalışıyor" demek için yalnızca status alanı yetmez: kalp atışı taze olmalı.
-          running: heartbeats.filter(
-            (beat) => beat.status === 'running' && beat.lastHeartbeatAt >= staleThreshold,
-          ).length,
+          running: runningWorkers,
           stale: staleWorkers.length,
           items: heartbeats.slice(0, 10).map((beat) => ({
             workerId: beat.workerId,
