@@ -27,7 +27,13 @@ import { toIstanbulDateOnly } from '../domain/dates';
 import type { SourceAdapter } from '../sources/types';
 import { runSourceScrape } from '../ingest/pipeline';
 import { QUEUE_NAMES, type QueueBackend, type QueueJobPayload } from './queue';
-import { ensureScheduledTasks, isStale, schedulerTick, syncTaskIntervals, HEARTBEAT_STALE_MS } from './scheduler';
+import {
+  ensureScheduledTasks,
+  isStale,
+  schedulerTick,
+  syncTaskIntervals,
+  HEARTBEAT_STALE_MS,
+} from './scheduler';
 
 export interface WorkerRuntimeOptions {
   repos: Repos;
@@ -101,13 +107,16 @@ export class WorkerRuntime {
     this.liveFetch = options.liveFetch;
     this.adapterOverride = options.adapterOverride;
     this.transport =
-      options.transport ??
-      (this.env.SCHEDULER_ENABLED ? createEmailTransport(this.env).transport : null);
+      options.transport ?? (this.env.SCHEDULER_ENABLED ? createEmailTransport(this.env).transport : null);
   }
 
   /** Tek tik. Testlerde doğrudan çağrılır; üretimde `run()` döngü kurar. */
   async tick(): Promise<WorkerTickResult> {
     const now = this.now();
+    // Kalp atışı tik BAŞINDA da atılır: yavaş/büyük taramalar tek tiki
+    // dakikalara uzatabilir; yalnızca sonda atılırsa panel o süre boyunca
+    // yanlışlıkla "worker çalışmıyor" gösterir.
+    await this.safeHeartbeat([]);
     const result: WorkerTickResult = {
       scheduler: { due: 0, enqueued: 0, duplicates: 0, misses: 0 },
       scrapes: { processed: 0, succeeded: 0, failed: 0, skipped: 0 },
@@ -143,9 +152,18 @@ export class WorkerRuntime {
     const stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
     if (this.queue.kind !== 'builtin') return stats; // Redis yolunda işler push edilir.
 
-    const jobs = await this.queue.claim(QUEUE_NAMES.scrape, this.workerId, this.env.WORKER_CONCURRENCY, LEASE_MS);
+    const jobs = await this.queue.claim(
+      QUEUE_NAMES.scrape,
+      this.workerId,
+      this.env.WORKER_CONCURRENCY,
+      LEASE_MS,
+    );
     for (const job of jobs) {
-      const outcome = await this.handleScrapeJob({ id: job.id, payload: job.payload, attempts: job.attempts });
+      const outcome = await this.handleScrapeJob({
+        id: job.id,
+        payload: job.payload,
+        attempts: job.attempts,
+      });
       stats.processed += 1;
       if (outcome === 'failed') stats.failed += 1;
       else if (outcome === 'skipped') stats.skipped += 1;
@@ -233,7 +251,10 @@ export class WorkerRuntime {
 
     const jobs = await this.queue.claim(QUEUE_NAMES.maintenance, this.workerId, 2, LEASE_MS);
     for (const job of jobs) {
-      const outcome = await this.handleMaintenanceJob({ id: job.id, payload: job.payload, attempts: job.attempts }, now);
+      const outcome = await this.handleMaintenanceJob(
+        { id: job.id, payload: job.payload, attempts: job.attempts },
+        now,
+      );
       if (outcome) {
         stats.ran.push(outcome.ran);
         stats.closedJobs += outcome.closedJobs;
@@ -251,7 +272,11 @@ export class WorkerRuntime {
     now: Date = this.now(),
   ): Promise<{ ran: string; closedJobs: number; activatedJobs: number; purged: number } | null> {
     try {
-      const handled = await this.runMaintenanceJob(String(job.payload['kind'] ?? job.payload['name'] ?? ''), job.payload, now);
+      const handled = await this.runMaintenanceJob(
+        String(job.payload['kind'] ?? job.payload['name'] ?? ''),
+        job.payload,
+        now,
+      );
       await this.completeJob(job.id);
       return handled;
     } catch (error) {
@@ -373,7 +398,9 @@ export class WorkerRuntime {
       // kayıt `markStaleAsStopped` ile zaten "durdu" olarak işaretlenir.
       if (this.warnedWorkers.has(worker.workerId)) continue;
       this.warnedWorkers.add(worker.workerId);
-      warnings.push(`Worker ${worker.workerId} ${worker.lastHeartbeatAt} tarihinden beri kalp atışı göndermedi.`);
+      warnings.push(
+        `Worker ${worker.workerId} ${worker.lastHeartbeatAt} tarihinden beri kalp atışı göndermedi.`,
+      );
     }
 
     const queueStats = await this.queue.stats();
@@ -417,14 +444,26 @@ export class WorkerRuntime {
   }
 
   private async heartbeat(result: WorkerTickResult): Promise<void> {
-    await this.repos.heartbeats.beat({
-      workerId: this.workerId,
-      role: 'worker',
-      version: APP_VERSION,
-      status: this.stopRequested ? 'stopping' : 'running',
-      processedJobs: this.processed,
-      lastError: this.lastError ?? result.warnings[0] ?? null,
-    });
+    await this.safeHeartbeat(result.warnings);
+  }
+
+  /** Kalp atışı hatası iş akışını düşürmemeli; yalnızca günlüğe yazılır. */
+  private async safeHeartbeat(warnings: string[]): Promise<void> {
+    try {
+      await this.repos.heartbeats.beat({
+        workerId: this.workerId,
+        role: 'worker',
+        version: APP_VERSION,
+        status: this.stopRequested ? 'stopping' : 'running',
+        processedJobs: this.processed,
+        lastError: this.lastError ?? warnings[0] ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'kalp atışı yazılamadı',
+      );
+    }
   }
 
   /** Kalıcı döngü: tikler arasında beklenir, durdurma isteği ile temiz kapanır. */
@@ -443,6 +482,15 @@ export class WorkerRuntime {
     if (stopped > 0) {
       this.logger.info({ stopped }, 'kalp atışı eskimiş worker kayıtları "durdu" olarak işaretlendi');
     }
+    // Önceki süreç ölürken yarım kalmış taramalar da kapatılır; yoksa panelde
+    // sonsuza dek "çalışıyor" görünürler.
+    const closedRuns = await this.repos.runs.closeStaleRunning(
+      staleBefore,
+      'Worker süreci sonlandığı için yarım kalan tarama kapatıldı.',
+    );
+    if (closedRuns > 0) {
+      this.logger.info({ closedRuns }, 'yarım kalmış tarama kayıtları kapatıldı');
+    }
 
     if (this.queue.kind === 'redis') {
       // İtmeli arka uç: tarama ve bakım işleri doğrudan işleyiciye bağlanır.
@@ -454,9 +502,13 @@ export class WorkerRuntime {
         },
         this.env.WORKER_CONCURRENCY,
       );
-      queue.startWorker(QUEUE_NAMES.maintenance, async (job) => {
-        await this.handleMaintenanceJob(job);
-      }, 1);
+      queue.startWorker(
+        QUEUE_NAMES.maintenance,
+        async (job) => {
+          await this.handleMaintenanceJob(job);
+        },
+        1,
+      );
       this.logger.info({}, 'Redis işleyicileri bağlandı (tarama ve bakım)');
     }
 

@@ -21,7 +21,14 @@ import { APP_VERSION, BRANDING } from '../config/app';
 import { getRepos, type Repos } from '../db/repos';
 import { createLogger } from '../lib/logger';
 import { ApiError, toErrorBody } from './errors';
-import { CSRF_COOKIE, CSRF_HEADER, SECURITY_HEADERS, SESSION_COOKIE, enforceRateLimit, safeEqual } from './context';
+import {
+  CSRF_COOKIE,
+  CSRF_HEADER,
+  SECURITY_HEADERS,
+  SESSION_COOKIE,
+  enforceRateLimit,
+  safeEqual,
+} from './context';
 import { registerAdminRoutes } from './routes/admin';
 import { registerAuthRoutes } from './routes/auth';
 import { registerHealthRoutes } from './routes/health';
@@ -38,29 +45,25 @@ export interface BuildAppOptions {
   serveStatic?: boolean;
 }
 
-/** Kimlik gerektirmeyen yollar (hız sınırı ve CSRF muafiyeti burada tanımlanır). */
-const PUBLIC_PATHS = new Set([
-  '/api/health',
-  '/api/docs',
-  '/api/jobs',
-  '/api/sources',
-  '/api/auth/register',
+/**
+ * CSRF muafiyeti YALNIZCA jeton/kimlik bilgisinin kendisi yetki kanıtı olan
+ * halka açık kimlik uçlarına tanınır (tam yol eşleşmesi). Önek muafiyeti
+ * YOKTUR: `/api/jobs/:id/save` gibi oturumla çalışan değiştiren uçlar,
+ * `/api/jobs` detayı halka açık olsa bile CSRF denetiminden geçer.
+ */
+const CSRF_EXEMPT_PATHS = new Set([
   '/api/auth/login',
+  '/api/auth/register',
   '/api/auth/logout',
   '/api/auth/verify-email',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
   '/api/auth/unsubscribe',
-  '/api/auth/session',
 ]);
 
-function isPublicPath(url: string): boolean {
+function isCsrfExempt(url: string): boolean {
   const path = url.split('?')[0] ?? url;
-  if (PUBLIC_PATHS.has(path)) return true;
-  if (path.startsWith('/api/jobs/')) return true; // ilan detayı herkese açık
-  if (path.startsWith('/api/sources/')) return true; // kapsam/durum bilgisi şeffaf
-  if (path.startsWith('/api/docs')) return true;
-  return !path.startsWith('/api/');
+  return CSRF_EXEMPT_PATHS.has(path);
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -129,7 +132,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       max,
     });
     if (!decision.allowed) {
-      reply.header('retry-after', String(Math.max(1, Math.round((Date.parse(decision.resetAt) - Date.now()) / 1000))));
+      reply.header(
+        'retry-after',
+        String(Math.max(1, Math.round((Date.parse(decision.resetAt) - Date.now()) / 1000))),
+      );
       throw ApiError.rateLimited('Çok fazla istek gönderdiniz; lütfen bir süre bekleyin.', {
         resetAt: decision.resetAt,
       });
@@ -150,10 +156,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const method = request.method.toUpperCase();
     const changing = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
 
-    if (changing && session && env.CSRF_ENABLED && !isPublicPath(`${request.url}`)) {
+    if (changing && session && env.CSRF_ENABLED && !isCsrfExempt(request.url)) {
       const header = request.headers[CSRF_HEADER];
       const provided = Array.isArray(header) ? header[0] : header;
-      if (!provided || !csrfCookie || !safeEqual(provided, csrfCookie) || !safeEqual(csrfCookie, session.csrfToken)) {
+      if (
+        !provided ||
+        !csrfCookie ||
+        !safeEqual(provided, csrfCookie) ||
+        !safeEqual(csrfCookie, session.csrfToken)
+      ) {
         throw ApiError.forbidden('CSRF doğrulaması başarısız. Sayfayı yenileyip tekrar deneyin.');
       }
     }
@@ -165,7 +176,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const { statusCode, body } = toErrorBody(error, request.id);
     if (statusCode >= 500) {
       logger.error(
-        { err: error instanceof Error ? error.message : String(error), url: request.url, requestId: request.id },
+        {
+          err: error instanceof Error ? error.message : String(error),
+          url: request.url,
+          requestId: request.id,
+        },
         'API hatası',
       );
     }

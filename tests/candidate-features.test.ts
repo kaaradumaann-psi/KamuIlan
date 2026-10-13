@@ -147,6 +147,15 @@ describe('kaydedilen ilanlar ve jetonlu çıkış (API)', () => {
       const first = await login('aday1@ornek.test');
       const second = await login('aday2@ornek.test');
 
+      // CSRF: oturum çerezi tek başına yetmez; başlıksız değiştiren istek 403.
+      const noCsrf = await app.inject({
+        method: 'POST',
+        url: `/api/jobs/${jobId}/save`,
+        payload: {},
+        headers: { cookie: first.cookie },
+      });
+      expect(noCsrf.statusCode).toBe(403);
+
       const saved = await app.inject({
         method: 'POST',
         url: `/api/jobs/${jobId}/save`,
@@ -155,6 +164,18 @@ describe('kaydedilen ilanlar ve jetonlu çıkış (API)', () => {
       });
       expect(saved.statusCode).toBe(200);
       expect((saved.json() as { saved: boolean }).saved).toBe(true);
+
+      // Bildirim tercihi: 9 KPSS türünün tamamı seçilebilir olmalı (şema sınırı).
+      const prefSave = await app.inject({
+        method: 'PUT',
+        url: '/api/notifications/preferences',
+        payload: {
+          enabled: true,
+          filters: { kpssScoreTypes: ['P1', 'P2', 'P3', 'P10', 'P93', 'P94', 'P121', 'P124', 'DHBT'] },
+        },
+        headers: { cookie: first.cookie, 'x-csrf-token': first.csrf },
+      });
+      expect(prefSave.statusCode).toBe(200);
 
       const mine = await app.inject({
         method: 'GET',
