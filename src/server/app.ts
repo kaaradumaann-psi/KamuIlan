@@ -51,11 +51,15 @@ export interface BuildAppOptions {
  * halka açık kimlik uçlarına tanınır (tam yol eşleşmesi). Önek muafiyeti
  * YOKTUR: `/api/jobs/:id/save` gibi oturumla çalışan değiştiren uçlar,
  * `/api/jobs` detayı halka açık olsa bile CSRF denetiminden geçer.
+ *
+ * `/api/auth/logout` bu listede DEĞİLDİR: oturum çereziyle çalışır, jeton
+ * kanıtı yoktur. Muaf olsaydı saldırgan bir sayfa, kullanıcının tarayıcısına
+ * sessizce çıkış yaptırabilirdi (zorla çıkış). Arayüz `x-csrf-token` başlığını
+ * zaten gönderir; bu yüzden kullanıcı açısından fark yoktur.
  */
 const CSRF_EXEMPT_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/register',
-  '/api/auth/logout',
   '/api/auth/verify-email',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',

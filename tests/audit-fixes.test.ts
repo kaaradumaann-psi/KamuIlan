@@ -11,6 +11,7 @@
  *  7. Taranan içerikten gelen e-posta konusunun denetim karakteri taşıması.
  *  8. `formatDateOnly`'nin tam ISO damgasında "NaN Ekim 2026" üretmesi.
  *  9. Sayısal/özel host adresleriyle SSRF denemeleri.
+ * 10. `/api/auth/logout` CSRF muafiyeti (saldırgan sayfa zorla çıkış yaptırabiliyordu).
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -466,6 +467,55 @@ describe('arama güvenliği (ReDoS / regex enjeksiyonu)', () => {
     const literal = await app.inject({ method: 'GET', url: '/api/jobs?q=%25' });
     expect(literal.statusCode).toBe(200);
     expect((literal.json() as { total: number }).total).toBe(0);
+
+    await app.close();
+    await store.close();
+  });
+});
+
+describe('CSRF — çıkış ucu da korunur', () => {
+  it('oturum varken başlıksız çıkış isteği 403 döner, oturum kapanmaz', async () => {
+    const { app, store } = await makeWorld();
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'aday@ornek.test', password: CREDENTIAL },
+    });
+    expect(loginResponse.statusCode).toBe(200);
+    const csrf = (loginResponse.json() as { csrfToken: string }).csrfToken;
+    const sessionCookie = (loginResponse.cookies as { name: string; value: string }[]).find(
+      (cookie) => cookie.name === 'kamuilan_session',
+    )?.value;
+    const csrfCookie = (loginResponse.cookies as { name: string; value: string }[]).find(
+      (cookie) => cookie.name === 'kamuilan_csrf',
+    )?.value;
+    expect(sessionCookie).toBeTruthy();
+
+    // Saldırgan sayfa senaryosu: çerezler gider, `x-csrf-token` başlığı YOK.
+    const withoutToken = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      cookies: { kamuilan_session: sessionCookie ?? '', kamuilan_csrf: csrfCookie ?? '' },
+    });
+    expect(withoutToken.statusCode).toBe(403);
+
+    // Oturum hâlâ geçerlidir: zorla çıkış gerçekleşmedi.
+    const stillIn = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      cookies: { kamuilan_session: sessionCookie ?? '' },
+    });
+    expect((stillIn.json() as { authenticated: boolean }).authenticated).toBe(true);
+
+    // Arayüzün yaptığı gibi başlık gönderilirse çıkış çalışır.
+    const withToken = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      cookies: { kamuilan_session: sessionCookie ?? '', kamuilan_csrf: csrfCookie ?? '' },
+      headers: { 'x-csrf-token': csrf },
+    });
+    expect(withToken.statusCode).toBe(200);
 
     await app.close();
     await store.close();
