@@ -247,8 +247,8 @@ describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → 
       // İl bilgisi ilanda YOK; uydurulmaz. (Eski hata: "doldurmuş" → "Muş".)
       expect(body).not.toContain('Muş');
       expect(body).toContain('https://ornek.test/ilanlar/ORNEK-2026-0001'); // resmî ilan bağlantısı
-      expect(body).toContain('/panel/bildirimler'); // tercih bağlantısı
-      expect(body).toContain('/api/auth/unsubscribe?token='); // abonelikten çıkma bağlantısı
+      expect(body).toContain('/panel'); // tercih bağlantısı
+      expect(body).toContain('/abonelikten-cik?token='); // abonelikten çıkma bağlantısı
       expect(body).toContain('çalışma biçimi'); // eşleşme gerekçesi
 
       // Teslim kaydı: sağlayıcı kabulü zamanı ve mesaj kimliği yazılır.

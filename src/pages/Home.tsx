@@ -29,7 +29,10 @@ const CLOSING_KEY = ['home', 'closing'] as const;
 const HEALTH_KEY = ['home', 'health'] as const;
 
 /** Sistem durumu şeridi: gerçek sağlık yanıtından türetilir. */
-function statusLabel(status: HealthResponse['status'] | undefined): { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' } {
+function statusLabel(status: HealthResponse['status'] | undefined): {
+  label: string;
+  tone: 'success' | 'warning' | 'danger' | 'neutral';
+} {
   if (status === 'ok') return { label: 'Sistem normal', tone: 'success' };
   if (status === 'degraded') return { label: 'Sistem kısmen sorunlu', tone: 'warning' };
   if (status === 'down') return { label: 'Sistem erişilemez', tone: 'danger' };
@@ -44,7 +47,12 @@ function SystemStrip() {
     retry: 1,
   });
 
-  if (health.isLoading) return <div className="status-strip" aria-busy="true">Sistem durumu okunuyor…</div>;
+  if (health.isLoading)
+    return (
+      <div className="status-strip" aria-busy="true">
+        Sistem durumu okunuyor…
+      </div>
+    );
   if (health.isError || !health.data) {
     return (
       <div className="status-strip is-warning" role="status">
@@ -68,8 +76,8 @@ function SystemStrip() {
         {data.workers.stale > 0 ? `, ${data.workers.stale} bayat` : ''}
       </span>
       <span>
-        Kaynaklar: <strong>{data.sources.enabled} etkin</strong> · {data.sources.built ?? 0} adaptör yazılmış ·{' '}
-        {data.sources.verified} canlı doğrulanmış · {data.sources.planned} planlı
+        Kaynaklar: <strong>{data.sources.enabled} etkin</strong> · {data.sources.built ?? 0} adaptör yazılmış
+        · {data.sources.verified} canlı doğrulanmış · {data.sources.planned} planlı
       </span>
       {data.queue.pending + data.queue.active > 0 && (
         <span>
@@ -96,9 +104,12 @@ export function HomePage() {
   const closing = useQuery({
     queryKey: CLOSING_KEY,
     queryFn: () =>
-      api.get<{ items: PublicJobSummary[]; days: number; generatedAt: string }>('/api/jobs/deadlines/upcoming', {
-        days: 14,
-      }),
+      api.get<{ items: PublicJobSummary[]; days: number; generatedAt: string }>(
+        '/api/jobs/deadlines/upcoming',
+        {
+          days: 14,
+        },
+      ),
   });
 
   function submit(event: FormEvent) {
@@ -177,8 +188,18 @@ export function HomePage() {
       {stats.data && (
         <section className="stats-grid-4" aria-label="Güncel sayılar">
           <StatCard label="Açık ilan" value={formatNumber(stats.data.active)} icon="layers" tone="accent" />
-          <StatCard label="Bugün eklenen" value={formatNumber(stats.data.addedToday)} icon="check" tone="success" />
-          <StatCard label="Kapanışa ≤ 7 gün" value={formatNumber(stats.data.closingSoon)} icon="clock" tone="warning" />
+          <StatCard
+            label="Bugün eklenen"
+            value={formatNumber(stats.data.addedToday)}
+            icon="check"
+            tone="success"
+          />
+          <StatCard
+            label="Kapanışa ≤ 7 gün"
+            value={formatNumber(stats.data.closingSoon)}
+            icon="clock"
+            tone="warning"
+          />
           <StatCard label="Kayıtlı ilan (tümü)" value={formatNumber(stats.data.total)} icon="list" />
         </section>
       )}
@@ -198,9 +219,7 @@ export function HomePage() {
             <ErrorNotice message={errorMessage(latest.error)} onRetry={() => void latest.refetch()} />
           )}
           {latest.data && latest.data.items.length === 0 && (
-            <p className="text-muted-sm">
-              Henüz ilan kaydı yok. Kaynaklar tarandıkça burada görünecek.
-            </p>
+            <p className="text-muted-sm">Henüz ilan kaydı yok. Kaynaklar tarandıkça burada görünecek.</p>
           )}
           {latest.data && latest.data.items.length > 0 && (
             <div className="job-list">
@@ -229,7 +248,9 @@ export function HomePage() {
                   </div>
                   <div className="report-list-meta">
                     <span className="date-tag">{formatDateOnly(job.applicationEndAt)}</span>
-                    <span className="text-muted-sm">{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</span>
+                    <span className="text-muted-sm">
+                      {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
+                    </span>
                   </div>
                 </li>
               ))}
@@ -243,7 +264,12 @@ export function HomePage() {
           <ul className="distribution-list">
             {typeCounts.map((item) => (
               <li key={item.key}>
-                <span className="distribution-label">{EMPLOYMENT_TYPE_LABELS[item.key] ?? item.key}</span>
+                <Link
+                  className="distribution-label distribution-link"
+                  to={`/ilanlar?employmentType=${encodeURIComponent(item.key)}`}
+                >
+                  {EMPLOYMENT_TYPE_LABELS[item.key] ?? item.key}
+                </Link>
                 <span className="distribution-track" aria-hidden="true">
                   <span
                     className="distribution-fill"
@@ -260,24 +286,25 @@ export function HomePage() {
       <Card title="Sistem nasıl çalışıyor?" description="Kısaca boru hattı ve sınırları.">
         <ol className="checklist">
           <li>
-            <strong>Tarama:</strong> Kaynaklar zamanlanmış işlerle taranır; her taramanın sonucu, süresi ve hatası
-            kaydedilir. Bir kaynağa erişilemezse mevcut ilan kayıtları silinmez, kaynak "bayat" olarak işaretlenir.
+            <strong>Tarama:</strong> Kaynaklar zamanlanmış işlerle taranır; her taramanın sonucu, süresi ve
+            hatası kaydedilir. Bir kaynağa erişilemezse mevcut ilan kayıtları silinmez, kaynak "bayat" olarak
+            işaretlenir.
           </li>
           <li>
-            <strong>Sınıflandırma:</strong> Personel alım ilanı olmayan içerik (ihale, tebliğ, sonuç listesi) kural
-            tabanlı olarak elenir; kararsız kalanlar inceleme kuyruğuna düşer, sessizce silinmez.
+            <strong>Sınıflandırma:</strong> Personel alım ilanı olmayan içerik (ihale, tebliğ, sonuç listesi)
+            kural tabanlı olarak elenir; kararsız kalanlar inceleme kuyruğuna düşer, sessizce silinmez.
           </li>
           <li>
-            <strong>Çıkarım:</strong> Unvan, kurum, kontenjan, il, tarih, KPSS koşulu gibi alanlar belgeden çıkarılır;
-            bulunamayan alanlar "belirtilmemiş" olarak kalır ve hiçbir değer tahmin edilmez.
+            <strong>Çıkarım:</strong> Unvan, kurum, kontenjan, il, tarih, KPSS koşulu gibi alanlar belgeden
+            çıkarılır; bulunamayan alanlar "belirtilmemiş" olarak kalır ve hiçbir değer tahmin edilmez.
           </li>
           <li>
-            <strong>Tekilleştirme:</strong> Aynı ilan birden çok kaynakta yayımlanıyorsa tek kayda bağlanır; tüm kaynak
-            bağlantıları korunur. Benzer başlıklı farklı ilanlar otomatik birleştirilmez.
+            <strong>Tekilleştirme:</strong> Aynı ilan birden çok kaynakta yayımlanıyorsa tek kayda bağlanır;
+            tüm kaynak bağlantıları korunur. Benzer başlıklı farklı ilanlar otomatik birleştirilmez.
           </li>
           <li>
-            <strong>Bildirim:</strong> Kaydettiğiniz kriterlere uyan yeni ilanlar veya değişiklikler e-posta ile
-            gönderilir; gönderim sonucu (sağlayıcıya iletildi / kabul edildi) kayda geçer.
+            <strong>Bildirim:</strong> Kaydettiğiniz kriterlere uyan yeni ilanlar veya değişiklikler e-posta
+            ile gönderilir; gönderim sonucu (sağlayıcıya iletildi / kabul edildi) kayda geçer.
           </li>
         </ol>
         <InfoNote title="Dürüstlük notu" tone="info">

@@ -7,7 +7,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { FilterForm, activeFilterCount, filtersFromParams, filtersToParams, type JobFilters } from '../components/Filters';
+import {
+  EMPTY_FILTERS,
+  FilterForm,
+  activeFilterCount,
+  filtersFromParams,
+  filtersToParams,
+  type JobFilters,
+} from '../components/Filters';
+
+const EMPTY_PRESET: JobFilters = EMPTY_FILTERS;
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { EmptyState, ErrorNotice, LoadingCard, Pagination, Tag } from '../components/ui';
@@ -69,9 +78,44 @@ export function JobsPage() {
   }
 
   function reset(): void {
-    setParams(filtersToParams({ ...draft, q: '', city: '', institution: '', employmentType: '', status: '', deadlineFrom: '', deadlineTo: '', minQuota: '', hasApplicationUrl: false, sort: 'newest' }, 1, PAGE_SIZE), {
-      replace: true,
-    });
+    setParams(
+      filtersToParams(
+        {
+          ...draft,
+          q: '',
+          city: '',
+          institution: '',
+          employmentType: '',
+          status: '',
+          deadlineFrom: '',
+          deadlineTo: '',
+          minQuota: '',
+          education: '',
+          department: '',
+          kpssType: '',
+          kpssScore: '',
+          hasApplicationUrl: false,
+          sort: 'newest',
+        },
+        1,
+        PAGE_SIZE,
+      ),
+      { replace: true },
+    );
+  }
+
+  /** Hazır görünümler: adayın en sık kullandığı üç bakış (URL filtrelerine çevrilir). */
+  function applyPreset(preset: 'all' | 'open' | 'closing7' | 'newest'): void {
+    const today = new Date();
+    const in7 = new Date(today.getTime() + 7 * 86_400_000);
+    const iso = (date: Date): string => date.toISOString().slice(0, 10);
+    const base: JobFilters = { ...EMPTY_PRESET, ...urlFilters };
+    if (preset === 'all') apply({ ...EMPTY_PRESET });
+    else if (preset === 'open')
+      apply({ ...base, status: 'active', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
+    else if (preset === 'closing7')
+      apply({ ...base, status: 'active', deadlineFrom: iso(today), deadlineTo: iso(in7), sort: 'deadline' });
+    else apply({ ...base, sort: 'newest' });
   }
 
   function goToPage(next: number): void {
@@ -106,6 +150,21 @@ export function JobsPage() {
           </button>
         </div>
       </header>
+
+      <div className="preset-row" role="group" aria-label="Hazır görünümler">
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('all')}>
+          Tümü
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('open')}>
+          Başvurusu açık
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('closing7')}>
+          Son 7 günde kapananlar
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('newest')}>
+          Yeni eklenenler
+        </button>
+      </div>
 
       {panelOpen && (
         <div id="filtre-paneli">

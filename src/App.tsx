@@ -27,6 +27,7 @@ import { HomePage } from './pages/Home';
 import { JobDetailPage } from './pages/JobDetail';
 import { JobsPage } from './pages/Jobs';
 import { PanelPage } from './pages/Panel';
+import { SavedJobsPage } from './pages/Saved';
 import { SourcesPage } from './pages/Sources';
 import {
   FaqPage,
@@ -55,6 +56,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: 'Bildirimler',
     items: [
       { id: 'panel', label: 'Tercihlerim', icon: 'bell', path: '/panel' },
+      { id: 'kaydedilenler', label: 'Kaydettiklerim', icon: 'save', path: '/panel/kaydedilenler' },
       { id: 'gecmis', label: 'Bildirim geçmişi', icon: 'mail', path: '/panel/gecmis' },
     ],
   },
@@ -68,6 +70,8 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
 function activeEntry(pathname: string): NavEntry | null {
   const flat = NAV_GROUPS.flatMap((group) => group.items);
   if (pathname === '/') return flat[0] ?? null;
+  if (pathname.startsWith('/panel/kaydedilenler'))
+    return flat.find((item) => item.id === 'kaydedilenler') ?? null;
   if (pathname.startsWith('/panel/gecmis')) return flat.find((item) => item.id === 'gecmis') ?? null;
   if (pathname.startsWith('/panel')) return flat.find((item) => item.id === 'panel') ?? null;
   if (pathname.startsWith('/yonetim')) return flat.find((item) => item.id === 'yonetim') ?? null;
@@ -78,7 +82,10 @@ function activeEntry(pathname: string): NavEntry | null {
 
 /** Kullanıcı avatarı için baş harfler. */
 function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter((part) => part.length > 0);
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return (parts[0] ?? '?').slice(0, 2).toUpperCase();
   return `${(parts[0] ?? '').charAt(0)}${(parts[parts.length - 1] ?? '').charAt(0)}`.toUpperCase();
@@ -129,25 +136,27 @@ function AppShell({ children }: { children: ReactNode }) {
         </Link>
 
         <div className="sidebar-nav-wrap">
-          {NAV_GROUPS.filter((group) => group.items.some((item) => !item.adminOnly || isAdmin)).map((group) => (
-            <nav className="sidebar-nav" aria-label={group.label} key={group.label}>
-              <span className="sidebar-label">{group.label}</span>
-              {group.items
-                .filter((item) => !item.adminOnly || isAdmin)
-                .map((item) => (
-                  <NavLink
-                    key={item.id}
-                    to={item.path}
-                    className={`sidebar-link${current?.id === item.id ? ' is-current' : ''}`}
-                    aria-current={current?.id === item.id ? 'page' : undefined}
-                  >
-                    <Icon name={item.icon} size={19} />
-                    <span>{item.label}</span>
-                    {current?.id === item.id && <span className="sidebar-current-dot" aria-hidden="true" />}
-                  </NavLink>
-                ))}
-            </nav>
-          ))}
+          {NAV_GROUPS.filter((group) => group.items.some((item) => !item.adminOnly || isAdmin)).map(
+            (group) => (
+              <nav className="sidebar-nav" aria-label={group.label} key={group.label}>
+                <span className="sidebar-label">{group.label}</span>
+                {group.items
+                  .filter((item) => !item.adminOnly || isAdmin)
+                  .map((item) => (
+                    <NavLink
+                      key={item.id}
+                      to={item.path}
+                      className={`sidebar-link${current?.id === item.id ? ' is-current' : ''}`}
+                      aria-current={current?.id === item.id ? 'page' : undefined}
+                    >
+                      <Icon name={item.icon} size={19} />
+                      <span>{item.label}</span>
+                      {current?.id === item.id && <span className="sidebar-current-dot" aria-hidden="true" />}
+                    </NavLink>
+                  ))}
+              </nav>
+            ),
+          )}
         </div>
 
         <div className="sidebar-bottom">
@@ -194,7 +203,9 @@ function AppShell({ children }: { children: ReactNode }) {
                     </div>
                     <div className="user-info-text">
                       <strong className="user-full-name">{displayName}</strong>
-                      <span className={`user-role-badge ${isAdmin ? 'badge-admin' : 'badge-default'}`}>{roleLabel}</span>
+                      <span className={`user-role-badge ${isAdmin ? 'badge-admin' : 'badge-default'}`}>
+                        {roleLabel}
+                      </span>
                     </div>
                   </div>
                   <button
@@ -277,6 +288,8 @@ export default function App() {
       <Route path="/sifremi-unuttum" element={<ForgotPasswordPage />} />
       <Route path="/sifre-sifirla" element={<ResetPasswordPage />} />
       <Route path="/eposta-dogrula" element={<VerifyEmailPage />} />
+      {/* Eski doğrulama bağlantıları (/dogrulama) 404'e düşmez. */}
+      <Route path="/dogrulama" element={<VerifyEmailPage />} />
       <Route path="/abonelikten-cik" element={<UnsubscribePage />} />
       <Route path={INFO_ROUTES.sss} element={<FaqPage />} />
       <Route path={INFO_ROUTES.gizlilik} element={<PrivacyPage />} />
@@ -298,6 +311,16 @@ export default function App() {
                   </RequiresSession>
                 }
               />
+              <Route
+                path="/panel/kaydedilenler"
+                element={
+                  <RequiresSession reason="Kaydettiğiniz ilanlar hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
+                    <SavedJobsPage />
+                  </RequiresSession>
+                }
+              />
+              {/* Eski e-posta bağlantıları: tercih bağlantısı artık /panel. */}
+              <Route path="/panel/bildirimler" element={<Navigate to="/panel" replace />} />
               <Route
                 path="/panel/gecmis"
                 element={

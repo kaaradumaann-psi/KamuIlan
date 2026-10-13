@@ -110,7 +110,7 @@ describe('e-posta gönderimi', () => {
     const message = transport.sent[0];
     expect(message?.subject).toContain('Örnek Üniversitesi');
     expect(message?.html).toContain('Son başvuru');
-    expect(message?.html).toContain('/api/auth/unsubscribe?token=');
+    expect(message?.html).toContain('/abonelikten-cik?token=');
     expect(message?.text.length).toBeGreaterThan(50);
 
     // Bildirim olayı "queued" olarak işaretlenir (gönderim değil, kuyruk durumu).
@@ -265,7 +265,7 @@ describe('abonelikten çıkma', () => {
     const transport = new MemoryEmailTransport();
     await sendOutboxBatch({ repos, transport, workerId: WORKER, now: NOW });
     const html = transport.sent[0]?.html ?? '';
-    const token = /unsubscribe\?token=([A-Za-z0-9._-]+)/.exec(html)?.[1];
+    const token = /token=([A-Za-z0-9._-]+)/.exec(html)?.[1];
     expect(token).toBeTruthy();
 
     // Jeton düz metin olarak saklanmaz; yalnızca hash'i tutulur.

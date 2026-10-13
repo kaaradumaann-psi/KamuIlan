@@ -6,13 +6,20 @@
  * "saat bilinmiyor" durumu net anlaşılsın.
  */
 
+/**
+ * İstihdam türü etiketleri — kanonik değerler `src/domain/types.ts`
+ * (EMPLOYMENT_TYPES) ile BİREBİR aynıdır. Arayüz kendi sözlüğünü uydurmaz:
+ * API'den gelen `kadrolu`, `kamu-isci`, `kariyer-meslek` gibi değerler burada
+ * karşılanmazsa her ilan "Belirsiz" görünür ve filtreler hiç sonuç döndürmez.
+ */
 export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
-  memur: 'Kadrolu memur',
+  kadrolu: 'Kadrolu memur',
   sozlesmeli: 'Sözleşmeli personel',
-  isci: 'Kamu işçisi',
+  'kamu-isci': 'Kamu işçisi',
   akademik: 'Akademik kadro',
-  kariyer: 'Kariyer meslekleri',
-  diger: 'Diğer',
+  'kariyer-meslek': 'Kariyer meslekleri',
+  'kuruma-ozel-sinav': 'Kuruma özgü sınavla alım',
+  'diger-kamu': 'Diğer kamu personeli',
   belirsiz: 'Belirsiz / incelemede',
 };
 
@@ -21,6 +28,7 @@ export const JOB_STATUS_LABELS: Record<string, string> = {
   active: 'Başvuru açık',
   closed: 'Kapandı',
   cancelled: 'İptal edildi',
+  unknown: 'Durum belirsiz',
   draft: 'Taslak',
   review: 'İncelemede',
 };
@@ -33,9 +41,11 @@ export const DEADLINE_LABELS: Record<string, string> = {
   unknown: 'Tarih belirtilmemiş',
 };
 
+/** Eğitim düzeyi etiketleri — kanonik değerler EDUCATION_LEVELS (domain) ile aynıdır. */
 export const EDUCATION_LABELS: Record<string, string> = {
   ilkogretim: 'İlköğretim',
-  lise: 'Lise',
+  ortaogretim: 'Ortaöğretim (lise)',
+  lise: 'Ortaöğretim (lise)',
   onlisans: 'Ön lisans',
   lisans: 'Lisans',
   yukseklisans: 'Yüksek lisans',
@@ -97,9 +107,20 @@ export function formatDateOnly(value: string | null | undefined): string {
 
 function monthName(month: number): string {
   return (
-    ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'][
-      month - 1
-    ] ?? ''
+    [
+      'Ocak',
+      'Şubat',
+      'Mart',
+      'Nisan',
+      'Mayıs',
+      'Haziran',
+      'Temmuz',
+      'Ağustos',
+      'Eylül',
+      'Ekim',
+      'Kasım',
+      'Aralık',
+    ][month - 1] ?? ''
   );
 }
 

@@ -5,12 +5,22 @@
  * Burada yalnızca tipler tanımlanır; sunucu modülleri tarayıcı paketine girmez.
  */
 
-export type EmploymentType = 'memur' | 'sozlesmeli' | 'isci' | 'akademik' | 'kariyer' | 'diger' | 'belirsiz';
+/** Kanonik istihdam türleri — `src/domain/types.ts` EMPLOYMENT_TYPES ile birebir aynı. */
+export type EmploymentType =
+  | 'kadrolu'
+  | 'sozlesmeli'
+  | 'kamu-isci'
+  | 'akademik'
+  | 'kariyer-meslek'
+  | 'kuruma-ozel-sinav'
+  | 'diger-kamu'
+  | 'belirsiz';
 
-export type JobStatus = 'upcoming' | 'active' | 'closed' | 'cancelled' | 'draft' | 'review';
+export type JobStatus = 'upcoming' | 'active' | 'closed' | 'cancelled' | 'unknown' | 'draft' | 'review';
 
 export interface DeadlineInfo {
-  state: 'upcoming' | 'active' | 'closing-soon' | 'closed' | 'unknown';
+  /** Sunucudaki `deadlineState` değerleri: open | closing-soon | closed | unknown. */
+  state: 'open' | 'closing-soon' | 'closed' | 'unknown';
   daysLeft: number | null;
 }
 
@@ -119,12 +129,24 @@ export interface HealthResponse {
   checkedAt: string;
   database: { driver: string; healthy: boolean; latencyMs: number | null; detail: string | null };
   versions: { classification: string; extraction: string; dedupe: string };
-  scans: { lastSuccessAt: string | null; lastFailureAt: string | null; minutesSinceSuccess: number | null; totalRuns: number; failedRuns: number };
+  scans: {
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+    minutesSinceSuccess: number | null;
+    totalRuns: number;
+    failedRuns: number;
+  };
   workers: {
     total: number;
     running: number;
     stale: number;
-    items: { workerId: string; role: string; status: string; lastHeartbeatAt: string; processedJobs: number }[];
+    items: {
+      workerId: string;
+      role: string;
+      status: string;
+      lastHeartbeatAt: string;
+      processedJobs: number;
+    }[];
   };
   queue: { backend: string; pending: number; active: number; dead: number };
   sources: {
@@ -168,7 +190,13 @@ export interface SourceCoverageEntry {
     itemsFound: number;
     emptyStreak: number;
   };
-  lastRun: { startedAt: string; status: string; itemsFound: number; errorCount: number; result: string } | null;
+  lastRun: {
+    startedAt: string;
+    status: string;
+    itemsFound: number;
+    errorCount: number;
+    result: string;
+  } | null;
 }
 
 export interface PlannedSource {
@@ -245,8 +273,24 @@ export interface PreferencesResponse {
   email: string;
   emailVerified: boolean;
   canReceive: boolean;
-  options: { employmentTypes: string[]; educationLevels: string[]; kpssScoreTypes: string[]; modes: string[] };
+  options: {
+    employmentTypes: string[];
+    educationLevels: string[];
+    kpssScoreTypes: string[];
+    modes: string[];
+  };
   notice: string | null;
+}
+
+export interface SavedJobItem {
+  job: PublicJobSummary;
+  savedAt: string;
+}
+
+export interface SavedJobsResponse {
+  items: SavedJobItem[];
+  total: number;
+  generatedAt: string;
 }
 
 export interface NotificationHistoryResponse {
@@ -279,12 +323,38 @@ export interface AdminOverview {
   appVersion: string;
   versions: { classification: string; extraction: string; dedupe: string };
   jobs: DashboardStats;
-  coverage: { summary: { total: number; enabled: number; verified: number; failing: number; stale: number; planned: number } };
-  runs: { total: number; success: number; failed: number; skipped: number; lastSuccessAt: string | null; lastFailureAt: string | null; avgDurationMs: number };
+  coverage: {
+    summary: {
+      total: number;
+      enabled: number;
+      verified: number;
+      failing: number;
+      stale: number;
+      planned: number;
+    };
+  };
+  runs: {
+    total: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+    avgDurationMs: number;
+  };
   reviewQueue: { total: number; classification: number; dedupe: number; extraction: number };
   outbox: Record<string, number>;
   queue: { backend: string; counts: Record<string, number>; dead: number };
-  workers: { workerId: string; role: string; status: string; version: string; lastHeartbeatAt: string; processedJobs: number; stale: boolean; lastError: string | null }[];
+  workers: {
+    workerId: string;
+    role: string;
+    status: string;
+    version: string;
+    lastHeartbeatAt: string;
+    processedJobs: number;
+    stale: boolean;
+    lastError: string | null;
+  }[];
   workerWarning: string | null;
   auditEntries: number;
   generatedAt: string;
@@ -351,7 +421,14 @@ export interface OutboxItem {
 
 export interface QueueResponse {
   stats: { backend: string; counts: Record<string, number>; dead: number };
-  dead: { id: string; queue: string; name: string; attempts: number; lastError: string | null; updatedAt: string }[];
+  dead: {
+    id: string;
+    queue: string;
+    name: string;
+    attempts: number;
+    lastError: string | null;
+    updatedAt: string;
+  }[];
   locks: { key: string; owner: string; expiresAt: string; expired: boolean }[];
   tasks: {
     id: string;

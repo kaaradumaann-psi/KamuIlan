@@ -7,7 +7,10 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
-import { EMPLOYMENT_TYPE_LABELS } from '../lib/format';
+import { EDUCATION_LABELS, EMPLOYMENT_TYPE_LABELS } from '../lib/format';
+
+/** KPSS puan türleri — `src/domain/types.ts` KPSS_SCORE_TYPES ile aynı liste. */
+export const KPSS_TYPE_OPTIONS = ['P1', 'P2', 'P3', 'P10', 'P93', 'P94', 'P121', 'P124', 'DHBT'] as const;
 import { Icon } from './Icon';
 import { Checkbox, Field } from './ui';
 
@@ -20,6 +23,11 @@ export interface JobFilters {
   deadlineFrom: string;
   deadlineTo: string;
   minQuota: string;
+  education: string;
+  department: string;
+  kpssType: string;
+  /** Adayın kendi KPSS puanı: taban puanı bunu aşan ilanlar elenir. */
+  kpssScore: string;
   hasApplicationUrl: boolean;
   sort: string;
 }
@@ -33,6 +41,10 @@ export const EMPTY_FILTERS: JobFilters = {
   deadlineFrom: '',
   deadlineTo: '',
   minQuota: '',
+  education: '',
+  department: '',
+  kpssType: '',
+  kpssScore: '',
   hasApplicationUrl: false,
   sort: 'newest',
 };
@@ -47,6 +59,10 @@ export function filtersFromParams(params: URLSearchParams): JobFilters {
     deadlineFrom: params.get('deadlineFrom') ?? '',
     deadlineTo: params.get('deadlineTo') ?? '',
     minQuota: params.get('minQuota') ?? '',
+    education: params.get('education') ?? '',
+    department: params.get('department') ?? '',
+    kpssType: params.get('kpssType') ?? '',
+    kpssScore: params.get('kpssScore') ?? '',
     hasApplicationUrl: params.get('hasApplicationUrl') === '1',
     sort: params.get('sort') ?? 'newest',
   };
@@ -62,6 +78,10 @@ export function filtersToParams(filters: JobFilters, page: number, pageSize = 20
   if (filters.deadlineFrom) params.set('deadlineFrom', filters.deadlineFrom);
   if (filters.deadlineTo) params.set('deadlineTo', filters.deadlineTo);
   if (filters.minQuota) params.set('minQuota', filters.minQuota);
+  if (filters.education) params.set('education', filters.education);
+  if (filters.department) params.set('department', filters.department);
+  if (filters.kpssType) params.set('kpssType', filters.kpssType);
+  if (filters.kpssScore) params.set('kpssScore', filters.kpssScore);
   if (filters.hasApplicationUrl) params.set('hasApplicationUrl', '1');
   if (filters.sort !== 'newest') params.set('sort', filters.sort);
   if (page > 1) params.set('page', String(page));
@@ -79,6 +99,10 @@ export function activeFilterCount(filters: JobFilters): number {
     filters.deadlineFrom,
     filters.deadlineTo,
     filters.minQuota,
+    filters.education,
+    filters.department,
+    filters.kpssType,
+    filters.kpssScore,
     filters.hasApplicationUrl ? 'x' : '',
   ].filter((value) => value !== '').length;
 }
@@ -171,7 +195,11 @@ export function FilterForm({
           </select>
         </Field>
 
-        <Field label="En az kontenjan" htmlFor="filter-quota" hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır.">
+        <Field
+          label="En az kontenjan"
+          htmlFor="filter-quota"
+          hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır."
+        >
           <input
             id="filter-quota"
             type="number"
@@ -199,6 +227,70 @@ export function FilterForm({
             type="date"
             value={filters.deadlineTo}
             onChange={(event) => update({ deadlineTo: event.target.value })}
+          />
+        </Field>
+
+        <Field label="Eğitim düzeyi" htmlFor="filter-education" hint="İlanda aranan öğrenim düzeyi.">
+          <select
+            id="filter-education"
+            className="filter-select"
+            value={filters.education}
+            onChange={(event) => update({ education: event.target.value })}
+          >
+            <option value="">Tümü</option>
+            {Object.entries(EDUCATION_LABELS)
+              .filter(([value]) => value !== 'belirtilmemis' && value !== 'lise')
+              .map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+          </select>
+        </Field>
+
+        <Field
+          label="Bölüm / program"
+          htmlFor="filter-department"
+          hint="ör. hemşirelik, bilgisayar mühendisliği"
+        >
+          <input
+            id="filter-department"
+            value={filters.department}
+            onChange={(event) => update({ department: event.target.value })}
+            placeholder="ör. hemşirelik"
+          />
+        </Field>
+
+        <Field label="KPSS puan türü" htmlFor="filter-kpss-type">
+          <select
+            id="filter-kpss-type"
+            className="filter-select"
+            value={filters.kpssType}
+            onChange={(event) => update({ kpssType: event.target.value })}
+          >
+            <option value="">Tümü</option>
+            {KPSS_TYPE_OPTIONS.map((value) => (
+              <option key={value} value={value}>
+                KPSS {value}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field
+          label="KPSS puanım"
+          htmlFor="filter-kpss-score"
+          hint="Taban puanı puanınızı aşan ilanlar elenir. Yalnızca taban puanı belirtilen ilanlarda çalışır."
+        >
+          <input
+            id="filter-kpss-score"
+            type="number"
+            min={0}
+            max={100}
+            inputMode="decimal"
+            value={filters.kpssScore}
+            onChange={(event) => update({ kpssScore: event.target.value })}
+            placeholder="ör. 72"
           />
         </Field>
 

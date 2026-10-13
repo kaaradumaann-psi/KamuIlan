@@ -9,6 +9,7 @@
  */
 import { deadlineState, toIstanbulDateOnly } from '../domain/dates';
 import { maskEmail } from '../domain/text';
+import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS } from '../domain/types';
 import type { JobDoc, JobRevisionDoc, JobSourceDoc, ScrapeRunDoc, SourceDoc, UserDoc } from '../db/schemas';
 import type { SourceCoverageEntry } from '../db/repos/sources';
 
@@ -18,7 +19,9 @@ export interface PublicJobSummary {
   institution: string;
   unit: string | null;
   employmentType: string;
+  employmentTypeLabel: string;
   status: string;
+  statusLabel: string;
   city: string | null;
   district: string | null;
   quota: number | null;
@@ -89,7 +92,9 @@ export function toPublicJobSummary(job: JobDoc, now: Date = new Date()): PublicJ
     institution: job.institution,
     unit: job.unit,
     employmentType: job.employmentType,
+    employmentTypeLabel: EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType,
     status: job.status,
+    statusLabel: JOB_STATUS_LABELS[job.status] ?? job.status,
     city: job.city,
     district: job.district,
     quota: job.quota,

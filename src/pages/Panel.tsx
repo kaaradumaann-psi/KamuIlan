@@ -176,6 +176,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
         <Link className={view === 'history' ? 'subnav-tab is-active' : 'subnav-tab'} to="/panel/gecmis">
           Bildirim geçmişi
         </Link>
+        <Link className="subnav-tab" to="/panel/kaydedilenler">
+          Kaydettiklerim
+        </Link>
       </nav>
 
       {data.notice && <InfoNote tone="warning">{data.notice}</InfoNote>}

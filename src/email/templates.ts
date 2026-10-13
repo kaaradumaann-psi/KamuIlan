@@ -12,13 +12,7 @@
 import type { JobDoc } from '../db/schemas';
 
 export type EmailTemplate =
-  | 'account-invite'
-  | 'verify-email'
-  | 'password-reset'
-  | 'new-job'
-  | 'job-changed'
-  | 'daily-digest'
-  | 'test';
+  'account-invite' | 'verify-email' | 'password-reset' | 'new-job' | 'job-changed' | 'daily-digest' | 'test';
 
 export interface RenderContext {
   baseUrl: string;
@@ -125,7 +119,7 @@ export function buildJobPayload(
     applicationUrl: job.applicationUrl,
     matchedOn: options.matchedOn,
     ...(options.changeSummary ? { changeSummary: options.changeSummary } : {}),
-    panelUrl: `${options.baseUrl.replace(/\/$/, '')}/ilan/${job.id}`,
+    panelUrl: `${options.baseUrl.replace(/\/$/, '')}/ilanlar/${job.id}`,
   };
 }
 
@@ -136,8 +130,11 @@ function summaryRows(payload: JobEmailPayload): { label: string; value: string }
     { label: 'Çalışma biçimi', value: EMPLOYMENT_LABELS[payload.employmentType] ?? payload.employmentType },
   ];
   if (payload.unit) rows.push({ label: 'Birim', value: payload.unit });
-  if (payload.quota !== null && payload.quota !== undefined) rows.push({ label: 'Kontenjan', value: formatNumberTr(payload.quota) });
-  const place = [payload.city, payload.district].filter((value): value is string => Boolean(value)).join(' / ');
+  if (payload.quota !== null && payload.quota !== undefined)
+    rows.push({ label: 'Kontenjan', value: formatNumberTr(payload.quota) });
+  const place = [payload.city, payload.district]
+    .filter((value): value is string => Boolean(value))
+    .join(' / ');
   rows.push({ label: 'İl / İlçe', value: place || 'Belirtilmemiş' });
   rows.push({
     label: 'Son başvuru',
@@ -168,7 +165,8 @@ function renderLayout(input: {
     input.reason ?? 'Bu e-posta, bildirim tercihleriniz kaydedildiği için gönderildi.',
   ];
   const footerLinks: string[] = [];
-  if (ctx.preferencesUrl) footerLinks.push(`<a href="${escapeHtml(ctx.preferencesUrl)}">Bildirim tercihleri</a>`);
+  if (ctx.preferencesUrl)
+    footerLinks.push(`<a href="${escapeHtml(ctx.preferencesUrl)}">Bildirim tercihleri</a>`);
   if (ctx.unsubscribeUrl) footerLinks.push(`<a href="${escapeHtml(ctx.unsubscribeUrl)}">Abonelikten çık</a>`);
 
   const html = `<!doctype html>
@@ -218,7 +216,9 @@ function jobBodyHtml(payload: JobEmailPayload): string {
     `<a href="${escapeHtml(payload.detailUrl)}" style="color:#0f766e;">Resmî ilan bağlantısı</a>`,
   ];
   if (payload.applicationUrl) {
-    links.push(`<a href="${escapeHtml(payload.applicationUrl)}" style="color:#0f766e;">Başvuru bağlantısı</a>`);
+    links.push(
+      `<a href="${escapeHtml(payload.applicationUrl)}" style="color:#0f766e;">Başvuru bağlantısı</a>`,
+    );
   }
   if (payload.panelUrl) {
     links.push(`<a href="${escapeHtml(payload.panelUrl)}" style="color:#0f766e;">İlan detay sayfası</a>`);
@@ -237,13 +237,7 @@ function jobBodyHtml(payload: JobEmailPayload): string {
 
 function jobBodyText(payload: JobEmailPayload): string {
   const rows = summaryRows(payload).map((row) => `${row.label}: ${row.value}`);
-  const lines = [
-    payload.title,
-    '',
-    ...rows,
-    '',
-    `Resmî ilan: ${payload.detailUrl}`,
-  ];
+  const lines = [payload.title, '', ...rows, '', `Resmî ilan: ${payload.detailUrl}`];
   if (payload.applicationUrl) lines.push(`Başvuru bağlantısı: ${payload.applicationUrl}`);
   const matchedOn = payload.matchedOn ?? [];
   if (matchedOn.length > 0) lines.push(`Eşleşme nedeni: ${matchedOn.join(', ')}`);
@@ -280,7 +274,7 @@ export function renderEmail(
           <p style="margin:12px 0 0;font-size:12px;color:#6e6e73;">Kamuİlan'da dışarıdan kayıt yoktur; hesaplar yalnızca yönetici tarafından açılır. Bu daveti siz beklemiyorsanız e-postayı yok sayın.</p>`,
         bodyText:
           `Hesabınız açıldı. Şifre belirleme bağlantısı: ${link}\n` +
-          'Kamuİlan\'da dışarıdan kayıt yoktur; hesaplar yalnızca yönetici tarafından açılır. ' +
+          "Kamuİlan'da dışarıdan kayıt yoktur; hesaplar yalnızca yönetici tarafından açılır. " +
           'Bu daveti siz beklemiyorsanız e-postayı yok sayın.',
         ctx,
         reason: 'Bu e-posta, yönetici tarafından açılan hesabınız için gönderildi.',
@@ -291,20 +285,23 @@ export function renderEmail(
       const link = String(payload['resetUrl'] ?? '');
       const body = renderLayout({
         heading: 'Şifre sıfırlama',
-        intro: 'Şifrenizi sıfırlamak için aşağıdaki bağlantıyı kullanın. Bağlantı kısa süre içinde geçersiz olur.',
+        intro:
+          'Şifrenizi sıfırlamak için aşağıdaki bağlantıyı kullanın. Bağlantı kısa süre içinde geçersiz olur.',
         bodyHtml: `<p style="margin:0 0 16px;font-size:14px;"><a href="${escapeHtml(link)}" style="background:#0f766e;color:#ffffff;padding:10px 16px;border-radius:8px;text-decoration:none;">Yeni şifre belirle</a></p>
           <p style="margin:0;font-size:12px;color:#616e7c;word-break:break-all;">Bağlantı çalışmazsa: ${escapeHtml(link)}</p>
           <p style="margin:12px 0 0;font-size:12px;color:#616e7c;">Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.</p>`,
         bodyText: `Şifre sıfırlama bağlantısı: ${link}`,
         ctx,
-        reason: 'Bu e-posta, şifre sıfırlama isteğiniz üzerine gönderildi. İsteği siz yapmadıysanız yok sayın.',
+        reason:
+          'Bu e-posta, şifre sıfırlama isteğiniz üzerine gönderildi. İsteği siz yapmadıysanız yok sayın.',
       });
       return { subject: `${ctx.senderName}: şifre sıfırlama isteği`, ...body };
     }
     case 'new-job':
     case 'job-changed': {
       const job = payload as unknown as JobEmailPayload;
-      const heading = template === 'new-job' ? 'Yeni kamu personel alım ilanı' : 'Takip ettiğiniz ilanda değişiklik';
+      const heading =
+        template === 'new-job' ? 'Yeni kamu personel alım ilanı' : 'Takip ettiğiniz ilanda değişiklik';
       const intro =
         template === 'new-job'
           ? 'Tercihlerinizle eşleşen yeni bir ilan yayımlandı.'
