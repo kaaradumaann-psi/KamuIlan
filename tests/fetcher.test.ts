@@ -1,5 +1,7 @@
 import { MockAgent } from 'undici';
 import { afterEach, describe, expect, it } from 'vitest';
+import { getEnv } from '../src/config/env';
+import { toHeaderSafeAscii } from '../src/lib/headerSafe';
 import { describeFetchFailure, FetchError, HttpClient } from '../src/sources/fetcher';
 
 const ORIGIN = 'https://www.resmigazete.gov.tr';
@@ -84,6 +86,45 @@ describe('HttpClient ağ davranışı', () => {
     await expect(
       client.fetchText('https://evil.example.com/x', { allowedHosts: ALLOWED, retries: 0 }),
     ).rejects.toMatchObject({ status: null, retryable: false });
+  });
+});
+
+describe('User-Agent başlık güvenliği (UND_ERR_INVALID_ARG regresyonu)', () => {
+  it('toHeaderSafeAscii Türkçe karakterleri çevirir, kontrol karakterlerini atar', () => {
+    expect(toHeaderSafeAscii('KamuİlanBot şğüöçı')).toBe('KamuIlanBot sguoci');
+    expect(toHeaderSafeAscii('Bot\r\nX-Injected: 1')).toBe('BotX-Injected: 1');
+    expect(toHeaderSafeAscii('  çok   boşluk  ')).toBe('cok bosluk');
+  });
+
+  it('env varsayılanı ve kullanıcı değeri saf ASCII olur', () => {
+    expect(getEnv({}).SCRAPE_USER_AGENT).toMatch(/^[\x20-\x7E]+$/);
+    expect(getEnv({ SCRAPE_USER_AGENT: 'Bot (ilan toplayıcı)' }).SCRAPE_USER_AGENT).toBe(
+      'Bot (ilan toplayici)',
+    );
+  });
+
+  it('Türkçe User-Agent verilse bile istek temizlenmiş başlıkla çıkar', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    // Mock yalnızca temizlenmiş UA ile eşleşir; ham hâli gitseydi eşleşmezdi.
+    mock
+      .get(ORIGIN)
+      .intercept({
+        path: '/ua.htm',
+        method: 'GET',
+        headers: { 'user-agent': 'KamuIlan Test s' },
+      })
+      .reply(200, 'tamam', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    agents.push(mock);
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async () => undefined,
+      dispatcher: mock,
+      userAgent: 'Kamuİlan Test ş',
+    });
+    clients.push(client);
+    const response = await client.fetchText(`${ORIGIN}/ua.htm`, { allowedHosts: ALLOWED, retries: 0 });
+    expect(response.status).toBe(200);
   });
 });
 

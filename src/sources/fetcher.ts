@@ -10,6 +10,7 @@
  *  - Gövde boyutu sınırlanır; HTML/PDF dışındaki türler kabul edilmez.
  *  - CAPTCHA/erişim kontrolü AŞILMAZ; engellenirse hata kaydedilir.
  */
+import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { request, Agent, type Dispatcher } from 'undici';
 import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
@@ -167,7 +168,7 @@ export class HttpClient {
   constructor(options: HttpClientOptions = {}) {
     this.ownsAgent = options.dispatcher === undefined;
     this.logger = options.logger ?? createLogger('fetch');
-    this.userAgent = options.userAgent ?? getEnv().SCRAPE_USER_AGENT;
+    this.userAgent = toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) || 'KamuIlanBot/1.0';
     this.sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.agent =
       options.dispatcher ??
