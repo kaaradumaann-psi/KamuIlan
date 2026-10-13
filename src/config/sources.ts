@@ -201,13 +201,16 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://kariyerkapisi.gov.tr/',
     adapterKey: 'kariyer-kapisi-isealim',
     method: 'browser',
-    status: 'accessible',
+    status: 'scraper-built',
     statusNote:
-      'Sayfa açılıyor ancak ilan listesi tarayıcıda (JavaScript) oluşturuluyor; düz HTTP isteğiyle liste okunamaz. Playwright kuruluysa devreye girer, değilse tarama "atlandı" olarak kaydedilir ve panelde görünür.',
+      'Liste tarayıcıda tablo satırları (Kurum/Birim | Aktif İlanlar | Bitiş Tarihi) olarak okunur; ' +
+      'detaylar /IlanDetay?i=<uuid> adresinden aynı oturumda çekilir (13.10.2026, ekran görüntüleriyle doğrulandı). ' +
+      'Playwright + Chromium kurulumu gerekir.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
-      `${VERIFIED_AT} canlı doğrulama: /isealim sayfası HTTP 200 döndü; "Aktif İlanlar" tablosu o an boş geldi ` +
-      '("Şu an aktif bir ilan bulunmamaktadır.") ve ilan satırları sunucu HTML’inde yok — istemci tarafında üretiliyor.',
+      '13.10.2026: liste ve detay (/IlanDetay?i=...) sayfaları kullanıcı ekran görüntüleriyle doğrulandı: ' +
+      'detayda İlan Numarası (ILN...), İlan Türü, Başvuru Başlangıç/Bitiş ve tam metin bulunuyor. ' +
+      'İlk tam canlı koşum sonucu bekleniyor.',
     coverageNote:
       'Kurumların merkezî başvuru ekranı. Liste Playwright ile okunur; her ilanın resmî başvuru bağlantısı buradadır.',
     enabled: true,

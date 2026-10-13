@@ -460,3 +460,49 @@ describe('MEB RSS beslemesi', () => {
     expect(result.notes.some((note) => note.includes('RSS beslemesinde 2 kayıt'))).toBe(true);
   });
 });
+
+describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görüntüsüyle doğrulandı)', () => {
+  it('tablo satırlarından ilanları çıkarır: kurum, başlık, bitiş, detay adresi', async () => {
+    const { parseKariyerRows } = await import('../src/sources/adapters/kariyerkapisi');
+    const html = `<html><body><table>
+      <thead><tr><th>Kurum/Birim</th><th>Aktif İlanlar</th><th>Bitiş Tarihi</th><th></th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>HAZİNE VE MALİYE BAKANLIĞI</strong> PERSONEL GENEL MÜDÜRLÜĞÜ</td>
+          <td>HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</td>
+          <td>14 Ekim 2026 Çarşamba</td>
+          <td><a href="https://kariyerkapisi.gov.tr/IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390">Başvur</a></td>
+        </tr>
+        <tr>
+          <td>ATATÜRK ÜNİVERSİTESİ REKTÖRLÜĞÜ</td>
+          <td>ATATÜRK ÜNİVERSİTESİ REKTÖRLÜĞÜ - SÖZLEŞMELİ PERSONEL ALIM İLANI (2026-1)</td>
+          <td>16 Ekim 2026 Cuma</td>
+          <td><button type="button">Başvur</button></td>
+        </tr>
+      </tbody></table></body></html>`;
+    const rows = parseKariyerRows(html, 'https://kariyerkapisi.gov.tr/isealim');
+    expect(rows.length).toBe(2);
+    expect(rows[0]?.sourceItemId).toBe('9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
+    expect(rows[0]?.url).toContain('/IlanDetay?i=');
+    expect(rows[0]?.title).toContain('MUHASEBE UZMANLIĞI');
+    expect(rows[0]?.institution).toContain('MALİYE');
+    expect(rows[0]?.applicationEndAt).toContain('2026-10-14');
+    expect(rows[1]?.applicationEndAt).toContain('2026-10-16');
+    expect(rows[1]?.sourceItemId).not.toBe(rows[0]?.sourceItemId);
+  });
+
+  it('detay sayfasından ilan numarası/tarihler/tür çıkarır', async () => {
+    const { parseKariyerDetail } = await import('../src/sources/adapters/kariyerkapisi');
+    const html = `<html><body><main>
+      <h1>HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</h1>
+      <p>${'Hazine ve Maliye Bakanlığı taşra teşkilatında Muhasebe Uzman Yardımcısı kadrosunda bulunanlardan yeterlik sınavı yapılacaktır. '.repeat(4)}</p>
+      <aside>İlan Numarası ILN00002860 İlan Türü Yeterlik Sınavı İlanları Başvuru Başlangıç 05.10.2026 Başvuru Bitiş 14.10.2026 Kalan Zaman 1 Gün 4 Saat Kaldı BAŞVUR</aside>
+    </main></body></html>`;
+    const detail = parseKariyerDetail(html);
+    expect(detail.referenceNo).toBe('ILN00002860');
+    expect(detail.applicationStartAt).toContain('2026-10-05');
+    expect(detail.applicationEndAt).toContain('2026-10-14');
+    expect(detail.category).toBe('Yeterlik Sınavı İlanları');
+    expect(detail.bodyText).toContain('Muhasebe Uzman Yardımcısı');
+  });
+});

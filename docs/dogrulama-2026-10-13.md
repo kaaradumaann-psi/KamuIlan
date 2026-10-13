@@ -111,6 +111,15 @@ sayfada ilan bağlantısı bulunamadı (kurum seçim listesi görünüyor —
 adaptöre gerçek bağlantı biçimini raporlayan tanı notu eklendi,
 düzeltme gözleme dayanacak). Kapanan bulgular:
 
+9. **Kariyer Kapısı adaptörü gerçek sayfa yapısına uyarlandı** — liste
+   bağlantı değil tablo satırı: kurum / ilan başlığı / bitiş tarihi
+   hücrelerden okunur; detay adresi (/IlanDetay?i=<uuid>) satır
+   HTML'inden çıkarılır ve detay sayfası aynı tarayıcı oturumunda
+   ziyaret edilerek ilan numarası (ILN...), başvuru tarihleri ve tam
+   metin alınır. Yapı, kullanıcının gönderdiği liste + detay ekran
+   görüntüleriyle doğrulandı. Test: `tests/sources.test.ts`
+   (tablo/detay ayrıştırma fikstürleri).
+
 8. **Ara sertifika kovalaması (AIA)** — sistem CA birleşimi yetmedi;
    kök neden sunucunun ara sertifikayı göndermemesi çıktı (tarayıcılar
    AIA adresinden indirir, Node indirmez). `HttpClient` artık eksik
@@ -121,7 +130,7 @@ düzeltme gözleme dayanacak). Kapanan bulgular:
 
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **215/215 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **217/217 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz
