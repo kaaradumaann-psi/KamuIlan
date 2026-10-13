@@ -1652,3 +1652,86 @@
   }
 }
 
+
+/* --- Dokunmatik kullanım ve dar ekran toplu iyileştirmesi ----------
+   Telefonda rahat kullanım: 44 px dokunma hedefleri, kart içinde iki yana
+   yayılan eylemlerin tam genişlikte alt alta dizilmesi, durum şeridi ve
+   istatistik kartlarının dar ekranda okunaklı kalması. */
+@media (max-width: 620px) {
+  .btn-sm {
+    min-height: 40px;
+  }
+  .link-row a,
+  .provenance-snippet,
+  .board-text-link,
+  .report-list-meta a {
+    min-height: 44px;
+  }
+  .link-row a {
+    display: inline-flex;
+    align-items: center;
+  }
+  .page-title {
+    font-size: 1.45rem;
+    line-height: 1.25;
+  }
+  /* Detay eylemleri: mobilde tam genişlik, alta taşma yok */
+  .job-detail-actions .btn-primary,
+  .job-detail-actions .btn-secondary {
+    flex: 1 1 100%;
+  }
+  .job-detail-actions .deadline-countdown {
+    flex: 1 1 100%;
+  }
+  /* Kart başlığı (eylemli): eylemler metnin altına dizilir */
+  .card-with-actions .card-actions {
+    width: 100%;
+  }
+  .card-with-actions .card-actions .btn-secondary,
+  .card-with-actions .card-actions .btn-primary {
+    flex: 1 1 auto;
+  }
+  /* Durum şeridi: metin satırları birbirine girmez */
+  .status-strip {
+    align-items: flex-start;
+    line-height: 1.55;
+  }
+  /* Ana sayfa istatistikleri alt alta, okunaklı */
+  .workspace-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  /* Hero: arama ve düğmeler üst üste, kenarlara yapışmaz */
+  .detail-hero {
+    padding: 18px 14px;
+  }
+  .detail-hero h1 {
+    font-size: 1.3rem;
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+  .detail-meta-line span {
+    display: block;
+  }
+  /* Filtre satırı: selectler tam genişlik, daralınca taşmaz */
+  .filter-row select,
+  .filter-row input,
+  .filter-row input[type='date'] {
+    width: 100%;
+  }
+  .search-input-wrap {
+    width: 100%;
+  }
+  /* Provenance / kaynak listeleri: başlık ve rozet alt alta */
+  .provenance-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  /* Ek belge ve bağlantı satırları: tıklanabilir alan yeterli */
+  .link-row {
+    gap: 10px;
+  }
+  .link-row .cell-mono {
+    overflow-wrap: anywhere;
+  }
+}
