@@ -191,8 +191,8 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
             </div>
 
             <p className="auth-card-note">
-              <strong>Halka açık kayıt yoktur</strong>. Hesabınız yönetici tarafından açılır: Kamuİlan kapalı
-              bir sistemdir ve davet e-postası ulaştığında parolanızı kendiniz belirlersiniz.
+              <strong>Halka açık kayıt yoktur</strong>. Hesabınız yönetici tarafından açılır; davet
+              e-postası ulaştığında parolanızı kendiniz belirlersiniz.
             </p>
 
             <div className="auth-site-links">
