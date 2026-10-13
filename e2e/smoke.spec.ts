@@ -74,8 +74,8 @@ test.describe('temel sayfalar', () => {
     await expect(page.getByRole('table', { name: /Kaynak listesi ve durumu/ })).toBeVisible();
     // Kapsamın eksik olduğu açıkça yazılır (abartılı iddia yok).
     await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
-    // "Çalıştığı kanıtlanan" ile "hazırlanan" ayrımı korunur.
-    await expect(page.getByText('Çalıştığı kanıtlanan').first()).toBeVisible();
+    // "Gerçek veriyle doğrulanan" ile "hazırlanan" ayrımı korunur.
+    await expect(page.getByText('Gerçek veriyle doğrulanan').first()).toBeVisible();
     await expect(page.getByText('Hazırlanan').first()).toBeVisible();
 
     expect(errors).toEqual([]);

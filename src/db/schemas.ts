@@ -93,6 +93,14 @@ export const jobSchema = z.object({
   detailUrl: z.string().min(8),
   normalizedUrl: z.string().min(8),
   applicationUrl: z.string().nullable(),
+  /**
+   * İlanda yazılı başvuru yöntemi (ör. "Kariyer Kapısı", "e-Devlet", "posta").
+   *
+   * Çıkarım motoru bu alanı zaten üretiyordu ama depoya YAZILMIYORDU: ilan
+   * detayı "Başvuru yöntemi: belirtilmemiş" diyordu, oysa metinden okunmuştu.
+   * Eski kayıtlarda alan yok → `default(null)`: okuma sırasında güvenle dolar.
+   */
+  applicationMethod: z.string().nullable().default(null),
   attachments: z.array(
     z.object({
       url: z.string().min(8),
@@ -116,6 +124,15 @@ export const jobSchema = z.object({
   }),
   titles: z.array(z.string()),
   textExcerpt: z.string().default(''),
+  /**
+   * Arama için normalize edilmiş ilan metni (Türkçe katlanmış, küçük harf).
+   *
+   * `textExcerpt` ham metindir: "Hemşire" yalnızca "hemşire" ile birebir
+   * eşleşir. Kullanıcı aramaları normalize edilmiş sorguyla yapıldığı için
+   * gövde metni de normalize edilmiş biçimde saklanır; aksi hâlde "hemşire",
+   * "sağlık", "şoför" gibi sözcükler gövdede hiç bulunamıyordu.
+   */
+  textNormalized: z.string().default(''),
   originalRefNo: z.string().nullable(),
   sourceKeys: z.array(z.string()).min(1),
   primarySourceKey: z.string().min(2),

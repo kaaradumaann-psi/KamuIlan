@@ -33,13 +33,41 @@ function nextDay(dateOnly: string): string {
   return base.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
+/**
+ * Saati METİNDE açıkça yazılmış bitiş anını döndürür (yoksa `null`).
+ *
+ * Çıkarım motoru saati bilinmeyen tarihlere 00:00 yazar. Bu "gün başı" damgası
+ * gerçek bir saat sanılırsa takvim etkinliği yanlış saate kurulur; bu yüzden
+ * yalnızca açıkça yazılmış saatler için saatli etkinlik üretilir.
+ */
+function explicitEndAt(applicationEndAt: string | null): Date | null {
+  if (!applicationEndAt || applicationEndAt.includes('T00:00:00')) return null;
+  const parsed = new Date(applicationEndAt);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function buildDeadlineIcs(job: DeadlineCalendarInput, now: Date = new Date()): string | null {
   if (!job.applicationEndDate) return null;
   const day = job.applicationEndDate.replace(/-/g, '');
+  const endAt = explicitEndAt(job.applicationEndAt);
   const summary = escapeIcs(`Son başvuru: ${job.title}`);
+  const endLabel = endAt
+    ? `${job.applicationEndDate} ${new Intl.DateTimeFormat('tr-TR', {
+        timeZone: 'Europe/Istanbul',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(endAt)}`
+    : job.applicationEndDate;
   const description = escapeIcs(
-    `${job.institution}\nSon başvuru: ${job.applicationEndDate}\nResmî ilan: ${job.detailUrl}\nBaşvuru öncesi koşulları resmî kaynaktan doğrulayın.`,
+    `${job.institution}\nSon başvuru: ${endLabel}\nResmî ilan: ${job.detailUrl}\nBaşvuru öncesi koşulları resmî kaynaktan doğrulayın.`,
   );
+  const when = endAt
+    ? [
+        // Saat gerçekten yazılı: etkinlik o saate kurulur (30 dakika sürer).
+        `DTSTART:${stamp(endAt)}`,
+        `DTEND:${stamp(new Date(endAt.getTime() + 30 * 60_000))}`,
+      ]
+    : [`DTSTART;VALUE=DATE:${day}`, `DTEND;VALUE=DATE:${nextDay(job.applicationEndDate)}`];
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -47,8 +75,7 @@ export function buildDeadlineIcs(job: DeadlineCalendarInput, now: Date = new Dat
     'BEGIN:VEVENT',
     `UID:${job.id}@kamuilan`,
     `DTSTAMP:${stamp(now)}`,
-    `DTSTART;VALUE=DATE:${day}`,
-    `DTEND;VALUE=DATE:${nextDay(job.applicationEndDate)}`,
+    ...when,
     `SUMMARY:${summary}`,
     `DESCRIPTION:${description}`,
     `URL:${job.detailUrl}`,

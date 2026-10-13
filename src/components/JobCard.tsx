@@ -5,7 +5,7 @@
  * Belirsiz alanlar ("—") olarak kalır ve kayıt demo verisiyse bu açıkça yazılır.
  */
 import { Link } from 'react-router-dom';
-import { EMPLOYMENT_TYPE_LABELS, deadlineLabel, formatDateOnly, formatRelative } from '../lib/format';
+import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatRelative } from '../lib/format';
 import type { PublicJobSummary } from '../types';
 import { Icon } from './Icon';
 import { SaveJobButton } from './SaveJobButton';
@@ -39,7 +39,7 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
 
       <div className="job-card-tags">
         <Tag tone="accent">
-          {job.employmentTypeLabel || EMPLOYMENT_TYPE_LABELS[job.employmentType] || 'Belirsiz'}
+          {employmentTypeLabel(job.employmentType) || job.employmentTypeLabel}
         </Tag>
         {city && <Tag icon="mapPin">{city}</Tag>}
         {job.quota !== null && <Tag icon="user">{`${job.quota} kişi`}</Tag>}

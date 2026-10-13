@@ -17,6 +17,7 @@ import {
 } from '../components/Filters';
 
 const EMPTY_PRESET: JobFilters = EMPTY_FILTERS;
+import { toIstanbulDateOnly } from '../domain/dates';
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { EmptyState, ErrorNotice, LoadingCard, Pagination, Tag } from '../components/ui';
@@ -112,15 +113,17 @@ export function JobsPage() {
 
   /** Hazır görünümler: adayın en sık kullandığı üç bakış (URL filtrelerine çevrilir). */
   function applyPreset(preset: 'all' | 'open' | 'closing7' | 'newest'): void {
-    const today = new Date();
-    const in7 = new Date(today.getTime() + 7 * 86_400_000);
-    const iso = (date: Date): string => date.toISOString().slice(0, 10);
+    // Tarih Türkiye gününe göre hesaplanır: `toISOString()` UTC verir ve gece
+    // 00:00-03:00 arasında pencereyi bir gün kaydırıyordu.
+    const now = Date.now();
+    const today = toIstanbulDateOnly(new Date(now));
+    const in7 = toIstanbulDateOnly(new Date(now + 7 * 86_400_000));
     const base: JobFilters = { ...EMPTY_PRESET, ...urlFilters };
     if (preset === 'all') apply({ ...EMPTY_PRESET });
     else if (preset === 'open')
       apply({ ...base, status: 'active', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
     else if (preset === 'closing7')
-      apply({ ...base, status: 'active', deadlineFrom: iso(today), deadlineTo: iso(in7), sort: 'deadline' });
+      apply({ ...base, status: 'active', deadlineFrom: today, deadlineTo: in7, sort: 'deadline' });
     else apply({ ...base, sort: 'newest' });
   }
 

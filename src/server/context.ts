@@ -67,11 +67,23 @@ export function sessionTtlHours(): number {
   return getEnv().SESSION_TTL_HOURS;
 }
 
-/** İstemci IP'si: proxy arkasında X-Forwarded-For'un İLK değeri güvenilirdir. */
+/**
+ * İstemci IP'si.
+ *
+ * X-Forwarded-For'a YALNIZCA `TRUST_PROXY=1` iken bakılır: başlığı istemci
+ * serbestçe yazabildiği için (aksi hâlde) her istekte farklı bir IP uydurulup
+ * hız sınırı atlanır ve denetim kaydı zehirlenir. Vekil arkasında ilk değer
+ * gerçek istemcidir.
+ */
 export function clientIp(request: FastifyRequest): string {
-  const forwarded = request.headers['x-forwarded-for'];
-  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  if (typeof raw === 'string' && raw.length > 0) return raw.split(',')[0]?.trim() ?? 'bilinmiyor';
+  if (getEnv().TRUST_PROXY) {
+    const forwarded = request.headers['x-forwarded-for'];
+    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    if (typeof raw === 'string' && raw.length > 0) {
+      const first = raw.split(',')[0]?.trim();
+      if (first && first.length > 0) return first;
+    }
+  }
   return request.ip ?? 'bilinmiyor';
 }
 
@@ -85,11 +97,13 @@ export async function enforceRateLimit(
   rateLimits: RateLimitRepo,
   request: FastifyRequest,
   reply: FastifyReply,
-  options: { bucket: string; max: number; windowSeconds?: number },
+  options: { bucket: string; max: number; windowSeconds?: number; keySuffix?: string },
 ): Promise<RateLimitDecision> {
   const env = getEnv();
   const windowSeconds = options.windowSeconds ?? env.RATE_LIMIT_WINDOW_SECONDS;
-  const key = `${options.bucket}:${clientIp(request)}`;
+  // `keySuffix` (ör. e-posta) IP dışında bir boyutla sınırlar: saldırgan IP
+  // değiştirse bile aynı hesaba yapılan denemeler sayılır. Değer hash'lenir.
+  const key = `${options.bucket}:${clientIp(request)}${options.keySuffix ? `:${options.keySuffix}` : ''}`;
   const hit = await rateLimits.hit(key, windowSeconds);
   const remaining = Math.max(0, options.max - hit.count);
   const decision: RateLimitDecision = { allowed: hit.count <= options.max, remaining, resetAt: hit.resetAt };

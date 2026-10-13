@@ -115,13 +115,33 @@ export const api = {
   del: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'DELETE', body: body ?? {} }),
 };
 
-/** Kullanıcıya gösterilecek hata metni (teknik ayrıntı sızdırmaz). */
+/**
+ * Kullanıcıya gösterilecek hata metni (teknik ayrıntı sızdırmaz).
+ *
+ * ÖNEMLİ: 401'in TEK anlamı "oturum yok" değildir. Giriş, parola sıfırlama ve
+ * hesap silme uçları da kimlik bilgisi yanlışsa 401 döner ve sunucu nedenini
+ * yazar ("E-posta veya parola hatalı."). Sunucu mesajını ezmek, kullanıcıya
+ * yanlış şey söyler: parolası yanlış olan kişiye "oturum açmanız gerekiyor"
+ * denirse gerçek sorun (yanlış parola ya da hesabın veritabanında olmaması)
+ * görünmez olur. Bu yüzden sunucunun mesajı varsa o gösterilir; yalnızca
+ * mesajsız/boş bir 401 için genel oturum metni kullanılır.
+ */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.status === 401) return 'Bu işlem için oturum açmanız gerekiyor.';
+    if (error.status === 401) {
+      return error.message.trim().length > 0 ? error.message : 'Bu işlem için oturum açmanız gerekiyor.';
+    }
     if (error.status === 403) return error.message || 'Bu işlem için yetkiniz yok.';
     if (error.status === 429) return 'Çok fazla istek gönderdiniz. Lütfen biraz bekleyin.';
-    return error.message;
+    if (error.status >= 500) {
+      return error.message || 'Sunucuda beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.';
+    }
+    return error.message || `İstek başarısız (HTTP ${error.status}).`;
+  }
+  // Ağ hatası: fetch reddedildiğinde tarayıcı İngilizce "Failed to fetch" verir.
+  // Kullanıcıya ne yapacağını söyle (API süreci kapalı olabilir).
+  if (error instanceof TypeError || (error instanceof Error && /failed to fetch|networkerror|load failed/i.test(error.message))) {
+    return 'Sunucuya ulaşılamadı. Bağlantınızı ve çalışan API sürecini kontrol edin (geliştirmede: npm run dev).';
   }
   if (error instanceof Error) return error.message;
   return 'Beklenmeyen bir hata oluştu.';

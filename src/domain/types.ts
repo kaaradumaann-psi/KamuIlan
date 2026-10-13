@@ -17,8 +17,17 @@ export const EMPLOYMENT_TYPES = [
 ] as const;
 export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
 
+/**
+ * TEK KAYNAK: etiket sözlükleri.
+ *
+ * Aynı ilanın kartında, detayında ve bildirim e-postasında FARKLI metin
+ * görünmemesi için etiketler yalnızca burada tanımlanır; arayüz (lib/format),
+ * API (server/serializers), e-posta şablonları ve bildirim eşleştiricisi burada
+ * tanımlı sözlükleri kullanır. Yeni bir değer eklendiğinde `Record<...>` tipi
+ * eksik anahtarı derleme zamanında yakalar.
+ */
 export const EMPLOYMENT_TYPE_LABELS: Record<EmploymentType, string> = {
-  kadrolu: 'Kadrolu kamu görevlisi',
+  kadrolu: 'Kadrolu memur',
   sozlesmeli: 'Sözleşmeli personel (4/B)',
   'kamu-isci': 'Kamu işçisi (İŞKUR)',
   akademik: 'Akademik personel',
@@ -56,7 +65,7 @@ export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   upcoming: 'Başvuru başlamadı',
-  active: 'Başvuru devam ediyor',
+  active: 'Başvuru açık',
   closed: 'Başvuru kapandı',
   cancelled: 'İlan geri çekildi / iptal',
   unknown: 'Durum belirsiz',
@@ -92,15 +101,15 @@ export type SourceStatus = (typeof SOURCE_STATUSES)[number];
 
 export const SOURCE_STATUS_LABELS: Record<SourceStatus, string> = {
   'not-researched': 'Henüz araştırılmadı',
-  researched: 'Araştırıldı',
-  'method-defined': 'Yöntem belirlendi',
-  accessible: 'Teknik olarak erişilebilir',
-  'scraper-built': 'Scraper geliştirildi',
+  researched: 'İncelendi',
+  'method-defined': 'Yöntemi hazır',
+  accessible: 'Erişilebiliyor',
+  'scraper-built': 'Hazırlanıyor',
   verified: 'Gerçek veriyle doğrulandı',
-  'temporary-error': 'Geçici hata',
-  'access-restricted': 'Erişim kısıtı',
-  'needs-manual-method': 'Manuel yöntem gerekiyor',
-  disabled: 'Devre dışı',
+  'temporary-error': 'Geçici sorun',
+  'access-restricted': 'Erişilemiyor',
+  'needs-manual-method': 'Elle takip ediliyor',
+  disabled: 'Kapalı',
 };
 
 export interface JobAttachment {

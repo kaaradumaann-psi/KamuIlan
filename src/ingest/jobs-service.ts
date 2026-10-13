@@ -6,7 +6,7 @@
  * panelinden manuel kayıt hem de testler aynı yolu kullanır.
  */
 import { createId } from '../domain/ids';
-import { makeExcerpt, normalizeTr } from '../domain/text';
+import { escapeRegExp, makeExcerpt, normalizeTr } from '../domain/text';
 import { sha256Hex } from '../domain/ids';
 import { toIstanbulDateOnly } from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
@@ -45,7 +45,20 @@ export function computeStatus(params: {
   const today = toIstanbulDateOnly(params.now);
   if (params.applicationEndDate && params.applicationEndDate < today) return 'closed';
   if (params.applicationStartAt && new Date(params.applicationStartAt).getTime() > params.now.getTime()) return 'upcoming';
-  if (params.applicationEndAt && new Date(params.applicationEndAt).getTime() < params.now.getTime()) return 'closed';
+  // Saat YALNIZCA metinde gerçekten yazılıysa kesin kabul edilir. Çıkarım
+  // motoru saati bilinmeyen tarihlerde 00:00 yazar; bu "gün başı" damgasını
+  // kesin sanmak, son başvuru günü BUGÜN olan ilanı gece yarısından sonra
+  // "Kapandı" yapıyordu (kullanıcı "son gün" diyor, sistem "kapandı" diyordu).
+  // Son başvuru günü, gün bitene kadar açıktır.
+  const endAtHasExplicitTime =
+    params.applicationEndAt !== null && !params.applicationEndAt.includes('T00:00:00');
+  if (
+    endAtHasExplicitTime &&
+    params.applicationEndAt &&
+    new Date(params.applicationEndAt).getTime() < params.now.getTime()
+  ) {
+    return 'closed';
+  }
   if (!params.applicationEndDate && !params.applicationEndAt && !params.applicationStartAt) return 'unknown';
   return 'active';
 }
@@ -122,10 +135,14 @@ export function buildJobDocument(
     detailUrl,
     normalizedUrl: detailUrl,
     applicationUrl: raw.applicationUrl ? normalizeUrl(raw.applicationUrl) : extraction.applicationUrl,
+    // Metinden okunan başvuru yöntemi depoya yazılır (detay sayfası gösterir).
+    applicationMethod: extraction.applicationMethod ?? null,
     attachments,
     requirements,
     titles: extraction.titles,
     textExcerpt,
+    // Gövde metni aramada da bulunsun: normalleştirilmiş kopya saklanır.
+    textNormalized: normalizeTr(textExcerpt),
     originalRefNo:
       extraction.referenceNo ?? raw.referenceNo ?? extractReferenceFromTitle(raw.sourceItemId) ?? extractReferenceFromTitle(title),
     sourceKeys: [raw.sourceKey],
@@ -211,6 +228,7 @@ export function detectChanges(previous: JobDoc, next: Partial<JobDoc>): ChangeSe
   compare('quota', 'quota', 'Kontenjan');
   compare('requirements', 'requirements', 'Başvuru şartları');
   compare('applicationUrl', 'application-url', 'Başvuru bağlantısı');
+  compare('applicationMethod', 'application-url', 'Başvuru yöntemi');
   compare('title', 'content', 'Başlık');
   compare('textExcerpt', 'content', 'İlan metni');
   compare('attachments', 'content', 'Ekler');
@@ -427,7 +445,8 @@ async function findCandidates(
     queries.push(
       repos.store.find(
         'jobs',
-        { institutionNormalized: { $regex: institutionHint.slice(0, 40), $regexFlags: 'i' } },
+        // Kurum adı taranmış içerikten gelir; regex kaynağı olarak güvenli hâle getirilir.
+        { institutionNormalized: { $regex: escapeRegExp(institutionHint.slice(0, 40)), $regexFlags: 'i' } },
         { limit: 25, sort: [['createdAt', -1]] },
       ),
     );
@@ -556,6 +575,7 @@ async function mergeIntoExistingJob(
     applicationEndDate: document.applicationEndDate ?? previous.applicationEndDate,
     applicationStartAt: document.applicationStartAt ?? previous.applicationStartAt,
     applicationUrl: document.applicationUrl ?? previous.applicationUrl,
+    applicationMethod: document.applicationMethod ?? previous.applicationMethod ?? null,
     quota: document.quota ?? previous.quota,
     city: previous.city ?? document.city,
     titles: previous.titles.length >= document.titles.length ? previous.titles : document.titles,

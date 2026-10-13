@@ -7,31 +7,49 @@
  */
 
 /**
- * İstihdam türü etiketleri — kanonik değerler `src/domain/types.ts`
- * (EMPLOYMENT_TYPES) ile BİREBİR aynıdır. Arayüz kendi sözlüğünü uydurmaz:
- * API'den gelen `kadrolu`, `kamu-isci`, `kariyer-meslek` gibi değerler burada
- * karşılanmazsa her ilan "Belirsiz" görünür ve filtreler hiç sonuç döndürmez.
+ * Etiket sözlükleri TEK KAYNAKTAN gelir: `src/domain/types.ts`.
+ *
+ * Burada kopya tutulmaz, çünkü kopya tutulduğunda aynı ilan kartta
+ * "Akademik kadro", detayda "Akademik personel" görünüyordu (farklı sözlükler).
+ * Arayüz, API (`serializers`) ve e-posta şablonları bu tek sözlüğü kullanır.
  */
-export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
-  kadrolu: 'Kadrolu memur',
-  sozlesmeli: 'Sözleşmeli personel',
-  'kamu-isci': 'Kamu işçisi',
-  akademik: 'Akademik kadro',
-  'kariyer-meslek': 'Kariyer meslekleri',
-  'kuruma-ozel-sinav': 'Kuruma özgü sınavla alım',
-  'diger-kamu': 'Diğer kamu personeli',
-  belirsiz: 'Belirsiz / incelemede',
-};
+import {
+  EDUCATION_LEVEL_LABELS,
+  EMPLOYMENT_TYPE_LABELS,
+  JOB_STATUS_LABELS,
+  SOURCE_STATUS_LABELS,
+} from '../domain/types';
 
-export const JOB_STATUS_LABELS: Record<string, string> = {
-  upcoming: 'Başvuru yakında',
-  active: 'Başvuru açık',
-  closed: 'Kapandı',
-  cancelled: 'İptal edildi',
-  unknown: 'Durum belirsiz',
-  draft: 'Taslak',
-  review: 'İncelemede',
-};
+export { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS, SOURCE_STATUS_LABELS };
+
+/** Sözlükte bulunmayan (gelecekte eklenmiş) bir değer için güvenli okuma. */
+function readLabel(dict: Record<string, string>, value: string | null | undefined): string | null {
+  if (!value) return null;
+  return dict[value] ?? null;
+}
+
+/**
+ * Öğrenim düzeyi etiketi (eski takma adlar dahil).
+ * Bilinmeyen değerde ham değer döner — "tanımsız" yazmaktansa veriyi gösteririz.
+ */
+export function educationLabel(value: string | null | undefined): string {
+  return readLabel(EDUCATION_LABELS, value) ?? value ?? 'Belirtilmemiş';
+}
+
+/** İstihdam türü etiketi; bilinmeyen değerde "türü belirtilmemiş" yerine ham değer. */
+export function employmentTypeLabel(value: string | null | undefined): string {
+  return readLabel(EMPLOYMENT_TYPE_LABELS as Record<string, string>, value) ?? value ?? 'Belirtilmemiş';
+}
+
+/** İlan durumu etiketi. */
+export function jobStatusLabel(value: string | null | undefined): string {
+  return readLabel(JOB_STATUS_LABELS as Record<string, string>, value) ?? value ?? 'Durum belirsiz';
+}
+
+/** Kaynak durumu etiketi (yönetim + kaynaklar sayfası). */
+export function sourceStatusLabel(value: string | null | undefined): string {
+  return readLabel(SOURCE_STATUS_LABELS as Record<string, string>, value) ?? value ?? 'Belirsiz';
+}
 
 export const DEADLINE_LABELS: Record<string, string> = {
   upcoming: 'Başvuru henüz başlamadı',
@@ -41,30 +59,26 @@ export const DEADLINE_LABELS: Record<string, string> = {
   unknown: 'Tarih belirtilmemiş',
 };
 
-/** Eğitim düzeyi etiketleri — kanonik değerler EDUCATION_LEVELS (domain) ile aynıdır. */
+/**
+ * Eğitim düzeyi ETİKETLERİ.
+ *
+ * `lise` ve `belirtilmemis` birer GÖRÜNTÜLEME takma adıdır (eski kayıtlarda
+ * görülebilir); kanonik değerler `src/domain/types.ts` EDUCATION_LEVELS'tir ve
+ * ortaöğretim için `ortaogretim` kullanılır. Form seçenekleri bu sözlükten
+ * ÜRETİLMEZ: `belirtilmemis` sunucuda geçersizdir (400), `lise` ise hiçbir
+ * kayıtla eşleşmez (filtrede sessizce 0 sonuç veriyordu).
+ */
 export const EDUCATION_LABELS: Record<string, string> = {
-  ilkogretim: 'İlköğretim',
-  ortaogretim: 'Ortaöğretim (lise)',
-  lise: 'Ortaöğretim (lise)',
-  onlisans: 'Ön lisans',
-  lisans: 'Lisans',
-  yukseklisans: 'Yüksek lisans',
-  doktora: 'Doktora',
+  ...EDUCATION_LEVEL_LABELS,
+  // Eski kayıtlarda/paylaşılan bağlantılarda görülebilen görüntüleme takma adları.
+  lise: EDUCATION_LEVEL_LABELS.ortaogretim,
   belirtilmemis: 'Belirtilmemiş',
 };
 
-export const SOURCE_STATUS_LABELS: Record<string, string> = {
-  verified: 'Çalıştığı kanıtlanmış',
-  'scraper-built': 'Hazırlanıyor',
-  accessible: 'Ulaşılabiliyor',
-  'method-defined': 'Yöntemi hazır',
-  researched: 'İncelendi',
-  'not-researched': 'Henüz başlamadı',
-  'temporary-error': 'Geçici sorun',
-  'access-restricted': 'Erişilemiyor',
-  'needs-manual-method': 'Elle takip ediliyor',
-  disabled: 'Kapalı',
-};
+/** Eski/paylaşılmış bağlantılardaki takma adları kanonik değere çevirir. */
+export function normalizeEducationLevel(value: string): string {
+  return value === 'lise' ? 'ortaogretim' : value === 'belirtilmemis' ? '' : value;
+}
 
 export const RUN_STATUS_LABELS: Record<string, string> = {
   queued: 'Sırada bekliyor',
@@ -97,12 +111,51 @@ export function formatDate(value: string | null | undefined): string {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'long', timeZone: ISTANBUL }).format(date);
 }
 
-/** "2026-10-30" gibi yalnızca tarih içeren değerler için (saat uydurulmaz). */
+/**
+ * Gün gösterimi (saat uydurulmaz).
+ *
+ * İki biçimi de kabul eder:
+ *  - `2026-10-30` → doğrudan gün.
+ *  - `2026-10-30T00:00:00+03:00` → gün, İSTANBUL saatine göre belirlenir.
+ *
+ * Eski hata: tam ISO damgası da tarih sanılıp `split('-')` ile parçalanıyordu ve
+ * ekrana "NaN Ekim 2026" yazıyordu (her ilan kartında ve ana sayfadaki son gün
+ * listesinde görünüyordu).
+ */
 export function formatDateOnly(value: string | null | undefined): string {
   if (!value) return 'belirtilmemiş';
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) return value;
-  return `${Number(day)} ${monthName(Number(month))} ${year}`;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!match) return value;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value.trim())) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      const [year, month, day] = new Intl.DateTimeFormat('en-CA', {
+        timeZone: ISTANBUL,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+        .format(date)
+        .split('-');
+      return `${Number(day)} ${monthName(Number(month))} ${year}`;
+    }
+  }
+  return `${Number(match[3])} ${monthName(Number(match[2]))} ${match[1]}`;
+}
+
+/**
+ * Başvuru tarihi/saati: saat metinde GERÇEKTEN yazılıysa saat gösterilir.
+ *
+ * Çıkarım motoru saati bilinmeyen tarihlerde 00:00 yazar (gün başı). Bunu
+ * kullanıcıya "00:00" diye göstermek, ilanda olmayan bir saat uydurmak olur.
+ */
+export function formatDateMaybeTime(value: string | null | undefined): string {
+  if (!value) return 'belirtilmemiş';
+  const match = /T(\d{2}):(\d{2})/.exec(value);
+  if (!match || (match[1] === '00' && match[2] === '00')) {
+    return formatDateOnly(value);
+  }
+  return formatDateTime(value);
 }
 
 function monthName(month: number): string {

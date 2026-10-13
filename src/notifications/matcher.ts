@@ -9,7 +9,6 @@
  */
 import type { JobDoc, NotificationPreferenceDoc } from '../db/schemas';
 import { normalizeTr } from '../domain/text';
-import type { EmploymentType, EducationLevel } from '../domain';
 
 export interface MatchResult {
   matched: boolean;
@@ -27,25 +26,12 @@ export interface MatchInput {
   now: Date;
 }
 
-const EMPLOYMENT_TYPE_LABELS: Record<EmploymentType, string> = {
-  kadrolu: 'Kadrolu memur',
-  sozlesmeli: 'Sözleşmeli personel',
-  'kamu-isci': 'Kamu işçisi',
-  akademik: 'Akademik kadro',
-  'kariyer-meslek': 'Kariyer meslek personeli',
-  'kuruma-ozel-sinav': 'Kuruma özgü sınavla alım',
-  'diger-kamu': 'Diğer kamu personeli',
-  belirsiz: 'Türü belirsiz',
-};
-
-const EDUCATION_LABELS: Record<EducationLevel, string> = {
-  ilkogretim: 'İlköğretim',
-  ortaogretim: 'Ortaöğretim (lise)',
-  onlisans: 'Ön lisans',
-  lisans: 'Lisans',
-  yukseklisans: 'Yüksek lisans',
-  doktora: 'Doktora',
-};
+/**
+ * Etiketler TEK KAYNAKTAN (domain) gelir: bildirim e-postasındaki "çalışma
+ * biçimi" metni ile arayüzdeki etiket aynı olmalıdır. Kopya sözlük tutulduğunda
+ * e-posta "Akademik kadro", arayüz "Akademik personel" diyordu.
+ */
+import { EDUCATION_LEVEL_LABELS as EDUCATION_LABELS, EMPLOYMENT_TYPE_LABELS } from '../domain/types';
 
 /** Başvuru bitişine kalan gün sayısı (İstanbul gününe göre, tam gün). */
 export function daysUntilDeadline(job: Pick<JobDoc, 'applicationEndDate'>, now: Date): number | null {

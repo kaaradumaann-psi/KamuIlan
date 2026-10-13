@@ -13,13 +13,7 @@ import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
-import {
-  EMPLOYMENT_TYPE_LABELS,
-  deadlineLabel,
-  formatDateOnly,
-  formatNumber,
-  formatRelative,
-} from '../lib/format';
+import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
 import { APP_TAGLINE, HONESTY_NOTE } from '../site';
 import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary } from '../types';
 
@@ -75,7 +69,7 @@ function SystemStrip() {
         İzlenen kaynak: <strong>{data.sources.enabled}</strong>
       </span>
       <span>
-        Çalıştığı kanıtlanan: <strong>{data.sources.verified}</strong>
+        Gerçek veriyle doğrulanan: <strong>{data.sources.verified}</strong>
       </span>
     </div>
   );
@@ -97,12 +91,12 @@ export function HomePage() {
   const closing = useQuery({
     queryKey: CLOSING_KEY,
     queryFn: () =>
-      api.get<{ items: PublicJobSummary[]; days: number; generatedAt: string }>(
-        '/api/jobs/deadlines/upcoming',
-        {
-          days: 14,
-        },
-      ),
+      api.get<{
+        items: PublicJobSummary[];
+        total: number;
+        humanRange: string;
+        range: { from: string; to: string; days: number };
+      }>('/api/jobs/deadlines/upcoming', { days: 14 }),
   });
 
   function submit(event: FormEvent) {
@@ -240,7 +234,9 @@ export function HomePage() {
                     <span className="cell-subtitle">{job.institution}</span>
                   </div>
                   <div className="report-list-meta">
-                    <span className="date-tag">{formatDateOnly(job.applicationEndAt)}</span>
+                    <span className="date-tag">
+                      {formatDateOnly(job.applicationEndAt ?? job.applicationEndDate)}
+                    </span>
                     <span className="text-muted-sm">
                       {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
                     </span>
@@ -261,7 +257,7 @@ export function HomePage() {
                   className="distribution-label distribution-link"
                   to={`/ilanlar?employmentType=${encodeURIComponent(item.key)}`}
                 >
-                  {EMPLOYMENT_TYPE_LABELS[item.key] ?? item.key}
+                  {employmentTypeLabel(item.key)}
                 </Link>
                 <span className="distribution-track" aria-hidden="true">
                   <span

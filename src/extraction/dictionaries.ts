@@ -253,21 +253,34 @@ export const FOREIGN_LANGUAGES: readonly string[] = [
 ];
 
 /** Başvuru yöntemi ifadeleri. */
+/**
+ * Başvuru yöntemi ifadeleri (ilan metninde geçen kalıplar).
+ *
+ * Not: Sınav adları (ALES/YDS/YÖKDİL) burada DEĞİLDİR — onlar başvuru yöntemi
+ * değil, başvuru şartıdır; listede kalınca "Başvuru yöntemi: ALES, YDS"
+ * gibi yanlış bir bilgi üretiyorlardı ("uydurma yok" ilkesi).
+ *
+ * Kalıplar, gerçek ilan diliyle uyumlu olacak şekilde genişletildi:
+ * "posta yoluyla", "şahsen veya posta", "elden teslim", "noter kanalıyla"…
+ */
 export const APPLICATION_METHODS: readonly string[] = [
   'Kariyer Kapısı',
   'e-Devlet',
   'İŞKUR',
   'elektronik ortamda',
+  'elektronik başvuru',
   'online başvuru',
   'internet üzerinden',
   'şahsen başvuru',
+  'şahsen veya posta',
   'elden başvuru',
+  'elden teslim',
+  'posta yoluyla',
   'posta ile başvuru',
   'kargo ile başvuru',
+  'noter kanalıyla',
+  'faks ile başvuru',
   'e-posta ile başvuru',
-  'ALES',
-  'YDS',
-  'YÖKDİL',
 ];
 
 /**

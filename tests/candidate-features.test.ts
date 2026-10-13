@@ -87,6 +87,39 @@ describe('takvim dosyası', () => {
     expect(ics).toContain('TRIGGER:-P1D');
     expect(ics).toContain('Son başvuru: Hemşire alımı');
   });
+
+  it('saat metinde yazılıysa etkinliği o saate kurar (gün başı uydurulmaz)', () => {
+    const timed = buildDeadlineIcs(
+      {
+        id: 'job_2',
+        title: 'Zabıta alımı',
+        institution: 'Kurum',
+        applicationEndDate: '2026-10-30',
+        // 30.10.2026 17:00 (İstanbul) = 14:00Z
+        applicationEndAt: '2026-10-30T17:00:00+03:00',
+        detailUrl: 'https://ornek.test/ilan',
+      },
+      NOW,
+    );
+    expect(timed).toContain('DTSTART:20261030T140000Z');
+    expect(timed).toContain('DTEND:20261030T143000Z');
+    expect(timed).toContain('17:00');
+    expect(timed).not.toContain('DTSTART;VALUE=DATE');
+
+    // Saat bilinmiyorsa (00:00 damgası) yine tüm gün etkinliği üretilir.
+    const dayOnly = buildDeadlineIcs(
+      {
+        id: 'job_3',
+        title: 'Hemşire alımı',
+        institution: 'Kurum',
+        applicationEndDate: '2026-10-30',
+        applicationEndAt: '2026-10-30T00:00:00+03:00',
+        detailUrl: 'https://ornek.test/ilan',
+      },
+      NOW,
+    );
+    expect(dayOnly).toContain('DTSTART;VALUE=DATE:20261030');
+  });
 });
 
 describe('kaydedilen ilanlar ve jetonlu çıkış (API)', () => {

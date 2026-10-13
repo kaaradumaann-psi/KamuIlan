@@ -6,8 +6,9 @@
  * tarayıcıda sahte/yerel bir liste tutulmaz.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/session';
 import type { SavedJobsResponse } from '../types';
 import { Icon } from './Icon';
@@ -25,13 +26,18 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
   });
   const isSaved = Boolean(user) && (saved.data?.items ?? []).some((item) => item.job.id === jobId);
 
+  // Hata sessizce yutulmaz: kaydetme başarısızsa kullanıcı nedenini görür
+  // (aksi hâlde düğme eski hâline döner ve "kaydettim mi?" belirsizliği kalırdı).
+  const [problem, setProblem] = useState<string | null>(null);
   const toggle = useMutation({
     mutationFn: () =>
       api.post<{ saved: boolean; message: string }>(`/api/jobs/${encodeURIComponent(jobId)}/save`),
     onSuccess: () => {
+      setProblem(null);
       void queryClient.invalidateQueries({ queryKey: ['saved-ids'] });
       void queryClient.invalidateQueries({ queryKey: ['saved-jobs'] });
     },
+    onError: (error: unknown) => setProblem(errorMessage(error)),
   });
 
   if (!user) {
@@ -49,15 +55,21 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
   }
 
   return (
-    <button
-      type="button"
-      className={`${compact ? 'btn-secondary btn-sm' : 'btn-secondary'} save-toggle${isSaved ? ' is-saved' : ''}`}
-      aria-pressed={isSaved}
-      disabled={toggle.isPending || saved.isLoading}
-      onClick={() => toggle.mutate()}
-    >
-      <Icon name={isSaved ? 'check' : 'save'} size={15} />
-      <span>{isSaved ? 'Kaydedildi' : 'Kaydet'}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        className={`${compact ? 'btn-secondary btn-sm' : 'btn-secondary'} save-toggle${isSaved ? ' is-saved' : ''}`}
+        aria-pressed={isSaved}
+        disabled={toggle.isPending || saved.isLoading}
+        onClick={() => toggle.mutate()}
+      >
+        <Icon name={isSaved ? 'check' : 'save'} size={15} />
+        <span>{toggle.isPending ? 'Kaydediliyor…' : isSaved ? 'Kaydedildi' : 'Kaydet'}</span>
+      </button>
+      {/* Ekran okuyucular için canlı bölge: durum değişimi duyurulur. */}
+      <span className="text-muted-sm" role={problem ? 'alert' : 'status'} aria-live="polite">
+        {problem ? `Kaydedilemedi: ${problem}` : ''}
+      </span>
+    </>
   );
 }

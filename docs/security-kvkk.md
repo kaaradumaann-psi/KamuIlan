@@ -26,7 +26,17 @@
   için yanıt her zaman aynıdır; sıfırlama sonrası tüm oturumlar iptal edilir.
 - **Hız sınırı**: Genel `RATE_LIMIT_MAX_REQUESTS`/pencere; kimlik uçlarında
   (`login`, `forgot-password`, `reset-password`, davet) daha sıkı
-  `AUTH_RATE_LIMIT_MAX_REQUESTS`. Sınır aşılırsa `429` + `retry-after`.
+  `AUTH_RATE_LIMIT_MAX_REQUESTS`. Girişte ayrıca **hesap bazlı** sınır vardır:
+  saldırgan IP değiştirse bile aynı e-posta adresine yapılan denemeler sayılır
+  (`auth-login-account` kovası; e-posta hash'lenir). Sınır aşılırsa `429` +
+  `retry-after`.
+- **Zamanlama sızıntısı**: Var olmayan e-posta ile yapılan giriş denemesi de
+  parola doğrulaması kadar sürer (sahte `scrypt` karşılaştırması); yanıt iki
+  durumda da aynıdır. Böylece "bu adres kayıtlı mı?" bilgisi sızmaz.
+- **Vekil güveni**: `X-Forwarded-For` başlığına yalnızca `TRUST_PROXY=1` iken
+  güvenilir (öntanım 0). Başlık istemci tarafından yazılabildiği için aksi hâlde
+  hız sınırı atlanır ve denetim kaydına uydurma IP yazılır. Uygulamanın önünde
+  başlığı kendisi üreten bir vekil (Cloudflare/Nginx) varsa 1 yapın.
 - **Sır yönetimi**: `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_URL`
   ve `APP_SECRET` yalnızca sunucu ortamında tutulur; repoda yalnızca
   `.env.example` (boş/örnek değerler) bulunur. Üretimde sır yöneticisi kullanın.
@@ -47,8 +57,13 @@
 - **Güvenlik başlıkları**: `x-content-type-options`, `x-frame-options: DENY`,
   `referrer-policy`, `permissions-policy`, `cross-origin-opener-policy`,
   `content-security-policy`.
-- **CORS**: Yalnızca `APP_BASE_URL` kaynağına izin verilir; çerez tabanlı akışta
-  `credentials: true`. Arayüz tüm istekleri göreli `/api` üzerinden yapar.
+- **CORS**: Üretimde CORS **kapalıdır** — arayüz tüm istekleri göreli `/api`
+  üzerinden yapar (geliştirmede Vite vekili). Yalnızca ayrı alan adından bir
+  panel besleniyorsa `CORS_ORIGINS` ile açık liste verilir; "her kaynağa izin"
+  verilmez (çerez tabanlı akışta `credentials: true`).
+- **API dokümantasyonu**: `/api/docs` yalnızca geliştirme ortamında açıktır;
+  üretimde `DOCS_ENABLED=1` denmedikçe kaydedilmez (API yüzeyi ve şema dışarıya
+  gösterilmez). Arayüz varlıkları kendi sunucumuzdan gelir, CSP bozulmaz.
 - **Yönetici denetimi**: Kaynak CRUD, inceleme kararları, kuyruk müdahaleleri ve
   yapılandırma değişiklikleri `auditLogs` koleksiyonuna yazılır.
 

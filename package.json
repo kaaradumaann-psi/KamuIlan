@@ -33,7 +33,8 @@
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",
-    "seed:admin": "tsx scripts/create-admin.ts"
+    "seed:admin": "tsx scripts/create-admin.ts",
+    "user:create": "tsx scripts/create-user.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

@@ -50,14 +50,25 @@ export function displayNameOf(user: SessionUser | null): string {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-export function SessionProvider({ children }: { children: ReactNode }) {
-  const queryClient = useQueryClient();
-  const session = useQuery({
+/**
+ * Oturum sorgusunun tek tanımı.
+ *
+ * Giriş ekranı da aynı sorguyu okur (kurulum tanılaması için); iki yerde farklı
+ * `queryFn` tanımlanırsa önbellek aynı anahtarı paylaştığı için hangi cevabın
+ * yazıldığı belirsizleşir. Bu yüzden tanım burada durur.
+ */
+export function useSessionQuery() {
+  return useQuery({
     queryKey: ['session'],
     queryFn: () => api.get<SessionResponse>('/api/auth/session'),
     staleTime: 30_000,
     retry: 0,
   });
+}
+
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const session = useSessionQuery();
 
   const login = useMutation({
     mutationFn: (input: { email: string; password: string }) =>

@@ -28,6 +28,7 @@ import {
   SESSION_COOKIE,
   enforceRateLimit,
   safeEqual,
+  staticCacheHeaders,
 } from './context';
 import { registerAdminRoutes } from './routes/admin';
 import { registerAuthRoutes } from './routes/auth';
@@ -50,11 +51,15 @@ export interface BuildAppOptions {
  * halka açık kimlik uçlarına tanınır (tam yol eşleşmesi). Önek muafiyeti
  * YOKTUR: `/api/jobs/:id/save` gibi oturumla çalışan değiştiren uçlar,
  * `/api/jobs` detayı halka açık olsa bile CSRF denetiminden geçer.
+ *
+ * `/api/auth/logout` bu listede DEĞİLDİR: oturum çereziyle çalışır, jeton
+ * kanıtı yoktur. Muaf olsaydı saldırgan bir sayfa, kullanıcının tarayıcısına
+ * sessizce çıkış yaptırabilirdi (zorla çıkış). Arayüz `x-csrf-token` başlığını
+ * zaten gönderir; bu yüzden kullanıcı açısından fark yoktur.
  */
 const CSRF_EXEMPT_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/register',
-  '/api/auth/logout',
   '/api/auth/verify-email',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
@@ -75,7 +80,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // pino örneği Fastify'nin beklediği arayüzü karşılar; tip parametresi
     // FastifyBaseLogger'a sabitlenir (aksi halde rota tipleri uyuşmaz).
     loggerInstance: logger as unknown as FastifyBaseLogger,
-    trustProxy: true,
+    // X-Forwarded-For'a yalnızca TRUST_PROXY=1 iken güvenilir (bkz. env.ts).
+    trustProxy: env.TRUST_PROXY,
     bodyLimit: 256 * 1024,
     genReqId: () => `req_${Math.random().toString(36).slice(2, 12)}`,
   });
@@ -87,12 +93,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     secret: env.APP_SECRET || undefined,
     parseOptions: {},
   });
+  // CORS: tarayıcı uygulaması API ile AYNI kaynaktan konuşur (geliştirmede Vite
+  // vekili, üretimde tek sunucu). Bu yüzden üretimde CORS kapalıdır. Yalnızca
+  // CORS_ORIGINS listesi verilirse açılır; "her kaynağa izin" verilmez çünkü
+  // kimlik doğrulaması çerezle yapılır.
+  const corsOrigins = env.CORS_ORIGINS.split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
   await app.register(cors, {
-    origin: env.NODE_ENV === 'production' ? false : true,
+    origin: corsOrigins.length > 0 ? corsOrigins : false,
     credentials: true,
   });
 
-  await app.register(swagger, {
+  const docsEnabled = env.DOCS_ENABLED || env.NODE_ENV !== 'production';
+  if (docsEnabled) await app.register(swagger, {
     openapi: {
       openapi: '3.1.0',
       info: {
@@ -113,10 +127,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
     transform: jsonSchemaTransform,
   });
-  await app.register(swaggerUi, {
-    routePrefix: '/api/docs',
-    uiConfig: { docExpansion: 'list', deepLinking: true },
-  });
+  if (docsEnabled) {
+    await app.register(swaggerUi, {
+      routePrefix: '/api/docs',
+      uiConfig: { docExpansion: 'list', deepLinking: true },
+    });
+  }
 
   app.addHook('onRequest', async (_request, reply) => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
@@ -220,6 +236,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await app.register(fastifyStatic, {
       root: new URL('../../dist', import.meta.url).pathname,
       prefix: '/',
+      // Derlenmiş varlıklar içerik damgalıdır: uzun ömürlü önbellek + tazelik
+      // gerektiren dosyalar için no-cache (bkz. context.ts).
+      setHeaders: (reply, path) => {
+        for (const [name, value] of Object.entries(staticCacheHeaders(path))) {
+          reply.header(name, value);
+        }
+      },
     });
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api/')) {

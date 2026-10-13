@@ -146,6 +146,16 @@ describe('ilan filtreleri (API)', () => {
     await app.close();
   });
 
+  it('eğitim filtresi takma adı kanonik değere çevrilir; tanınmayan değer 0 sonuç vermez', async () => {
+    const { app, ids } = await setup();
+    // Eski paylaşılmış bağlantıdaki 'lise' takma adı 'ortaogretim' ile aynı sonucu verir.
+    expect((await listIds(app, '?education=lise')).payload.items.map((i) => i.id)).toEqual([ids.b]);
+    // Tanınmayan değer yok sayılmaz: "bu düzeyde ilan yok" dürüst cevabı döner.
+    expect((await listIds(app, '?education=belirtilmemis')).payload.total).toBe(0);
+    expect((await listIds(app, '?education=olmayan-duzey')).payload.total).toBe(0);
+    await app.close();
+  });
+
   it('eğitim ve KPSS filtreleri (puansız ilan KPSS filtresinde elenir)', async () => {
     const { app, ids } = await setup();
     expect((await listIds(app, '?education=ortaogretim')).payload.items.map((i) => i.id)).toEqual([ids.b]);
@@ -157,10 +167,17 @@ describe('ilan filtreleri (API)', () => {
     await app.close();
   });
 
-  it('arama metni başlık ve kurumda Türkçe duyarsız eşleşir', async () => {
+  it('arama metni başlık, kurum ve ilan gövdesinde Türkçe duyarsız eşleşir', async () => {
     const { app, ids } = await setup();
-    expect((await listIds(app, '?q=HEMŞİRE')).payload.items.map((i) => i.id)).toEqual([ids.a]);
+    // Başlıkta eşleşen terim: yalnızca o ilan (ı/i ve büyük/küçük duyarsız).
+    expect((await listIds(app, '?q=ZABIT')).payload.items.map((i) => i.id)).toEqual([ids.b]);
     expect((await listIds(app, '?q=katibi')).payload.items.map((i) => i.id)).toEqual([ids.b]);
+    // Gövde metninde ortak geçen terim: üç ilan da eşleşir (Türkçe karakter
+    // duyarsızlığı gövdede de çalışır; eskiden yalnızca düz ASCII'de çalışıyordu).
+    expect((await listIds(app, '?q=HEMŞİRE')).payload.items.map((i) => i.id).sort()).toEqual(
+      [ids.a, ids.b, ids.c].sort(),
+    );
+    expect((await listIds(app, '?q=sağlık')).payload.total).toBe(3);
     await app.close();
   });
 

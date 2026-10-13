@@ -98,7 +98,17 @@ export function EmptyState({
   );
 }
 
-export function ErrorNotice({ message, onRetry, title }: { message: string; onRetry?: () => void; title?: string }) {
+export function ErrorNotice({
+  message,
+  onRetry,
+  title,
+  retryLabel = 'Yeniden dene',
+}: {
+  message: string;
+  onRetry?: () => void;
+  title?: string;
+  retryLabel?: string;
+}) {
   return (
     <div className="notice notice-danger" role="alert">
       <Icon name="alert" size={16} />
@@ -107,7 +117,7 @@ export function ErrorNotice({ message, onRetry, title }: { message: string; onRe
         <p>{message}</p>
         {onRetry && (
           <button type="button" className="btn-secondary btn-sm" onClick={onRetry}>
-            Yeniden dene
+            {retryLabel}
           </button>
         )}
       </div>

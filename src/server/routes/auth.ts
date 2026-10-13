@@ -9,21 +9,46 @@
  *  - Şifre sıfırlama ve e-posta doğrulama jetonları tek kullanımlıktır.
  *  - E-posta adresleri loglarda maskelenir.
  */
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { getEnv } from '../../config/env';
 import { BRANDING } from '../../config/app';
 import type { Repos } from '../../db/repos';
+import { describeDriver } from '../../db/store';
 import { randomToken } from '../../domain/ids';
 import { maskEmail } from '../../domain/text';
 import { hashPassword, validatePasswordStrength, verifyPassword } from '../passwords';
 import { unsubscribeByToken } from '../../notifications/service';
-import { CSRF_COOKIE, SESSION_COOKIE, audit, clientIp, requireUser, sessionTtlHours } from '../context';
+import {
+  CSRF_COOKIE,
+  SESSION_COOKIE,
+  audit,
+  clientIp,
+  enforceRateLimit,
+  requireUser,
+  sessionTtlHours,
+} from '../context';
 import { ApiError } from '../errors';
 import { toUserProfile } from '../serializers';
 
 const emailSchema = z.email('Geçerli bir e-posta adresi girin.').trim().toLowerCase().max(160);
 const passwordSchema = z.string().min(1).max(200);
+
+/**
+ * Olmayan hesap denemelerinde de scrypt maliyeti ödenir.
+ *
+ * Aksi hâlde "kayıtlı e-posta" ile "kayıtsız e-posta" yanıt süresinden
+ * ayırt edilebilir (kullanıcı numaralandırma). Sahte kayıt bir kez üretilir;
+ * parola her zaman yanlıştır.
+ */
+let dummyCredential: Promise<{ hash: string; salt: string }> | null = null;
+function slowPathCredential(): Promise<{ hash: string; salt: string }> {
+  dummyCredential ??= hashPassword(randomToken(40)).then((result) => ({
+    hash: result.hash,
+    salt: result.salt,
+  }));
+  return dummyCredential;
+}
 
 /** Oturum çerezini yazar (HttpOnly + SameSite; üretimde Secure). */
 function setSessionCookies(
@@ -42,6 +67,29 @@ function setSessionCookies(
 function clearSessionCookies(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE, { path: '/' });
   reply.clearCookie(CSRF_COOKIE, { path: '/' });
+}
+
+/**
+ * Hesap bazlı hız sınırı.
+ *
+ * Genel IP sınırı, saldırgan IP değiştirdiğinde işe yaramaz. E-posta gönderen
+ * uçlarda (doğrulama yeniden gönder, parola sıfırlama) ayrıca HESAP bazlı bir
+ * kova tutulur; aksi hâlde bir adresin kutusu dışarıdan bombalanabilirdi.
+ */
+async function enforceAccountLimit(
+  repos: Repos,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: { bucket: string; keySuffix: string; message: string },
+): Promise<void> {
+  const decision = await enforceRateLimit(repos.rateLimits, request, reply, {
+    bucket: options.bucket,
+    max: getEnv().AUTH_RATE_LIMIT_MAX_REQUESTS,
+    keySuffix: options.keySuffix,
+  });
+  if (!decision.allowed) {
+    throw ApiError.rateLimited(options.message, { resetAt: decision.resetAt });
+  }
 }
 
 export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
@@ -133,8 +181,26 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['auth'], summary: 'Oturum açma' } },
     async (request, reply) => {
       const body = z.object({ email: emailSchema, password: passwordSchema }).parse(request.body);
+
+      // Hesap bazlı sınır: IP değiştirip denemek de aynı hesabı kilitlemeli.
+      // (Genel IP sınırı app.ts içinde ayrıca uygulanır.)
+      const accountLimit = await enforceRateLimit(repos.rateLimits, request, reply, {
+        bucket: 'auth-login-account',
+        max: getEnv().AUTH_RATE_LIMIT_MAX_REQUESTS,
+        keySuffix: body.email,
+      });
+      if (!accountLimit.allowed) {
+        throw ApiError.rateLimited(
+          'Bu hesap için çok fazla giriş denemesi yapıldı. Lütfen birkaç dakika sonra tekrar deneyin.',
+          { resetAt: accountLimit.resetAt },
+        );
+      }
+
       const user = await repos.users.findByEmail(body.email);
       if (!user || user.status !== 'active') {
+        // Zamanlama eşitlemesi: kayıtsız hesapta da scrypt hesaplanır.
+        const dummy = await slowPathCredential();
+        await verifyPassword(body.password, dummy.hash, dummy.salt);
         throw ApiError.unauthorized('E-posta veya parola hatalı.');
       }
       const ok = await verifyPassword(body.password, user.passwordHash, user.passwordSalt);
@@ -194,11 +260,34 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['auth'], summary: 'Geçerli oturum bilgisi' } },
     async (request) => {
       const user = request.auth?.user ?? null;
-      if (!user) return { authenticated: false, user: null, csrfToken: null };
+      if (user) {
+        return {
+          authenticated: true,
+          user: toUserProfile(user, { self: true }),
+          csrfToken: request.auth?.session?.csrfToken ?? null,
+          setup: { required: false, driver: repos.store.driver, label: describeDriver(repos.store.driver) },
+        };
+      }
+
+      // Oturum yokken kurulum durumu bildirilir. Neden: kullanıcı hesabı
+      // BAŞKA bir veritabanına (ör. Supabase panosuna) eklediyse giriş her
+      // seferinde 401 döner ve nedenini hiçbir yerde göremez. "Hiç hesap yok"
+      // bilgisi yalnızca kullanıcı tablosu TAMAMEN boşken verilir; tek bir
+      // hesap varsa bu uç yine yalnızca "oturum yok" der (bilgi sızmaz).
+      let totalUsers: number | null = null;
+      try {
+        totalUsers = await repos.store.count('users', {});
+      } catch {
+        // Tablo henüz oluşturulmamış (db:migrate çalışmamış) ya da veritabanı
+        // erişilemez durumda: kurulum hakkında İDDİA ETME. Giriş ekranı yine
+        // açılır; gerçek durum /api/health üzerinden raporlanır.
+        totalUsers = null;
+      }
       return {
-        authenticated: true,
-        user: toUserProfile(user, { self: true }),
-        csrfToken: request.auth?.session?.csrfToken ?? null,
+        authenticated: false,
+        user: null,
+        csrfToken: null,
+        setup: { required: totalUsers === 0, driver: repos.store.driver, label: describeDriver(repos.store.driver) },
       };
     },
   );
@@ -230,8 +319,13 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
   app.post(
     '/api/auth/resend-verification',
     { schema: { tags: ['auth'], summary: 'Doğrulama e-postasını yeniden gönder' } },
-    async (request) => {
+    async (request, reply) => {
       const body = z.object({ email: emailSchema }).parse(request.body);
+      await enforceAccountLimit(repos, request, reply, {
+        bucket: 'auth-resend-account',
+        keySuffix: body.email,
+        message: 'Bu adres için çok sık doğrulama e-postası istendi. Lütfen biraz sonra tekrar deneyin.',
+      });
       const user = await repos.users.findByEmail(body.email);
       // Kullanıcı var/yok bilgisini sızdırmamak için her durumda aynı yanıt.
       if (user && !user.emailVerified) {
@@ -265,8 +359,13 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
   app.post(
     '/api/auth/forgot-password',
     { schema: { tags: ['auth'], summary: 'Şifre sıfırlama bağlantısı iste' } },
-    async (request) => {
+    async (request, reply) => {
       const body = z.object({ email: emailSchema }).parse(request.body);
+      await enforceAccountLimit(repos, request, reply, {
+        bucket: 'auth-forgot-account',
+        keySuffix: body.email,
+        message: 'Bu adres için çok sık sıfırlama bağlantısı istendi. Lütfen biraz sonra tekrar deneyin.',
+      });
       const user = await repos.users.findByEmail(body.email);
       if (user && user.status === 'active') {
         const token = randomToken(32);

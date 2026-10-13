@@ -10,15 +10,16 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
 import { Icon } from '../components/Icon';
 import {
   RUN_STATUS_LABELS,
-  SOURCE_STATUS_LABELS,
   formatDateTime,
   formatDuration,
   formatNumber,
   formatRelative,
+  sourceStatusLabel,
 } from '../lib/format';
 import type {
   AdminOverview,
@@ -254,12 +255,17 @@ function SourcesTab(): ReactNode {
       </div>
       {message && <InfoNote>{message}</InfoNote>}
       {error && <ErrorNotice message={error} />}
+      {sources.isLoading && <Spinner />}
+      {/* Sorgu hatasında liste boş görünmesin (kullanıcı "kaynak yok" sanmasın). */}
+      {sources.isError && (
+        <ErrorNotice message={errorMessage(sources.error)} onRetry={() => void sources.refetch()} />
+      )}
 
       {sources.data?.sources.map((source) => (
         <Card key={source.key} title={source.name} description={source.statusNote}>
           <div className="meta-row">
             <Badge tone={source.verified ? 'success' : source.enabled ? 'warning' : 'neutral'}>
-              {SOURCE_STATUS_LABELS[source.status] ?? source.status}
+              {sourceStatusLabel(source.status)}
             </Badge>
             <span>aralık: {source.intervalMinutes} dk</span>
             <span>
@@ -332,6 +338,10 @@ function RunsTab(): ReactNode {
         />
       </label>
       {query.isLoading && <Spinner />}
+      {/* Sorgu hatasında sekme boş görünmesin: neden + yeniden dene. */}
+      {query.isError && (
+        <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+      )}
       {query.data?.failing.length ? (
         <Card title="Hata bildirimleri" description="Site yapısı değiştiğinde ya da ulaşılamadığında burada görünür.">
           <ul className="summary-list">
@@ -409,6 +419,8 @@ function ReviewTab(): ReactNode {
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<'' | 'classification' | 'dedupe' | 'extraction'>('');
   const [message, setMessage] = useState<string | null>(null);
+  // Karar isteği başarısız olursa sessiz kalmayız: nedeni burada gösterilir.
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ['admin-review', kind],
     queryFn: () =>
@@ -430,7 +442,12 @@ function ReviewTab(): ReactNode {
       }),
     onSuccess: (data) => {
       setMessage(data.message);
+      setMutationError(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-review'] });
+    },
+    onError: (caught) => {
+      setMessage(null);
+      setMutationError(errorMessage(caught));
     },
   });
 
@@ -459,7 +476,18 @@ function ReviewTab(): ReactNode {
         )}
       </div>
       {message && <InfoNote>{message}</InfoNote>}
+      {mutationError && (
+        <ErrorNotice
+          message={`Karar kaydedilemedi: ${mutationError}`}
+          onRetry={() => setMutationError(null)}
+          retryLabel="Kapat"
+        />
+      )}
       {query.isLoading && <Spinner />}
+      {/* Sorgu hatasında sekme boş görünmesin: neden + yeniden dene. */}
+      {query.isError && (
+        <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+      )}
       {query.data?.items.length === 0 && <InfoNote>İnceleme bekleyen kayıt yok.</InfoNote>}
 
       {query.data?.items.map((item) => (
@@ -478,7 +506,10 @@ function ReviewTab(): ReactNode {
             <ul className="note-list push">
               {item.candidateJobIds.map((id) => (
                 <li key={id}>
-                  Aday ilan: <a href={`/ilanlar/${id}`}>{query.data?.candidateTitles[id] ?? id}</a>
+                  Aday ilan:{' '}
+                  <Link to={`/ilanlar/${encodeURIComponent(id)}`}>
+                    {query.data?.candidateTitles[id] ?? id}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -537,6 +568,7 @@ function ReviewTab(): ReactNode {
 function OutboxTab(): ReactNode {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ['admin-outbox', status],
     queryFn: () =>
@@ -551,7 +583,11 @@ function OutboxTab(): ReactNode {
 
   const requeue = useMutation({
     mutationFn: (id: string) => api.post(`/api/admin/email-outbox/${id}/requeue`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['admin-outbox'] }),
+    onSuccess: () => {
+      setMessage('E-posta yeniden kuyruğa alındı.');
+      void queryClient.invalidateQueries({ queryKey: ['admin-outbox'] });
+    },
+    onError: (caught) => setMessage(`Yeniden kuyruğa alınamadı: ${errorMessage(caught)}`),
   });
 
   return (
@@ -577,8 +613,13 @@ function OutboxTab(): ReactNode {
           </p>
         )}
       </div>
+      {message && <InfoNote tone={message.includes('alınamadı') ? 'danger' : 'success'}>{message}</InfoNote>}
       {query.data?.notice && <InfoNote>{query.data.notice}</InfoNote>}
       {query.isLoading && <Spinner />}
+      {/* Sorgu hatasında sekme boş görünmesin: neden + yeniden dene. */}
+      {query.isError && (
+        <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+      )}
       <Card title="E-posta gönderimi" description={query.data?.schema}>
         <div className="modern-table-card">
           <table className="modern-data-table">
@@ -646,6 +687,10 @@ function QueueTab(): ReactNode {
     <div className="page-stack">
       {query.data?.scheduleLagWarning && <InfoNote tone="warning">{query.data.scheduleLagWarning}</InfoNote>}
       {query.isLoading && <Spinner />}
+      {/* Sorgu hatasında sekme boş görünmesin: neden + yeniden dene. */}
+      {query.isError && (
+        <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+      )}
       {query.data && (
         <>
           <Card
@@ -810,6 +855,10 @@ function AuditTab(): ReactNode {
         />
       </label>
       {query.isLoading && <Spinner />}
+      {/* Sorgu hatasında sekme boş görünmesin: neden + yeniden dene. */}
+      {query.isError && (
+        <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
+      )}
       <Card
         title="İşlem geçmişi"
         description="Yönetici işlemleri ve güvenlik olayları burada tutulur. IP adresi tanınmaz biçimde saklanır."

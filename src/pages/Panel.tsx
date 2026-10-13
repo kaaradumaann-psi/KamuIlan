@@ -8,7 +8,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
-import { EDUCATION_LABELS, EMPLOYMENT_TYPE_LABELS, formatDateTime, turkishCapitalize } from '../lib/format';
+import { useAuth } from '../lib/session';
+import { EDUCATION_LEVELS, EDUCATION_LEVEL_LABELS } from '../domain/types';
+import { EMPLOYMENT_TYPE_LABELS, formatDateTime, turkishCapitalize } from '../lib/format';
 import type { NotificationHistoryResponse, PreferenceFilters, PreferencesResponse } from '../types';
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -35,6 +37,7 @@ function toList(value: string): string[] {
 
 export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'history' } = {}): ReactNode {
   const queryClient = useQueryClient();
+  const { logout } = useAuth();
   const preferences = useQuery({
     queryKey: ['preferences'],
     queryFn: () => api.get<PreferencesResponse>('/api/notifications/preferences'),
@@ -158,10 +161,16 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
             type="button"
             className="btn-ghost"
             onClick={() => {
-              void api.post('/api/auth/logout').then(() => {
-                void queryClient.invalidateQueries();
-                setMessage('Oturum kapatıldı.');
-              });
+              // Ortak çıkış akışı: sunucu oturumu kapatır, sorgu önbelleği
+              // tazelenir ve giriş kapısı kullanıcıyı giriş ekranına alır.
+              // (Hata sessizce yutulmaz: kullanıcıya gösterilir.)
+              void logout()
+                .then(() => {
+                  setMessage('Oturum kapatıldı.');
+                })
+                .catch((caught: unknown) => {
+                  setError(errorMessage(caught));
+                });
             }}
           >
             Çıkış yap
@@ -278,22 +287,23 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
             <fieldset className="form-col-span-2">
               <legend className="label">Eğitim düzeyleri</legend>
               <div className="chip-row">
-                {Object.entries(EDUCATION_LABELS).map(([value, label]) => (
-                  <label key={value} className="chip">
+                {/* Yalnızca kanonik düzeyler: 'belirtilmemis' sunucuda geçersiz,
+                    'lise' kayıtlarla eşleşmiyordu (kaydederken 400 hatası). */}
+                {EDUCATION_LEVELS.map((level) => (
+                  <label key={level} className="chip">
                     <input
                       type="checkbox"
-
-                      checked={filters.educationLevels.includes(value)}
+                      checked={filters.educationLevels.includes(level)}
                       onChange={(event) =>
                         setFilters({
                           ...filters,
                           educationLevels: event.target.checked
-                            ? [...filters.educationLevels, value]
-                            : filters.educationLevels.filter((item) => item !== value),
+                            ? [...filters.educationLevels, level]
+                            : filters.educationLevels.filter((item) => item !== level),
                         })
                       }
                     />
-                    {label}
+                    {EDUCATION_LEVEL_LABELS[level]}
                   </label>
                 ))}
               </div>
@@ -411,6 +421,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       {view === 'history' && (
         <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">
           {history.isLoading && <Spinner />}
+          {history.isError && (
+            <ErrorNotice message={errorMessage(history.error)} onRetry={() => void history.refetch()} />
+          )}
           {history.data && (
             <>
               {history.data.events.length === 0 ? (

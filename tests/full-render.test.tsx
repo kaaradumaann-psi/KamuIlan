@@ -45,7 +45,17 @@ const { JobDetailPage } = await import('../src/pages/JobDetail');
 const { SourcesPage } = await import('../src/pages/Sources');
 const { PanelPage } = await import('../src/pages/Panel');
 const { SavedJobsPage } = await import('../src/pages/Saved');
-const { FaqPage, LoginPage } = await import('../src/pages/auth');
+const {
+  FaqPage,
+  ForgotPasswordPage,
+  LoginPage,
+  NotFoundPage,
+  PrivacyPage,
+  ResetPasswordPage,
+  TermsPage,
+  UnsubscribePage,
+  VerifyEmailPage,
+} = await import('../src/pages/auth');
 const { SessionProvider } = await import('../src/lib/session');
 
 const NOW = new Date('2026-10-12T09:00:00+03:00');
@@ -218,5 +228,35 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
     first.unmount();
     renderPage(<FaqPage />, '/sss');
     expect(await screen.findByRole('heading', { level: 1, name: 'Sıkça sorulan sorular' })).toBeTruthy();
+  });
+});
+
+describe('Bilgi ve işlem sayfaları (bağlantılar kırık olmasın)', () => {
+  it('parola/doğrulama/abonelik sayfaları hatasız açılır', async () => {
+    for (const [element, expected] of [
+      [<ForgotPasswordPage key="f" />, 'Parolamı unuttum'],
+      [<ResetPasswordPage key="r" />, 'Bağlantı eksik'],
+      [<VerifyEmailPage key="v" />, 'E-posta doğrulama'],
+      [<UnsubscribePage key="u" />, 'Bildirimden çıkma'],
+    ] as const) {
+      const view = renderPage(element as React.ReactNode, '/');
+      expect(await screen.findByRole('heading', { level: 1, name: expected })).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  it('404 ve politika sayfaları hatasız açılır', async () => {
+    const notFound = renderPage(<NotFoundPage />, '/404');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sayfa bulunamadı' })).toBeTruthy();
+    notFound.unmount();
+
+    const privacy = renderPage(<PrivacyPage />, '/gizlilik');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Gizlilik ve KVKK Politikası' }),
+    ).toBeTruthy();
+    privacy.unmount();
+
+    renderPage(<TermsPage />, '/kullanim');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Kullanım Koşulları' })).toBeTruthy();
   });
 });

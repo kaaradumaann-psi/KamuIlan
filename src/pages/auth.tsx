@@ -12,8 +12,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
+import { useSessionQuery } from '../lib/session';
 import { Card, ErrorNotice, Field, InfoNote } from '../components/ui';
 import { Icon } from '../components/Icon';
+import { BrandMark } from '../components/BrandMark';
 import { InfoPageShell } from '../components/InfoPageShell';
 import { PolicyDoc, PolicyList } from '../components/PolicyDoc';
 import { APP_DOMAIN, APP_NAME, CONTACT_EMAIL, HONESTY_NOTE, POLICY_EFFECTIVE_DATE, SITE_URL } from '../site';
@@ -32,6 +34,15 @@ function useAfterAuth(): () => Promise<void> {
   };
 }
 
+/**
+ * Giriş ekranı.
+ *
+ * Yerleşim: `.auth-page` (tam ekran sütun) → `.auth-shell` (dikey ortalar) →
+ * `.auth-layout` (tanıtım + giriş kartı ızgarası). Ortalamanın tek sahibi
+ * `.auth-shell`'dir; kartı doğrudan `.auth-page` içine koymak kartı sol üst
+ * köşeye yapıştırırdı (eski hata buydu). Dar ekranda `.auth-layout` tek
+ * sütuna düşer ve tanıtım paneli sadeleşir (workspace.css/responsive.css).
+ */
 export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,6 +50,10 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const afterAuth = useAfterAuth();
+  // Kurulum tanılaması: hangi veritabanına bakıldığı ve hiç hesap olup olmadığı.
+  // (Hesap yanlış veritabanına eklenmişse giriş 401 döner; sebebi görünmez.)
+  const session = useSessionQuery();
+  const setup = session.data?.setup ?? null;
 
   const mutation = useMutation({
     mutationFn: () => api.post<{ needsEmailVerification: boolean }>('/api/auth/login', { email, password }),
@@ -61,85 +76,133 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-intro">
-          <span className="auth-eyebrow">Oturum</span>
-          <h1 className="auth-heading">Giriş yap</h1>
-          <p className="text-muted-sm">
-            Kamuİlan kapalı bir takip sistemidir: ilanları, kaynakları ve bildirimlerinizi görmek için oturum
-            açın.
-          </p>
-        </div>
+      <div className="auth-shell">
+        <div className="auth-layout">
+          <aside className="auth-intro">
+            <span className="auth-intro-kicker">Kamu personel alım ilanları</span>
+            <h2>
+              Doğru ilanı <em>zamanında</em> görün.
+            </h2>
+            <p>
+              Resmî kaynaklardan toplanan kadrolu, sözleşmeli ve kamu işçisi alım ilanları; kaynak bağlantısı,
+              son başvuru tarihi ve size özel e-posta bildirimiyle birlikte tek listede.
+            </p>
+            <span className="auth-intro-foot">
+              <Icon name="shield" size={14} /> Yalnızca resmî kaynaklar; kaynakta yazmayan bilgi uydurulmaz.
+            </span>
+          </aside>
 
-        {reason && (
-          <InfoNote tone="info" title="Neden giriş gerekiyor?">
-            {reason}
-          </InfoNote>
-        )}
+          <div className="auth-card">
+            <div className="auth-brand">
+              <span className="auth-brand-mark" aria-hidden="true">
+                <BrandMark size={24} />
+              </span>
+              <span>
+                <strong>{APP_NAME}</strong>
+                <small>Kamu ilanı takip sistemi</small>
+              </span>
+            </div>
 
-        <form
-          className="auth-form"
-          onSubmit={(event: FormEvent) => {
-            event.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <Field label="E-posta" htmlFor="login-email" required>
-            <input
-              id="login-email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </Field>
-          <Field label="Parola" htmlFor="login-password" required>
-            <input
-              id="login-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </Field>
+            <div className="auth-heading">
+              <p className="auth-eyebrow">Oturum</p>
+              <h1>Giriş yap</h1>
+              <p>
+                İlanları, kaynakları ve bildirimlerinizi görmek için oturum açın. Bildirim tercihleriniz
+                hesabınıza bağlıdır.
+              </p>
+            </div>
 
-          {error && <ErrorNotice message={error} />}
-          {notice && <InfoNote tone="success">{notice}</InfoNote>}
-          {needsVerification && (
-            <InfoNote tone="warning" title="E-posta doğrulanmamış">
-              Bildirim gönderebilmek için önce e-posta adresinizi doğrulamanız gerekir.{' '}
-              <button
-                type="button"
-                className="board-text-link"
-                onClick={() => resend.mutate()}
-                disabled={resend.isPending}
-              >
-                {resend.isPending ? 'Gönderiliyor…' : 'Doğrulama bağlantısını yeniden gönder'}
+            {setup?.required && (
+              <InfoNote tone="warning" title="Bu veritabanında henüz hesap yok">
+                Şu an etkin depo: <strong>{setup.label}</strong>. Kamuİlan'da hesap yalnızca yönetici
+                tarafından açılır, bu yüzden giriş yapabileceğiniz bir hesap bulunmuyor. İlk yöneticiyi
+                kurmak için proje dizininde şunu çalıştırın:
+                <br />
+                <code>ADMIN_EMAIL=siz@ornek.com ADMIN_PASSWORD=&quot;güçlü-bir-parola&quot; npm run seed:admin</code>
+                <br />
+                Hesabı Supabase panosundan eklediyseniz bu uygulama Supabase Auth kullanmaz: kullanıcılar{' '}
+                <code>kamuilan_users</code> tablosunda ve scrypt özetli parolayla tutulur (
+                <code>npm run user:create</code>).
+              </InfoNote>
+            )}
+
+            {reason && (
+              <InfoNote tone="info" title="Neden giriş gerekiyor?">
+                {reason}
+              </InfoNote>
+            )}
+
+            <form
+              className="auth-form"
+              onSubmit={(event: FormEvent) => {
+                event.preventDefault();
+                mutation.mutate();
+              }}
+            >
+              <Field label="E-posta" htmlFor="login-email" required>
+                <input
+                  id="login-email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </Field>
+              <Field label="Parola" htmlFor="login-password" required>
+                <input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </Field>
+
+              {error && <ErrorNotice message={error} />}
+              {notice && <InfoNote tone="success">{notice}</InfoNote>}
+              {needsVerification && (
+                <InfoNote tone="warning" title="E-posta doğrulanmamış">
+                  Bildirim gönderebilmek için önce e-posta adresinizi doğrulamanız gerekir.{' '}
+                  <button
+                    type="button"
+                    className="board-text-link"
+                    onClick={() => resend.mutate()}
+                    disabled={resend.isPending}
+                  >
+                    {resend.isPending ? 'Gönderiliyor…' : 'Doğrulama bağlantısını yeniden gönder'}
+                  </button>
+                </InfoNote>
+              )}
+
+              <button type="submit" className="btn-primary auth-submit-btn" disabled={mutation.isPending}>
+                <Icon name="key" size={16} />
+                <span>{mutation.isPending ? 'Giriş yapılıyor…' : 'Giriş yap'}</span>
               </button>
-            </InfoNote>
-          )}
+            </form>
 
-          <button type="submit" className="btn-primary auth-submit-btn" disabled={mutation.isPending}>
-            <Icon name="key" size={16} />
-            <span>{mutation.isPending ? 'Giriş yapılıyor…' : 'Giriş yap'}</span>
-          </button>
-        </form>
+            <div className="auth-footer-help">
+              <Icon name="info" size={14} />
+              <span>
+                Parolanızı mı unuttunuz? <Link to="/sifremi-unuttum">Sıfırlama bağlantısı isteyin</Link>.
+              </span>
+            </div>
 
-        <div className="auth-footer-help">
-          <Link to="/sifremi-unuttum">Parolamı unuttum</Link>
-        </div>
+            <p className="auth-card-note">
+              <strong>Halka açık kayıt yoktur</strong>. Hesabınız yönetici tarafından açılır: davet e-postası
+              ulaştığında parolanızı kendiniz belirlersiniz.
+            </p>
 
-        <InfoNote tone="info" title="Halka açık kayıt yoktur">
-          Hesabınız yönetici tarafından açılır. Davet e-postası size ulaştığında parolanızı belirleyip giriş
-          yapabilirsiniz. Kendi kendine kayıt kapalıdır.
-        </InfoNote>
-
-        <div className="auth-site-return">
-          <a href={`https://${APP_DOMAIN}`}>{APP_DOMAIN}</a>
-          <span className="site-footer-sep" />
-          <a href={SITE_URL}>{SITE_URL.replace('https://', '')}</a>
+            <div className="auth-site-links">
+              <a className="auth-site-return" href={`https://${APP_DOMAIN}`}>
+                {APP_DOMAIN}
+              </a>
+              <a className="auth-site-return" href={SITE_URL}>
+                {SITE_URL.replace('https://', '')}
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

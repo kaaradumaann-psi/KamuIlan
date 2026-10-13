@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 test('kapsam özeti ile tablodaki doğrulama işaretleri tutarlıdır', async ({ page }) => {
   await page.goto('/kaynaklar');
 
-  const statCard = page.locator('.stat-item', { hasText: 'Çalıştığı kanıtlanan' }).first();
+  const statCard = page.locator('.stat-item', { hasText: 'Gerçek veriyle doğrulanan' }).first();
   await expect(statCard).toBeVisible();
   const summaryValue = await statCard.locator('.stat-val').innerText();
   const summaryCount = Number(/(\d+)/.exec(summaryValue)?.[1] ?? 'NaN');
