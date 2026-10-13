@@ -301,8 +301,14 @@ describe('genel kurum duyuru adaptörü', () => {
     const kurumSources = SOURCE_DEFINITIONS.filter((source) => source.adapterKey === 'kurum-duyuru-listesi');
     expect(kurumSources.length).toBeGreaterThanOrEqual(18);
     for (const source of kurumSources) {
-      expect(source.enabled, source.key).toBe(true);
-      expect(source.status, source.key).toBe('method-defined');
+      if (source.status === 'needs-manual-method') {
+        // JS uygulaması olduğu canlıda doğrulanmış kaynaklar kapalıdır ve nedeni kayıt altındadır.
+        expect(source.enabled, source.key).toBe(false);
+        expect(source.statusNote.length, source.key).toBeGreaterThan(40);
+      } else {
+        expect(source.enabled, source.key).toBe(true);
+        expect(['method-defined', 'verified'], source.key).toContain(source.status);
+      }
     }
     // Planlanan listede artık yalnızca toplu gruplar kalır (üniversite/belediye gibi).
     expect(PLANNED_SOURCES.length).toBeLessThanOrEqual(4);
@@ -402,5 +408,55 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
     expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261012-4-1.pdf');
     expect(result.requestCount).toBe(4);
     expect(result.notes.some((note) => note.includes('PDF indirilemedi'))).toBe(true);
+  });
+
+  it('bugünün nüshası çekilemezse dünküne düşer, not düşer', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    const sectionHtml = `<html><body><table>
+      <tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261011-4-1.pdf">(PDF)</a></td></tr>
+    </table></body></html>`;
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url.includes('20261012')) {
+          throw new FetchError(url, 'UND_ERR_HEADERS_TIMEOUT: Headers Timeout Error', null, true);
+        }
+        return htmlResponse(url, sectionHtml);
+      },
+      async fetchBinary(url: string): Promise<FetchResponse> {
+        const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
+        return { ...htmlResponse(url, ''), body, bytes: body.byteLength, contentType: 'application/pdf', decoded: undefined };
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261011-4-1.pdf');
+    expect(result.notes.some((note) => note.includes('önceki gün denenecek'))).toBe(true);
+  });
+});
+
+describe('MEB RSS beslemesi', () => {
+  it('beslemedeki kayıtlar detaylarıyla birlikte kayda dönüşür', async () => {
+    const rss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>PERSONEL GENEL MÜDÜRLÜĞÜ</title>
+<item><title>Sözleşmeli Bilişim Personeli Alımı</title><link>https://personel.meb.gov.tr/www/sozlesmeli-bilisim-personeli-alimi/icerik/1773</link><pubDate>Tue, 22 Sep 2026 17:31:34 +0300</pubDate><category>2</category></item>
+<item><title>Öğretmenlerin İller Arası Yer Değiştirme Duyurusu (2026-2)</title><link>https://personel.meb.gov.tr/www/ogretmenlerin-yer-degistirme-duyurusu/icerik/1774</link><pubDate>Tue, 15 Sep 2026 14:19:28 +0300</pubDate><category>1</category></item>
+</channel></rss>`;
+    const { http } = fakeHttp((url) => {
+      if (url.includes('rss_duyurular.xml')) return rss;
+      if (url.includes('/icerik/')) return `<html><body><main><p>${'Detay metni burada yer alır. '.repeat(12)}</p></main></body></html>`;
+      return undefined;
+    });
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
+    const result = await requireAdapter('meb-duyuru-listesi').run(contextFor(source!, http, true));
+    expect(result.items.length).toBe(2);
+    expect(result.items[0]?.sourceItemId).toBe('1773');
+    expect(result.items[0]?.publishedAt).toContain('2026-09-22');
+    expect(result.items[0]?.bodyText).toContain('Detay metni');
+    expect(result.notes.some((note) => note.includes('RSS beslemesinde 2 kayıt'))).toBe(true);
   });
 });

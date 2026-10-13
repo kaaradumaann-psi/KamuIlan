@@ -60,12 +60,25 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     for (const offset of days) {
       const dateOnly = addDaysDateOnly(today, -offset);
       const sectionUrl = this.sectionUrl(dateOnly);
-      const response = await ctx.http.fetchText(sectionUrl, {
-        allowedHosts: ctx.source.allowedHosts,
-        minIntervalMs: ctx.source.minRequestIntervalMs,
-        // Yalnızca bugünün sayfası için koşullu istek anlamlıdır.
-        ...(offset === 0 ? {} : {}),
-      });
+      // Bölüm sayfası o an çekilemezse (sunucu yavaşlığı kalıcı hata değildir)
+      // düne düşülür; iki gün de çekilemezse son hata aynen yükseltilir.
+      let response: FetchResponse;
+      try {
+        response = await ctx.http.fetchText(sectionUrl, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+          retries: 1,
+        });
+      } catch (error) {
+        requestCount += 1;
+        if (offset < days.length - 1) {
+          notes.push(
+            `${dateOnly} nüshası çekilemedi (${error instanceof Error ? error.message : String(error)}); bir önceki gün denenecek.`,
+          );
+          continue;
+        }
+        throw error;
+      }
       requestCount += 1;
 
       if (response.notModified && offset === 0) {

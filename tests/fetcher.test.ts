@@ -2,7 +2,7 @@ import { MockAgent } from 'undici';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEnv } from '../src/config/env';
 import { toHeaderSafeAscii } from '../src/lib/headerSafe';
-import { describeFetchFailure, FetchError, HttpClient } from '../src/sources/fetcher';
+import { describeFetchFailure, FetchError, HttpClient, loadTrustBundle } from '../src/sources/fetcher';
 
 const ORIGIN = 'https://www.resmigazete.gov.tr';
 const ALLOWED = ['www.resmigazete.gov.tr'];
@@ -86,6 +86,17 @@ describe('HttpClient ağ davranışı', () => {
     await expect(
       client.fetchText('https://evil.example.com/x', { allowedHosts: ALLOWED, retries: 0 }),
     ).rejects.toMatchObject({ status: null, retryable: false });
+  });
+});
+
+describe('loadTrustBundle (sistem CA birleşimi)', () => {
+  it('desteklenen platformda PEM biçiminde birleşik paket döndürür', () => {
+    const bundle = loadTrustBundle();
+    // Eski Node'da undefined kabul edilebilir; döndürüyorsa biçimi doğru olmalı.
+    if (bundle !== undefined) {
+      expect(bundle.length).toBeGreaterThan(50);
+      expect(bundle.every((cert) => cert.includes('BEGIN CERTIFICATE'))).toBe(true);
+    }
   });
 });
 

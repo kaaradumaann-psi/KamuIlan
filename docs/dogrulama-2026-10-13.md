@@ -62,10 +62,52 @@ ilk canlı tarama, kullanıcının ağında `npm run test:live` ile doğrulanır
    oldu. Test: `tests/fetcher.test.ts` (9 test, başlık eşleşmesi dahil).
    Bu hatanın düzeltilmesi, kullanıcının canlı `npm run test:live`
    koşumunu yeniden yapmasını gerektirir; sonuç bu kayda eklenecektir.
+7. **Tek yavaş PDF tüm Resmî Gazete nüshasını düşürüyordu** — UA düzeltmesi
+   sonrası ikinci canlı koşumda liste sayfası ve ilk PDF'ler çekildi; bir
+   PDF'de sunucu başlıkları 60 sn içinde gelmeyince (`UND_ERR_HEADERS_TIMEOUT`,
+   Resmî Gazete sunucularının yavaşlığı; aynı PDF bağımsız kanaldan anında
+   açıldı) hata tüm adaptör koşumunu iptal ediyordu. Artık PDF başına hata
+   yalıtımı var: indirilemeyen ilan atlanır, not düşülür, kalan ilanlar
+   gelir ve atlanan belge sonraki taramada yeniden denenir. Ayrıca başlık
+   zaman aşımı bütçesi çağrı bütçesine hizalandı (30→60 sn) ve
+   keep-alive 10→4 sn'ye indirildi (bayat soket riski). Test:
+   `tests/sources.test.ts` ("tek PDF indirilemezse diğer ilanlar yine de
+   gelir").
+
+## Canlı doğrulama koşumu (13.10.2026, kullanıcı ağı — `npm run test:live`)
+
+**17/26 kaynak çalıştı, 292 ham kayıt** döndü (iş ilanı olmayanlar
+sınıflandırma hattında elenir; ham kayıt ≠ yayındaki ilan).
+
+Çalışanlar: ÖSYM (25), Sağlık (25), Göç (25), AFAD (25), SGK (25),
+DSİ (25), EPDK (25), TÜBİTAK (25), KGM (21), İçişleri (17), YÖK (17),
+Adalet (14), Tapu ve Kadastro (11), Kamuİlan-SBB (4), İŞKUR memur (3),
+İŞKUR kurum dışı (3), SPK (2). Bu kaynaklar kayıtlarda `verified` +
+`lastVerifiedAt: 2026-10-13` olarak işaretlendi.
+
+Kalanlar ve alınan kararlar:
+
+- **ilan.gov.tr, BDDK, TMSF** — `UNABLE_TO_VERIFY_LEAF_SIGNATURE`:
+  sertifika kökü Node CA listesinde yok. İstemci artık sistem CA
+  deposunu varsayılan paketle birleştiriyor (`loadTrustBundle`);
+  yeniden canlı doğrulama bekleniyor.
+- **MEB** — liste JS ile yükleniyor; kurumun resmî RSS beslemesine
+  geçildi (`meb_iys_dosyalar/xml/rss_duyurular.xml`, bağımsız kanaldan
+  doğrulandı). İlk canlı koşum bekleniyor.
+- **GİB, TÜİK, RTÜK** — siteler JS uygulaması, düz HTTP içerik
+  vermiyor (canlıda doğrulandı). Kayıtları `needs-manual-method` +
+  kapalı olarak işaretlendi; personel duyuruları Resmî Gazete /
+  ilan.gov.tr / Kariyer Kapısı üzerinden izleniyor. Tarayıcı tabanlı
+  yöntem eklenene dek worker bunlara istek atmayacak.
+- **Kariyer Kapısı** — yöntem tarayıcı gerektiriyor; kullanıcı
+  makinesinde `npx playwright install chromium` çalıştırılmalı.
+- **Resmî Gazete** — bölüm sayfası bu koşumda dört denemede de 60 sn'yi
+  aştı (sunucu yavaşlığı); güne düşme yedeği eklendi (hata #7).
+  Sonraki koşumda yeniden değerlendirilecek.
 
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **199/199 yeşil** (22 dosya)
+- Birim/entegrasyon testleri: **212/212 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz

@@ -16,6 +16,11 @@ export function loadHtml(html: string): CheerioAPI {
   return load(html);
 }
 
+/** XML (RSS/Atom) belgeleri için: etiket adları ve metin düğümleri aynen korunur. */
+export function loadXml(xml: string): CheerioAPI {
+  return load(xml, { xml: true });
+}
+
 /** Düz metin: script/style/noscript kaldırılır, boşluklar sadeleştirilir. */
 export function readableText($: CheerioAPI, selector?: string, limit = 20_000): string {
   const root = selector ? $(selector).first() : $.root();

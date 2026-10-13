@@ -12,6 +12,7 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { request, Agent, type Dispatcher } from 'undici';
+import { getCACertificates } from 'node:tls';
 import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
 import { createLogger, type Logger } from '../lib/logger';
@@ -158,6 +159,24 @@ export interface HttpClientOptions {
   dispatcher?: Dispatcher;
 }
 
+/**
+ * Bazı resmî sitelerin (ilan.gov.tr, BDDK, TMSF) sertifika zinciri, kökü
+ * Node'un gömülü Mozilla listesinde olmayan (ör. ulusal) bir CA'ya çıkar;
+ * tarayıcı Windows deposundaki kökü kullanabildiği için açılır, Node
+ * UNABLE_TO_VERIFY_LEAF_SIGNATURE ile reddeder. Çözüm doğrulamayı kapatmak
+ * değil: sistem deposunu varsayılan paketle birleştirip ikisini de
+ * güvenilir saymaktır (Node'un kendi önerisi: --use-system-ca).
+ */
+export function loadTrustBundle(): string[] | undefined {
+  try {
+    if (typeof getCACertificates !== 'function') return undefined;
+    const merged = new Set<string>([...getCACertificates('default'), ...getCACertificates('system')]);
+    return merged.size > 0 ? [...merged] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class HttpClient {
   private readonly agent: Dispatcher;
   private readonly limiter = new HostRateLimiter();
@@ -183,7 +202,12 @@ export class HttpClient {
         keepAliveTimeout: 4_000,
         // Kırık IPv6 yolu olan ağlarda (ev bağlantıları) tek aileye takılıp
         // zaman aşımına düşmemek için adres ailesi otomatik seçilir.
-        connect: { autoSelectFamily: true, timeout: 15_000 },
+        connect: {
+          autoSelectFamily: true,
+          timeout: 15_000,
+          // Sistem CA deposu + Node paketi birleşik güven listesi (bkz. loadTrustBundle).
+          ...(loadTrustBundle() ? { ca: loadTrustBundle() } : {}),
+        },
       });
   }
 
