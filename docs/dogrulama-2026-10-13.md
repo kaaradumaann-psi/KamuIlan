@@ -197,6 +197,48 @@ kaydı `verified` yapıldı.
 - Tip denetimi, lint, üretim derlemesi: temiz
 - Üretim önizlemesi: HTTP 200
 
+## İkinci tur — uçtan uca denetim (13.10.2026, akşam)
+
+Bu turda arayüz başta olmak üzere tüm sistem yeniden tarandı; bulunan hatalar
+düzeltildi ve her biri regresyon testiyle sabitlendi. Ayrıntılı rapor:
+[denetim-raporu-2026-10-13.md](./denetim-raporu-2026-10-13.md).
+
+- **Giriş ve oturum:** Giriş ekranı ortalandı (`.auth-page > .auth-shell >
+  .auth-layout`); 401'de artık sunucunun gerçek mesajı görünür
+  ("E-posta veya parola hatalı."); hesap tablosu boşken kurulum bilgisi +
+  `npm run user:create` aracı; geliştirme yarışı (`ECONNREFUSED 127.0.0.1:3000`)
+  kapandı.
+- **Arama:** İlan gövdesi artık aranıyor (`textNormalized` + `db:migrate`
+  geri dolgu); arama düz metin olarak işlenir (regex enjeksiyonu/ReDoS kapandı).
+- **Filtreler:** Eğitim düzeyi seçenekleri kanonik listeye alındı; `lise` takma
+  adı çevrilir, `belirtilmemis` artık gönderilmez (panelde 400 hatası veriyordu).
+- **Tarih/saat:** "NaN Ekim 2026", uydurma 00:00 saati, gün sonu "Kapandı"
+  hatası, UTC'ye göre kayan pencereler ve yanlış saate kurulan takvim etkinliği
+  düzeltildi.
+- **Güvenlik:** `TRUST_PROXY` (XFF sahtelemesi), `CORS_ORIGINS` (her kaynağa
+  izin kaldırıldı), `DOCS_ENABLED` (üretimde kapalı), girişte hesap bazlı sınır
+  + zamanlama eşitlemesi, doğrulama/sıfırlama uçlarında hesap bazlı sınır,
+  çıkış ucunda CSRF (zorla çıkış), genişletilmiş SSRF kontrolleri, e-posta konu
+  temizliği, onaylanmamış ilan sızıntısı ve varlık önbellek başlıkları.
+- **Veri bütünlüğü:** Kapanışta başka sürecin kayıtlarını ezme (veri kaybı)
+  engellendi; başvuru yöntemi depoya yazılıyor; sözlükten sınav adları çıkarıldı.
+- **Arayüz:** Mobil menü ve yönetim bağlantıları `Link`'e çevrildi; panel çıkışı
+  görünür hata ile ortak akışa bağlandı; "son gün" etiketleri gün alanına düşüyor.
+
+### Denetim sonrası koşum (13.10.2026, akşam)
+
+- Birim/entegrasyon/arayüz testleri: **273/273 yeşil** (28 dosya)
+- Tip denetimi (`tsc --noEmit`), lint (`eslint .`), üretim derlemesi: temiz
+- `npm run db:migrate`: 44 indeks, 27 kaynak envanteri, arama metni geri dolgusu
+  çalıştı (3 ilan)
+- **Canlı uçtan uca koşum: 26/26 kontrol geçti** (API 3000 · Vite 5173 ·
+  SMTP 1025 · posta görüntüleyici 1080): giriş/oturum, arama (gövde, Türkçe
+  harf duyarsızlığı, joker olmayan `%`, düşmanca desen), filtreler, ilan detayı,
+  404, tercih kaydı (200/400), CSRF (403 ve oturum açık kalır), yönetici uçları,
+  `/api/docs`, Vite vekili.
+- CI: `84c08a2` ✅ (koşum `38418083032`), `9e77db2` ✅ (koşum `38427993336`),
+  `4718418` koşum `38428638576`.
+
 ## Bilinen sınırlar (dürüstlük)
 
 - Yeni 18 kurum "adaptörü yazılmış" durumundadır: adres+yapı bağımsız

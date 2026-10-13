@@ -323,6 +323,14 @@ işaretli satır sayısına eşit olması).
 Playwright tarayıcıları bu ortamda indirilemediği için **E2E koşulamadı** (kurulum adımları
 `docs/testing.md` içinde).
 
+> **Sonraki turlar (13.10.2026):** yukarıdaki tablo ilk teslimatın fotoğrafıdır.
+> Giriş/oturum düzeltmeleri ve uçtan uca denetim turundan sonra suite
+> **28 dosya / 273 teste** çıktı; eklenen dosyalar:
+> `tests/login-page.test.tsx`, `tests/api-client-error.test.ts`,
+> `tests/auth-session-setup.test.ts`, `tests/audit-fixes.test.ts` (27 regresyon
+> testi), `tests/panel-preferences.test.tsx`. Ayrıntı ve kanıtlar:
+> [denetim-raporu-2026-10-13.md](./denetim-raporu-2026-10-13.md).
+
 ---
 
 ## 8. Kurulum ve çalıştırma (özet)
@@ -384,6 +392,8 @@ Ayrıntılı tablo: `docs/setup.md` § Ortam değişkenleri.
 | 8     | API: genel uçlar, kimlik, yönetim, OpenAPI                                     | ✅    |
 | 9     | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı) | ✅    |
 | 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                              | ✅    |
+| 11    | Giriş/oturum uçtan uca düzeltmeleri + hesap araçları (`user:create`)            | ✅    |
+| 12    | Uçtan uca denetim: arama, tarih/saat, güvenlik, arayüz ([rapor](./denetim-raporu-2026-10-13.md)) | ✅    |
 
 ---
 

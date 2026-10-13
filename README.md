@@ -110,6 +110,8 @@ Docker ile: `cd infra/docker && docker compose up --build`
 ## Mimari ve belgeler
 
 - [Mühendislik raporu](./docs/muhendislik-raporu.md) — istenenler ↔ yapılanlar, uçtan uca akış, doğrulama sonuçları
+- [Uçtan uca denetim raporu](./docs/denetim-raporu-2026-10-13.md) — bulunan hatalar, düzeltmeler ve kanıtlar
+- [Doğrulama kaydı](./docs/dogrulama-2026-10-13.md) — kaynak doğrulamaları ve koşum sonuçları
 - [Mimari](./docs/architecture.md) — katmanlar, uçtan uca akış, kararlar
 - [Kurulum ayrıntıları](./docs/setup.md) — Supabase/Cloudflare/Resend anahtarları, davet akışı
 - [Kaynaklar ve kapsam](./docs/sources.md) — hangi kaynak doğrulandı, hangisi bekliyor
