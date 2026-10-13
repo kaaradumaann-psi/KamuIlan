@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { getEnv } from '../../config/env';
 import { BRANDING } from '../../config/app';
 import type { Repos } from '../../db/repos';
+import { describeDriver } from '../../db/store';
 import { randomToken } from '../../domain/ids';
 import { maskEmail } from '../../domain/text';
 import { hashPassword, validatePasswordStrength, verifyPassword } from '../passwords';
@@ -194,11 +195,34 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['auth'], summary: 'Geçerli oturum bilgisi' } },
     async (request) => {
       const user = request.auth?.user ?? null;
-      if (!user) return { authenticated: false, user: null, csrfToken: null };
+      if (user) {
+        return {
+          authenticated: true,
+          user: toUserProfile(user, { self: true }),
+          csrfToken: request.auth?.session?.csrfToken ?? null,
+          setup: { required: false, driver: repos.store.driver, label: describeDriver(repos.store.driver) },
+        };
+      }
+
+      // Oturum yokken kurulum durumu bildirilir. Neden: kullanıcı hesabı
+      // BAŞKA bir veritabanına (ör. Supabase panosuna) eklediyse giriş her
+      // seferinde 401 döner ve nedenini hiçbir yerde göremez. "Hiç hesap yok"
+      // bilgisi yalnızca kullanıcı tablosu TAMAMEN boşken verilir; tek bir
+      // hesap varsa bu uç yine yalnızca "oturum yok" der (bilgi sızmaz).
+      let totalUsers: number | null = null;
+      try {
+        totalUsers = await repos.store.count('users', {});
+      } catch {
+        // Tablo henüz oluşturulmamış (db:migrate çalışmamış) ya da veritabanı
+        // erişilemez durumda: kurulum hakkında İDDİA ETME. Giriş ekranı yine
+        // açılır; gerçek durum /api/health üzerinden raporlanır.
+        totalUsers = null;
+      }
       return {
-        authenticated: true,
-        user: toUserProfile(user, { self: true }),
-        csrfToken: request.auth?.session?.csrfToken ?? null,
+        authenticated: false,
+        user: null,
+        csrfToken: null,
+        setup: { required: totalUsers === 0, driver: repos.store.driver, label: describeDriver(repos.store.driver) },
       };
     },
   );

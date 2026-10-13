@@ -1628,7 +1628,35 @@
   }
 
   /* -------------------------------------------------------------------------
-     21 · Karanlık tema
+     21 · Giriş ekranı (Kamuİlan ince ayarları)
+     -------------------------------------------------------------------------
+     Yerleşim ortak katmanlardan gelir: `.auth-page` tam ekran sütunu kurar,
+     `.auth-shell` içeriği dikey ortalar, `.auth-layout` tanıtım paneli ile
+     giriş kartını ızgaraya alır (auth.css + workspace.css). Burada yalnızca
+     Kamuİlan'a özgü iki ayrıntı tanımlanır: ana siteye dönüş bağlantılarının
+     dizilişi ve kurulum/komut satırlarının taşmadan kırılması. Yeni bir görsel
+     karar üretilmez; ortak tokenlar kullanılır.
+     ------------------------------------------------------------------------- */
+  .auth-site-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .auth-card code {
+    padding: 1px 5px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    background: var(--bg-soft);
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+  }
+
+  /* -------------------------------------------------------------------------
+     22 · Karanlık tema
      -------------------------------------------------------------------------
      psikolog ve MMPI çalışma alanları yalnızca AÇIK tema yayınlar; Kamuİlan
      da aynı kararı paylaşır. Karanlık modda işletim sistemi öğelerinin

@@ -224,6 +224,15 @@ export interface SourceListResponse {
   generatedAt: string;
 }
 
+export interface SessionSetupInfo {
+  /** Etkin veritabanında HİÇ kullanıcı yok (ilk yönetici henüz kurulmamış). */
+  required: boolean;
+  /** Etkin depo sürücüsü: 'file' | 'postgres' | 'mongodb'. */
+  driver: string;
+  /** Kullanıcıya gösterilecek depo adı (ör. "Supabase (PostgreSQL)"). */
+  label: string;
+}
+
 export interface SessionResponse {
   authenticated: boolean;
   user: {
@@ -238,6 +247,8 @@ export interface SessionResponse {
     lastLoginAt: string | null;
   } | null;
   csrfToken: string | null;
+  /** Kurulum tanılaması: hesabın hangi veritabanında arandığını gösterir. */
+  setup?: SessionSetupInfo;
 }
 
 export interface PreferenceFilters {

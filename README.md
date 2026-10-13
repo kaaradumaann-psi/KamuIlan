@@ -70,6 +70,14 @@ npm run dev           # arayüz + API + worker + geliştirme posta sunucusu
 ADMIN_EMAIL=yonetici@example.com ADMIN_PASSWORD="uzun-rastgele-parola" npm run seed:admin
 ```
 
+Sonraki kullanıcılar (uygulama kendi kullanıcı tablosunu kullanır; **Supabase Auth
+kullanılmaz**, panodan eklenen kullanıcı giriş yapmaz):
+
+```bash
+npm run user:create -- --email kisi@ornek.com --name "Ad Soyad"      # davet bağlantısı üretir
+npm run user:create -- --email kisi@ornek.com --password "Güçlü-Parola1" --force
+```
+
 **Kendi kendine kayıt YOKTUR.** Kamuİlan'da hesap açmanın tek yolu yöneticinin
 davetidir: yönetim panelindeki *Kullanıcı davet et* formu hesabı açar ve davetliye
 tek kullanımlık **şifre belirleme** bağlantısı e-posta ile gider
@@ -94,6 +102,7 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | `npm run db:indexes` / `npm run db:migrate` | İndeksler / envanter + görevler |
 | `npm run sources:report [-- --json]` | Kapsam raporu (insan/makine okunur) |
 | `npm run seed:admin` | İlk yönetici (ADMIN_EMAIL/ADMIN_PASSWORD) |
+| `npm run user:create` | Kullanıcı aç / davet et / parola belirle (`--email`, `--admin`, `--password`, `--force`) |
 | `npm run seed:demo` | Örnek veri (`provenance: 'sample'`) |
 | `npm run fixtures:pdf` / `fixtures:capture` | Test fixture üretimi / canlı yakalama |
 | `npm run env:check` | Ortam değişkeni doğrulaması (eksik/tehlikeli ayar uyarıları) |

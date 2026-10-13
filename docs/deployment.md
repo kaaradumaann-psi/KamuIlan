@@ -153,6 +153,20 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
    ADMIN_EMAIL=... ADMIN_PASSWORD='...' npm run seed:admin
    ```
 
+   Sonraki hesaplar yönetim panelinden (Yönetim → Kullanıcılar → *Kullanıcı davet
+   et*) ya da sunucuda:
+
+   ```bash
+   npm run user:create -- --email kisi@ornek.com --name "Ad Soyad"
+   npm run user:create -- --email kisi@ornek.com --admin
+   ```
+
+   **Dikkat:** Kamuİlan Supabase Auth kullanmaz. Supabase panelindeki
+   *Authentication → Users* kayıtları uygulamaya giriş yapamaz; hesaplar
+   `kamuilan_users` tablosunda ve scrypt özetli parolayla tutulur. Elle SQL ile
+   satır eklemek de giriş sağlamaz (özet biçimi uyuşmaz). Ayrıntı:
+   [setup.md → Kullanıcılar hangi veritabanında?](./setup.md#kullanıcılar-hangi-veritabanında-supabase-notu)
+
 ## Ölçeklendirme
 
 - **Çok örnekli API**: oturumlar imzalı çerezle taşınır; yatay ölçeklenebilir.

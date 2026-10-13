@@ -15,9 +15,40 @@ import type { StoragePort } from './ports';
 
 export const DEFAULT_STORE_FILE = 'kamuilan.json';
 
-export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE): StoragePort {
+/**
+ * Depo sürücüsünün insan okunur adı.
+ *
+ * "Hesabım nerede?" sorusunun tek cevabı budur: API de, kurulum betikleri de
+ * aynı metni kullanır ki kullanıcı giriş ekranındaki tanılamayı komut
+ * çıktısıyla karşılaştırabilsin (yanlış veritabanına eklenen hesap, girişte
+ * anlaşılması en zor 401 nedenidir).
+ */
+export function describeDriver(driver: string): string {
+  if (driver === 'postgres') return 'Supabase (PostgreSQL)';
+  if (driver === 'mongodb') return 'MongoDB';
+  return 'yerel dosya deposu (geliştirme)';
+}
+
+/**
+ * Etkin depo sürücüsü.
+ *
+ * Tek karar noktası: `createStore` ve tanılama çıktıları (giriş ekranı, dev
+ * günlüğü, kurulum betikleri) aynı sonucu görmelidir. Kural:
+ *  - `DATABASE_DRIVER=postgres|supabase` İSE ya da POSTGRES_URL/DATABASE_URL
+ *    tanımlıysa (mongo seçilmediği sürece) → Supabase/Postgres.
+ *  - `DATABASE_DRIVER=mongo` ya da MONGODB_URI tanımlıysa → MongoDB.
+ *  - Aksi halde geliştirme dosya deposu.
+ */
+export function effectiveDriver(env: Env = getEnv()): StoragePort['driver'] {
   const wantsPostgres = env.DATABASE_DRIVER === 'postgres' || env.DATABASE_DRIVER === 'supabase';
-  if (wantsPostgres || (hasPostgresConfig(env) && env.DATABASE_DRIVER !== 'mongo')) {
+  if (wantsPostgres || (hasPostgresConfig(env) && env.DATABASE_DRIVER !== 'mongo')) return 'postgres';
+  if (env.DATABASE_DRIVER === 'mongo' || env.MONGODB_URI) return 'mongodb';
+  return 'file';
+}
+
+export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE): StoragePort {
+  const driver = effectiveDriver(env);
+  if (driver === 'postgres') {
     if (!hasPostgresConfig(env)) {
       throw new Error('DATABASE_DRIVER=postgres/supabase için POSTGRES_URL (Supabase bağlantı dizesi) zorunludur.');
     }
@@ -27,7 +58,7 @@ export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE):
       ssl: env.POSTGRES_SSL,
     });
   }
-  if (env.DATABASE_DRIVER === 'mongo' || env.MONGODB_URI) {
+  if (driver === 'mongodb') {
     if (!env.MONGODB_URI) {
       throw new Error('DATABASE_DRIVER=mongo için MONGODB_URI zorunludur.');
     }

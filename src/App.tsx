@@ -272,12 +272,18 @@ function RequireAuthGate({ children }: { children: ReactNode }) {
   // eski "oturum yok" bilgisiyle girişe geri atmak kullanıcıyı giriş
   // ekranında takılı bırakırdı. Yenileme bitmeden bekle.
   if (loading || (!user && sessionFetching)) {
+    // Bekleme kartı da giriş ekranıyla AYNI ortalanmış yerleşimi kullanır
+    // (auth-shell dikey ortalar); aksi halde ekranın sol üst köşesinde belirir.
     return (
       <div className="auth-page">
-        <div className="auth-card loading-state-card" role="status" aria-live="polite">
-          <span className="spinner" aria-hidden="true" />
-          <h4>Oturum doğrulanıyor…</h4>
-          <p>Hesabınız kontrol ediliyor.</p>
+        <div className="auth-shell">
+          <div className="auth-card-wrapper">
+            <div className="auth-card loading-state-card" role="status" aria-live="polite">
+              <span className="spinner" aria-hidden="true" />
+              <h4>Oturum doğrulanıyor…</h4>
+              <p>Hesabınız kontrol ediliyor.</p>
+            </div>
+          </div>
         </div>
       </div>
     );

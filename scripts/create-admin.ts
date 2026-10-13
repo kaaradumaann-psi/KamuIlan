@@ -12,7 +12,7 @@
  *    şifreyi DEĞİŞTİRMEZ (beklenmeyen şifre sıfırlaması olmasın).
  *  - Parola gücü kurallarına uymayan değer kabul edilmez.
  */
-import { initStore, closeStore } from '../src/db/store';
+import { initStore, closeStore, describeDriver } from '../src/db/store';
 import { createRepos } from '../src/db/repos';
 import { getEnv, inspectEnvironment } from '../src/config/env';
 import { hashPassword, validatePasswordStrength } from '../src/server/passwords';
@@ -54,7 +54,14 @@ async function main(): Promise<void> {
     if (existing) {
       await repos.users.update(existing.id, { role: 'admin' });
       if (!existing.emailVerified) await repos.users.markEmailVerified(existing.id);
-      console.log(`• Yönetici yetkisi güncellendi: ${maskEmail(existing.email)} (şifre değiştirilmedi)`);
+      console.log(
+        `• Yönetici yetkisi güncellendi: ${maskEmail(existing.email)} ` +
+          `(depo: ${describeDriver(store.driver)}; şifre değiştirilmedi)`,
+      );
+      console.log(
+        '  Şifreyi de belirlemek/ değiştirmek için:\n' +
+          `    npm run user:create -- --email ${existing.email} --password "Güçlü-Parola1" --force`,
+      );
       return;
     }
 
@@ -68,7 +75,7 @@ async function main(): Promise<void> {
       emailVerified: true,
     });
 
-    console.log(`• Yönetici oluşturuldu: ${maskEmail(user.email)} (depo: ${store.driver})`);
+    console.log(`• Yönetici oluşturuldu: ${maskEmail(user.email)} (depo: ${describeDriver(store.driver)})`);
     console.log('  Giriş: /giris → /yonetim');
   } finally {
     await closeStore();
