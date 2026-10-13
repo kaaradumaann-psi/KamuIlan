@@ -75,12 +75,14 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'pdf-index',
     status: 'verified',
     statusNote:
-      'Günlük nüshadaki "Çeşitli İlânlar" bölümü HTML olarak okunur; ilan metni PDF içinde olduğundan PDF metni çıkarılır.',
+      'Günlük nüshadaki "Çeşitli İlânlar" bölümü HTML olarak okunur; ilan metni PDF içinde olduğundan PDF metni çıkarılır. ' +
+      'HTTP başlık zaman aşımına uğrarsa bölüm ve PDF\'ler tarayıcı oturumundan okunur; belge indirme bütçesi dolarsa kalan ilanlar sonraki taramaya kalır.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
       `${VERIFIED_AT} canlı doğrulama: /fihrist?tarih=2026-10-12 sayfası açıldı; ` +
       '/ilanlar/eskiilanlar/2026/10/20261012-4.htm içinde 7 ilan başlığı ve her birine ait PDF bağlantısı ' +
-      '(ör. 20261012-4-5.pdf) görüldü; PDF metni metin katmanından okunabildi.',
+      '(ör. 20261012-4-5.pdf) görüldü; PDF metni metin katmanından okunabildi. ' +
+      '4. koşum (13.10.2026): HTTP zaman aşımı sonrası tarayıcı yedeği çalıştı; 2026-10-13 nüshasından bütçe sınırıyla 5 PDF işlenip kayıt üretildi (önceki 3 koşumda kaynak hata veriyordu).',
     coverageNote:
       'Personel alım ilanlarının hukuken yayımlandığı asıl kaynak. Yargı (-2), ihale (-3) ve Merkez Bankası (-5) bölümleri kapsam dışıdır.',
     enabled: true,
@@ -103,11 +105,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'html-list',
     status: 'verified',
     statusNote:
-      'Sertifika zinciri AIA ile tamamlanıyor (13.10.2026 canlı koşumda sayfa 200 döndü). Liste JS ile dolduğu için tarayıcı yedeği eklendi; ilk dolu canlı koşum bekleniyor.',
+      'Sertifika zinciri AIA ile tamamlanıyor (13.10.2026 canlı koşumda sayfa 200 döndü). Liste JS ile dolduğu için önce tarayıcı yedeği çalışır; sayfalama da tarayıcı modunda izlenir (üst sınır 5 sayfa / 40 kayıt).',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
       `${VERIFIED_AT} canlı doğrulama: personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
-      'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü.',
+      'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü. ' +
+      '4. koşum (13.10.2026): düz HTTP listesi boş geldi, tarayıcı yedeği sayfa 1\'den 12 kart okudu ve 12 kayıt üretildi; tarayıcı modunda sayfalama bu koşumdan sonra eklendi, canlı teyidi sıradaki koşumda.',
     coverageNote:
       'Üniversite ve belediye ilanlarının büyük bölümü burada tek listede toplanır; yüzlerce kurum sayfasını ayrı ayrı taramamak için birincil toplayıcı.',
     enabled: true,
@@ -212,7 +215,10 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     verificationEvidence:
       '13.10.2026: liste ve detay sayfalarının gerçek HTML\'i kullanıcıdan alındı; satır/detay yapısı ' +
       'birim testlerine fikstür olarak işlendi (tests/sources.test.ts). Canlı koşumda henüz kayıt üretilmedi ' +
-      '(3. koşum: ok, 0 kayıt — eski tablo varsayımı); yeniden yazım sonrası koşum bekleniyor.',
+      '(3. koşum: ok, 0 kayıt — eski tablo varsayımı); yeniden yazım sonrası koşum bekleniyor. ' +
+      '4. koşum (13.10.2026, yeniden yazım öncesi kod): tarayıcı ile 23 kayıt üretildi; gönderilen sayfa ' +
+      'HTML\'iyle karşılaştırınca 4 dış "İlana Git" satırının eksik olduğu görüldü — eksik, yeniden yazımla ' +
+      '(HTTP öncelikli okuma) kapatıldı; hedef 27 satırın tamamı.',
     coverageNote:
       'Kurumların merkezî başvuru ekranı. Dış "İlana Git" satırları kurumun kendi başvuru sayfasına gider; ' +
       'iç detaylarda resmî başvuru adresi e-Devlet bağlantısıdır.',

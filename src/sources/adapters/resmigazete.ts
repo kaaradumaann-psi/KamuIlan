@@ -109,6 +109,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     let lastModified: string | null = null;
     let notModified = false;
     let detailFetches = 0;
+    let limitNoted = false;
 
     if (!ctx.liveFetch) {
       notes.push('Canlı erişim kapalı (SOURCE_LIVE_FETCH=0): adaptör yalnızca yapılandırma doğrulaması yaptı.');
@@ -184,7 +185,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
           const sourceItemId = this.sourceItemId(row.pdfUrl);
           const alreadyKnown = ctx.knownItemIds?.has(sourceItemId) ?? false;
           if (alreadyKnown || detailFetches >= ctx.maxDetailFetches) {
-            if (!alreadyKnown) notes.push(`Belge indirme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`);
+            // Sınır notu koşumda bir kez düşülür; atlanan her satır için tekrarlanmaz.
+            if (!alreadyKnown && !limitNoted) {
+              limitNoted = true;
+              notes.push(`Belge indirme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`);
+            }
             continue;
           }
 

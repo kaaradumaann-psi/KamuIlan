@@ -140,6 +140,21 @@ Kariyer Kapısı modeliyle **gerçek tarayıcı yedeği** eklendi
 (paylaşılan `src/sources/browser-session.ts`); sıradaki canlı koşum
 doğrulayacak.
 
+Dördüncü canlı koşum (13.10.2026, 11:42; yeniden yazım öncesi kod):
+**23/23 kaynak, 391 ham kayıt.** Bekleyen iki doğrulama kapandı:
+Resmî Gazete'de tarayıcı yedeği çalıştı ("HTTP ile alınamadı;
+tarayıcı ile okundu"; bütçe sınırıyla 5 PDF kaydı, koşum 263 sn) ve
+ilan.gov.tr'de tarayıcı yedeği sayfa 1'den 12 kart okuyup kayıt
+üretti. Kariyer Kapısı tarayıcıyla 23 kayıt üretti; kullanıcının
+gönderdiği sayfa HTML'iyle karşılaştırınca bunların yalnız "Başvur"
+satırları olduğu, 4 dış "İlana Git" satırının eksik kaldığı anlaşıldı
+(aşağıdaki yeniden yazımın canlı gerekçesi). Aynı koşum iki kusur
+daha gösterdi: ilan.gov.tr sayfalaması tarayıcı modunda sürmüyordu
+(yalnız sayfa 1; toplam ~145 ilan) ve Resmî Gazete'nin indirme
+sınırı notu atlanan her satır için tekrarlanıyordu. İkisi de düzeltildi:
+sayfalama tarayıcı modunda da izleniyor (tekrar eden sayfa kayıtları da
+tekilleştiriliyor), sınır notu koşumda bir kez düşülüyor.
+
 Kariyer Kapısı aynı gün **gerçek sayfa HTML'iyle yeniden yazıldı**:
 kullanıcı liste (`#pnlIlanlar`) ve detay sayfalarının kaynak HTML'ini
 gönderdi. Liste sunucu tarafında üretiliyor — tarayıcı varsayımı
@@ -161,7 +176,7 @@ ve ayrıştırıcı ilk koşuda 5/5 satırı doğru kurdu. Test:
 
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **223/223 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **224/224 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz

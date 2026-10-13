@@ -710,6 +710,29 @@ describe('ilan.gov.tr tarayıcı yedeği', () => {
     expect(result.items[0]?.title).toContain('Öğretim Görevlisi Alım İlanı');
     expect(result.notes.some((note) => note.includes('tarayıcı ile 1 ilan'))).toBe(true);
   });
+
+  it('tarayıcı moduna düşünce kalan sayfaları da tarayıcıyla izler', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'ilan-gov-tr');
+    const cardFor = (id: number, kurum: string, baslik: string, ref: string, sehir: string) =>
+      `<html><body><a href="https://www.ilan.gov.tr/ilan/${id}/personel-x"><div>${kurum}</div><div>${baslik}</div><div>${ref}</div><div>${sehir}</div></a></body></html>`;
+    const { http } = fakeHttp((url) => {
+      if (url.includes('/ilan/2254672') || url.includes('/ilan/2254673')) {
+        return `<html><body><main><p>${'Personel alım ilanı detay metni burada yer alır. '.repeat(6)}</p></main></body></html>`;
+      }
+      return '<html><body><div id="app">Yükleniyor…</div></body></html>';
+    });
+    const render = async (url: string): Promise<string> => {
+      if (url.includes('currentPage=2')) {
+        return cardFor(2254673, 'ANKARA ÜNİVERSİTESİ REKTÖRLÜĞÜ', 'Ankara Üniversitesi Öğretim Görevlisi Alım İlanı', 'YOK853486', 'ANKARA');
+      }
+      if (url.includes('currentPage=')) return '<html><body></body></html>';
+      return cardFor(2254672, 'NECMETTİN ERBAKAN ÜNİVERSİTESİ REKTÖRLÜĞÜ', 'Necmettin Erbakan Üniversitesi Öğretim Görevlisi Alım İlanı', 'YOK853485', 'KONYA');
+    };
+    const result = await new IlanGovTrAdapter(render).run(contextFor(source!, http, true));
+    expect(result.items.map((item) => item.sourceItemId)).toEqual(['2254672', '2254673']);
+    expect(result.notes.some((note) => note.includes('Sayfa 2: 1 ilan satırı (tarayıcı)'))).toBe(true);
+    expect(result.notes.some((note) => note.includes('Listede 2 ilan'))).toBe(true);
+  });
 });
 
 describe('Resmî Gazete tarayıcı yedeği', () => {
