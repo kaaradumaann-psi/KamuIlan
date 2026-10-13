@@ -243,6 +243,125 @@ describe('Postgres depo sürücüsü', () => {
     expect(await pg.findOne('jobs', { id: 'job_pg_upsert' })).toBeNull();
   });
 
+  it('argümansız ensureIndexes varsayılan indeks kümesini kurar (diğer sürücülerle aynı sözleşme)', async () => {
+    // `initStore` / `db:migrate` / `db:indexes` argümansız çağırır. Postgres'te
+    // varsayılan boş küme olursa benzersiz indeksler hiç kurulmaz ve migrate
+    // çıktısı "indeksler: 0 tanım" olur (rapor edilen çalışmadaki ilk belirti).
+    const results = await pg.ensureIndexes();
+    expect(results).toHaveLength(INDEXES.length);
+    expect(results.filter((result) => result.name.includes('uniq'))).toHaveLength(
+      INDEXES.filter((index) => index.unique).length,
+    );
+  });
+
+  it('çevrilemeyen koşulla karışan eşitlik sorguları bind hatası vermez, dosya sürücüsüyle aynı sonucu döner', async () => {
+    // Regresyon: ön filtre, çevrilemeyen bir koşul (aralık/$exists/$regex/
+    // noktalı yol/$nor) yüzünden düştüğünde, çevrilebilen kardeş koşulların
+    // `params`'a yazdığı değerler geri alınmıyordu. Yer tutucusuz
+    // `WHERE TRUE` sorgusuna parametre gidince Postgres şu hatayı veriyordu:
+    //   bind message supplies N parameters, but prepared statement "" requires 0
+    // İlk görüldüğü yer: `db:migrate`'ın eksik `textNormalized` sorgusu.
+    // Aynı kökten etkilenenler: zamanlayıcı `listDue`, kuyruk/outbox
+    // `claim`, ilan arama (`$and` + noktalı yol/aralık/regex), süre dolan
+    // ilanları kapatma ve bayat çalışma temizliği.
+    const mix1 = job({ id: 'job_pg_mix_1', status: 'active', applicationEndDate: '2026-10-30' });
+    const mix2 = Object.assign(
+      job({ id: 'job_pg_mix_2', status: 'closed', city: 'İzmir', applicationEndDate: '2026-09-01' }),
+      {
+        textNormalized: '',
+        classification: { decision: 'accept' },
+        requirements: { educationLevels: ['lisans'], kpssMinScore: 70 },
+      },
+    );
+    const mix3 = Object.assign(
+      job({ id: 'job_pg_mix_3', status: 'active', applicationEndDate: '2026-11-15' }),
+      {
+        textNormalized: 'ucuncu govde',
+        classification: { decision: 'accept' },
+        requirements: { educationLevels: ['onlisans'], kpssMinScore: 60 },
+      },
+    );
+    const mixDocs = [mix1, mix2, mix3] as unknown as JobDoc[];
+    await pg.insertMany('jobs', mixDocs);
+    await file.insertMany('jobs', mixDocs);
+
+    const queries: Record<string, unknown>[] = [
+      // db:migrate (rapor edilen sorgunun birebir hâli)
+      { $or: [{ textNormalized: { $exists: false } }, { textNormalized: '' }] },
+      // ScheduledTaskRepo.listDue / kuyruk-outbox claim: eşitlik + $lte
+      { status: { $in: ['active', 'closed'] }, applicationEndDate: { $lt: '2026-10-15' } },
+      { status: 'active', applicationEndDate: { $gte: '2026-10-01', $lte: '2026-12-31' } },
+      // JobRepo.search: $and içinde noktalı yol + $in + aralık / $regex
+      {
+        $and: [
+          { 'classification.decision': 'accept' },
+          { status: { $in: ['active'] } },
+          { applicationEndDate: { $gte: '2026-01-01' } },
+        ],
+      },
+      {
+        $and: [
+          { status: { $in: ['active', 'closed'] } },
+          { 'requirements.educationLevels': { $in: ['lisans'] } },
+        ],
+      },
+      { $and: [{ status: { $in: ['active'] } }, { 'requirements.kpssMinScore': { $lte: 65 } }] },
+      { $or: [{ titleNormalized: { $regex: 'sozlesmeli', $regexFlags: 'i' } }, { city: 'İzmir' }] },
+      // $nor ve tek başına çevrilemeyen kontroller
+      { city: 'Ankara', $nor: [{ status: 'closed' }] },
+      { status: { $ne: 'active' } },
+      { applicationEndDate: { $ne: null } },
+      // İç içe: $or içinde $and + aralık
+      {
+        $or: [
+          { $and: [{ status: 'active' }, { applicationEndDate: { $lt: '2026-11-01' } }] },
+          { city: 'İzmir' },
+        ],
+      },
+    ];
+
+    for (const query of queries) {
+      const pgRows = await pg.find('jobs', query as never, { sort: [['id', 1]] });
+      const fileRows = await file.find('jobs', query as never, { sort: [['id', 1]] });
+      expect(pgRows.map((row) => row.id)).toEqual(fileRows.map((row) => row.id));
+      expect(await pg.count('jobs', query as never)).toBe(await file.count('jobs', query as never));
+    }
+
+    // Repo katmanındaki gerçek çağrılar da aynı yoldan geçer (migrate/worker):
+    const repos = createRepos(pg as unknown as StoragePort, systemClock);
+    const task = await repos.scheduledTasks.ensure({
+      kind: 'maintenance',
+      sourceKey: '*',
+      intervalMinutes: 60,
+    });
+    const due = await repos.scheduledTasks.listDue(new Date(Date.now() + 60_000).toISOString());
+    expect(due.map((item) => item.id)).toContain(task.id);
+
+    const search = await repos.jobs.search({ cities: ['Ankara'], deadlineFrom: '2026-01-01' });
+    expect(search.items.map((item) => item.id)).toContain('job_pg_mix_3');
+    // Kapatma/özet yolları aralık + $in / $ne karıştırır; hata vermeden sayı döner.
+    await expect(repos.jobs.closeExpiredJobs('2026-10-15')).resolves.toBeTypeOf('number');
+    await expect(repos.runs.summary()).resolves.toMatchObject({ total: expect.any(Number) });
+    await expect(repos.locks.purgeExpired()).resolves.toBeTypeOf('number');
+
+    // updateMany / deleteMany de aynı ön filtreden geçer:
+    const mixIds = ['job_pg_mix_1', 'job_pg_mix_2', 'job_pg_mix_3'];
+    const closeFilter = { id: { $in: mixIds }, applicationEndDate: { $lt: '2026-11-01' } } as never;
+    expect(await pg.updateMany('jobs', closeFilter, { status: 'closed' })).toBe(
+      await file.updateMany('jobs', closeFilter, { status: 'closed' }),
+    );
+
+    const migrateFilter = {
+      id: { $in: mixIds },
+      $or: [{ textNormalized: { $exists: false } }, { textNormalized: '' }],
+    } as never;
+    expect(await pg.deleteMany('jobs', migrateFilter)).toBe(await file.deleteMany('jobs', migrateFilter));
+
+    // Temizlik: karışım kayıtlarının kalanını iki sürücüden de kaldır.
+    await pg.deleteMany('jobs', { id: { $in: mixIds } });
+    await file.deleteMany('jobs', { id: { $in: mixIds } });
+  });
+
   it('repo katmanı Postgres üzerinde zod doğrulamasıyla çalışır', async () => {
     const repos = createRepos(pg as unknown as StoragePort, systemClock);
     const created = await repos.users.create({

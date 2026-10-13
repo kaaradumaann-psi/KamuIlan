@@ -25,6 +25,7 @@ import type { CollectionName, DocumentOf } from './schemas';
 import { COLLECTION_SCHEMAS } from './schemas';
 import { applyPatch, getPath, isOperatorObject, matchesQuery, sortDocuments, type ConditionOperators, type FindOptions, type Query } from './query';
 import type { IndexSpec, InsertIfAbsentResult, StoragePort } from './ports';
+import { INDEXES } from './indexes';
 
 /** Ön filtrenin üst sınırı: aşılırsa açık hata (sessiz kırpma yok). */
 const MAX_SCAN_ROWS = 20_000;
@@ -180,13 +181,35 @@ function idClause(condition: unknown, params: unknown[]): string | null {
 function buildPrefilter(query: Query | undefined, table: string, params: unknown[]): string | null {
   if (!query) return 'TRUE';
 
+  // DEĞİŞMEZ KURAL: `null` dönen bir ön filtre, `params`'ı bulduğu gibi bırakır.
+  //
+  // Gerekçe: çevrilemeyen koşul (aralık `$lt/$gte`, `$exists`, `$regex`,
+  // noktalı yol, `$nor` …) ön filtrenin TAMAMINI düşürür ve çağıran taraf
+  // yer tutucusuz `WHERE TRUE` sorgusu çalıştırır. Çeviri sırasında — özellikle
+  // `$and`/`$or` kardeş dallarından veya aynı nesnedeki önceki alanlardan —
+  // `params`'a yazılmış değerler geri alınmazsa Postgres, yer tutucusu olmayan
+  // bir ifadeye parametre bağlandığı için sorguyu reddeder:
+  //   "bind message supplies N parameters, but prepared statement \"\" requires 0"
+  // Bu hata ilk kez `db:migrate`'ın
+  // `{ $or: [{ textNormalized: { $exists: false } }, { textNormalized: '' }] }`
+  // sorgusunda görüldü; eşitlik + aralık/noktalı yol karıştıran HER sorgu
+  // (zamanlayıcı `listDue`, kuyruk/outbox `claim`, ilan arama/kapatma …)
+  // aynı şekilde kırılıyordu. Bu yüzden her vazgeçiş, bu çağrının eklediği
+  // parametreleri geri alır (özyinelemeli dallar da kendi payını geri alır,
+  // üst katman kardeş dalların payını bu yolla temizler).
+  const checkpoint = params.length;
+  const abandon = (): null => {
+    params.length = checkpoint;
+    return null;
+  };
+
   const conditions: string[] = [];
   for (const [key, condition] of Object.entries(query)) {
     if (key === '$and' || key === '$or' || key === '$nor') {
       const clauses = (condition as Query[]) ?? [];
-      if (key === '$nor') return null;
+      if (key === '$nor') return abandon();
       const translated = clauses.map((clause) => buildPrefilter(clause, table, params));
-      if (translated.some((clause) => clause === null)) return null;
+      if (translated.some((clause) => clause === null)) return abandon();
       if (translated.length === 0) continue;
       conditions.push(`(${translated.join(key === '$and' ? ' AND ' : ' OR ')})`);
       continue;
@@ -194,13 +217,13 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
 
     if (key === 'id') {
       const clause = idClause(condition, params);
-      if (clause === null) return null;
+      if (clause === null) return abandon();
       conditions.push(clause);
       continue;
     }
 
     // İç içe yollar (nokta içeren) ön filtreye çevrilmez: bkz. fonksiyon başlığı.
-    if (key.includes('.')) return null;
+    if (key.includes('.')) return abandon();
 
     const values: unknown[] = [];
     if (!isOperatorObject(condition)) {
@@ -209,14 +232,14 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
     } else {
       const operators = condition as ConditionOperators;
       const onlyEquality = Object.keys(operators).every((operator) => operator === '$eq' || operator === '$in');
-      if (!onlyEquality) return null;
+      if (!onlyEquality) return abandon();
       if (operators.$eq !== undefined) values.push(operators.$eq);
       if (operators.$in) values.push(...operators.$in);
     }
-    if (values.length === 0) return null;
+    if (values.length === 0) return abandon();
 
     const clause = scalarEqualityClause(key, values, params);
-    if (clause === null) return null;
+    if (clause === null) return abandon();
     conditions.push(`(${clause})`);
   }
 
@@ -283,7 +306,13 @@ export class PostgresStore implements StoragePort {
 
   async ensureIndexes(indexes?: readonly IndexSpec[]): Promise<{ collection: string; name: string; created: boolean }[]> {
     const result: { collection: string; name: string; created: boolean }[] = [];
-    const specs = indexes ?? [];
+    // Diğer sürücülerle (dosya/Mongo) aynı sözleşme: argümansız çağrı
+    // varsayılan `INDEXES` kümesini kurar. `initStore`, `db:migrate` ve
+    // `db:indexes` tam olarak böyle çağırır; varsayılan boş olursa Postgres'te
+    // HİÇBİR indeks (benzersizler dahil) kurulmaz, `uniqueIndexes` haritası
+    // boş kalır ve `insertIfAbsent`'in benzersiz-çakışma çözümü devreye
+    // giremezdi (`indeksler: 0 tanım` çıktısı bu hatanın belirtisiydi).
+    const specs = indexes ?? INDEXES;
     for (const spec of specs) {
       const table = this.table(spec.collection);
       if (spec.keys.length === 0) continue;
@@ -317,7 +346,12 @@ export class PostgresStore implements StoragePort {
     const where = prefilter === null ? 'TRUE' : prefilter;
     const result = await this.pool.query<{ data: unknown }>(
       `SELECT data FROM ${table} WHERE ${where} LIMIT ${MAX_SCAN_ROWS + 1}`,
-      params,
+      // Savunma katmanı: ön filtre yoksa SQL'de yer tutucu da yoktur; parametre
+      // GÖNDERİLMEZ. `buildPrefilter` zaten vazgeçişte parametreleri geri alır,
+      // ancak "yer tutucu sayısı = parametre sayısı" eşitliği bu son noktada da
+      // garanti edilir ki aynı bind hatası başka bir çeviri yolundan geri
+      // gelemesin.
+      prefilter === null ? [] : params,
     );
     if (result.rows.length > MAX_SCAN_ROWS) {
       throw new Error(
