@@ -531,6 +531,73 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(detail.category).toBe('Yeterlik Sınavı İlanları');
     expect(detail.bodyText).toContain('Muhasebe Uzman Yardımcısı');
   });
+
+  it('gerçek liste düzeni (#pnlIlanlar): Başvur satırı + dış İlana Git satırları', async () => {
+    const { parseKariyerRows } = await import('../src/sources/adapters/kariyerkapisi');
+    const html = `<html><body><div id="pnlIlanlar">
+      <div class="row">
+        <div class="col-md-1"><img class="kurum_logolari_icin" src="/Uploads/kurum/hmb.png"></div>
+        <div class="col-md-4"><div><b>HAZİNE VE MALİYE BAKANLIĞI</b></div><div>PERSONEL GENEL MÜDÜRLÜĞÜ</div></div>
+        <div class="col-md-4">HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</div>
+        <div class="col-md-1">14 Ekim 2026 Çarşamba</div>
+        <div class="col-md-2"><a class="btn btn-primary" href="IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390">Başvur</a></div>
+      </div>
+      <div class="row">
+        <div class="col-md-1"><img class="kurum_logolari_icin" src="/Uploads/kurum/msb.png"></div>
+        <div class="col-md-4"><div><b>MİLLİ SAVUNMA BAKANLIĞI</b></div><div>PERSONEL TEMİN DAİRE BAŞKANLIĞI</div></div>
+        <div class="col-md-4">MİLLİ SAVUNMA BAKANLIĞI - SÖZLEŞMELİ PERSONEL TEMİNİ DUYURUSU</div>
+        <div class="col-md-1">21 Ekim 2026 Çarşamba</div>
+        <div class="col-md-2"><a class="btn btn-warning" href="https://personeltemin.msb.gov.tr/AnaSayfa/DuyuruDetay/?id=f8818dda-1234-4a5b-8c7d-0123456789ab">İlana Git</a></div>
+      </div>
+      <div class="row">
+        <div class="col-md-1"><img class="kurum_logolari_icin" src="/Uploads/kurum/jandarma.png"></div>
+        <div class="col-md-4"><div><b>JANDARMA GENEL KOMUTANLIĞI</b></div></div>
+        <div class="col-md-4">JANDARMA GENEL KOMUTANLIĞI - SÖZLEŞMELİ PERSONEL ALIM İLANI</div>
+        <div class="col-md-1">28 Ekim 2026 Çarşamba</div>
+        <div class="col-md-2"><a class="btn btn-warning" href="https://personeltemin.jandarma.gov.tr">İlana Git</a></div>
+      </div>
+    </div></body></html>`;
+    const rows = parseKariyerRows(html, 'https://kariyerkapisi.gov.tr/isealim');
+    expect(rows.length).toBe(3);
+    expect(rows[0]?.sourceItemId).toBe('9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
+    expect(rows[0]?.url).toBe('https://kariyerkapisi.gov.tr/IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
+    expect(rows[0]?.institution).toContain('MALİYE');
+    expect(rows[0]?.applicationEndAt).toContain('2026-10-14');
+    expect(rows[0]?.applicationUrl).toBeUndefined();
+    // Dış adresli satırlar da ilandır; başvuru adresi dış bağlantının kendisidir.
+    expect(rows[1]?.sourceItemId).toBe('f8818dda-1234-4a5b-8c7d-0123456789ab');
+    expect(rows[1]?.applicationUrl).toContain('personeltemin.msb.gov.tr');
+    expect(rows[1]?.applicationEndAt).toContain('2026-10-21');
+    expect(rows[2]?.sourceItemId).toMatch(/^kk-[0-9a-f]{16}$/);
+    expect(rows[2]?.applicationUrl).toBe('https://personeltemin.jandarma.gov.tr/');
+    expect(rows[2]?.institution).toContain('JANDARMA');
+  });
+
+  it('gerçek detay düzeni: kararlı öğe kimliklerinden numara/tarih/kontenjan/başvuru adresi', async () => {
+    const { parseKariyerDetail } = await import('../src/sources/adapters/kariyerkapisi');
+    const html = `<html><body>
+      <span id="lbl_KurumAdi">HAZİNE VE MALİYE BAKANLIĞI</span>
+      <span id="lbl_BirimAdi">PERSONEL GENEL MÜDÜRLÜĞÜ</span>
+      <h1 id="lbl_IlanBaslik">HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</h1>
+      <div id="lbl_anailanmetni">${'Hazine ve Maliye Bakanlığı taşra teşkilatında Muhasebe Uzman Yardımcısı kadrosunda bulunanlardan yeterlik sınavı yapılacaktır. Başvurular Kariyer Kapısı üzerinden alınacaktır. '.repeat(3)}</div>
+      <div id="div_AltIlan"><div>Unvan (MUHASEBE UZMANI)</div><div>TÜRKİYE GENELİ Kontenjan (120)</div></div>
+      <aside>
+        <span id="lbl_ILN_NO">ILN00002860</span>
+        <span id="lbl_IlanTuru">Yeterlik Sınavı İlanları</span>
+        <span id="lbl_BasDate">05.10.2026</span>
+        <span id="lbl_BitDate">14.10.2026</span>
+        <a id="href_BasvuruLinki" href="https://www.turkiye.gov.tr/hazine-ve-maliye-kariyer-kapisi-kamu-ise-alim">BAŞVUR</a>
+      </aside>
+    </body></html>`;
+    const detail = parseKariyerDetail(html);
+    expect(detail.referenceNo).toBe('ILN00002860');
+    expect(detail.applicationStartAt).toContain('2026-10-05');
+    expect(detail.applicationEndAt).toContain('2026-10-14');
+    expect(detail.category).toBe('Yeterlik Sınavı İlanları');
+    expect(detail.applicationUrl).toBe('https://www.turkiye.gov.tr/hazine-ve-maliye-kariyer-kapisi-kamu-ise-alim');
+    expect(detail.quota).toBe(120);
+    expect(detail.bodyText).toContain('Muhasebe Uzman Yardımcısı');
+  });
 });
 
 describe('ilan.gov.tr tarayıcı yedeği', () => {

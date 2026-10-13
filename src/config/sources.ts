@@ -200,19 +200,22 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     listingUrl: 'https://kariyerkapisi.gov.tr/isealim',
     homepageUrl: 'https://kariyerkapisi.gov.tr/',
     adapterKey: 'kariyer-kapisi-isealim',
-    method: 'browser',
+    method: 'html-list',
     status: 'scraper-built',
     statusNote:
-      'Liste tarayıcıda tablo satırları (Kurum/Birim | Aktif İlanlar | Bitiş Tarihi) olarak okunur; ' +
-      'detaylar /IlanDetay?i=<uuid> adresinden aynı oturumda çekilir (13.10.2026, ekran görüntüleriyle doğrulandı). ' +
-      'Playwright + Chromium kurulumu gerekir.',
+      'Liste (#pnlIlanlar) sunucu tarafında üretilir: önce düz HTTP ile "Başvur" (/IlanDetay?i=<uuid>) ' +
+      've dış "İlana Git" satırları ayrıştırılır; liste boş gelirse tarayıcı yedeği (Playwright + Chromium) ' +
+      'devreye girer. Detayda kararlı öğe kimliklerinden ilan numarası (ILN...), tür, başvuru tarihleri, ' +
+      'kontenjan ve e-Devlet başvuru adresi okunur (13.10.2026, gerçek sayfa HTML\'i ile doğrulandı). ' +
+      'Yeniden yazım sonrası ilk üretken canlı koşum bekleniyor.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
-      '13.10.2026: liste ve detay (/IlanDetay?i=...) sayfaları kullanıcı ekran görüntüleriyle doğrulandı: ' +
-      'detayda İlan Numarası (ILN...), İlan Türü, Başvuru Başlangıç/Bitiş ve tam metin bulunuyor. ' +
-      'İlk tam canlı koşum sonucu bekleniyor.',
+      '13.10.2026: liste ve detay sayfalarının gerçek HTML\'i kullanıcıdan alındı; satır/detay yapısı ' +
+      'birim testlerine fikstür olarak işlendi (tests/sources.test.ts). Canlı koşumda henüz kayıt üretilmedi ' +
+      '(3. koşum: ok, 0 kayıt — eski tablo varsayımı); yeniden yazım sonrası koşum bekleniyor.',
     coverageNote:
-      'Kurumların merkezî başvuru ekranı. Liste Playwright ile okunur; her ilanın resmî başvuru bağlantısı buradadır.',
+      'Kurumların merkezî başvuru ekranı. Dış "İlana Git" satırları kurumun kendi başvuru sayfasına gider; ' +
+      'iç detaylarda resmî başvuru adresi e-Devlet bağlantısıdır.',
     enabled: true,
     intervalMinutes: 60,
     minRequestIntervalMs: 3000,

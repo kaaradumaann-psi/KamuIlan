@@ -1,24 +1,24 @@
 /**
  * Kariyer Kapısı (kariyerkapisi.gov.tr/isealim).
  *
- * Doğrulanmış yapı (13.10.2026, kullanıcı ekran görüntüleriyle):
- *   Liste: "Kurum/Birim | Aktif İlanlar | Bitiş Tarihi | Başvur" tablo
- *   satırları. İlan başlığı hücre metnidir (bağlantı değil); satırdaki
- *   Başvur düğmesi detaya gider.
- *   Detay: /IlanDetay?i=<uuid> — sayfada İlan Numarası (ILN...), İlan Türü,
- *   Başvuru Başlangıç/Bitiş tarihleri ve ilanın tam metni bulunur.
- *
- * Liste JS ile doldurulduğu için sayfa başsız tarayıcıyla okunur;
- * detaylar da aynı tarayıcı oturumunda (sınırlı sayıda) ziyaret edilir.
- * Tarayıcı kurulu değilse adaptör bunu açıkça raporlar (sessiz boş yok).
+ * Doğrulanmış yapı (13.10.2026; liste + detay sayfalarının gerçek DOM'u
+ * kullanıcıdan alındı):
+ *   Liste: #pnlIlanlar içinde satır satır: kurum logosu | kurum/birim |
+ *   ilan başlığı | bitiş tarihi | "Başvur" (/IlanDetay?i=<uuid>) ya da
+ *   "İlana Git" (kurumun kendi dış başvuru adresi) düğmesi. Sayfa
+ *   sunucu tarafında üretilir; önce düz HTTP denenir, liste boş
+ *   gelirse tarayıcı yedeğine düşülür.
+ *   Detay: /IlanDetay?i=<uuid> — #lbl_ILN_NO (ILN...), #lbl_IlanTuru,
+ *   #lbl_BasDate / #lbl_BitDate, #lbl_anailanmetni (tam metin),
+ *   #href_BasvuruLinki (e-Devlet başvuru adresi), kontenjan bilgisi.
  */
 import { collapseWhitespace } from '../../domain/text';
 import { firstDateOnlyIn, toIstanbulIso } from '../../domain/dates';
 import { sha256Hex } from '../../domain/ids';
 import { absoluteUrl, anchors, loadHtml, readableText } from '../../lib/html';
-import { describeBrowserFailure, withChromiumPage } from '../browser-session';
 import { cleanInstitution, cleanTitle } from '../listing-utils';
 import { AdapterUnavailableError } from '../errors';
+import { describeBrowserFailure, withChromiumPage } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 
@@ -28,6 +28,8 @@ export interface KariyerRow {
   title: string;
   institution?: string;
   applicationEndAt?: string;
+  /** Dış başvuru adresi (satır "İlana Git" diyorsa). */
+  applicationUrl?: string;
 }
 
 export interface KariyerDetail {
@@ -35,16 +37,22 @@ export interface KariyerDetail {
   referenceNo?: string;
   applicationStartAt?: string;
   applicationEndAt?: string;
+  applicationUrl?: string;
   category?: string;
+  quota?: number;
 }
 
-/** İlan detay adresindeki `i` (uuid) parametresi en kararlı kimliktir. */
+/** İlan detay adresindeki uuid en kararlı kimliktir; yoksa sondaki uzun sayı, o da yoksa null. */
 function itemIdFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
-    const uuid = parsed.searchParams.get('i');
-    if (uuid && /^[0-9a-f-]{16,}$/i.test(uuid)) return uuid;
-    return /(\d{4,})/.exec(parsed.pathname)?.[1] ?? null;
+    for (const param of ['i', 'id']) {
+      const value = parsed.searchParams.get(param);
+      if (value && /^[0-9a-f-]{16,}$/i.test(value)) return value;
+    }
+    const segments = parsed.pathname.split('/').filter((segment) => segment.length > 0);
+    const last = segments[segments.length - 1] ?? '';
+    return /(\d{6,})$/.exec(last)?.[1] ?? null;
   } catch {
     return null;
   }
@@ -60,11 +68,17 @@ function detailUrlIn(rowHtml: string, listingUrl: string): string | null {
   }
 }
 
+/** Satırdaki eylem bağlantısı mı (Başvur / İlana Git / detay adresi)? */
+function isActionAnchor(text: string, href: string): boolean {
+  // JS /i bayrağı Türkçe "İ" harfini "i" ile eşleştirmez; metin önce
+  // Türkçe küçük harfe çevrilir ("İlana Git" → "ilana git").
+  const normalized = text.toLocaleLowerCase('tr');
+  return /IlanDetay\?i=/i.test(href) || normalized === 'başvur' || normalized === 'ilana git';
+}
+
 /**
- * Liste sayfasındaki ilan tablosunu ayrıştırır. İmza: başlığında
- * "Aktif İlanlar" geçen tablo; imzasız tablolarda tarihli satırlar kabul
- * edilir. Başlık hücre metnidir; detay adresi satırın HTML'inden
- * (bağlantı/düğme fark etmez) çıkarılır, yoksa liste adresi kullanılır.
+ * Liste sayfasındaki ilanları ayrıştırır. Önce gerçek <table> düzeni,
+ * yoksa eylem bağlantılarından satır kapsayıcısına tırmanan div düzeni.
  */
 export function parseKariyerRows(html: string, listingUrl: string): KariyerRow[] {
   const $ = loadHtml(html);
@@ -115,31 +129,38 @@ export function parseKariyerRows(html: string, listingUrl: string): KariyerRow[]
       });
   });
 
-  if (rows.length === 0) return rowsFromDetailAnchors($, listingUrl);
+  if (rows.length === 0) return rowsFromActionAnchors($, listingUrl);
   return rows;
 }
 
 /**
- * Tablo öğesi kullanılmayan (div ızgarası) liste düzeni: her "Başvur"
- * bağlantısından satır kapsayıcısına tırmanılır; kurum/başlık/bitiş tarihi
- * kapsayıcının hücrelerinden (doğrudan çocuklar) okunur.
+ * Div ızgara düzeni (gerçek sayfadaki yapı): her eylem bağlantısından
+ * (Başvur / İlana Git) satır kapsayıcısına tırmanılır; kurum/başlık/bitiş
+ * tarihi kapsayıcının metin hücrelerinden okunur. Dış adrese giden
+ * satırlar da ilandır (başvuru adresi dış bağlantıdır).
  */
-function rowsFromDetailAnchors($: ReturnType<typeof loadHtml>, listingUrl: string): KariyerRow[] {
+function rowsFromActionAnchors($: ReturnType<typeof loadHtml>, listingUrl: string): KariyerRow[] {
   const rows: KariyerRow[] = [];
   const seen = new Set<string>();
 
-  $('a[href*="IlanDetay?i="]').each((_index, element) => {
-    const url = absoluteUrl($(element).attr('href'), listingUrl, $);
+  $('a[href]').each((_index, element) => {
+    const anchorText = collapseWhitespace($(element).text());
+    const rawHref = $(element).attr('href') ?? '';
+    if (!isActionAnchor(anchorText, rawHref)) return;
+    const url = absoluteUrl(rawHref, listingUrl, $);
     if (!url) return;
-    const sourceItemId = itemIdFromUrl(url);
-    if (!sourceItemId || seen.has(sourceItemId)) return;
 
-    // Satır kapsayıcısı: tek detay bağlantısı içeren ve tarih barındıran en küçük üst öğe.
+    // Satır kapsayıcısı: tek eylem bağlantısı içeren ve tarih barındıran en küçük üst öğe.
     let container = $(element);
     for (let depth = 0; depth < 7; depth += 1) {
       const parent = container.parent();
       if (parent.length === 0) break;
-      if (parent.find('a[href*="IlanDetay?i="]').length !== 1) break;
+      const actionCount = parent
+        .find('a[href]')
+        .toArray()
+        .filter((candidate) => isActionAnchor(collapseWhitespace($(candidate).text()), $(candidate).attr('href') ?? ''))
+        .length;
+      if (actionCount !== 1) break;
       container = parent;
       const text = collapseWhitespace(container.text());
       if (text.length >= 60 && firstDateOnlyIn(text)) break;
@@ -164,7 +185,10 @@ function rowsFromDetailAnchors($: ReturnType<typeof loadHtml>, listingUrl: strin
         if (text) pool.add(text);
       });
       const candidates = [...pool].filter(
-        (text) => text.length >= 15 && text !== fullText && !/^ba[sş]vur$/i.test(text),
+        (text) =>
+          text.length >= 15 &&
+          text !== fullText &&
+          !isActionAnchor(text, ''),
       );
       title = cleanTitle(candidates.sort((a, b) => b.length - a.length)[0] ?? '');
       institutionText ||= candidates.find(
@@ -173,51 +197,86 @@ function rowsFromDetailAnchors($: ReturnType<typeof loadHtml>, listingUrl: strin
     }
     if (title.length < 15) return;
 
-    seen.add(sourceItemId);
+    const isDetailLink = /IlanDetay\?i=/i.test(url);
     const institution = cleanInstitution(institutionText) ?? undefined;
+    const sourceItemId =
+      itemIdFromUrl(url) ?? `kk-${sha256Hex(`${institution ?? ''}|${title}|${dateOnly}`).slice(0, 16)}`;
+    if (seen.has(sourceItemId)) return;
+    seen.add(sourceItemId);
+
     rows.push({
       sourceItemId,
       url,
       title,
       ...(institution ? { institution } : {}),
       applicationEndAt: toIstanbulIso(dateOnly, '23:59'),
+      ...(isDetailLink ? {} : { applicationUrl: url }),
     });
   });
 
   return rows;
 }
 
-/** Detay sayfasından ilan numarası, tarihler, tür ve gövde metnini çıkarır. */
+/** Detay sayfasından ilan numarası, tarihler, tür, kontenjan ve gövde metnini çıkarır. */
 export function parseKariyerDetail(html: string): KariyerDetail {
   const $ = loadHtml(html);
-  const text = readableText($, 'body', 20_000);
   const detail: KariyerDetail = {};
+  const byId = (id: string): string => collapseWhitespace($(`#${id}`).first().text());
 
-  const reference = /\bILN\d{5,}\b/.exec(text);
-  if (reference) detail.referenceNo = reference[0];
+  // Önce kararlı öğe kimlikleri (gerçek sayfada doğrulandı).
+  const referenceNo = byId('lbl_ILN_NO');
+  if (/\bILN\d{5,}\b/.test(referenceNo)) detail.referenceNo = referenceNo.match(/\bILN\d{5,}\b/)?.[0];
 
-  const start = /Başvuru Başlangıç\s*:?\s*(\d{2}\.\d{2}\.\d{4})/.exec(text);
-  const startDate = start ? firstDateOnlyIn(start[1] ?? '') : null;
+  const startDate = firstDateOnlyIn(byId('lbl_BasDate'));
   if (startDate) detail.applicationStartAt = toIstanbulIso(startDate, '00:00');
-
-  const end = /Başvuru Bitiş\s*:?\s*(\d{2}\.\d{2}\.\d{4})/.exec(text);
-  const endDate = end ? firstDateOnlyIn(end[1] ?? '') : null;
+  const endDate = firstDateOnlyIn(byId('lbl_BitDate'));
   if (endDate) detail.applicationEndAt = toIstanbulIso(endDate, '23:59');
 
-  const category = /İlan Türü\s*:?\s*([A-ZÇĞİÖŞÜ][^|]{2,60}?)(?=\s+Başvuru Başlangıç|\s+Kalan Zaman|\s+BAŞVUR\b|$)/.exec(text);
-  if (category) detail.category = collapseWhitespace(category[1] ?? '');
+  const category = byId('lbl_IlanTuru');
+  if (category.length >= 3) detail.category = category;
 
-  if (text.length > 200) detail.bodyText = text;
+  const applyHref = $('#href_BasvuruLinki').first().attr('href') ?? $('a[href*="turkiye.gov.tr"]').first().attr('href');
+  if (applyHref) detail.applicationUrl = applyHref;
+
+  const mainText = collapseWhitespace($('#lbl_anailanmetni').first().text());
+  if (mainText.length > 200) detail.bodyText = mainText.slice(0, 20_000);
+
+  const quotaMatch = /Kontenjan\s*\((\d+)\)/.exec(collapseWhitespace($('#div_AltIlan').first().text()));
+  if (quotaMatch?.[1]) detail.quota = Number.parseInt(quotaMatch[1], 10);
+
+  // Kimlikler bulunamazsa (yapı değişimi) metin kalıplarına düşülür.
+  const text = readableText($, 'body', 20_000);
+  if (!detail.referenceNo) {
+    const reference = /\bILN\d{5,}\b/.exec(text);
+    if (reference) detail.referenceNo = reference[0];
+  }
+  if (!detail.applicationStartAt) {
+    const start = /Başvuru Başlangıç\s*:?\s*(\d{2}\.\d{2}\.\d{4})/.exec(text);
+    const parsed = start ? firstDateOnlyIn(start[1] ?? '') : null;
+    if (parsed) detail.applicationStartAt = toIstanbulIso(parsed, '00:00');
+  }
+  if (!detail.applicationEndAt) {
+    const end = /Başvuru Bitiş\s*:?\s*(\d{2}\.\d{2}\.\d{4})/.exec(text);
+    const parsed = end ? firstDateOnlyIn(end[1] ?? '') : null;
+    if (parsed) detail.applicationEndAt = toIstanbulIso(parsed, '23:59');
+  }
+  if (!detail.category) {
+    const categoryMatch = /İlan Türü\s*:?\s*([A-ZÇĞİÖŞÜ][^|]{2,60}?)(?=\s+Başvuru Başlangıç|\s+Kalan Zaman|\s+BAŞVUR\b|$)/.exec(text);
+    if (categoryMatch) detail.category = collapseWhitespace(categoryMatch[1] ?? '');
+  }
+  if (!detail.bodyText && text.length > 200) detail.bodyText = text;
+
   return detail;
 }
 
 export class KariyerKapisiAdapter implements SourceAdapter {
   readonly key = 'kariyer-kapisi-isealim';
   readonly label = 'Kariyer Kapısı — kamu işe alım ilanları';
-  readonly method = 'browser';
+  readonly method = 'html-list';
   readonly notes =
-    'Liste JS ile doldurulur; başsız tarayıcıyla tablo satırları okunur, detaylar (/IlanDetay?i=) aynı oturumda sınırlı sayıda ziyaret edilir. ' +
-    'Tarayıcı (Playwright) kurulu değilse kaynak "erişilebilir ama otomatik toplanamıyor" olarak raporlanır. En pahalı yöntem olduğu için son tercihtir.';
+    'Liste sunucu tarafında üretilir: önce düz HTTP ile satırlar okunur; liste boş gelirse aynı ayrıştırma ' +
+    'başsız tarayıcıyla açılmış sayfada koşulur. Detaylar (/IlanDetay?i=) sınırlı sayıda çekilir: ilan numarası, ' +
+    'başvuru tarihleri, tür, kontenjan ve tam metin alınır; başvuru adresi e-Devlet bağlantısıdır.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
     const { source, liveFetch } = ctx;
@@ -233,123 +292,155 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       };
     }
 
-    const pages = await this.renderPages([source.listingUrl]).catch((error: unknown) => {
-      throw new AdapterUnavailableError(
-        source.key,
-        describeBrowserFailure(error),
-        'Başsız tarayıcı (playwright) gerekiyor: npm i -D playwright && npx playwright install chromium',
+    const notes: string[] = [];
+    const httpStatuses: number[] = [];
+    let requestCount = 0;
+    let rows: KariyerRow[] = [];
+    let viaBrowser = false;
+    let listHtml = '';
+
+    // 1) Düz HTTP: sayfa sunucu tarafında üretiliyor (doğrulandı).
+    try {
+      const response = await ctx.http.fetchText(source.listingUrl, {
+        allowedHosts: source.allowedHosts,
+        minIntervalMs: source.minRequestIntervalMs,
+      });
+      requestCount += 1;
+      httpStatuses.push(response.status);
+      listHtml = response.decoded?.text ?? response.body.toString('utf8');
+      rows = parseKariyerRows(listHtml, source.listingUrl);
+      if (rows.length > 0) notes.push(`Liste HTTP ile okundu: ${rows.length} ilan satırı.`);
+    } catch (error) {
+      notes.push(
+        `HTTP listesi alınamadı (${error instanceof Error ? error.message : String(error)}); tarayıcı denenecek.`,
       );
-    });
-    const html = pages.get(source.listingUrl) ?? '';
+    }
 
-    const $ = loadHtml(html);
-    const rows: RawAnnouncement[] = [];
-    const seen = new Set<string>(ctx.knownItemIds ?? []);
-    const detailByUrl = new Map<string, KariyerDetail>();
+    // 2) Tarayıcı yedeği: liste boşsa ya da HTTP hata verdiyse.
+    if (rows.length === 0) {
+      const pages = await this.renderPages([source.listingUrl]).catch((error: unknown) => {
+        throw new AdapterUnavailableError(
+          source.key,
+          describeBrowserFailure(error),
+          'Başsız tarayıcı (playwright) gerekiyor: npm i -D playwright && npx playwright install chromium',
+        );
+      });
+      listHtml = pages.get(source.listingUrl) ?? '';
+      rows = parseKariyerRows(listHtml, source.listingUrl);
+      viaBrowser = true;
+      requestCount += 1;
+      if (rows.length > 0) notes.push(`Liste tarayıcı ile okundu: ${rows.length} ilan satırı.`);
+    }
+    if (rows.length === 0) {
+      notes.push(
+        `Liste sayfası alındı (${listHtml.length} karakter) ancak ilan satırı ayrıştırılamadı; sayfa yapısı değişmiş olabilir.`,
+      );
+      return { items: [], requestCount, notes, etag: null, lastModified: null, notModified: false, httpStatuses };
+    }
 
-    const tableRows = parseKariyerRows(html, source.listingUrl);
-    for (const row of tableRows) {
-      if (seen.has(row.sourceItemId) || rows.length >= 30) continue;
-      seen.add(row.sourceItemId);
-      rows.push({
+    // 3) Detaylar: yalnız iç detay bağlantısı (/IlanDetay?i=) taşıyan satırlar
+    //    için ve ctx.maxDetailFetches sınırıyla. Dış "İlana Git" satırlarında
+    //    çekilecek detay sayfası yoktur; başvuru adresi satırın kendisidir.
+    const items: RawAnnouncement[] = [];
+    let detailFetches = 0;
+    let limitNoted = false;
+
+    for (const row of rows) {
+      const itemNotes: string[] = [];
+      if (viaBrowser) itemNotes.push('Liste tarayıcı ile okundu.');
+      const item: RawAnnouncement = {
         sourceKey: source.key,
         sourceItemId: row.sourceItemId,
         url: row.url,
         title: row.title,
-        institution: row.institution ?? source.institution,
+        ...(row.institution ? { institution: row.institution } : {}),
         ...(row.applicationEndAt ? { applicationEndAt: row.applicationEndAt } : {}),
+        ...(row.applicationUrl ? { applicationUrl: row.applicationUrl } : {}),
         attachments: [],
-        sourceCategory: 'kariyer kapısı',
-        extractionConfidence: 0.45,
-      });
+        extractionConfidence: 0.6,
+        ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
+      };
+
+      if (/IlanDetay\?i=/i.test(row.url)) {
+        if (detailFetches >= ctx.maxDetailFetches) {
+          if (!limitNoted) {
+            limitNoted = true;
+            notes.push(
+              `Detay çekme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar liste verisiyle kaydedildi.`,
+            );
+          }
+        } else {
+          detailFetches += 1;
+          const fetched = await this.fetchDetailHtml(ctx, row.url, viaBrowser).catch((error: unknown) => {
+            notes.push(`Detay okunamadı (${row.url}): ${describeBrowserFailure(error)}`);
+            return null;
+          });
+          if (fetched) {
+            requestCount += 1;
+            if (fetched.status) httpStatuses.push(fetched.status);
+            const detail = parseKariyerDetail(fetched.html);
+            if (detail.referenceNo) item.referenceNo = detail.referenceNo;
+            if (detail.applicationStartAt) item.applicationStartAt = detail.applicationStartAt;
+            if (detail.applicationEndAt) item.applicationEndAt = detail.applicationEndAt;
+            if (detail.applicationUrl) item.applicationUrl = detail.applicationUrl;
+            if (detail.category) item.sourceCategory = detail.category;
+            if (detail.quota) item.quota = detail.quota;
+            if (detail.bodyText) {
+              item.bodyText = detail.bodyText;
+              item.rawExcerpt = detail.bodyText.slice(0, 1_200);
+              item.extractionConfidence = 0.8;
+            }
+            const detailLinks = anchors(loadHtml(fetched.html), 'body', row.url)
+              .filter((link) => /başvur/i.test(link.text) || link.href.includes('turkiye.gov.tr'))
+              .slice(0, 10)
+              .map((link) => ({ text: link.text, url: link.href }));
+            if (detailLinks.length > 0) item.links = detailLinks;
+          }
+        }
+      }
+
+      items.push(item);
     }
 
-    // Tablo bulunamazsa eski bağlantı taraması yedek olarak denenir.
-    if (rows.length === 0) {
-      for (const anchor of anchors($, 'body', source.listingUrl, 400)) {
-        if (!/ilan|kadro|alim|alım/i.test(`${anchor.href} ${anchor.text}`)) continue;
-        const itemId = itemIdFromUrl(anchor.href) ?? anchor.href.slice(-40);
-        if (seen.has(itemId)) continue;
-        const title = cleanTitle(anchor.text);
-        if (title.length < 15) continue;
-        rows.push({
-          sourceKey: source.key,
-          sourceItemId: itemId,
-          url: anchor.href,
-          title,
-          institution: source.institution,
-          attachments: [],
-          sourceCategory: 'kariyer kapısı',
-          extractionConfidence: 0.5,
-        });
-        seen.add(itemId);
-        if (rows.length >= 30) break;
-      }
-    }
-
-    // Detaylar: aynı oturumda, sınırlı sayıda (ctx.maxDetailFetches).
-    const detailUrls = rows
-      .map((row) => row.url)
-      .filter((url) => /IlanDetay\?i=/i.test(url))
-      .slice(0, Math.max(0, ctx.maxDetailFetches));
-    let detailCount = 0;
-    if (detailUrls.length > 0) {
-      const detailPages = await this.renderPages(detailUrls).catch(() => new Map<string, string>());
-      for (const [url, detailHtml] of detailPages) {
-        detailByUrl.set(url, parseKariyerDetail(detailHtml));
-        detailCount += 1;
-      }
-      for (const row of rows) {
-        const detail = detailByUrl.get(row.url);
-        if (!detail) continue;
-        if (detail.bodyText) row.bodyText = detail.bodyText;
-        if (detail.referenceNo) row.referenceNo = detail.referenceNo;
-        if (detail.applicationStartAt) row.applicationStartAt = detail.applicationStartAt;
-        if (detail.applicationEndAt) row.applicationEndAt = detail.applicationEndAt;
-        if (detail.category) row.sourceCategory = detail.category;
-        row.applicationUrl = row.url;
-        row.extractionConfidence = 0.6;
-      }
-    }
-
-    const pageText = readableText($, 'body', 400);
-    // 0 ilan bulunduğunda sayfadaki gerçek bağlantı biçimini rapora yaz:
-    // bir sonraki düzeltme tahmine değil bu gözleme dayanır.
-    const anchorSamples =
-      rows.length === 0
-        ? anchors($, 'body', source.listingUrl, 400)
-            .slice(0, 12)
-            .map((anchor) => `"${anchor.text.slice(0, 60)}" -> ${anchor.href.slice(0, 120)}`)
-        : [];
-    const notes = [
-      `Tarayıcı ile okundu: ${rows.length} ilan bulundu.`,
-      ...(detailCount > 0 ? [`${detailCount} ilanın detay sayfası da okundu (ilan no/tarihler/metin).`] : []),
-      ...(rows.length === 0 ? [`Sayfada ilan bulunamadı. Sayfa özeti: "${pageText.slice(0, 140)}"`] : []),
-      ...(anchorSamples.length > 0 ? [`Bağlantı örnekleri: ${anchorSamples.join(' | ')}`] : []),
-    ];
-
-    return {
-      items: rows,
-      requestCount: 1 + detailCount,
-      notes,
-      etag: null,
-      lastModified: null,
-      notModified: false,
-      httpStatuses: [200],
-    };
+    notes.push(`${requestCount} istek yapıldı, ${items.length} ilan hazırlandı.`);
+    return { items, requestCount, notes, etag: null, lastModified: null, notModified: false, httpStatuses };
   }
 
-  /** Verilen adresleri tek tarayıcı oturumunda sırayla açar; adres→HTML döndürür. */
+  /**
+   * Detay sayfasını okur: liste tarayıcıdan geldiyse doğrudan tarayıcı,
+   * aksi halde önce düz HTTP (boş/hata durumunda tarayıcı yedeği).
+   */
+  private async fetchDetailHtml(
+    ctx: AdapterContext,
+    url: string,
+    preferBrowser: boolean,
+  ): Promise<{ html: string; status: number | null }> {
+    if (!preferBrowser) {
+      try {
+        const response = await ctx.http.fetchText(url, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+        });
+        const html = response.decoded?.text ?? response.body.toString('utf8');
+        if (html.length > 0) return { html, status: response.status };
+      } catch {
+        // Detay HTTP ile okunamazsa tarayıcı yedeğine düşülür.
+      }
+    }
+    const pages = await this.renderPages([url]);
+    return { html: pages.get(url) ?? '', status: null };
+  }
+
+  /** Adresleri tek Chromium oturumunda sırayla açıp oluşturulmuş HTML'lerini döndürür. */
   private async renderPages(urls: string[]): Promise<Map<string, string>> {
-    const rendered = new Map<string, string>();
+    const pages = new Map<string, string>();
     await withChromiumPage(async (page) => {
       for (const url of urls) {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
-        // Liste XHR ile dolar; satırların yerleşmesi için kısa bekleme.
-        await page.waitForTimeout(1_500);
-        rendered.set(url, await page.content());
+        await page.waitForTimeout(500);
+        pages.set(url, await page.content());
       }
     });
-    return rendered;
+    return pages;
   }
 }

@@ -140,9 +140,23 @@ Kariyer Kapısı modeliyle **gerçek tarayıcı yedeği** eklendi
 (paylaşılan `src/sources/browser-session.ts`); sıradaki canlı koşum
 doğrulayacak.
 
+Kariyer Kapısı aynı gün **gerçek sayfa HTML'iyle yeniden yazıldı**:
+kullanıcı liste (`#pnlIlanlar`) ve detay sayfalarının kaynak HTML'ini
+gönderdi. Liste sunucu tarafında üretiliyor — tarayıcı varsayımı
+kalktı: önce düz HTTP, liste boş gelirse tarayıcı yedeği. Satırlar
+"Başvur" (`/IlanDetay?i=<uuid>`) ve dış "İlana Git" (örn. MSB/Jandarma
+personel temin sayfaları) bağlantılarından kurulur; detayda kararlı
+öğe kimliklerinden (`lbl_ILN_NO`, `lbl_BasDate`/`lbl_BitDate`,
+`lbl_IlanTuru`, `href_BasvuruLinki`, "Kontenjan (N)") ilan numarası,
+tarihler, tür, kontenjan ve e-Devlet başvuru adresi okunur. Gerçek-DOM
+fikstürü, Türkçe "İ" harfinin JS `/i` bayrağıyla eşleşmemesi yüzünden
+"İlana Git" satırlarının sessizce eleneceğini yakaladı; metin Türkçe
+küçük harfe çevrilerek karşılaştırılıyor. Test:
+`tests/sources.test.ts` (30/30). Canlı doğrulama sıradaki koşumda.
+
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **220/220 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **222/222 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz
