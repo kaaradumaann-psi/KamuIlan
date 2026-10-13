@@ -151,12 +151,17 @@ personel temin sayfaları) bağlantılarından kurulur; detayda kararlı
 tarihler, tür, kontenjan ve e-Devlet başvuru adresi okunur. Gerçek-DOM
 fikstürü, Türkçe "İ" harfinin JS `/i` bayrağıyla eşleşmemesi yüzünden
 "İlana Git" satırlarının sessizce eleneceğini yakaladı; metin Türkçe
-küçük harfe çevrilerek karşılaştırılıyor. Test:
-`tests/sources.test.ts` (30/30). Canlı doğrulama sıradaki koşumda.
+küçük harfe çevrilerek karşılaştırılıyor. Ardından kullanıcı liste ve
+detay sayfalarının **tam kaynak HTML'ini** gönderdi; birebir kesit
+(#pnlIlanlar satırları, bölünmüş tarih hücresi, e-Devlet/SSS/RSS tuzak
+bağlantıları, MSB/Jandarma/Adalet dış satırları) fikstür olarak işlendi
+ve ayrıştırıcı ilk koşuda 5/5 satırı doğru kurdu. Test:
+`tests/sources.test.ts` (31/31). Canlı doğrulama sıradaki koşumda
+(listede 27 aktif satır bekleniyor).
 
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **222/222 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **223/223 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz

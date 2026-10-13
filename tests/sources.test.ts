@@ -573,6 +573,100 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(rows[2]?.institution).toContain('JANDARMA');
   });
 
+  it('kullanıcının gönderdiği birebir sayfa yapısı: tuzak bağlantılar satır sayılmaz', async () => {
+    const { parseKariyerRows } = await import('../src/sources/adapters/kariyerkapisi');
+    // 13.10.2026'da kullanıcının gönderdiği gerçek liste HTML'inden birebir kesit:
+    // #pnlIlanlar satırları, <hr> ayraçları, bölünmüş tarih hücresi, sayfa
+    // chrome'undaki eylem-olmayan bağlantılar (e-Devlet girişi, SSS, RSS).
+    const html = `<html><body>
+      <nav>
+        <a href="https://giris.turkiye.gov.tr/OAuth2AuthorizationServer/AuthorizationController?response_type=code&amp;client_id=887456ea-c32d-446f-8b10-6167e55eaf36&amp;redirect_uri=https://kariyerkapisi.gov.tr/elogin">e-Devlet ile Giriş</a>
+        <a href="sss" class="btn iframe">Sıkça Sorulan Sorular</a>
+        <a href="#" id="btn_Search"><i class="fa fa-search"></i></a>
+      </nav>
+      <select id="ddl_Kurum"><option value="0">Kurum Seçiniz</option><option value="9">HAZİNE VE MALİYE BAKANLIĞI(2İLAN)</option></select>
+      <div class="row" style="background-color: #033980;color: white;">
+        <div class="col-md-1 pt-1">Kurum/Birim</div><div class="col-md-3 pt-1"></div>
+        <div class="col-md-4 pt-1">Aktif İlanlar</div><div class="col-md-2 pt-1">Bitiş Tarihi</div><div class="col-md-2 pt-1"></div>
+      </div>
+      <div id="pnlIlanlar"><div class="row">
+          <div class="col-md-1 col-xl-1 col-lg-1" style="padding: 0px;"><img class="kurum_logolari_icin" src="/UPS/38d57cca-b022-47e1-8113-768faac8f241.png" style="margin-top: 5px"></div>
+          <div class="col-md-3 col-xl-3 col-lg-3"><span style="color: black; font-size:14px;">
+<b>HAZİNE VE MALİYE BAKANLIĞI</b>
+<span style="color: black; font-size:14px;">PERSONEL GENEL MÜDÜRLÜĞÜ</span>
+</span></div>
+          <div class="col-md-4 col-xl-4 col-lg-4 " style=""><span style="color: black;font-weight:600;font-size:14px;">HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><span style="color: black; font-size:14px;"><b>14 Ekim 2026</b>
+<b>Çarşamba</b></span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><a href="IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390" class="btn btn-block small" style="width: 100%; background-color: #033980; color: white;">Başvur</a></div>
+        </div><hr style="background-color: #ededed !important;"><div class="row">
+          <div class="col-md-1 col-xl-1 col-lg-1" style="padding: 0px;"><img class="kurum_logolari_icin" src="/UPS/8115c03a-d2e6-4183-9aa1-9ca9032eaeb6.png" style="margin-top: 5px"></div>
+          <div class="col-md-3 col-xl-3 col-lg-3"><span style="color: black; font-size:14px;">
+<b>KAMU İHALE KURUMU</b>
+<span style="color: black; font-size:14px;">EĞİTİM DAİRESİ BAŞKANLIĞI</span>
+</span></div>
+          <div class="col-md-4 col-xl-4 col-lg-4 " style=""><span style="color: black;font-weight:600;font-size:14px;">KAMU İHALE KURUMU - Yurtdışı Staj (2026 Yılı)</span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><span style="color: black; font-size:14px;"><b>16 Ekim 2026</b>
+<b>Cuma</b></span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><a href="IlanDetay?i=72a90e54-4258-44d9-903d-295baf21f897" class="btn btn-block small" style="width: 100%; background-color: #033980; color: white;">Başvur</a></div>
+        </div><hr style="background-color: #ededed !important;"><div class="row">
+          <div class="col-md-1 col-xl-1 col-lg-1" style="padding: 0px;"><img class="kurum_logolari_icin" src="/UPS/f9c37947-783d-4a09-8e96-02679218eab8.png" style="margin-top: 5px"></div>
+          <div class="col-md-3 col-xl-3 col-lg-3"><span style="color: black; font-size:14px;">
+<b>MİLLİ SAVUNMA BAKANLIĞI</b>
+<span style="color: black; font-size:14px;">PERSONEL TEMİN DAİRE BAŞKANLIĞI</span>
+</span></div>
+          <div class="col-md-4 col-xl-4 col-lg-4 " style=""><span style="color: black;font-weight:600;font-size:14px;">MİLLİ SAVUNMA BAKANLIĞI - 2026 YILI MİLLÎ SAVUNMA ÜNİVERSİTESİNE ÖĞRETMEN/MÜHENDİS SINIFI MUVAZZAF SUBAY ADAYI TEMİNİ</span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><span style="color: black; font-size:14px;"><b>20 Ekim 2026</b>
+<b>Salı</b></span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><a href="https://personeltemin.msb.gov.tr/AnaSayfa/DuyuruDetay/?id=562e3468-9a94-4cdf-8a55-e54ea447f0af" class="btn btn-block small" style="width: 100%; background-color: #033980; color: white;">İlana Git</a></div>
+        </div><hr style="background-color: #ededed !important;"><div class="row">
+          <div class="col-md-1 col-xl-1 col-lg-1" style="padding: 0px;"><img class="kurum_logolari_icin" src="/UPS/11ccecda-5dda-4e54-8306-f258a32d237c.png" style="margin-top: 5px"></div>
+          <div class="col-md-3 col-xl-3 col-lg-3"><span style="color: black; font-size:14px;">
+<b>JANDARMA VE SAHİL GÜVENLİK AKADEMİSİ BAŞKANLIĞI</b>
+<span style="color: black; font-size:14px;">PERSONEL TEMİN MERKEZİ KOMUTANLIĞI </span>
+</span></div>
+          <div class="col-md-4 col-xl-4 col-lg-4 " style=""><span style="color: black;font-weight:600;font-size:14px;">JANDARMA VE SAHİL GÜVENLİK AKADEMİSİ BAŞKANLIĞI - 2027 YILI J.GN.K.LIĞI MUVAZZAF SUBAY TEMİNİ</span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><span style="color: black; font-size:14px;"><b>26 Ekim 2026</b>
+<b>Pazartesi</b></span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><a href="https://personeltemin.jandarma.gov.tr" class="btn btn-block small" style="width: 100%; background-color: #033980; color: white;">İlana Git</a></div>
+        </div><hr style="background-color: #ededed !important;"><div class="row">
+          <div class="col-md-1 col-xl-1 col-lg-1" style="padding: 0px;"><img class="kurum_logolari_icin" src="/UPS/0f1cf613-3639-4673-b85b-4ae336c3db08.png" style="margin-top: 5px"></div>
+          <div class="col-md-3 col-xl-3 col-lg-3"><span style="color: black; font-size:14px;">
+<b>ADALET BAKANLIĞI</b>
+<span style="color: black; font-size:14px;">İCRA İŞLERİ DAİRESİ BAŞKANLIĞI</span>
+</span></div>
+          <div class="col-md-4 col-xl-4 col-lg-4 " style=""><span style="color: black;font-weight:600;font-size:14px;">ADALET BAKANLIĞI - 2026 Yılı Açıktan İcra Müdür ve İcra Müdür Yardımcılığı Sınav İlanı</span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><span style="color: black; font-size:14px;"><b>05 Kasım 2026</b>
+<b>Perşembe</b></span></div>
+          <div class="col-md-2 col-xl-2 col-lg-2"><a href="https://iidb.adalet.gov.tr/Home/SayfaDetay/2026-yili-aciktan-icra-mudur-ve-icra-mudur-yardimciligi-sinav-ilani02102026113030" class="btn btn-block small" style="width: 100%; background-color: #033980; color: white;">İlana Git</a></div>
+        </div><hr style="background-color: #ededed !important;"></div>
+      <div class="card-body d-none" id="kayityok"><b>Şu an aktif bir ilan bulunmamaktadır.</b></div>
+      <footer>
+        <a class="navbar-brand beyazrenk" href="https://kariyerkapisi.gov.tr/RSS/RssLinkiAl" target="_blank"><i class="fa fa-rss-square"></i></a>
+        <a class="navbar-brand beyazrenk" href="https://twitter.com/kariyerkapisi" target="_blank"><i class="fab fa-twitter"></i></a>
+      </footer>
+    </body></html>`;
+    const rows = parseKariyerRows(html, 'https://kariyerkapisi.gov.tr/isealim');
+    // Yalnızca 5 gerçek ilan satırı; e-Devlet/SSS/RSS/arama bağlantıları satır değil.
+    expect(rows.length).toBe(5);
+    expect(rows[0]?.sourceItemId).toBe('9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
+    expect(rows[0]?.institution).toContain('MALİYE');
+    expect(rows[0]?.title).toContain('MUHASEBE UZMANLIĞI');
+    expect(rows[0]?.applicationEndAt).toContain('2026-10-14');
+    expect(rows[1]?.title).toContain('Yurtdışı Staj');
+    expect(rows[1]?.applicationEndAt).toContain('2026-10-16');
+    expect(rows[2]?.sourceItemId).toBe('562e3468-9a94-4cdf-8a55-e54ea447f0af');
+    expect(rows[2]?.applicationUrl).toContain('personeltemin.msb.gov.tr');
+    expect(rows[2]?.applicationEndAt).toContain('2026-10-20');
+    expect(rows[3]?.sourceItemId).toMatch(/^kk-[0-9a-f]{16}$/);
+    expect(rows[3]?.applicationUrl).toContain('personeltemin.jandarma.gov.tr');
+    expect(rows[3]?.institution).toContain('JANDARMA');
+    // Adalet satırı: kimlik, dış adresteki sondaki sayıdan (URL hash değil).
+    expect(rows[4]?.sourceItemId).toBe('02102026113030');
+    expect(rows[4]?.applicationUrl).toContain('iidb.adalet.gov.tr');
+    expect(rows[4]?.applicationEndAt).toContain('2026-11-05');
+  });
+
   it('gerçek detay düzeni: kararlı öğe kimliklerinden numara/tarih/kontenjan/başvuru adresi', async () => {
     const { parseKariyerDetail } = await import('../src/sources/adapters/kariyerkapisi');
     const html = `<html><body>
