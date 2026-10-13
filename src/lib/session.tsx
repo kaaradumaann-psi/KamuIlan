@@ -101,7 +101,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         await logout.mutateAsync();
       },
     };
-  }, [session.data, session.isLoading, login, logout]);
+  }, [session.data, session.isLoading, session.isFetching, login, logout]);
 
   return createElement(AuthContext.Provider, { value }, children);
 }

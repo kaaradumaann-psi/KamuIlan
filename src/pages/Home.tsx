@@ -43,35 +43,70 @@ function SystemStrip() {
 
   if (health.isLoading)
     return (
-      <div className="status-strip" aria-busy="true">
-        Durum okunuyor…
-      </div>
+      <aside className="desk-now" aria-busy="true">
+        <div className="desk-now-top">
+          <span className="desk-now-tag">
+            <span className="desk-now-pulse" aria-hidden="true" />
+            Canlı sistem durumu
+          </span>
+        </div>
+        <div className="status-strip">Durum okunuyor…</div>
+      </aside>
     );
   if (health.isError || !health.data) {
     return (
-      <div className="status-strip is-warning" role="status">
-        <Icon name="alert" size={15} />
-        <span>Durum şu anda okunamıyor. Sayfayı yenilediğinizde yeniden denenecek.</span>
-      </div>
+      <aside className="desk-now" role="status">
+        <div className="desk-now-top">
+          <span className="desk-now-tag">
+            <span className="desk-now-pulse" aria-hidden="true" />
+            Canlı sistem durumu
+          </span>
+        </div>
+        <div className="status-strip is-warning">
+          <Icon name="alert" size={15} />
+          <span>Durum şu anda okunamıyor. Sayfayı yenilediğinizde yeniden denenecek.</span>
+        </div>
+      </aside>
     );
   }
 
   const data = health.data;
   const state = statusLabel(data.status);
   return (
-    <div className={`status-strip is-${state.tone}`} role="status">
-      <Tag tone={state.tone}>{state.label}</Tag>
-      <span>
-        İlanlar en son:{' '}
-        <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'henüz güncellenmedi'}</strong>
-      </span>
-      <span>
-        İzlenen kaynak: <strong>{data.sources.enabled}</strong>
-      </span>
-      <span>
-        Gerçek veriyle doğrulanan: <strong>{data.sources.verified}</strong>
-      </span>
-    </div>
+    <aside className="desk-now" role="status">
+      <div className="desk-now-top">
+        <span className="desk-now-tag">
+          <span className="desk-now-pulse" aria-hidden="true" />
+          Canlı sistem durumu
+        </span>
+        <Tag tone={state.tone}>{state.label}</Tag>
+      </div>
+      <div className="desk-now-body">
+        <span className="desk-now-symbol" aria-hidden="true">
+          <Icon name="layers" size={18} />
+        </span>
+        <div className="desk-now-main">
+          <span className="desk-now-when">Otomatik tarama özeti</span>
+          <span className="desk-now-name">
+            İlanlar en son:{' '}
+            <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'henüz güncellenmedi'}</strong>
+          </span>
+          <span className="desk-now-detail">
+            İzlenen kaynak: <strong>{data.sources.enabled}</strong> · Gerçek veriyle doğrulanan:{' '}
+            <strong>{data.sources.verified}</strong>
+          </span>
+        </div>
+      </div>
+      <div className="desk-now-foot">
+        <Link className="desk-now-go" to="/kaynaklar">
+          <span>Kaynak durumunu incele</span>
+          <Icon name="arrowRight" size={14} />
+        </Link>
+        <Link className="desk-now-secondary" to="/panel">
+          E-posta bildirimi
+        </Link>
+      </div>
+    </aside>
   );
 }
 
@@ -112,56 +147,58 @@ export function HomePage() {
   const maxType = typeCounts.reduce((max, item) => Math.max(max, item.count), 0);
 
   return (
-    <div className="page-stack">
-      <section className="hero-band">
-        <div className="hero-band-inner">
-          <div className="hero-text-side">
-            <span className="kicker">Kamu ilanı takip sistemi</span>
-            <h1>Kamu personel alım ilanları</h1>
-            <p className="info-lede">{APP_TAGLINE}</p>
-            <form className="hero-search" onSubmit={submit} role="search" aria-label="İlan ara">
-              <div className="search-input-wrapper">
-                <Icon name="search" size={18} />
-                <input
-                  type="search"
-                  value={term}
-                  onChange={(event) => setTerm(event.target.value)}
-                  placeholder="Unvan, kurum veya anahtar kelime (örn. hemşire, zabıta, DSİ)"
-                  aria-label="Arama terimi"
-                />
-              </div>
-              <div className="search-input-wrapper">
-                <Icon name="mapPin" size={18} />
-                <input
-                  type="search"
-                  value={city}
-                  onChange={(event) => setCity(event.target.value)}
-                  placeholder="İl (örn. İstanbul)"
-                  aria-label="İl"
-                  list="il-listesi"
-                />
-              </div>
-              <button type="submit" className="btn-primary">
-                <Icon name="search" size={16} />
-                <span>İlanlarda ara</span>
-              </button>
-            </form>
-            <div className="hero-actions">
-              <Link className="btn-secondary" to="/kaynaklar">
-                <Icon name="list" size={16} />
-                <span>Kaynaklar ve kapsam</span>
-              </Link>
-              <Link className="btn-secondary" to="/panel">
-                <Icon name="bell" size={16} />
-                <span>Bildirim kur</span>
-              </Link>
-            </div>
+    <div className="page-stack day-board">
+      <section className="desk hero-band">
+        <div className="desk-intro hero-text-side">
+          <div className="desk-eyebrow">
+            <span className="desk-eyebrow-dot" aria-hidden="true" />
+            <span>Kamu ilanı takip sistemi</span>
           </div>
-
-          <div className="hero-foot">
-            <SystemStrip />
+          <h1>Kamu personel alım ilanları</h1>
+          <p className="info-lede">{APP_TAGLINE}</p>
+          <form className="hero-search" onSubmit={submit} role="search" aria-label="İlan ara">
+            <div className="search-input-wrapper">
+              <Icon name="search" size={18} />
+              <input
+                type="search"
+                value={term}
+                onChange={(event) => setTerm(event.target.value)}
+                placeholder="Unvan, kurum veya anahtar kelime (örn. hemşire, zabıta, DSİ)"
+                aria-label="Arama terimi"
+              />
+            </div>
+            <div className="search-input-wrapper">
+              <Icon name="mapPin" size={18} />
+              <input
+                type="search"
+                value={city}
+                onChange={(event) => setCity(event.target.value)}
+                placeholder="İl (örn. İstanbul)"
+                aria-label="İl"
+                list="il-listesi"
+              />
+            </div>
+            <button type="submit" className="btn-primary">
+              <Icon name="search" size={16} />
+              <span>İlanlarda ara</span>
+            </button>
+          </form>
+          <div className="desk-actions hero-actions">
+            <Link className="btn-secondary btn-sm" to="/ilanlar?status=active">
+              Başvurusu açık ilanlar
+            </Link>
+            <Link className="btn-secondary btn-sm" to="/kaynaklar">
+              <Icon name="list" size={16} />
+              <span>Kaynaklar ve kapsam</span>
+            </Link>
+            <Link className="btn-secondary btn-sm" to="/panel">
+              <Icon name="bell" size={16} />
+              <span>Bildirim kur</span>
+            </Link>
           </div>
         </div>
+
+        <SystemStrip />
       </section>
 
       {stats.isError && (

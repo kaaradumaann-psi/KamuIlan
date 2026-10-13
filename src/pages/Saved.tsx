@@ -41,6 +41,18 @@ export function SavedJobsPage(): ReactNode {
         </div>
       </header>
 
+      <nav className="subnav-tabs" aria-label="Panel bölümleri">
+        <Link className="subnav-tab" to="/panel">
+          Tercihlerim
+        </Link>
+        <Link className="subnav-tab" to="/panel/gecmis">
+          Bildirim geçmişi
+        </Link>
+        <Link className="subnav-tab is-active" aria-current="page" to="/panel/kaydedilenler">
+          Kaydettiklerim
+        </Link>
+      </nav>
+
       {saved.isLoading && <LoadingCard title="Kayıtlı ilanlar yükleniyor…" />}
       {saved.isError && (
         <ErrorNotice

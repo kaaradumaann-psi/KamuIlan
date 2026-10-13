@@ -131,8 +131,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
 
   return (
     <div className="page-stack">
-      <header className="panel-head">
-        <div>
+      <header className="panel-head page-head">
+        <div className="page-head-text">
+          <span className="kicker">Kişisel çalışma alanı</span>
           <h1 className="panel-title">Panelim</h1>
           <p className="text-muted-sm">
             {data.email} için bildirim tercihleri · doğrulama:{' '}

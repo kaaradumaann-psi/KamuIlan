@@ -22,8 +22,9 @@ import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
 import type { IconName } from './components/Icon';
 import { SiteFooter, INFO_ROUTES } from './components/SiteFooter';
+import { APP_VERSION } from './config/app';
 import { useAuth } from './lib/session';
-import { APP_NAME, HONESTY_NOTE } from './site';
+import { APP_NAME, HONESTY_NOTE, SITE_LABEL, SITE_URL } from './site';
 import { AdminPage } from './pages/Admin';
 import { HomePage } from './pages/Home';
 import { JobDetailPage } from './pages/JobDetail';
@@ -172,6 +173,7 @@ function AppShell({ children }: { children: ReactNode }) {
               Hangi kaynaklara bakıyoruz? <Icon name="arrowRight" size={14} />
             </Link>
           </div>
+          <span className="sidebar-version">{`${APP_NAME} · v${APP_VERSION}`}</span>
         </div>
       </aside>
 
@@ -196,6 +198,16 @@ function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             <div className="header-user">
+              <a
+                href={SITE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="home-site-link"
+                title={`${SITE_LABEL} ana sayfasına git`}
+              >
+                <Icon name="external" size={13} />
+                <span>{SITE_LABEL}</span>
+              </a>
               {user ? (
                 <>
                   <div className="user-profile-summary">
@@ -204,7 +216,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     </div>
                     <div className="user-info-text">
                       <strong className="user-full-name">{displayName}</strong>
-                      <span className={`user-role-badge ${isAdmin ? 'badge-admin' : 'badge-default'}`}>
+                      <span className={`user-role-badge ${isAdmin ? 'badge-admin' : 'badge-psy'}`}>
                         {roleLabel}
                       </span>
                     </div>
@@ -285,6 +297,7 @@ function RequireAuthGate({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
+        <SiteFooter compact />
       </div>
     );
   }

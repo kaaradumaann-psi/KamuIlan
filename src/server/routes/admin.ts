@@ -21,6 +21,8 @@ import { audit, requireAdmin } from '../context';
 import { ApiError } from '../errors';
 import { toCoverageEntry, toReviewItem, toRevision, toRunSummary, toSourceStatus, toUserProfile } from '../serializers';
 import { enqueueMaintenanceNow, enqueueSourceScrapeNow } from '../../worker/trigger';
+import { applyRawAnnouncement } from '../../ingest/jobs-service';
+import type { EmploymentType, RawAnnouncement } from '../../domain';
 
 const sourceKeySchema = z
   .string()
@@ -299,6 +301,70 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       await repos.review.resolve(params.id, `${body.action}${body.note ? `: ${body.note}` : ''}`, admin.id);
     }
 
+    // Sınıflandırma kararında: yönetici "accept" derse inceleme kaydı gerçek ilana dönüştürülür.
+    let acceptedJobId: string | null = null;
+    if (body.action === 'accept' && item.kind === 'classification') {
+      for (const candidateId of item.candidateJobIds) {
+        const existingJob = await repos.jobs.findById(candidateId);
+        if (existingJob && existingJob.classification.decision !== 'accept') {
+          await repos.jobs.updateJob(existingJob.id, {
+            classification: {
+              ...existingJob.classification,
+              decision: 'accept',
+              classifiedAt: repos.clock.now().toISOString(),
+            },
+            updatedAt: repos.clock.now().toISOString(),
+          });
+          acceptedJobId = existingJob.id;
+        }
+      }
+      if (!acceptedJobId && typeof item.payload.sourceItemId === 'string' && item.payload.sourceItemId.length > 0) {
+        const excerpt = typeof item.payload.excerpt === 'string' ? item.payload.excerpt : '';
+        const raw: RawAnnouncement = {
+          sourceKey: item.sourceKey,
+          sourceItemId: item.payload.sourceItemId,
+          url: item.url,
+          title: item.title,
+          ...(typeof item.payload.institution === 'string' ? { institution: item.payload.institution } : {}),
+          ...(typeof item.payload.publishedAt === 'string' ? { publishedAt: item.payload.publishedAt } : {}),
+          ...(typeof item.payload.applicationStartAt === 'string'
+            ? { applicationStartAt: item.payload.applicationStartAt }
+            : {}),
+          ...(typeof item.payload.applicationEndAt === 'string'
+            ? { applicationEndAt: item.payload.applicationEndAt }
+            : {}),
+          bodyText: excerpt,
+          rawExcerpt: excerpt,
+          extractionConfidence: item.confidence,
+          attachments: Array.isArray(item.payload.attachments)
+            ? (item.payload.attachments as RawAnnouncement['attachments'])
+            : [],
+        };
+        const employmentType = (
+          typeof item.payload.employmentType === 'string' ? item.payload.employmentType : 'belirsiz'
+        ) as EmploymentType;
+        const outcome = await applyRawAnnouncement(
+          raw,
+          { repos, now: repos.clock.now(), workerId: `admin:${admin.id}`, provenance: 'scraped' },
+          {
+            classificationOverride: {
+              decision: 'accept',
+              employmentType,
+              confidence: Math.max(item.confidence, 0.85),
+              reasons: [
+                ...(Array.isArray(item.payload.reasons) ? item.payload.reasons.map(String) : []),
+                'Yönetici onayıyla kabul edildi',
+              ],
+              rules: Array.isArray(item.payload.rules) ? item.payload.rules.map(String) : ['admin-accept'],
+              negativeSignals: [],
+              version: CLASSIFICATION_VERSION,
+            },
+          },
+        );
+        acceptedJobId = outcome.jobId;
+      }
+    }
+
     // Tekilleştirme kararında: birleştirme yalnızca YÖNETİCİ onayıyla uygulanır.
     let mergeResult: { mergedJobId: string; removedJobId: string } | null = null;
     if (body.action === 'merge' && item.kind === 'dedupe' && item.candidateJobIds.length >= 2) {
@@ -340,13 +406,16 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       }
     }
 
-    await audit(repos.audit, request, { action: 'admin.review-resolved', targetType: 'review', targetId: params.id, actorUserId: admin.id, actorRole: admin.role, meta: { decision: body.action, mergeResult } });
+    await audit(repos.audit, request, { action: 'admin.review-resolved', targetType: 'review', targetId: params.id, actorUserId: admin.id, actorRole: admin.role, meta: { decision: body.action, mergeResult, acceptedJobId } });
     return {
       decision: body.action,
       mergeResult,
+      acceptedJobId,
       message: mergeResult
         ? 'Kayıtlar birleştirildi; kaynak bağlantıları korundu ve ikinci kayıt kapatıldı.'
-        : 'Karar kaydedildi.',
+        : acceptedJobId
+          ? 'İlan kabul edildi ve yayımlandı.'
+          : 'Karar kaydedildi.',
     };
   });
 
@@ -451,6 +520,8 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         title: job.title,
         institution: job.institution,
         status: job.status,
+        classificationDecision: job.classification.decision,
+        classification: job.classification,
         version: job.version,
         contentHash: job.contentHash,
         provenance: job.provenance,
