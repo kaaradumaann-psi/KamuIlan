@@ -48,14 +48,14 @@ export function StatusBanner() {
   const parts: string[] = [];
   parts.push(
     data.scans.lastSuccessAt
-      ? `Son başarılı tarama ${formatRelative(data.scans.lastSuccessAt)}.`
-      : 'Henüz başarılı tarama kaydı yok.',
+      ? `İlanlar en son ${formatRelative(data.scans.lastSuccessAt)} güncellendi.`
+      : 'Henüz güncelleme kaydı yok.',
   );
-  parts.push(`${formatNumber(data.sources.enabled)} kaynak etkin, ${formatNumber(data.sources.built ?? 0)} adaptör yazılmış.`);
-  if (failing) parts.push(`${formatNumber(data.sources.failing)} kaynak üst üste başarısız.`);
-  if (noWorker) parts.push('Çalışan worker yok: yeni tarama başlamıyor.');
-  if (stale) parts.push('Veriler 24 saatten eski.');
-  parts.push('Kapsam eksiktir; bazı ilanlar yalnızca kurumların kendi sayfalarında yayımlanır.');
+  parts.push(`${formatNumber(data.sources.enabled)} kaynak düzenli izleniyor.`);
+  if (failing) parts.push(`${formatNumber(data.sources.failing)} kaynağa şu an ulaşılamıyor.`);
+  if (noWorker) parts.push('Otomatik kontrol şu an çalışmıyor; yeni ilanlar gecikebilir.');
+  if (stale) parts.push('Bilgiler bir günden eski olabilir.');
+  parts.push('Bazı kurumlar ilanını yalnızca kendi sayfasında duyurur; her ilanı bulamayabiliriz.');
 
   function dismiss() {
     try {

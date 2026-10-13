@@ -54,26 +54,26 @@ export const EDUCATION_LABELS: Record<string, string> = {
 };
 
 export const SOURCE_STATUS_LABELS: Record<string, string> = {
-  verified: 'Canlı doğrulandı',
-  'scraper-built': 'Adaptör yazıldı, canlı doğrulanmadı',
-  accessible: 'Erişilebilir (JS/giriş gerektirebilir)',
-  'method-defined': 'Yöntem belirlendi',
-  researched: 'Araştırıldı',
-  'not-researched': 'Araştırılmadı',
-  'temporary-error': 'Geçici hata',
-  'access-restricted': 'Erişim kısıtlı',
-  'needs-manual-method': 'Elle yöntem gerekiyor',
-  disabled: 'Devre dışı',
+  verified: 'Çalıştığı kanıtlanmış',
+  'scraper-built': 'Hazırlanıyor',
+  accessible: 'Ulaşılabiliyor',
+  'method-defined': 'Yöntemi hazır',
+  researched: 'İncelendi',
+  'not-researched': 'Henüz başlamadı',
+  'temporary-error': 'Geçici sorun',
+  'access-restricted': 'Erişilemiyor',
+  'needs-manual-method': 'Elle takip ediliyor',
+  disabled: 'Kapalı',
 };
 
 export const RUN_STATUS_LABELS: Record<string, string> = {
-  queued: 'Kuyrukta',
+  queued: 'Sırada bekliyor',
   running: 'Çalışıyor',
-  success: 'Başarılı',
-  partial: 'Kısmen başarılı',
-  failed: 'Başarısız',
-  skipped: 'Atlandı (değişiklik yok)',
-  locked: 'Kilit nedeniyle atlandı',
+  success: 'Tamamlandı',
+  partial: 'Kısmen tamamlandı',
+  failed: 'Sorun çıktı',
+  skipped: 'Atlandı',
+  locked: 'Atlandı (başka tarama sürüyor)',
 };
 
 const ISTANBUL = 'Europe/Istanbul';

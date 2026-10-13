@@ -308,7 +308,7 @@ export function FilterForm({
               />
             </Field>
 
-            <Field label="Son başvuru (başlangıç)" htmlFor="filter-from">
+            <Field label="Son başvuru: en erken" htmlFor="filter-from" hint="Son günü bu tarihten önce olmayanlar.">
               <input
                 id="filter-from"
                 className="date-filter-field"
@@ -318,7 +318,7 @@ export function FilterForm({
               />
             </Field>
 
-            <Field label="Son başvuru (bitiş)" htmlFor="filter-to">
+            <Field label="Son başvuru: en geç" htmlFor="filter-to" hint="Son günü bu tarihten sonra olmayanlar.">
               <input
                 id="filter-to"
                 className="date-filter-field"
@@ -335,9 +335,9 @@ export function FilterForm({
                 value={filters.sort}
                 onChange={(event) => update({ sort: event.target.value })}
               >
-                <option value="newest">Sisteme eklenme (yeni → eski)</option>
-                <option value="deadline">Son başvuru tarihi (yakın → uzak)</option>
-                <option value="published">Yayım tarihi (yeni → eski)</option>
+                <option value="newest">Önce yeni eklenenler</option>
+                <option value="deadline">Önce son günü yakın olanlar</option>
+                <option value="published">Önce yeni yayımlananlar</option>
                 <option value="institution">Kurum adı (A → Z)</option>
                 <option value="title">İlan başlığı (A → Z)</option>
               </select>

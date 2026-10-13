@@ -50,14 +50,14 @@ function SystemStrip() {
   if (health.isLoading)
     return (
       <div className="status-strip" aria-busy="true">
-        Sistem durumu okunuyor…
+        Durum okunuyor…
       </div>
     );
   if (health.isError || !health.data) {
     return (
       <div className="status-strip is-warning" role="status">
         <Icon name="alert" size={15} />
-        <span>Sistem durumu şu anda okunamıyor. Sayfayı yenilediğinizde yeniden denenecek.</span>
+        <span>Durum şu anda okunamıyor. Sayfayı yenilediğinizde yeniden denenecek.</span>
       </div>
     );
   }
@@ -68,22 +68,15 @@ function SystemStrip() {
     <div className={`status-strip is-${state.tone}`} role="status">
       <Tag tone={state.tone}>{state.label}</Tag>
       <span>
-        Son başarılı tarama:{' '}
-        <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'kayıt yok'}</strong>
+        İlanlar en son:{' '}
+        <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'henüz güncellenmedi'}</strong>
       </span>
       <span>
-        Worker: <strong>{data.workers.running} çalışıyor</strong>
-        {data.workers.stale > 0 ? `, ${data.workers.stale} bayat` : ''}
+        İzlenen kaynak: <strong>{data.sources.enabled}</strong>
       </span>
       <span>
-        Kaynaklar: <strong>{data.sources.enabled} etkin</strong> · {data.sources.built ?? 0} adaptör yazılmış
-        · {data.sources.verified} canlı doğrulanmış · {data.sources.planned} planlı
+        Çalıştığı kanıtlanan: <strong>{data.sources.verified}</strong>
       </span>
-      {data.queue.pending + data.queue.active > 0 && (
-        <span>
-          Kuyruk: <strong>{data.queue.pending + data.queue.active} iş</strong>
-        </span>
-      )}
     </div>
   );
 }
@@ -195,19 +188,19 @@ export function HomePage() {
             tone="success"
           />
           <StatCard
-            label="Kapanışa ≤ 7 gün"
+            label="Son günü yaklaşan"
             value={formatNumber(stats.data.closingSoon)}
             icon="clock"
             tone="warning"
           />
-          <StatCard label="Kayıtlı ilan (tümü)" value={formatNumber(stats.data.total)} icon="list" />
+          <StatCard label="Toplam ilan" value={formatNumber(stats.data.total)} icon="list" />
         </section>
       )}
 
       <div className="dashboard-grid">
         <Card
           title="Son eklenen ilanlar"
-          description="Kaynak taramasında en son görülen ilanlar."
+          description="En son bulunan ilanlar."
           actions={
             <Link className="board-text-link" to="/ilanlar?sort=newest">
               Tümünü gör <Icon name="right" size={13} />
@@ -219,7 +212,7 @@ export function HomePage() {
             <ErrorNotice message={errorMessage(latest.error)} onRetry={() => void latest.refetch()} />
           )}
           {latest.data && latest.data.items.length === 0 && (
-            <p className="text-muted-sm">Henüz ilan kaydı yok. Kaynaklar tarandıkça burada görünecek.</p>
+            <p className="text-muted-sm">Henüz ilan bulunamadı. Kontroller sürdükçe burada görünecek.</p>
           )}
           {latest.data && latest.data.items.length > 0 && (
             <div className="job-list">
@@ -230,13 +223,13 @@ export function HomePage() {
           )}
         </Card>
 
-        <Card title="Yaklaşan son başvuru tarihleri" description="Önümüzdeki 14 gün, aktif ilanlar.">
+        <Card title="Yaklaşan son başvuru tarihleri" description="Başvurusu önümüzdeki 14 gün içinde bitenler.">
           {closing.isLoading && <LoadingCard title="Takvim yükleniyor…" />}
           {closing.isError && (
             <ErrorNotice message={errorMessage(closing.error)} onRetry={() => void closing.refetch()} />
           )}
           {closing.data && closing.data.items.length === 0 && (
-            <p className="text-muted-sm">Önümüzdeki 14 gün içinde biten doğrulanmış başvuru tarihi yok.</p>
+            <p className="text-muted-sm">Önümüzdeki 14 gün içinde başvurusu biten ilan yok.</p>
           )}
           {closing.data && closing.data.items.length > 0 && (
             <ul className="report-list">
@@ -260,7 +253,7 @@ export function HomePage() {
       </div>
 
       {typeCounts.length > 0 && (
-        <Card title="İstihdam türüne göre dağılım" description="Kayıtlı ilanların tür bazında sayısı.">
+        <Card title="Türlerine göre ilan sayısı" description="Hangi türde kaç ilan olduğunu gösterir.">
           <ul className="distribution-list">
             {typeCounts.map((item) => (
               <li key={item.key}>
@@ -283,31 +276,32 @@ export function HomePage() {
         </Card>
       )}
 
-      <Card title="Sistem nasıl çalışıyor?" description="Kısaca boru hattı ve sınırları.">
+      <Card title="Bu site nasıl çalışıyor?" description="İlanların size ulaşana kadar geçtiği yol, kısaca.">
         <ol className="checklist">
           <li>
-            <strong>Tarama:</strong> Kaynaklar zamanlanmış işlerle taranır; her taramanın sonucu, süresi ve
-            hatası kaydedilir. Bir kaynağa erişilemezse mevcut ilan kayıtları silinmez, kaynak "bayat" olarak
-            işaretlenir.
+            <strong>Kontrol:</strong> Kurumların ilan sayfalarını düzenli aralıklarla yoklarız. Bir sayfaya
+            ulaşamazsak elimizdeki ilanları silmeyiz; bir süre sonra yeniden deneriz.
           </li>
           <li>
-            <strong>Sınıflandırma:</strong> Personel alım ilanı olmayan içerik (ihale, tebliğ, sonuç listesi)
-            kural tabanlı olarak elenir; kararsız kalanlar inceleme kuyruğuna düşer, sessizce silinmez.
+            <strong>Ayıklama:</strong> İş alımı olmayan duyuruları (ihale, sonuç listesi, tebliğ gibi)
+            ayıklarız. Emin olamadıklarımızı silmez, bir insanın gözden geçirmesine bırakırız.
           </li>
           <li>
-            <strong>Çıkarım:</strong> Unvan, kurum, kontenjan, il, tarih, KPSS koşulu gibi alanlar belgeden
-            çıkarılır; bulunamayan alanlar "belirtilmemiş" olarak kalır ve hiçbir değer tahmin edilmez.
+            <strong>Okuma:</strong> İlanın içinden tarih, kontenjan, şehir ve koşulları okuruz.
+            Okuyamadığımız yerde "belirtilmemiş" yazarız; hiçbir bilgiyi tahmin etmeyiz.
           </li>
           <li>
-            <strong>Tekilleştirme:</strong> Aynı ilan birden çok kaynakta yayımlanıyorsa tek kayda bağlanır;
-            tüm kaynak bağlantıları korunur. Benzer başlıklı farklı ilanlar otomatik birleştirilmez.
+            <strong>Tek gösterme:</strong> Aynı ilan birden çok yerde çıkarsa size bir kez gösteririz;
+            çıktığı bütün adresleri ilanın altında sıralarız. Benzer başlıklı farklı ilanları
+            birleştirmeyiz.
           </li>
           <li>
-            <strong>Bildirim:</strong> Kaydettiğiniz kriterlere uyan yeni ilanlar veya değişiklikler e-posta
-            ile gönderilir; gönderim sonucu (sağlayıcıya iletildi / kabul edildi) kayda geçer.
+            <strong>Haber verme:</strong> Tercihlerinize uyan yeni bir ilan bulursak ya da takip
+            ettiğiniz ilanda değişiklik olursa e-posta göndeririz. Gönderimin ulaşıp ulaşmadığını
+            da geçmiş ekranından görebilirsiniz.
           </li>
         </ol>
-        <InfoNote title="Dürüstlük notu" tone="info">
+        <InfoNote title="Bilmeniz gereken" tone="info">
           {HONESTY_NOTE}
         </InfoNote>
       </Card>

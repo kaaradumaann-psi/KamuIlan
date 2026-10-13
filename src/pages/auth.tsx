@@ -219,8 +219,8 @@ export function ResetPasswordPage(): ReactNode {
     return (
       <InfoPageShell kicker="Şifre işlemleri" title="Bağlantı eksik" backTo="/giris">
         <InfoNote tone="warning" title="Bağlantı geçersiz">
-          Adres çubuğunda <code>token</code> parametresi yok. E-postadaki bağlantının tamamını açtığınızdan
-          emin olun; gerekirse parolamı unuttum adımını yeniden çalıştırın.
+          Bu bağlantı eksik açılmış görünüyor. E-postadaki bağlantının tamamını açtığınızdan emin olun;
+          gerekirse "parolamı unuttum" adımını yeniden kullanın.
         </InfoNote>
       </InfoPageShell>
     );
@@ -291,7 +291,7 @@ export function VerifyEmailPage(): ReactNode {
       <Card>
         {!token && (
           <InfoNote tone="warning" title="Bağlantı eksik">
-            Doğrulama bağlantısında <code>token</code> yok. Giriş ekranından yeni bağlantı isteyebilirsiniz.
+            Bu bağlantı eksik açılmış görünüyor. Giriş ekranından yeni doğrulama bağlantısı isteyebilirsiniz.
           </InfoNote>
         )}
         {token && state === 'idle' && (
@@ -430,9 +430,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Bilgiler ne sıklıkla güncelleniyor?',
     answer: (
       <>
-        Sistem test aşamasında olduğu için tarama aralığı varsayılan olarak 1 dakikadır; üretim kurulumunda bu
-        değer kaynak başına 30–360 dakika aralığında ayarlanır. Her kaynağın kendi aralığı vardır ve taramalar
-        zamanlanmış işlerle yürür; tarayıcı sekmesi kapalıyken de çalışmaya devam eder.
+        Kurum sayfalarını düzenli aralıklarla yoklarız; siz sayfayı kapatsanız bile kontroller sürer. Her
+        kaynağa ne sıklıkla baktığımız, "İlan kaynakları" sayfasında kaynağın yanında yazar.
       </>
     ),
   },
@@ -440,8 +439,9 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Bir ilan birden fazla kaynakta çıkarsa ne olur?',
     answer: (
       <>
-        Aynı ilan tek kayda bağlanır ama tüm kaynak bağlantıları korunur. Benzer başlıklı farklı ilanlar
-        otomatik birleştirilmez; şüpheli durumlar inceleme kuyruğuna düşer ve elle karara bağlanır.
+        Aynı ilanı tek kez gösteririz ama yayımlandığı bütün adresleri ilanda sıralarız. Benzer başlıklı
+        farklı ilanları birleştirmeyiz; aynı ilan olup olmadığından emin olamadıklarımızı bir insan
+        gözden geçirir.
       </>
     ),
   },
@@ -476,12 +476,12 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     ),
   },
   {
-    question: 'Gönderim durumu ne anlama geliyor?',
+    question: 'Bildirim e-postası gelmezse ne olur?',
     answer: (
       <>
-        "Sağlayıcıya iletildi" / "kabul edildi" durumları gönderim sağlayıcısının yanıtına dayanır; teslim
-        (inbox) garantisi değildir. Hata hâlinde kayıt, deneme sayısı ve hata mesajıyla birlikte yönetim
-        panelinde görünür ve sınırlı sayıda yeniden denenir.
+        E-postayı gönderdiğimiz anda gönderim geçmişinizde görürsünüz. Yine de e-postanın gelen
+        kutunuza ulaşması sağlayıcınıza bağlıdır; bulamazsanız spam/önemsiz klasörünü de kontrol edin.
+        Ulaşmayan e-postayı birkaç kez yeniden deneriz.
       </>
     ),
   },
@@ -489,10 +489,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Verilerim nasıl korunuyor?',
     answer: (
       <>
-        Parolalar geri döndürülemez biçimde (scrypt) saklanır; oturum çerezleri HttpOnly/Secure ve oturum açma
-        istekleri CSRF korumalıdır. E-posta adresleri günlüklerde maskelenir. Veritabanı Supabase üzerinde
-        barındırılır, yalnızca sunucu tarafı anahtarlarla erişilir. Ayrıntılar Gizlilik &amp; KVKK
-        sayfasındadır.
+        Parolanız okunamayacak biçimde saklanır; sizin dışınızda kimse göremez. E-posta adresiniz yalnızca
+        size haber vermek için kullanılır, kimseyle paylaşılmaz. Ayrıntılar Gizlilik sayfasındadır.
       </>
     ),
   },
@@ -596,16 +594,15 @@ export function PrivacyPage(): ReactNode {
                 <PolicyList
                   items={[
                     <>
-                      <strong>Supabase:</strong> yönetilen PostgreSQL veritabanı ve depolama. Veriler AB/ABD
-                      bölgelerindeki sunucularda barındırılabilir; erişim yalnızca sunucu tarafı anahtarlarla
-                      yapılır.
+                      <strong>Supabase:</strong> bilgileri sakladığımız veritabanı hizmeti. Veriler Avrupa ya
+                      da ABD'deki sunucularda tutulabilir; verilere yalnızca biz erişiriz.
                     </>,
                     <>
-                      <strong>Cloudflare:</strong> barındırma, alan adı ve trafik koruması.
+                      <strong>Cloudflare:</strong> sitenin barındırılması ve korunması.
                     </>,
                     <>
-                      <strong>Resend:</strong> işlem e-postalarının gönderimi (doğrulama, davet, bildirim).
-                      E-posta adresi ve gönderim içeriği sağlayıcıya iletilir.
+                      <strong>Resend:</strong> e-posta gönderimi (doğrulama, davet, bildirim). E-postanızın
+                      size ulaşması için adresiniz bu hizmetle paylaşılır.
                     </>,
                   ]}
                 />
@@ -654,11 +651,11 @@ export function PrivacyPage(): ReactNode {
             body: (
               <PolicyList
                 items={[
-                  'Parolalar geri döndürülemez biçimde (scrypt + rastgele tuz) saklanır; düz metin parola tutulmaz.',
-                  'Oturum çerezleri HttpOnly, Secure ve SameSite ile verilir; durum değiştiren istekler CSRF jetonu ister.',
-                  'E-posta adresleri günlük kayıtlarında maskelenir.',
-                  'Hız sınırı, giriş/şifre sıfırlama denemelerinde ek koruma uygular.',
-                  'Kaynak taraması yalnızca izinli alan adlarına ve herkese açık adreslere yapılır (SSRF koruması).',
+                  'Parolalar okunamayacak biçimde saklanır; sizden başka kimse göremez.',
+                  'Oturumunuz, başkalarının sizin adınıza işlem yapmasını engelleyecek biçimde korunur.',
+                  'E-posta adresiniz kayıtlarımızda kısmen gizlenir.',
+                  'Arka arkaya çok sayıda yanlış parola denemesi engellenir.',
+                  'İlan kontrolleri yalnızca kurumların herkese açık sayfalarına yapılır.',
                 ]}
               />
             ),
@@ -668,8 +665,8 @@ export function PrivacyPage(): ReactNode {
             title: 'Çerezler',
             body: (
               <p>
-                Yalnızca oturum çerezi ve CSRF jetonu kullanılır. Reklam/izleme çerezi yoktur; üçüncü taraf
-                analitik aracı çalıştırılmaz.
+                Yalnızca oturumunuzu açık tutmak için gerekli çerezler kullanılır. Reklam ya da takip çerezi
+                yoktur; ne yaptığınızı izleyen başka bir araç çalıştırmıyoruz.
               </p>
             ),
           },

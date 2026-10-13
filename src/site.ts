@@ -25,5 +25,5 @@ export const POLICY_UPDATED_LABEL = `Son güncelleme: ${POLICY_EFFECTIVE_DATE}`;
  * listesinin altında açıkça yazılıdır.
  */
 export const HONESTY_NOTE =
-  'Kapsam eksiktir ve bunu saklamıyoruz: bazı kurumlar yalnızca kendi sayfalarında ilan yayımlar. ' +
-  'Her kaydın resmî kaynağına bağlantı verilir; doğrulanmamış kaynak entegrasyon iddiası taşımaz.';
+  'Her ilanı bulamayabiliriz: bazı kurumlar ilanını yalnızca kendi sayfasında duyurur. ' +
+  'Bulduğumuz her ilanda sizi asıl kaynağa götürürüz; emin olmadığımız bilgiyi de açıkça işaretleriz.';

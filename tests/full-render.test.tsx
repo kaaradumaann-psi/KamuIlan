@@ -195,7 +195,7 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
 
   it('kaynaklar', async () => {
     renderPage(<SourcesPage />, '/kaynaklar');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Kaynaklar ve kapsam' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
   });
 
   it('panel (tercihler + geçmiş)', async () => {

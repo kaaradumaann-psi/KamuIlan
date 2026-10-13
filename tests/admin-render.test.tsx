@@ -129,17 +129,17 @@ describe('Yönetim paneli (gerçek API cevaplarıyla)', () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText('Yönetim paneli')).toBeTruthy();
-    expect(await screen.findByText('Worker kalp atışları')).toBeTruthy();
+    expect(await screen.findByText('Otomatik kontrol durumu')).toBeTruthy();
 
     for (const label of [
       'Kaynaklar',
       'Tarama geçmişi',
-      'İnceleme kuyruğu',
-      'E-posta kuyruğu',
-      'Kuyruk & kilitler',
-      'Kapsam raporu',
+      'İncelenecek ilanlar',
+      'E-posta gönderimi',
+      'İş sırası',
+      'Kapsam durumu',
       'Kullanıcılar',
-      'Denetim kaydı',
+      'İşlem geçmişi',
       'Genel bakış',
     ]) {
       fireEvent.click(screen.getByRole('tab', { name: label }));

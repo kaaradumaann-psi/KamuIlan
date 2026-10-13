@@ -1,13 +1,13 @@
 /**
- * Kaynaklar ve kapsam sayfası.
+ * Kaynaklar sayfası: ilanları hangi resmî adreslerden aldığımız.
  *
- * Amaç: "hangi kaynaklar taranıyor, hangileri planlanıyor, en son ne zaman
- * başarılı tarandı" sorularını açıkça yanıtlamak. Doğrulanmamış kaynaklar
- * "doğrulandı" gibi gösterilmez; adaptörü yazılmış olmak canlı doğrulama değildir.
+ * Amaç: "hangi kurumlara bakılıyor, hangilerine henüz başlanmadı, en son
+ * ne zaman bakıldı" sorularını herkesin anlayacağı dille yanıtlamak.
+ * Çalıştığı kanıtlanmamış kaynak "çalışıyor" gibi gösterilmez.
  */
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { CONTACT_EMAIL } from '../site';
 import { api, errorMessage } from '../lib/api';
 import {
   RUN_STATUS_LABELS,
@@ -21,10 +21,10 @@ import type { SourceListResponse } from '../types';
 import { Card, DataTable, EmptyState, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
 import { Icon } from '../components/Icon';
 
-/** Kaynak etiketi: doğrulanmış / adaptör hazır / devre dışı ayrımı korunur. */
+/** Kaynak etiketi: çalışıyor / hazırlanıyor / diğer durumlar ayrımı korunur. */
 function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
-  if (source.verified) return <Tag tone="success" icon="check">canlı doğrulandı</Tag>;
-  if (source.built) return <Tag tone="warning" icon="info">adaptör hazır, doğrulanmadı</Tag>;
+  if (source.verified) return <Tag tone="success" icon="check">ilanları düzenli okunuyor</Tag>;
+  if (source.built) return <Tag tone="warning" icon="info">hazırlanıyor</Tag>;
   return <Tag tone="neutral">{SOURCE_STATUS_LABELS[source.status] ?? source.status}</Tag>;
 }
 
@@ -35,11 +35,11 @@ export function SourcesPage(): ReactNode {
     <div className="page-stack">
       <header className="page-head">
         <div className="page-head-text">
-          <span className="kicker">Kapsam</span>
-          <h1 className="page-title">Kaynaklar ve kapsam</h1>
+          <span className="kicker">İlan kaynakları</span>
+          <h1 className="page-title">İlanları nereden alıyoruz?</h1>
           <p className="info-lede">
-            Kapsam eksiktir ve bunu saklamıyoruz: aşağıda hangi kaynağın canlı doğrulandığı, hangisinin henüz adaptör
-            beklediği ve hangisinin elle takip edildiği listelenir.
+            Her ilanı bulamayabiliriz; bunu saklamıyoruz. Aşağıda hangi kurumlara düzenli baktığımızı,
+            hangilerine henüz başlamadığımızı ve en son ne zaman baktığımızı görürsünüz.
           </p>
         </div>
       </header>
@@ -56,42 +56,42 @@ export function SourcesPage(): ReactNode {
       {query.data && (
         <>
           <section className="stats-grid-4" aria-label="Kaynak özeti">
-            <StatCard label="Kayıtlı kaynak" value={formatNumber(query.data.summary.total)} icon="list" />
-            <StatCard label="Etkin" value={formatNumber(query.data.summary.enabled)} icon="server" tone="accent" />
+            <StatCard label="Toplam kaynak" value={formatNumber(query.data.summary.total)} icon="list" />
+            <StatCard label="İzlenen" value={formatNumber(query.data.summary.enabled)} icon="server" tone="accent" />
             <StatCard
-              label="Canlı doğrulanmış"
+              label="Çalıştığı kanıtlanan"
               value={formatNumber(query.data.summary.verified)}
               icon="check"
               tone="success"
             />
             <StatCard
-              label="Adaptörü yazılmış"
+              label="Hazırlanan"
               value={formatNumber(query.data.summary.built ?? 0)}
               icon="layers"
-              hint="Canlı doğrulama kanıtı olmayabilir."
+              hint="Henüz düzenli okunmuyor."
             />
-            <StatCard label="Planlanan" value={formatNumber(query.data.summary.planned)} icon="clock" />
+            <StatCard label="Henüz başlamadı" value={formatNumber(query.data.summary.planned)} icon="clock" />
             <StatCard
-              label="Üst üste başarısız"
+              label="Sorun yaşayan"
               value={formatNumber(query.data.summary.failing)}
               icon="alert"
               tone={query.data.summary.failing > 0 ? 'warning' : 'neutral'}
             />
           </section>
 
-          <InfoNote title="Terimler">
+          <InfoNote title="Durumlar ne demek?">
             <ul className="checklist">
               <li>
-                <strong>Canlı doğrulanmış:</strong> Bu ortamdan gerçekten erişilip ilan listesinin okunduğu kanıtlanan
-                kaynak.
+                <strong>İlanları düzenli okunuyor:</strong> Bu kurumun ilan sayfasına düzenli bakıyoruz ve
+                ilanları gerçekten okuyabildiğimizi gördük.
               </li>
               <li>
-                <strong>Adaptörü yazılmış:</strong> Kod hazır; canlı erişim doğrulaması yapılmamış. İkisi aynı şey
-                değildir ve arayüzde ayrı gösterilir.
+                <strong>Hazırlanıyor:</strong> Bağlantı üzerinde çalışıyoruz; henüz düzenli okumuyoruz.
+                Bu ikisi aynı şey değildir, o yüzden ayrı gösteriyoruz.
               </li>
               <li>
-                <strong>Planlanan:</strong> Henüz entegre edilmemiş kurum sayfaları; ilanları diğer kaynaklardan
-                kısmen gelebilir.
+                <strong>Henüz başlamadı:</strong> Bu kurumlara doğrudan bakmıyoruz; ilanları başka
+                kaynaklardan kısmen gelebilir.
               </li>
             </ul>
           </InfoNote>
@@ -100,10 +100,10 @@ export function SourcesPage(): ReactNode {
             {query.data.disclaimer}
           </InfoNote>
 
-          <Card title="Taranan kaynaklar" description="Sağlık bilgileri en son tarama kayıtlarından gelir.">
+          <Card title="Baktığımız kaynaklar" description="Son kontrol bilgileri günceldir.">
             <DataTable
-              caption="Kaynak listesi ve sağlık durumu"
-              head={['Kaynak', 'Durum', 'Aralık', 'Son başarılı tarama', 'Hata']}
+              caption="Kaynak listesi ve durumu"
+              head={['Kaynak', 'Durum', 'Ne sıklıkla bakılıyor', 'Son kontrol', 'Sorun var mı']}
             >
               {query.data.sources.map((source) => (
                 <tr key={source.key}>
@@ -111,50 +111,46 @@ export function SourcesPage(): ReactNode {
                     <span className="cell-title">{source.name}</span>
                     <span className="cell-subtitle">{source.institution}</span>
                     <span className="cell-subtitle">{source.coverageNote}</span>
-                    <span className="cell-mono">{source.key}</span>
                   </td>
                   <td data-label="Durum">
                     {sourceTag(source)}
                     <span className="cell-subtitle">
                       {SOURCE_STATUS_LABELS[source.status] ?? source.status}
-                      {source.enabled ? '' : ' · devre dışı'}
+                      {source.enabled ? '' : ' · kapalı'}
                     </span>
-                    {source.verificationEvidence && (
-                      <span className="cell-subtitle">Kanıt: {source.verificationEvidence}</span>
-                    )}
                   </td>
-                  <td data-label="Aralık">
-                    <span className="cell-num">{source.intervalMinutes} dk</span>
+                  <td data-label="Ne sıklıkla bakılıyor">
+                    <span className="cell-num">{source.intervalMinutes} dakikada bir</span>
                   </td>
-                  <td data-label="Son başarılı tarama">
+                  <td data-label="Son kontrol">
                     {source.health.lastSuccessAt ? (
                       <>
                         <span>{formatRelative(source.health.lastSuccessAt)}</span>
                         <span className="cell-subtitle">{formatDateTime(source.health.lastSuccessAt)}</span>
                       </>
                     ) : (
-                      <span className="cell-subtitle">henüz yok</span>
+                      <span className="cell-subtitle">henüz bakılmadı</span>
                     )}
                     {source.lastRun && (
                       <span className="cell-subtitle">
-                        Son çalışma: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
-                        {formatNumber(source.lastRun.itemsFound)} kayıt · {formatDuration(source.health.avgDurationMs)}
+                        Son bakışta: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
+                        {formatNumber(source.lastRun.itemsFound)} ilan · {formatDuration(source.health.avgDurationMs)}
                       </span>
                     )}
                     {source.health.successRuns + source.health.failureRuns > 0 && (
                       <span className="cell-subtitle">
-                        Başarı oranı: {formatNumber(source.health.successRuns)}/
-                        {formatNumber(source.health.successRuns + source.health.failureRuns)}
+                        Kontroller: {formatNumber(source.health.successRuns)}/
+                        {formatNumber(source.health.successRuns + source.health.failureRuns)} başarılı
                       </span>
                     )}
                   </td>
-                  <td data-label="Hata">
+                  <td data-label="Sorun var mı">
                     {source.health.consecutiveFailures > 0 ? (
                       <span className="cell-error">
-                        {source.health.consecutiveFailures} kez üst üste · {source.health.lastError ?? 'hata ayrıntısı yok'}
+                        {source.health.consecutiveFailures} denemedir ulaşılamıyor
                       </span>
                     ) : (
-                      <span className="cell-subtitle">—</span>
+                      <span className="cell-subtitle">yok</span>
                     )}
                   </td>
                 </tr>
@@ -163,11 +159,11 @@ export function SourcesPage(): ReactNode {
           </Card>
 
           <Card
-            title="Planlanan kaynaklar (henüz entegre edilmedi)"
-            description="Bu kurumların ilanları kısmen diğer kaynaklardan gelir; kendi sayfaları doğrulanmadan 'entegre' sayılmaz."
+            title="Henüz başlamadığımız kurumlar"
+            description="Bu kurumların ilanları şimdilik başka kaynaklardan geliyor; kendi sayfalarına doğrudan bakmaya başlamadık."
           >
             {query.data.planned.length === 0 ? (
-              <EmptyState icon="check" title="Planlanan kaynak kalmadı" description="Tanımlı kurum listesinin tamamı kayıtlı." />
+              <EmptyState icon="check" title="Başlanmamış kurum kalmadı" description="Bildiğimiz kurumların tamamı listede." />
             ) : (
               <ul className="report-list">
                 {query.data.planned.map((planned) => (
@@ -176,17 +172,17 @@ export function SourcesPage(): ReactNode {
                       <strong>{planned.name}</strong>
                       <span className="cell-subtitle">{planned.institution}</span>
                       {planned.indirectCoverage && (
-                        <span className="cell-subtitle">Dolaylı kapsam: {planned.indirectCoverage}</span>
+                        <span className="cell-subtitle">Şimdilik şuradan geliyor: {planned.indirectCoverage}</span>
                       )}
                       <span className="cell-subtitle">{planned.note}</span>
                     </div>
                     <div className="report-list-meta">
                       {planned.candidateUrl ? (
                         <a className="board-text-link" href={planned.candidateUrl} target="_blank" rel="noreferrer noopener">
-                          Aday adres <Icon name="external" size={13} />
+                          Kurumun sayfası <Icon name="external" size={13} />
                         </a>
                       ) : (
-                        <Tag>adres belirlenmedi</Tag>
+                        <Tag>adresi yok</Tag>
                       )}
                     </div>
                   </li>
@@ -196,8 +192,8 @@ export function SourcesPage(): ReactNode {
           </Card>
 
           <p className="text-muted-sm">
-            Kaynak ekleme ve düzenleme yönetim panelinden yapılır; kaynak kaydı eklemek için kod değişikliği gerekmez.{' '}
-            <Link to="/yonetim">Yönetim paneli</Link>
+            Listede eksik olduğunu düşündüğünüz bir kurum varsa bize yazın:{' '}
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
           </p>
         </>
       )}

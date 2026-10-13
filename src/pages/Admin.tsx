@@ -43,16 +43,23 @@ type Tab =
   | 'kullanicilar'
   | 'denetim';
 
+/** İnceleme nedenleri günlük dille görünür. */
+const REVIEW_KIND_LABELS: Record<string, string> = {
+  classification: 'ilgililik',
+  dedupe: 'aynı ilan olabilir',
+  extraction: 'bilgi okunamadı',
+};
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'ozet', label: 'Genel bakış' },
   { id: 'kaynaklar', label: 'Kaynaklar' },
   { id: 'taramalar', label: 'Tarama geçmişi' },
-  { id: 'inceleme', label: 'İnceleme kuyruğu' },
-  { id: 'eposta', label: 'E-posta kuyruğu' },
-  { id: 'kuyruk', label: 'Kuyruk & kilitler' },
-  { id: 'kapsam', label: 'Kapsam raporu' },
+  { id: 'inceleme', label: 'İncelenecek ilanlar' },
+  { id: 'eposta', label: 'E-posta gönderimi' },
+  { id: 'kuyruk', label: 'İş sırası' },
+  { id: 'kapsam', label: 'Kapsam durumu' },
   { id: 'kullanicilar', label: 'Kullanıcılar' },
-  { id: 'denetim', label: 'Denetim kaydı' },
+  { id: 'denetim', label: 'İşlem geçmişi' },
 ];
 
 export function AdminPage(): ReactNode {
@@ -110,16 +117,16 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
         <Metric label="İlan (kabul)" value={formatNumber(data.jobs.total)} />
         <Metric label="Başvuruya açık" value={formatNumber(data.jobs.active)} />
         <Metric label="Bugün eklenen" value={formatNumber(data.jobs.addedToday)} />
-        <Metric label="İnceleme kuyruğu" value={formatNumber(data.reviewQueue.total)} />
+        <Metric label="İncelenecek ilanlar" value={formatNumber(data.reviewQueue.total)} />
         <Metric label="Tarama kaydı" value={formatNumber(data.runs.total)} />
         <Metric label="Başarısız tarama" value={formatNumber(data.runs.failed)} />
         <Metric label="Ortalama süre" value={formatDuration(data.runs.avgDurationMs)} />
-        <Metric label="Denetim kaydı" value={formatNumber(data.auditEntries)} />
+        <Metric label="İşlem geçmişi" value={formatNumber(data.auditEntries)} />
       </div>
 
       <Card
-        title="Worker kalp atışları"
-        description="Bayat kalp atışı, zamanlanmış taramanın durduğunu gösterir."
+        title="Otomatik kontrol durumu"
+        description="Uzun süredir haber alınamıyorsa otomatik kontroller durmuş demektir."
       >
         {data.workers.length === 0 ? (
           <InfoNote tone="warning">
@@ -146,8 +153,8 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
       </Card>
 
       <Card
-        title="Kuyruk ve e-posta"
-        description="Durum modeli: pending → sending → accepted | failed → dead"
+        title="Bekleyen işler ve e-postalar"
+        description="Bekleyen, gönderilen ve ulaşmayan e-postalar burada izlenir."
       >
         <ul className="compact-list">
           <li>
@@ -326,7 +333,7 @@ function RunsTab(): ReactNode {
       </label>
       {query.isLoading && <Spinner />}
       {query.data?.failing.length ? (
-        <Card title="Hata bildirimleri" description="HTML değişikliği veya erişim sorunu burada görünür.">
+        <Card title="Hata bildirimleri" description="Site yapısı değiştiğinde ya da ulaşılamadığında burada görünür.">
           <ul className="summary-list">
             {query.data.failing.map((run) => (
               <li key={run.id} className="text-danger-sm">
@@ -438,15 +445,15 @@ function ReviewTab(): ReactNode {
             onChange={(event) => setKind(event.target.value as typeof kind)}
           >
             <option value="">Tümü</option>
-            <option value="classification">Sınıflandırma</option>
-            <option value="dedupe">Tekilleştirme</option>
-            <option value="extraction">Çıkarım</option>
+            <option value="classification">İlgililik</option>
+            <option value="dedupe">Aynı ilan olabilir</option>
+            <option value="extraction">Bilgi okunamadı</option>
           </select>
         </label>
         {query.data && (
           <p className="text-muted-sm">
-            Açık kayıt: {formatNumber(query.data.counts.total)} (sınıflandırma{' '}
-            {query.data.counts.classification}, tekilleştirme {query.data.counts.dedupe}, çıkarım{' '}
+            İncelenecek: {formatNumber(query.data.counts.total)} (ilgililik{' '}
+            {query.data.counts.classification}, aynı ilan olabilir {query.data.counts.dedupe}, bilgi okunamadı{' '}
             {query.data.counts.extraction})
           </p>
         )}
@@ -459,7 +466,7 @@ function ReviewTab(): ReactNode {
         <Card
           key={item.id}
           title={item.title}
-          description={`${item.kind} · güven ${Math.round(item.confidence * 100)}%`}
+          description={`${REVIEW_KIND_LABELS[item.kind] ?? item.kind} · eminlik %${Math.round(item.confidence * 100)}`}
         >
           <p className="body-copy">{item.reason}</p>
           <p className="text-muted-sm push-sm">
@@ -572,7 +579,7 @@ function OutboxTab(): ReactNode {
       </div>
       {query.data?.notice && <InfoNote>{query.data.notice}</InfoNote>}
       {query.isLoading && <Spinner />}
-      <Card title="E-posta kuyruğu" description={query.data?.schema}>
+      <Card title="E-posta gönderimi" description={query.data?.schema}>
         <div className="modern-table-card">
           <table className="modern-data-table">
             <caption className="sr-only">E-posta kuyruğu kayıtları</caption>
@@ -643,7 +650,7 @@ function QueueTab(): ReactNode {
         <>
           <Card
             title="Zamanlanmış görevler"
-            description="Her kaynak için planlanan sonraki çalışma; gecikme = worker'ın geride kaldığı süre."
+            description="Her kaynağa bir sonraki ne zaman bakılacak; gecikirse otomatik kontrol geride kalmış demektir."
           >
             <div className="modern-table-card">
               <table className="modern-data-table">
@@ -674,7 +681,7 @@ function QueueTab(): ReactNode {
             </div>
           </Card>
 
-          <Card title="Ölü işler" description="Yeniden denenebilir; hata nedeni kayıpta saklanır.">
+          <Card title="Takılan işler" description="Tekrar denenebilir; nedeni yanında yazılıdır.">
             {query.data.dead.length === 0 ? (
               <p className="body-copy">Ölü iş yok.</p>
             ) : (
@@ -688,7 +695,7 @@ function QueueTab(): ReactNode {
             )}
           </Card>
 
-          <Card title="Kilitler" description="Aynı kaynağın iki kez taranmasını engelleyen kilitler.">
+          <Card title="Şu an tarananlar" description="Aynı kaynağın iki kez üst üste taranmasını engeller.">
             {query.data.locks.length === 0 ? (
               <p className="body-copy">Aktif kilit yok.</p>
             ) : (
@@ -736,7 +743,7 @@ function CoverageTab(): ReactNode {
       </Card>
       <Card
         title="Bilinen boşluklar"
-        description="Etkin ama doğrulanmamış ya da üst üste başarısız kaynaklar."
+        description="İzlenen ama çalıştığı kanıtlanmamış ya da üst üste ulaşılamayan kaynaklar."
       >
         {query.data.gaps.length === 0 ? (
           <p className="body-copy">Boşluk yok.</p>
@@ -751,7 +758,7 @@ function CoverageTab(): ReactNode {
         )}
       </Card>
       {query.data.unknownRegistryAdapters.length > 0 && (
-        <Card title="Envanterde olmayan adaptör kaynakları">
+        <Card title="Listede olmayan kaynaklar">
           <ul className="body-copy">
             {query.data.unknownRegistryAdapters.map((key) => (
               <li key={key}>{key}</li>
@@ -759,7 +766,7 @@ function CoverageTab(): ReactNode {
           </ul>
         </Card>
       )}
-      <Card title="Kapsamı genişletme" description="Yeni kaynak ekleme adımları: docs/source-onboarding.md">
+      <Card title="Kapsamı genişletme" description="Yeni kaynak nasıl eklenir: docs/source-onboarding.md">
         <ol className="step-list">
           <li>Kaynağın liste adresini ve yöntemini doğrula (canlı test).</li>
           <li>Uygun adaptörü seç, gerekirse yaz; `src/sources/registry.ts` içine kaydet.</li>
@@ -804,8 +811,8 @@ function AuditTab(): ReactNode {
       </label>
       {query.isLoading && <Spinner />}
       <Card
-        title="Denetim kaydı"
-        description="Yönetici işlemleri ve güvenlik olayları; IP adresi hash olarak saklanır."
+        title="İşlem geçmişi"
+        description="Yönetici işlemleri ve güvenlik olayları burada tutulur. IP adresi tanınmaz biçimde saklanır."
       >
         <ul className="compact-list">
           {query.data?.logs.map((log) => (

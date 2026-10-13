@@ -166,7 +166,7 @@ export function JobsPage() {
           Başvurusu açık
         </button>
         <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('closing7')}>
-          Son 7 günde kapananlar
+          Son günü yaklaşanlar
         </button>
         <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('newest')}>
           Yeni eklenenler

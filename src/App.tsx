@@ -22,7 +22,6 @@ import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
 import type { IconName } from './components/Icon';
 import { SiteFooter, INFO_ROUTES } from './components/SiteFooter';
-import { APP_VERSION } from './config/app';
 import { useAuth } from './lib/session';
 import { APP_NAME, HONESTY_NOTE } from './site';
 import { AdminPage } from './pages/Admin';
@@ -52,7 +51,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     items: [
       { id: 'ozet', label: 'Genel bakış', icon: 'layers', path: '/' },
       { id: 'ilanlar', label: 'İlan ara', icon: 'search', path: '/ilanlar' },
-      { id: 'kaynaklar', label: 'Kaynaklar', icon: 'list', path: '/kaynaklar' },
+      { id: 'kaynaklar', label: 'İlan kaynakları', icon: 'list', path: '/kaynaklar' },
     ],
   },
   {
@@ -167,13 +166,12 @@ function AppShell({ children }: { children: ReactNode }) {
             <span className="sidebar-privacy-icon" aria-hidden="true">
               <Icon name="info" size={18} />
             </span>
-            <strong>Kapsam notu</strong>
+            <strong>Bilmeniz gereken</strong>
             <p>{HONESTY_NOTE}</p>
             <Link to={INFO_ROUTES.kaynaklar}>
-              Kaynak listesini aç <Icon name="arrowRight" size={14} />
+              Hangi kaynaklara bakıyoruz? <Icon name="arrowRight" size={14} />
             </Link>
           </div>
-          <span className="sidebar-version">KAMUİLAN · v{APP_VERSION}</span>
         </div>
       </aside>
 

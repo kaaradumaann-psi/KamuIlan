@@ -138,7 +138,7 @@ describe('arayüz kabuğu', () => {
     ).toBeTruthy();
     expect(screen.getByLabelText('Arama terimi')).toBeTruthy();
     // Dürüstlük notu kabukta ve ana sayfada görünür.
-    expect(screen.getAllByText(/Kapsam eksiktir/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Her ilanı bulamayabiliriz/).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText(/Sistem kısmen sorunlu|Sistem normal/)).toBeTruthy());
   });
 
@@ -175,9 +175,9 @@ describe('arayüz kabuğu', () => {
     loginAsTestUser();
     renderApp('/kaynaklar');
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Kaynaklar ve kapsam' })).toBeTruthy();
-    expect(await screen.findByText('Canlı doğrulanmış')).toBeTruthy();
-    expect(screen.getByText('Adaptörü yazılmış')).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
+    expect(await screen.findByText('Çalıştığı kanıtlanan')).toBeTruthy();
+    expect(screen.getByText('Hazırlanan')).toBeTruthy();
     expect(screen.getAllByText(/Kapsam eksiktir/).length).toBeGreaterThan(0);
   });
 });

@@ -46,7 +46,7 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
         <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
         {job.provenance === 'sample' && <Tag tone="warning">Örnek veri</Tag>}
         {job.criticalMissingFields && job.criticalMissingFields.length > 0 && (
-          <Tag tone="warning">{`${job.criticalMissingFields.length} alan eksik`}</Tag>
+          <Tag tone="warning">Bazı bilgiler eksik</Tag>
         )}
       </div>
 
@@ -70,7 +70,7 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
           )}
           <li>
             <Icon name="list" size={13} />{' '}
-            {job.sourceKeys.length > 1 ? `${job.sourceKeys.length} kaynak` : '1 kaynak'}
+            {job.sourceKeys.length > 1 ? `${job.sourceKeys.length} sitede yayımlandı` : '1 sitede yayımlandı'}
           </li>
         </ul>
       )}
@@ -88,7 +88,7 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
           )}
         </span>
         <span>
-          Son doğrulama: {job.lastVerifiedAt ? formatRelative(job.lastVerifiedAt) : 'henüz doğrulanmadı'}
+          Son kontrol: {job.lastVerifiedAt ? formatRelative(job.lastVerifiedAt) : 'henüz yapılmadı'}
         </span>
         <SaveJobButton jobId={job.id} compact />
       </footer>
