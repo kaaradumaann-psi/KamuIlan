@@ -586,3 +586,29 @@ SPA yolları (`/`, `/giris`, bilinmeyen yol → `index.html`), Vite vekili
 - §10.1 (yönetici revizyon listesinde sınıflandırma filtresi), §10.3 (kart başına
   fazla kanca) ve §10.5 (bu ortamda Playwright koşulamaması) **açık** ve
   düşük öncelikli olarak duruyor; güvenlik açığı değildir.
+
+---
+
+## 15. Teslim kaydı — PR ve birleştirme (13.10.2026)
+
+Bu bölümdeki turların tamamı tek bir dalda toplandı, CI ile doğrulandı ve
+kullanıcının açık talebi üzerine `main`'e **birleştirildi**:
+
+| Adım | Kayıt |
+| ---- | ----- |
+| Dal | `arena/320a7d65-kamuradar` |
+| PR | **#7** — "Sıfırdan tam tarama: etiketler tek kaynakta, sessiz hatalar kapatıldı, giriş/oturum ve denetim düzeltmeleri" → `main` |
+| PR başlık commit'i | `27f77a8` |
+| CI (PR commit'i) | koşum `38446889590` ✅ ve `38446927394` ✅ (`verify` yeşil) |
+| Birleştirme | `--merge` (merge commit) · birleştirme anı: 13.10.2026 18:29 UTC |
+| Merge commit | **`a87d7fb`** — `Merge pull request #7 from kaaradumaann-psi/arena/320a7d65-kamuradar` |
+| CI (main, merge sonrası) | koşum `38447202184` ✅ (`verify` 1 dk 38 sn) |
+
+Bu PR'ın taşıdığı dört turun özeti:
+
+1. `84c08a2` — giriş ekranı ortalaması, oturum/oturum açma düzeltmeleri, hesap araçları.
+2. `9e77db2` — uçtan uca denetim: arama, tarih/saat, güvenlik, veri bütünlüğü, arayüz.
+3. `4718418` — çıkış ucunda CSRF (zorla çıkış açığı) ve regresyon testi.
+4. `1760362` (raporlar) ve `27f77a8` (bu bölümde anlatılan sıfırdan tarama turu).
+
+Kalan maddeler §10'da açıkça listelenmiştir; hiçbiri güvenlik açığı değildir.
