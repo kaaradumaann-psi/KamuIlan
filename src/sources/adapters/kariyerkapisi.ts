@@ -78,12 +78,22 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     }
 
     const pageText = readableText($, 'body', 400);
+    // 0 ilan bulunduğunda sayfadaki gerçek bağlantı biçimini rapora yaz:
+    // kurum seçim listesi mi var, ilanlar tıklamayla mı açılıyor, bir sonraki
+    // düzeltme tahmine değil bu gözleme dayanır.
+    const anchorSamples =
+      rows.length === 0
+        ? anchors($, 'a[href]', source.listingUrl, 400)
+            .slice(0, 12)
+            .map((anchor) => `"${anchor.text.slice(0, 60)}" -> ${anchor.href.slice(0, 120)}`)
+        : [];
     return {
       items: rows,
       requestCount: 1,
       notes: [
         `Tarayıcı ile okundu: ${rows.length} ilan bağlantısı bulundu.`,
         rows.length === 0 ? `Sayfada ilan bulunamadı. Sayfa özeti: "${pageText.slice(0, 140)}"` : 'Kayıtlar başvuru bağlantısıyla birlikte alınır.',
+        ...(anchorSamples.length > 0 ? [`Bağlantı örnekleri: ${anchorSamples.join(' | ')}`] : []),
       ],
       etag: null,
       lastModified: null,

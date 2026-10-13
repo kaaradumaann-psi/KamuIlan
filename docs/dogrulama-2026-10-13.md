@@ -105,9 +105,23 @@ Kalanlar ve alınan kararlar:
   aştı (sunucu yavaşlığı); güne düşme yedeği eklendi (hata #7).
   Sonraki koşumda yeniden değerlendirilecek.
 
+İkinci canlı koşum (aynı gün, 10:14): **19/23 kaynak, 322 ham kayıt.**
+MEB RSS ile çalıştı (30 kayıt); Kariyer Kapısı tarayıcısı açıldı ancak
+sayfada ilan bağlantısı bulunamadı (kurum seçim listesi görünüyor —
+adaptöre gerçek bağlantı biçimini raporlayan tanı notu eklendi,
+düzeltme gözleme dayanacak). Kapanan bulgular:
+
+8. **Ara sertifika kovalaması (AIA)** — sistem CA birleşimi yetmedi;
+   kök neden sunucunun ara sertifikayı göndermemesi çıktı (tarayıcılar
+   AIA adresinden indirir, Node indirmez). `HttpClient` artık eksik
+   halkayı AIA üzerinden tamamlayıp doğrulamayı **açık** tutarak yeniden
+   deniyor; indirilen sertifika güven paketiyle zincir doğrulamasından
+   geçmek zorunda. Test: `tests/fetcher.test.ts` (yardımcı birim
+   testleri). ilan.gov.tr / BDDK / TMSF'de canlı sonucu bekleniyor.
+
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **212/212 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **215/215 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz

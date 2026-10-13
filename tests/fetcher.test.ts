@@ -2,7 +2,15 @@ import { MockAgent } from 'undici';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEnv } from '../src/config/env';
 import { toHeaderSafeAscii } from '../src/lib/headerSafe';
-import { describeFetchFailure, FetchError, HttpClient, loadTrustBundle } from '../src/sources/fetcher';
+import {
+  derToPem,
+  describeFetchFailure,
+  extractCaIssuerUrls,
+  FetchError,
+  HttpClient,
+  loadTrustBundle,
+  tlsChainErrorCode,
+} from '../src/sources/fetcher';
 
 const ORIGIN = 'https://www.resmigazete.gov.tr';
 const ALLOWED = ['www.resmigazete.gov.tr'];
@@ -86,6 +94,40 @@ describe('HttpClient ağ davranışı', () => {
     await expect(
       client.fetchText('https://evil.example.com/x', { allowedHosts: ALLOWED, retries: 0 }),
     ).rejects.toMatchObject({ status: null, retryable: false });
+  });
+});
+
+describe('AIA ara sertifika kovalaması yardımcıları', () => {
+  it('tlsChainErrorCode yalnızca zincir eksikliği kodlarını tanır', () => {
+    const chain = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('unable to verify the first certificate'), {
+        code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      }),
+    });
+    expect(tlsChainErrorCode(chain)).toBe('UNABLE_TO_VERIFY_LEAF_SIGNATURE');
+    expect(tlsChainErrorCode(Object.assign(new Error('boom'), { code: 'ECONNRESET' }))).toBeNull();
+    expect(tlsChainErrorCode(new Error('CERT_HAS_EXPIRED'))).toBeNull();
+    expect(tlsChainErrorCode('metin')).toBeNull();
+  });
+
+  it('extractCaIssuerUrls AIA biçimlerinden adresleri çıkarır', () => {
+    expect(extractCaIssuerUrls({ 'CA Issuers': 'URI:http://ca.example.com/inter.cer' })).toEqual([
+      'http://ca.example.com/inter.cer',
+    ]);
+    expect(
+      extractCaIssuerUrls({ 'CA Issuers': ['URI:https://ca.example.com/a.pem', 'URI:http://ca.example.com/b.cer'] }),
+    ).toEqual(['https://ca.example.com/a.pem', 'http://ca.example.com/b.cer']);
+    expect(extractCaIssuerUrls(undefined)).toEqual([]);
+    // OCSP adresi sertifika indirme adresi değildir; alınmaz.
+    expect(extractCaIssuerUrls({ 'OCSP - URI': 'http://ocsp.example.com' })).toEqual([]);
+  });
+
+  it('derToPem 64 sütunlu PEM üretir', () => {
+    const pem = derToPem(Buffer.alloc(100, 7));
+    expect(pem.startsWith('-----BEGIN CERTIFICATE-----\n')).toBe(true);
+    expect(pem.endsWith('\n-----END CERTIFICATE-----')).toBe(true);
+    const body = pem.split('\n').slice(1, -1);
+    expect(body.every((line) => line.length <= 64)).toBe(true);
   });
 });
 
