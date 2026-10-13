@@ -18,12 +18,15 @@ import { InfoPageShell } from '../components/InfoPageShell';
 import { PolicyDoc, PolicyList } from '../components/PolicyDoc';
 import { APP_DOMAIN, APP_NAME, CONTACT_EMAIL, HONESTY_NOTE, POLICY_EFFECTIVE_DATE, SITE_URL } from '../site';
 
-function useAfterAuth(): () => void {
+function useAfterAuth(): () => Promise<void> {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: ['session'] });
+  return async () => {
+    // ÖNCE oturum bilgisini tazele, SONRA yönlendir. Aksi halde giriş kapısı
+    // eski "oturum yok" bilgisiyle kullanıcıyı geri giriş ekranına atar
+    // (giriş başarılı olduğu halde sayfada kalma hatası).
+    await queryClient.refetchQueries({ queryKey: ['session'] });
     const state = location.state as { from?: string } | null;
     navigate(state?.from && state.from.startsWith('/') ? state.from : '/', { replace: true });
   };
@@ -45,7 +48,7 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
         setNeedsVerification(true);
         return;
       }
-      afterAuth();
+      void afterAuth();
     },
     onError: (caught) => setError(errorMessage(caught)),
   });

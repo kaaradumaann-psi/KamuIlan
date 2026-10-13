@@ -87,17 +87,23 @@ export class AnchorListAdapter implements SourceAdapter {
 
     const html = listing.decoded?.text ?? listing.body.toString('utf8');
     const $ = loadHtml(html);
-    const candidates: Candidate[] = $('a[href]')
-      .toArray()
-      .map((element) => ({ element: element as AnyNode, url: normalizeUrl($(element).attr('href') ?? '', source.listingUrl) }))
-      .filter((candidate): candidate is Candidate => candidate.url !== null)
-      .filter((candidate) => {
-        try {
-          return this.config.pathPattern.test(new URL(candidate.url).pathname);
-        } catch {
-          return false;
-        }
-      });
+    const collect = (scope: Parameters<typeof $>[0]): Candidate[] =>
+      $(scope)
+        .find('a[href]')
+        .toArray()
+        .map((element) => ({ element: element as AnyNode, url: normalizeUrl($(element).attr('href') ?? '', source.listingUrl) }))
+        .filter((candidate): candidate is Candidate => candidate.url !== null)
+        .filter((candidate) => {
+          try {
+            return this.config.pathPattern.test(new URL(candidate.url).pathname);
+          } catch {
+            return false;
+          }
+        });
+    // Önce ana içerik bölgesi: üst/alt bilgi bağlantıları (menü, künye) listeyi
+    // kirletmesin. Ana bölgede yeterli aday yoksa tüm sayfaya bakılır.
+    let candidates = $('main').length > 0 ? collect($('main')) : collect($.root());
+    if (candidates.length < 3) candidates = collect($.root());
 
     if (candidates.length === 0) {
       const pageText = readableText($, 'body', 300);
@@ -121,7 +127,7 @@ export class AnchorListAdapter implements SourceAdapter {
       const title = cleanTitle(anchorText.length >= this.config.minTitleLength ? anchorText : rowText);
       if (title.length < this.config.minTitleLength) continue;
 
-      const publishedAt = parseListingDate(/\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}/.exec(rowText)?.[0] ?? null);
+      const publishedAt = parseListingDate(rowText);
       const detail = this.config.fetchDetail === false ? null : await this.readDetail(ctx, candidate.url);
       if (detail) {
         requestCount += detail.requests;
@@ -209,9 +215,15 @@ export class AnchorListAdapter implements SourceAdapter {
 
 function itemIdOf(url: string): string | null {
   try {
-    const pathname = new URL(url).pathname.replace(/\/$/, '');
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.replace(/\/$/, '').replace(/\.(html?|aspx)$/i, '');
     const match = /([a-z0-9-]{6,}|\d{3,})$/i.exec(pathname);
-    return match?.[1] ?? null;
+    const tail = match?.[1] ?? null;
+    // Bazı kurumlar kimliği sorguda taşır (DuyuruDetay.aspx?Parameter=2120):
+    // yolun sonu her ilanda aynıysa sorgudaki sayısal kimliği ekle.
+    const queryId = [...parsed.searchParams.values()].find((value) => /^\d{3,}$/.test(value)) ?? null;
+    if (queryId && tail && !tail.endsWith(queryId)) return `${tail}-${queryId}`;
+    return tail ?? queryId;
   } catch {
     return null;
   }
@@ -249,7 +261,8 @@ export function createKurumAdapter(): AnchorListAdapter {
     notes:
       'Kurum duyuru sayfası HTML olarak okunur; yalnızca personel alımı duyuruları kabul edilir, ' +
       'diğer duyurular sınıflandırmada elenir. Yapı değişirse tarama kaydı hata gösterir.',
-    pathPattern: /\/(duyuru|duyurular|haber|haberler|ilan|ilanlar|icerik|detay|sayfa)/i,
+    pathPattern:
+      /(\/(duyurular|duyuru|haberler|haber|ilanlar|ilan|icerik|detay|announcements?|basin|sayfa)\b|\/TR-\d+\/|\/[a-z0-9-]{20,}$)/i,
     rowSelector: 'li, tr, article, .card, div',
     minTitleLength: 18,
     defaultInstitution: '',

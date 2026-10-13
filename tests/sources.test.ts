@@ -306,3 +306,65 @@ describe('genel kurum duyuru adaptörü', () => {
     expect(PLANNED_SOURCES.length).toBeLessThanOrEqual(4);
   });
 });
+
+describe('genel kurum adaptörü — doğrulanmış sayfa biçimleri', () => {
+  const adapter = () => requireAdapter('kurum-duyuru-listesi');
+  const byKey = (key: string) => {
+    const found = SOURCE_DEFINITIONS.find((source) => source.key === key);
+    if (!found) throw new Error(`kaynak yok: ${key}`);
+    return found;
+  };
+  async function run(key: string, html: string) {
+    const source = byKey(key);
+    const { http } = fakeHttp((url) => (url === source.listingUrl ? html : undefined));
+    return adapter().run(contextFor(source, http, true));
+  }
+
+  it('Sağlık (YHGM) TR- kimlikli duyuruları okur', async () => {
+    const result = await run(
+      'saglik-bakanligi-personel',
+      `<html><body><main><div><a href="/TR-120694/131-donem-devlet-hizmeti-yukumlulugu-kurasi-ilani.html">131. Dönem Devlet Hizmeti Yükümlülüğü Kurası İlanı yayımlanmıştır</a></div>
+      <div><a href="/TR-120801/personel-alimi-duyurusu.html">Sözleşmeli personel alımı başvuruları başlamıştır duyurusu</a></div></main></body></html>`,
+    );
+    expect(result.items.length).toBe(2);
+    expect(result.items[0]?.institution).toBe('T.C. Sağlık Bakanlığı');
+  });
+
+  it('Adalet arşivindeki tek segmentli bağlantıları okur', async () => {
+    const result = await run(
+      'adalet-bakanligi-duyurular',
+      `<html><body><main><div><a href="https://www.adalet.gov.tr/zabit-katibi-personel-alimi-sinav-ilani-yayimlandi">22/07/2026 Zabıt Kâtibi Personel Alımı Sınav İlanı yayımlandı</a></div>
+      <div><a href="https://www.adalet.gov.tr/infaz-ve-koruma-memuru-alimi-basvuru-sonuclari-aciklandi">02/07/2026 İnfaz ve Koruma Memuru Alımı Sonuçları</a></div></main></body></html>`,
+    );
+    expect(result.items.length).toBe(2);
+    expect(result.items[0]?.publishedAt).toContain('2026-07-22');
+  });
+
+  it('KGM DuyuruDetay.aspx?Parameter= kimliğini ayrıştırır', async () => {
+    const result = await run(
+      'kgm-duyurular',
+      `<html><body><main><ul>
+      <li><a href="https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Duyurular/DuyuruDetay.aspx?Parameter=2120">Erzurum İlindeki İş Yerlerimize 1 Engelli İşçi Alınacaktır</a></li>
+      <li><a href="https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Duyurular/DuyuruDetay.aspx?Parameter=2119">Ağrı İlindeki İş Yerlerimize 1 Eski Hükümlü İşçi Alınacaktır</a></li>
+      </ul></main></body></html>`,
+    );
+    expect(result.items.length).toBe(2);
+    expect(result.items.map((item) => item.sourceItemId)).toEqual(['DuyuruDetay-2120', 'DuyuruDetay-2119']);
+  });
+
+  it('TMSF basın listesi ve YÖK announcements biçimini okur', async () => {
+    const tmsf = await run(
+      'tmsf-duyurular',
+      `<html><body><main><a href="https://www.tmsf.org.tr/tr/Basin/List/tmsf-personel-alim-ilani-2026">12.10.2026 TMSF Personel Alım İlanı 2026 yayımlandı</a></main></body></html>`,
+    );
+    expect(tmsf.items.length).toBe(1);
+    expect(tmsf.items[0]?.publishedAt).toContain('2026-10-12');
+
+    const yok = await run(
+      'yok-duyurular',
+      `<html><body><main><article><h3><a href="https://www.yok.gov.tr/tr/announcements/5-universite-icin-rektor-basvuru-ilani-HhcKv">5 Üniversite için Rektör Adaylığı Başvuru İlanı</a></h3></article></main></body></html>`,
+    );
+    expect(yok.items.length).toBe(1);
+    expect(yok.items[0]?.institution).toBe('Yükseköğretim Kurulu');
+  });
+});

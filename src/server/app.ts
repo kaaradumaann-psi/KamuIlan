@@ -122,13 +122,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
   });
 
-  // Global hız sınırlama: her istek sayılır, kimlik gerektiren uçlar daha sıkı sınırlanır.
+  // Global hız sınırlama: her istek sayılır, kimlik işlemleri daha sıkı sınırlanır.
+  // Sıkı kova YALNIZCA kimlik denemesi içeren POST uçlarınındır (giriş, parola
+  // sıfırlama vb.). Oturum OKUMA (GET /api/auth/session) bu kovaya girmez:
+  // uygulama her sayfada oturumu sorar; okuma da sayılırsa normal kullanıcı
+  // birkaç sayfa sonra kilitlenir (429) ve giriş ekranına düşer.
+  const STRICT_AUTH_PATHS = new Set([
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/verify-email',
+    '/api/auth/resend-verification',
+    '/api/auth/forgot-password',
+    '/api/auth/reset-password',
+  ]);
   app.addHook('preHandler', async (request, reply) => {
     if (options.disableRateLimit) return;
-    const isAuthPath = request.url.startsWith('/api/auth/');
-    const max = isAuthPath ? env.AUTH_RATE_LIMIT_MAX_REQUESTS : env.RATE_LIMIT_MAX_REQUESTS;
+    const pathname = request.url.split('?')[0] ?? request.url;
+    const isStrictAuth = request.method === 'POST' && STRICT_AUTH_PATHS.has(pathname);
+    const max = isStrictAuth ? env.AUTH_RATE_LIMIT_MAX_REQUESTS : env.RATE_LIMIT_MAX_REQUESTS;
     const decision = await enforceRateLimit(repos.rateLimits, request, reply, {
-      bucket: isAuthPath ? 'auth' : 'api',
+      bucket: isStrictAuth ? 'auth' : 'api',
       max,
     });
     if (!decision.allowed) {

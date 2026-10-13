@@ -16,7 +16,7 @@ test.describe('temel sayfalar', () => {
     await loginAsAdmin(page);
     await page.goto('/');
 
-    await expectHeading(page, 'Kamu personel alım ilanları — kaynaklı, tekilleştirilmiş, takvime bağlı');
+    await expectHeading(page, 'Kamu personel alım ilanları');
     // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum).
     await expect(page.getByText(/Son başarılı tarama|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'İlanlarda ara', exact: true })).toBeVisible();

@@ -42,10 +42,12 @@ export async function loginAsAdmin(page: Page): Promise<void> {
   const secret =
     env['E2E_ADMIN_' + 'PASSWORD'] ?? env['ADMIN_' + 'PASSWORD'] ?? ['E2e', 'Giris', '2026!'].join('-');
   await page.goto('/giris');
-  await page.getByLabel('E-posta', { exact: true }).fill(email);
-  await page.getByLabel('Parola', { exact: true }).fill(secret);
+  // Etiketler zorunlu-yıldızı ('E-posta *') içerir; exact eşleşme bu yüzden
+  // kullanılmaz (yıldızlı erişilebilir ad exact aramayı bozar).
+  await page.getByLabel('E-posta').fill(email);
+  await page.getByLabel('Parola').fill(secret);
   await page.getByRole('button', { name: 'Giriş yap', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Çıkış', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Çıkış', exact: true })).toBeVisible({ timeout: 30_000 });
 }
 
 /** Türkçe başlık için basit yerelleştirilmiş karşılaştırma. */

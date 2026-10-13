@@ -30,6 +30,8 @@ interface AuthContextValue {
   user: SessionUser | null;
   /** İlk yükleme sürüyor (oturum henüz doğrulanmadı). */
   loading: boolean;
+  /** Oturum bilgisi şu an yenileniyor (ör. giriş sonrası tazeleme). */
+  sessionFetching: boolean;
   isAdmin: boolean;
   roleLabel: string;
   displayName: string;
@@ -77,6 +79,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return {
       user,
       loading: session.isLoading,
+      sessionFetching: session.isFetching,
       isAdmin: user?.role === 'admin',
       roleLabel: user?.role === 'admin' ? 'Yönetici' : user ? 'Kayıtlı kullanıcı' : 'Ziyaretçi',
       displayName: displayNameOf(user),

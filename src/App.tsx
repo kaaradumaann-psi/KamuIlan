@@ -268,9 +268,12 @@ function AppShell({ children }: { children: ReactNode }) {
  * dönecek şekilde giriş ekranına yönlendirilir.
  */
 function RequireAuthGate({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionFetching } = useAuth();
   const location = useLocation();
-  if (loading) {
+  // Oturum yenilenirken (giriş sonrası tazeleme gibi) kapı karar vermez:
+  // eski "oturum yok" bilgisiyle girişe geri atmak kullanıcıyı giriş
+  // ekranında takılı bırakırdı. Yenileme bitmeden bekle.
+  if (loading || (!user && sessionFetching)) {
     return (
       <div className="auth-page">
         <div className="auth-card loading-state-card" role="status" aria-live="polite">
