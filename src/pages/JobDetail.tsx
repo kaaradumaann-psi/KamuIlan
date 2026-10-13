@@ -11,15 +11,15 @@ import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
 import {
-  EDUCATION_LABELS,
-  EMPLOYMENT_TYPE_LABELS,
-  JOB_STATUS_LABELS,
   deadlineLabel,
+  educationLabel,
+  employmentTypeLabel,
   formatDate,
   formatDateMaybeTime,
   formatDateOnly,
   formatDateTime,
   formatNumber,
+  jobStatusLabel,
   turkishCapitalize,
 } from '../lib/format';
 import type { PublicJobDetail } from '../types';
@@ -71,9 +71,9 @@ export function JobDetailPage(): ReactNode {
     <article className="page-stack">
       <header className="detail-head card-elevated">
         <div className="detail-head-tags">
-          <Tag tone="accent">{EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType}</Tag>
+          <Tag tone="accent">{employmentTypeLabel(job.employmentType)}</Tag>
           <Tag tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
-            {JOB_STATUS_LABELS[job.status] ?? job.status}
+            {jobStatusLabel(job.status)}
           </Tag>
           <Tag
             tone={
@@ -231,7 +231,7 @@ export function JobDetailPage(): ReactNode {
               term: 'Eğitim düzeyi',
               value:
                 requirements.educationLevels.length > 0
-                  ? requirements.educationLevels.map((level) => EDUCATION_LABELS[level] ?? level).join(', ')
+                  ? requirements.educationLevels.map((level) => educationLabel(level)).join(', ')
                   : 'belirtilmemiş',
             },
             {

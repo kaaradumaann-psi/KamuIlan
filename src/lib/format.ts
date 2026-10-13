@@ -7,31 +7,49 @@
  */
 
 /**
- * İstihdam türü etiketleri — kanonik değerler `src/domain/types.ts`
- * (EMPLOYMENT_TYPES) ile BİREBİR aynıdır. Arayüz kendi sözlüğünü uydurmaz:
- * API'den gelen `kadrolu`, `kamu-isci`, `kariyer-meslek` gibi değerler burada
- * karşılanmazsa her ilan "Belirsiz" görünür ve filtreler hiç sonuç döndürmez.
+ * Etiket sözlükleri TEK KAYNAKTAN gelir: `src/domain/types.ts`.
+ *
+ * Burada kopya tutulmaz, çünkü kopya tutulduğunda aynı ilan kartta
+ * "Akademik kadro", detayda "Akademik personel" görünüyordu (farklı sözlükler).
+ * Arayüz, API (`serializers`) ve e-posta şablonları bu tek sözlüğü kullanır.
  */
-export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
-  kadrolu: 'Kadrolu memur',
-  sozlesmeli: 'Sözleşmeli personel',
-  'kamu-isci': 'Kamu işçisi',
-  akademik: 'Akademik kadro',
-  'kariyer-meslek': 'Kariyer meslekleri',
-  'kuruma-ozel-sinav': 'Kuruma özgü sınavla alım',
-  'diger-kamu': 'Diğer kamu personeli',
-  belirsiz: 'Belirsiz / incelemede',
-};
+import {
+  EDUCATION_LEVEL_LABELS,
+  EMPLOYMENT_TYPE_LABELS,
+  JOB_STATUS_LABELS,
+  SOURCE_STATUS_LABELS,
+} from '../domain/types';
 
-export const JOB_STATUS_LABELS: Record<string, string> = {
-  upcoming: 'Başvuru yakında',
-  active: 'Başvuru açık',
-  closed: 'Kapandı',
-  cancelled: 'İptal edildi',
-  unknown: 'Durum belirsiz',
-  draft: 'Taslak',
-  review: 'İncelemede',
-};
+export { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS, SOURCE_STATUS_LABELS };
+
+/** Sözlükte bulunmayan (gelecekte eklenmiş) bir değer için güvenli okuma. */
+function readLabel(dict: Record<string, string>, value: string | null | undefined): string | null {
+  if (!value) return null;
+  return dict[value] ?? null;
+}
+
+/**
+ * Öğrenim düzeyi etiketi (eski takma adlar dahil).
+ * Bilinmeyen değerde ham değer döner — "tanımsız" yazmaktansa veriyi gösteririz.
+ */
+export function educationLabel(value: string | null | undefined): string {
+  return readLabel(EDUCATION_LABELS, value) ?? value ?? 'Belirtilmemiş';
+}
+
+/** İstihdam türü etiketi; bilinmeyen değerde "türü belirtilmemiş" yerine ham değer. */
+export function employmentTypeLabel(value: string | null | undefined): string {
+  return readLabel(EMPLOYMENT_TYPE_LABELS as Record<string, string>, value) ?? value ?? 'Belirtilmemiş';
+}
+
+/** İlan durumu etiketi. */
+export function jobStatusLabel(value: string | null | undefined): string {
+  return readLabel(JOB_STATUS_LABELS as Record<string, string>, value) ?? value ?? 'Durum belirsiz';
+}
+
+/** Kaynak durumu etiketi (yönetim + kaynaklar sayfası). */
+export function sourceStatusLabel(value: string | null | undefined): string {
+  return readLabel(SOURCE_STATUS_LABELS as Record<string, string>, value) ?? value ?? 'Belirsiz';
+}
 
 export const DEADLINE_LABELS: Record<string, string> = {
   upcoming: 'Başvuru henüz başlamadı',
@@ -51,13 +69,9 @@ export const DEADLINE_LABELS: Record<string, string> = {
  * kayıtla eşleşmez (filtrede sessizce 0 sonuç veriyordu).
  */
 export const EDUCATION_LABELS: Record<string, string> = {
-  ilkogretim: 'İlköğretim',
-  ortaogretim: 'Ortaöğretim (lise)',
-  lise: 'Ortaöğretim (lise)',
-  onlisans: 'Ön lisans',
-  lisans: 'Lisans',
-  yukseklisans: 'Yüksek lisans',
-  doktora: 'Doktora',
+  ...EDUCATION_LEVEL_LABELS,
+  // Eski kayıtlarda/paylaşılan bağlantılarda görülebilen görüntüleme takma adları.
+  lise: EDUCATION_LEVEL_LABELS.ortaogretim,
   belirtilmemis: 'Belirtilmemiş',
 };
 
@@ -65,19 +79,6 @@ export const EDUCATION_LABELS: Record<string, string> = {
 export function normalizeEducationLevel(value: string): string {
   return value === 'lise' ? 'ortaogretim' : value === 'belirtilmemis' ? '' : value;
 }
-
-export const SOURCE_STATUS_LABELS: Record<string, string> = {
-  verified: 'Çalıştığı kanıtlanmış',
-  'scraper-built': 'Hazırlanıyor',
-  accessible: 'Ulaşılabiliyor',
-  'method-defined': 'Yöntemi hazır',
-  researched: 'İncelendi',
-  'not-researched': 'Henüz başlamadı',
-  'temporary-error': 'Geçici sorun',
-  'access-restricted': 'Erişilemiyor',
-  'needs-manual-method': 'Elle takip ediliyor',
-  disabled: 'Kapalı',
-};
 
 export const RUN_STATUS_LABELS: Record<string, string> = {
   queued: 'Sırada bekliyor',

@@ -421,6 +421,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       {view === 'history' && (
         <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">
           {history.isLoading && <Spinner />}
+          {history.isError && (
+            <ErrorNotice message={errorMessage(history.error)} onRetry={() => void history.refetch()} />
+          )}
           {history.data && (
             <>
               {history.data.events.length === 0 ? (

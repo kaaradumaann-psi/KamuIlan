@@ -239,6 +239,51 @@ düzeltildi ve her biri regresyon testiyle sabitlendi. Ayrıntılı rapor:
 - CI: `84c08a2` ✅ (koşum `38418083032`), `9e77db2` ✅ (koşum `38427993336`),
   `4718418` koşum `38428638576`.
 
+## Üçüncü tur — sıfırdan tam tarama ve düzeltme (13.10.2026, gece)
+
+Kullanıcı "hiçbir şey bilmiyormuşsun gibi baştan sona" tarama istedi; tüm
+katmanlar yeniden okundu, iki canlı koşum yazıldı ve bulunan her sorun
+kapatıldı. Ayrıntı: [denetim-raporu-2026-10-13.md](./denetim-raporu-2026-10-13.md)
+§14.
+
+**Kapatılan hatalar**
+
+- **Etiket ayrışması (tek kaynak):** ilan türü/durum etiketleri dört ayrı
+  dosyada kopyalanmıştı ve metinler farklılaşmıştı (arayüz "Kamu işçisi",
+  e-posta "Kamu işçisi (İŞKUR)"). Artık **tek kaynak** `src/domain/types.ts`;
+  `lib/format.ts` yardımcıları (`educationLabel`, `employmentTypeLabel`,
+  `jobStatusLabel`, `sourceStatusLabel`) ve e-posta/tercih eşleştirici aynı
+  sözlükleri kullanıyor.
+- **Kaynaklar sayfası:** yinelenen durum satırı kaldırıldı; kart etiketi
+  "Gerçek veriyle doğrulanan" kanonik metne bağlandı (Home durum şeridi ve E2E
+  seçicileri dahil).
+- **Sessiz hata kalıntıları kapatıldı:** ilan kaydetme (kart), yönetim →
+  inceleme kararı, yönetim → e-posta yeniden kuyruklama, yönetim panelinin 5
+  sekmesindeki sorgu hataları ve panel bildirim geçmişi artık kullanıcıya
+  nedeni ve yeniden deneme yolunu gösteriyor.
+- **Erişilebilirlik:** bilgi sayfalarındaki `<main id="main">` odaklanabilir
+  yapıldı ("Ana içeriğe atla" ve rota değişimi odağı artık taşınıyor).
+- **Kilit dosyası:** `package-lock.json` içindeki `package.json`'da olmayan
+  fazlalık `playwright` satırı temizlendi.
+
+**Koşum sonuçları (üçüncü tur)**
+
+- `npx vitest run`: **29 dosya / 276 test yeşil** (yeni `tests/admin-feedback.test.tsx`
+  panel geri bildirimini kilitliyor)
+- `npx tsc --noEmit` ✅ · `npx eslint .` ✅ · `npm run build` ✅ · `npm run env:check` ✅
+- **Canlı duman koşumu 3: 57/57** — güvenlik başlıkları, arama/filtre kenar
+  durumları, sayfalama sınırları, detay 200/404, oturum zinciri, CSRF'li/CSRF'siz
+  çıkış, tercihler (200/400), kaydedilenler, 9 yönetim ucu, bakım işi, SPA
+  yolları, Vite vekili, posta görüntüleyici
+- **Davet/parola/KVKK akışı: 18/18** — yönetici daveti → e-posta jetonu →
+  parola belirleme → giriş → parolamı unuttum → tek kullanımlık jeton → KVKK
+  silme (yanlış parola 401, doğru parola 200, sonrasında giriş 401)
+- **Parite denetimleri:** ortam değişkeni 59 = 59 · arayüz çağrısı 41/41 gerçek
+  sunucu rotasıyla eşleşiyor · belge komutları ve yerel bağlantılar kırıksız
+- SQL üretimi (Postgres/Supabase) satır satır denetlendi: tablo/kolon adları
+  süzgeçli, değerler bağlı parametre → **enjeksiyon yüzeyi yok**
+- Kaynak kapsamı: 27 kayıtlı · 23 etkin · 23 doğrulanmış · 0 başarısız · 0 bayat
+
 ## Bilinen sınırlar (dürüstlük)
 
 - Yeni 18 kurum "adaptörü yazılmış" durumundadır: adres+yapı bağımsız

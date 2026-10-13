@@ -365,14 +365,15 @@ güvenlik açığı değildir:
    bir sonraki turda eklenebilir.
 2. Yönetim → İnceleme kararı (`ReviewTab.decide`) ve Outbox yeniden kuyruklama
    (`OutboxTab.requeue`) mutasyonlarında `onError` yok: hata hâlinde kullanıcıya
-   mesaj gösterilmiyor (sunucu tarafı doğru davranıyor).
+   mesaj gösterilmiyor (sunucu tarafı doğru davranıyor). **→ 4. turda kapatıldı (§14.1/4-5).**
 3. Her ilan kartındaki `SaveJobButton` kendi sorgusunu açıyor; ortak
    `['saved-ids']` anahtarı sayesinde tek isteğe iniyor, ama kart başına kanca
    fazlalığı performans borcu olarak duruyor.
 4. `package-lock.json` içindeki kök bağımlılık listesinde artık
    `package.json`'da bulunmayan `playwright` satırı var (npm ihtiyaç duyduğunda
    temizliyor; CI `npm ci` ile yeşil). Kilit dosyası, denetim diff'ini şişirmemek
-   için **bilinçli olarak** dokunulmadan bırakıldı.
+   için **bilinçli olarak** dokunulmadan bırakıldı. **→ 4. turda kapatıldı:
+   `npm install` satırı kaldırdı, kilit artık `package.json` ile uyumlu (§14.1/10).**
 5. Playwright (tarayıcı) testleri bu ortamda **çalıştırılamadı** (tarayıcı
    ikilileri indirilemiyor; CI'da koşuyor). Arayüz doğrulaması jsdom testleri +
    canlı HTTP koşumuyla yapıldı; giriş ekranı ortalaması daha önce kullanıcının
@@ -466,3 +467,122 @@ karmaşası kökten çözüldü (neden + araç + belge), ve sistem baştan sona 
 bulunan hatalar düzeltildi. Arama, tarih/saat, güvenlik, veri bütünlüğü ve
 arayüz katmanlarındaki her düzeltme bir **regresyon testiyle** sabitlendi;
 kalan maddeler yalnızca düşük öncelikli ve yukarıda açıkça listelendi.
+
+---
+
+## 14. Dördüncü tur — sıfırdan tam sistem taraması (13.10.2026, gece)
+
+Kullanıcı isteği: *"Hiçbir şey bilmiyormuşsun gibi baştan sona eksiksiz olarak tüm
+sistemi baştan sona tara. Bir bug, bir eksiklik varsa, UX düzeyinde kullanıcının
+işini zorlaştıran bir durum varsa baştan sona eksiksiz düzelt. Bug veya güvenlik
+açığı olmamalı. Ardından PR aç, merge et."*
+
+Bu turda hiçbir şey önceki turların bilgisi sayılmadı: katmanlar tek tek yeniden
+okundu, iki canlı uçtan uca koşum yazıldı, arayüzde "sessiz başarısızlık" kalıp
+kalıp kalmadığı sistematik olarak tarandı ve **etiketlerin tek kaynağa
+indirilmesi** (bkz. §14.2.1) tamamlandı.
+
+### 14.1 Bulunan ve kapatılan gerçek hatalar
+
+| # | Belirti (kullanıcının gördüğü) | Kök neden | Düzeltme |
+| - | ------------------------------ | --------- | -------- |
+| 1 | Aynı ilan türü arayüzde **"Kamu işçisi"**, bildirim e-postasında **"Kamu işçisi (İŞKUR)"**, API'de üçüncü bir metin olarak görünüyordu | Etiket sözlükleri **dört ayrı dosyada** kopyalanmıştı (`domain/types.ts`, `lib/format.ts`, `notifications/matcher.ts`, `email/templates.ts`) ve zamanla ayrışmıştı | Etiketlerin tek kaynağı `src/domain/types.ts` yapıldı; diğer üç dosya oradan içe alıyor. Yeni `educationLabel/employmentTypeLabel/jobStatusLabel/sourceStatusLabel` yardımcıları eklendi |
+| 2 | "Kaynaklar" sayfasında aynı durum bilgisi **iki kez** yazılıydı; "Çalıştığı kanıtlanan" ifadesi API'nin döndürdüğü "Gerçek veriyle doğrulanan" durumundan farklıydı | §1'deki etiket ayrışmasının görsel sonucu + elle yazılmış ikinci satır | Yinelenen satır kaldırıldı, kart etiketi kanonik metne bağlandı; `Home` durum şeridi ve E2E seçicileri aynı metne güncellendi |
+| 3 | İlan kaydetme başarısız olduğunda buton **hiçbir şey söylemiyordu** (sessiz hata) | `SaveJobButton` mutasyonunda `onError` yoktu | Hata metni `Kaydedilemedi: …` olarak `aria-live` bölgesinde gösteriliyor; bekleme durumunda "Kaydediliyor…" yazıyor |
+| 4 | Yönetim panelinde inceleme kararı verilemediğinde ekran **boş kalıyordu** | `ReviewTab.decide` mutasyonunda `onError` yoktu | `Karar kaydedilemedi: …` uyarısı + "Kapat" düğmesi; `ErrorNotice` bileşenine `retryLabel` desteği eklendi |
+| 5 | "Ölü e-posta işini yeniden kuyruğa al" düğmesi başarısız olursa sessizdi | `OutboxTab.requeue` mutasyonunda `onError` yoktu | Başarı/hata mesajı sekmenin üstünde gösteriliyor (hata tonu kırmızı) |
+| 6 | Yönetim panelinin 5 sekmesinde sorgu hatası **sessizce boş ekran** bırakıyordu | `query.isError` dalı yoktu | Beş sekmede `ErrorNotice` + "Yeniden dene"; kaynaklar sekmesine `Spinner` + hata dalı eklendi |
+| 7 | Bildirim geçmişi isteği başarısız olursa panel sessizdi | `history.isError` ele alınmamıştı | Panel geçmişi bölümüne hata dalı + yeniden deneme eklendi |
+| 8 | Bilgi sayfalarında "Ana içeriğe atla" bağlantısı ve rota değişimi odağı **çalışmıyordu** | `InfoPageShell` içindeki `<main id="main">` odaklanabilir değildi (`tabIndex` yok) | `tabIndex={-1}` eklendi; klavye/ekran okuyucu odağı artık taşınıyor |
+| 9 | İlan listesi ve vekil (proxy) kontrolleri, tarayıcı **kabul başlığı olmadan** yapıldığında 404 dönüyordu (testlerde yanlış negatif üretiyordu) | SPA yedeği yalnızca `Accept: text/html` isteklerinde devreye girer (Vite sözleşmesi) | Davranış doğru; doğrulama betiği tarayıcı gibi `Accept: text/html` gönderecek biçimde düzeltildi |
+| 10 | `package-lock.json` kök bağımlılıklarında `package.json`'da bulunmayan `playwright` satırı duruyordu | Geçmiş `npm install` artığı | `npm install` satırı temizledi; kilit artık `package.json` ile birebir uyumlu |
+
+### 14.2 Güvenlik incelemesi (bu turda yeniden yapıldı)
+
+1. **SQL üretimi (`src/db/postgres-store.ts`)**: `${table}` ile kurulan tüm SQL
+   ifadeleri denetlendi. Tablo adı `safeIdentifier()` ( `^[a-z][a-z0-9_]*$` )
+   süzgecinden geçer ve yalnızca `CollectionName` birleşiminden gelir; tablo ön
+   eki de `init()` içinde aynı süzgeçten geçirilir. Alan adları `quoteLiteral`
+   ile tek tırnağı kaçırılarak, değerler **her zaman** bağlı parametre
+   (`$1`, `$2`) olarak kullanılır. Dışa açık hiçbir uç, kullanıcı girdisini
+   tablo/kolon adına dönüştürmüyor → **enjeksiyon yüzeyi yok**.
+2. **Süreç yürütme / dinamik kod**: `child_process`, `eval`, `new Function`,
+   `vm` kullanımı yok (tüm ağaçta tarandı).
+3. **`process.env` doğrudan okuma**: yalnızca `config/env.ts`, `config/load-env.ts`,
+   `db/repos/system.ts`, `notifications/sender.ts` — hepsi şema doğrulamasından
+   geçiyor.
+4. **CSRF**: muaf uçlar yalnızca giriş/parola sıfırlama/e-posta doğrulama/
+   abonelikten çıkma (jetonlu, oturumsuz çağrılabilmesi gereken uçlar). Yazma
+   uçlarının tamamı `x-csrf-token` istiyor; başlıksız istek **403** ve oturum
+   etkilenmiyor (canlı koşumda doğrulandı).
+5. **Güvenlik başlıkları** (canlı ölçüm): `content-security-policy`,
+   `x-frame-options: DENY`, `x-content-type-options: nosniff`,
+   `referrer-policy`, `permissions-policy`, `cross-origin-opener-policy` hepsi yerinde.
+6. **Hız sınırı**: `/api` genelinde 120 istek/60 sn; aşıldığında **429**
+   (canlı koşumda yanlışlıkla tetiklendi ve doğru davrandığı görüldü).
+7. **KVKK akışı uçtan uca**: yanlış parolayla silme **401**; doğru parolayla
+   silme sonrası oturum kapanıyor ve aynı parolayla giriş **401** (hesap
+   gerçekten siliniyor).
+
+### 14.3 Davranış doğrulamaları (ikinci canlı koşum: 18/18)
+
+Davet → parola belirleme → giriş zinciri ve hesap yaşam döngüsü baştan sona
+koşuldu:
+
+```
+yönetici tarafından açılan hesap davet bağlantısı üretiyor       ✅ e-posta diske yazıldı
+davet jetonu parola belirliyor                                   ✅ 200
+davetli kullanıcı giriş yapıyor                                  ✅ 200
+parolamı unuttum → jeton e-postada                               ✅ 200 + .eml
+jetonla yeni parola                                              ✅ 200
+aynı jeton ikinci kez | tek kullanımlık olması                   ✅ 400
+yeni parolayla giriş                                             ✅ 200
+ilan kaydet / listede görün / geri al                            ✅ 200 · 1 kayıt · 0 kayıt
+normal kullanıcı yönetim panosuna erişemiyor                     ✅ 403
+oturumsuz hassas uçlar                                           ✅ 401 (preferences, saved-jobs, admin)
+KVKK: yanlış parolayla silme reddi / doğru parolayla silme       ✅ 401 / 200
+silinen hesabın oturumu ve yeniden girişi                        ✅ kapalı / 401
+```
+
+### 14.4 Canlı duman koşumu (üçüncü tur: 57/57)
+
+`/api/health` (güvenlik başlıkları dahil), arama ve filtre kenar durumları
+(Türkçe büyük harf, `%`, bozuk regex, bilinmeyen enum → 0 sonuç), sayfalama
+sınırları (page 0/-1/501 → 400, page 500 → 200, pageSize 0/1000 → 400),
+detay uçları (200/404), oturum zinciri (yanlış/doğru parola, CSRF'li ve
+CSRF'siz çıkış), bildirim tercihleri (kanonik 200 / `belirtilmemis` 400),
+kaydedilenler, yönetim uçlarının tamamı (9 sekme ucu 200), bakım işi,
+SPA yolları (`/`, `/giris`, bilinmeyen yol → `index.html`), Vite vekili
+(`/api/health`, `/api/jobs`), geliştirme posta görüntüleyici.
+
+### 14.5 Statik ve otomatik doğrulamalar (bu turda yeniden koşuldu)
+
+| Denetim | Sonuç |
+| ------- | ----- |
+| `npx tsc --noEmit` | temiz |
+| `npx eslint .` | temiz |
+| `npx vitest run` | **29 dosya / 276 test yeşil** (yeni: `tests/admin-feedback.test.tsx`) |
+| `npm run build` | başarılı (`dist/` yeniden üretildi) |
+| `npm run env:check` | kullanılabilir (yalnızca beklenen `ADMIN_EMAIL` bilgisi) |
+| `npm run sources:report` | 27 kaynak · 23 etkin · 23 doğrulanmış · 0 başarısız · 0 bayat |
+| Ortam değişkeni paritesi | `src/config/env.ts` 59 anahtar = `.env.example` 59 anahtar · **eksik/fazla yok** |
+| Uç paritesi | Arayüzdeki 41 `api.*` çağrısının tamamı sunucudaki 47 rotadan biriyle eşleşiyor · **eşleşmeyen yok** |
+| Belge bağlantıları ve komutlar | `docs/*.md` + `README.md` içindeki tüm `npm run …` komutları ve yerel bağlantılar geçerli · **kırık yok** |
+| TODO/FIXME/HACK ve `console.log` | `src/` altında yok |
+
+### 14.6 Bu turda değişen dosyalar
+
+`src/domain/types.ts` (kanonik etiketler), `src/lib/format.ts` (yardımcılar),
+`src/notifications/matcher.ts`, `src/email/templates.ts`,
+`src/components/{ui,JobCard,SaveJobButton,InfoPageShell}.tsx`,
+`src/pages/{Admin,Home,JobDetail,Panel,Sources}.tsx`,
+`tests/{ui,admin-feedback}.test*`, `e2e/{smoke,sources}.spec.ts`,
+`package-lock.json`, bu rapor ve `docs/dogrulama-2026-10-13.md`.
+
+### 14.7 Kapanan açık maddeler (bkz. §10)
+
+- §10.2 (inceleme/outbox mutasyonlarında `onError` yok) → **kapatıldı** (§14.1/4, §14.1/5).
+- §10.4 (`package-lock.json` içindeki fazlalık `playwright` satırı) → **kapatıldı** (§14.1/10).
+- §10.1 (yönetici revizyon listesinde sınıflandırma filtresi), §10.3 (kart başına
+  fazla kanca) ve §10.5 (bu ortamda Playwright koşulamaması) **açık** ve
+  düşük öncelikli olarak duruyor; güvenlik açığı değildir.

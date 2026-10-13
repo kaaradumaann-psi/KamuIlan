@@ -11,11 +11,11 @@ import { CONTACT_EMAIL } from '../site';
 import { api, errorMessage } from '../lib/api';
 import {
   RUN_STATUS_LABELS,
-  SOURCE_STATUS_LABELS,
   formatDateTime,
   formatDuration,
   formatNumber,
   formatRelative,
+  sourceStatusLabel,
 } from '../lib/format';
 import type { SourceListResponse } from '../types';
 import { Card, DataTable, EmptyState, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
@@ -25,7 +25,7 @@ import { Icon } from '../components/Icon';
 function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
   if (source.verified) return <Tag tone="success" icon="check">ilanları düzenli okunuyor</Tag>;
   if (source.built) return <Tag tone="warning" icon="info">hazırlanıyor</Tag>;
-  return <Tag tone="neutral">{SOURCE_STATUS_LABELS[source.status] ?? source.status}</Tag>;
+  return <Tag tone="neutral">{sourceStatusLabel(source.status)}</Tag>;
 }
 
 export function SourcesPage(): ReactNode {
@@ -59,7 +59,7 @@ export function SourcesPage(): ReactNode {
             <StatCard label="Toplam kaynak" value={formatNumber(query.data.summary.total)} icon="list" />
             <StatCard label="İzlenen" value={formatNumber(query.data.summary.enabled)} icon="server" tone="accent" />
             <StatCard
-              label="Çalıştığı kanıtlanan"
+              label="Gerçek veriyle doğrulanan"
               value={formatNumber(query.data.summary.verified)}
               icon="check"
               tone="success"
@@ -114,10 +114,15 @@ export function SourcesPage(): ReactNode {
                   </td>
                   <td data-label="Durum">
                     {sourceTag(source)}
-                    <span className="cell-subtitle">
-                      {SOURCE_STATUS_LABELS[source.status] ?? source.status}
-                      {source.enabled ? '' : ' · kapalı'}
-                    </span>
+                    {/* Etiket zaten durumu söylüyorsa aynı metni tekrar yazma. */}
+                    {source.verified || source.built ? (
+                      source.enabled ? null : <span className="cell-subtitle">kapalı</span>
+                    ) : (
+                      <span className="cell-subtitle">
+                        {sourceStatusLabel(source.status)}
+                        {source.enabled ? '' : ' · kapalı'}
+                      </span>
+                    )}
                   </td>
                   <td data-label="Ne sıklıkla bakılıyor">
                     <span className="cell-num">{source.intervalMinutes} dakikada bir</span>

@@ -324,12 +324,20 @@ Playwright tarayıcıları bu ortamda indirilemediği için **E2E koşulamadı**
 `docs/testing.md` içinde).
 
 > **Sonraki turlar (13.10.2026):** yukarıdaki tablo ilk teslimatın fotoğrafıdır.
-> Giriş/oturum düzeltmeleri ve uçtan uca denetim turundan sonra suite
-> **28 dosya / 273 teste** çıktı; eklenen dosyalar:
+> Giriş/oturum düzeltmeleri, uçtan uca denetim ve sıfırdan tam tarama
+> turlarından sonra suite **29 dosya / 276 teste** çıktı; eklenen dosyalar:
 > `tests/login-page.test.tsx`, `tests/api-client-error.test.ts`,
 > `tests/auth-session-setup.test.ts`, `tests/audit-fixes.test.ts` (27 regresyon
-> testi), `tests/panel-preferences.test.tsx`. Ayrıntı ve kanıtlar:
-> [denetim-raporu-2026-10-13.md](./denetim-raporu-2026-10-13.md).
+> testi), `tests/panel-preferences.test.tsx`, `tests/admin-feedback.test.tsx`
+> (yönetim panelinde sessiz hata kalmadığını kilitler). Ayrıntı ve kanıtlar:
+> [denetim-raporu-2026-10-13.md](./denetim-raporu-2026-10-13.md) (§14).
+>
+> **Mimari karar (bu turlarda):** kullanıcıya görünen tüm etiketler (kadro türü,
+> eğitim düzeyi, ilan durumu, kaynak durumu, KPSS puan türleri) **tek kaynakta**
+> — `src/domain/types.ts` — tutulur; arayüz, e-posta şablonları, tercih
+> eşleştirici ve API serileştirici aynı sözlükleri içe alır. Kopya sözlük
+> yasaktır; yeni bir enum değeri eklendiğinde `Record<Union, string>` tipi
+> derlemeyi kırar, böylece etiketsiz değer üretime çıkamaz.
 
 ---
 
@@ -394,6 +402,7 @@ Ayrıntılı tablo: `docs/setup.md` § Ortam değişkenleri.
 | 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                              | ✅    |
 | 11    | Giriş/oturum uçtan uca düzeltmeleri + hesap araçları (`user:create`)            | ✅    |
 | 12    | Uçtan uca denetim: arama, tarih/saat, güvenlik, arayüz ([rapor](./denetim-raporu-2026-10-13.md)) | ✅    |
+| 13    | Sıfırdan tam tarama: etiketlerin tek kaynağa indirilmesi, sessiz hataların kapatılması, engelli erişilebilirlik düzeltmesi ([§14](./denetim-raporu-2026-10-13.md)) | ✅    |
 
 ---
 

@@ -176,7 +176,7 @@ describe('arayüz kabuğu', () => {
     renderApp('/kaynaklar');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
-    expect(await screen.findByText('Çalıştığı kanıtlanan')).toBeTruthy();
+    expect(await screen.findByText('Gerçek veriyle doğrulanan')).toBeTruthy();
     expect(screen.getByText('Hazırlanan')).toBeTruthy();
     expect(screen.getAllByText(/Kapsam eksiktir/).length).toBeGreaterThan(0);
   });

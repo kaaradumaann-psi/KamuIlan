@@ -60,7 +60,7 @@ export function InfoPageShell({ kicker, title, backTo, children }: InfoPageShell
         </div>
       </header>
 
-      <main className="info-main" id="main">
+      <main className="info-main" id="main" tabIndex={-1}>
         <div className="info-container">
           <header className="info-page-head">
             <span className="info-kicker">{kicker}</span>

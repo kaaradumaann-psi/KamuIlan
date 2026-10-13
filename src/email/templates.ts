@@ -10,6 +10,7 @@
  *  - Şablonlar kullanıcı verisiyle doldurulurken HTML kaçışı uygulanır.
  */
 import type { JobDoc } from '../db/schemas';
+import { EMPLOYMENT_TYPE_LABELS } from '../domain/types';
 
 export type EmailTemplate =
   'account-invite' | 'verify-email' | 'password-reset' | 'new-job' | 'job-changed' | 'daily-digest' | 'test';
@@ -28,16 +29,6 @@ export interface RenderedEmail {
   text: string;
 }
 
-const EMPLOYMENT_LABELS: Record<string, string> = {
-  kadrolu: 'Kadrolu memur',
-  sozlesmeli: 'Sözleşmeli personel',
-  'kamu-isci': 'Kamu işçisi',
-  akademik: 'Akademik kadro',
-  'kariyer-meslek': 'Kariyer meslek personeli',
-  'kuruma-ozel-sinav': 'Kuruma özgü sınavla alım',
-  'diger-kamu': 'Diğer kamu personeli',
-  belirsiz: 'Türü belirsiz',
-};
 
 export function escapeHtml(value: string): string {
   return value
@@ -127,7 +118,7 @@ export function buildJobPayload(
 function summaryRows(payload: JobEmailPayload): { label: string; value: string }[] {
   const rows: { label: string; value: string }[] = [
     { label: 'Kurum', value: payload.institution },
-    { label: 'Çalışma biçimi', value: EMPLOYMENT_LABELS[payload.employmentType] ?? payload.employmentType },
+    { label: 'Çalışma biçimi', value: EMPLOYMENT_TYPE_LABELS[payload.employmentType as keyof typeof EMPLOYMENT_TYPE_LABELS] ?? payload.employmentType },
   ];
   if (payload.unit) rows.push({ label: 'Birim', value: payload.unit });
   if (payload.quota !== null && payload.quota !== undefined)
