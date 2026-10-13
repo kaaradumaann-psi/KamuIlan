@@ -178,18 +178,25 @@ beforeAll(async () => {
 
 describe('Sayfalar (gerçek API cevaplarıyla)', () => {
   it('ana sayfa', async () => {
-    renderPage(<HomePage />);
+    const view = renderPage(<HomePage />);
     expect(
       await screen.findByRole('heading', { level: 1, name: /Kamu personel alım ilanları/ }),
     ).toBeTruthy();
+    expect(await screen.findByText('Açık ilan')).toBeTruthy();
+    expect(view.container.querySelector('.day-board')).toBeTruthy();
+    expect(view.container.querySelector('.desk.hero-band')).toBeTruthy();
+    expect(view.container.querySelector('.desk-now')).toBeTruthy();
+    expect(view.container.querySelector('.stats-grid-4')).toBeTruthy();
   });
 
   it('ilan listesi gerçek ilanı gösterir', async () => {
-    renderPage(<JobsPage />, '/ilanlar');
+    const view = renderPage(<JobsPage />, '/ilanlar');
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Kamu personel alım ilanları' }),
     ).toBeTruthy();
     expect((await screen.findAllByText(/Sözleşmeli Personel Alım İlanı/)).length).toBeGreaterThan(0);
+    expect(view.container.querySelector('.page-head .kicker')).toBeTruthy();
+    expect(view.container.querySelector('.search-input-wrap')).toBeTruthy();
   });
 
   it('ilan detayı', async () => {
@@ -204,27 +211,33 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
   });
 
   it('kaynaklar', async () => {
-    renderPage(<SourcesPage />, '/kaynaklar');
+    const view = renderPage(<SourcesPage />, '/kaynaklar');
     expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
+    expect(await screen.findByText('Gerçek veriyle doğrulanan')).toBeTruthy();
+    expect(view.container.querySelector('.page-head .kicker')).toBeTruthy();
+    expect(view.container.querySelector('.stats-grid-4')).toBeTruthy();
   });
 
   it('panel (tercihler + geçmiş)', async () => {
     const first = renderPage(<PanelPage view="preferences" />, '/panel');
     expect(await screen.findByRole('heading', { level: 1, name: 'Panelim' })).toBeTruthy();
+    expect(first.container.querySelector('.subnav-tabs .subnav-tab.is-active')).toBeTruthy();
     first.unmount();
     renderPage(<PanelPage view="history" />, '/panel/gecmis');
     expect(await screen.findByText(/Henüz bildirim üretilmedi/)).toBeTruthy();
   });
 
   it('kaydettiklerim gerçek kaydı listeler', async () => {
-    renderPage(<SavedJobsPage />, '/panel/kaydedilenler');
+    const view = renderPage(<SavedJobsPage />, '/panel/kaydedilenler');
     expect(await screen.findByRole('heading', { level: 1, name: /Kaydettiğim ilanlar/ })).toBeTruthy();
     expect((await screen.findAllByText(/Sözleşmeli Personel Alım İlanı/)).length).toBeGreaterThan(0);
+    expect(view.container.querySelector('.subnav-tabs .subnav-tab.is-active')).toBeTruthy();
   });
 
   it('giriş ve SSS', async () => {
     const first = renderPage(<LoginPage />, '/giris');
     expect(await screen.findByRole('heading', { level: 1, name: 'Giriş yap' })).toBeTruthy();
+    expect(first.container.querySelector('.site-footer')).toBeTruthy();
     first.unmount();
     renderPage(<FaqPage />, '/sss');
     expect(await screen.findByRole('heading', { level: 1, name: 'Sıkça sorulan sorular' })).toBeTruthy();

@@ -18,6 +18,7 @@ import { Icon } from '../components/Icon';
 import { BrandMark } from '../components/BrandMark';
 import { InfoPageShell } from '../components/InfoPageShell';
 import { PolicyDoc, PolicyList } from '../components/PolicyDoc';
+import { SiteFooter } from '../components/SiteFooter';
 import { APP_DOMAIN, APP_NAME, CONTACT_EMAIL, HONESTY_NOTE, POLICY_EFFECTIVE_DATE, SITE_URL } from '../site';
 
 function useAfterAuth(): () => Promise<void> {
@@ -190,8 +191,8 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
             </div>
 
             <p className="auth-card-note">
-              <strong>Halka açık kayıt yoktur</strong>. Hesabınız yönetici tarafından açılır: davet e-postası
-              ulaştığında parolanızı kendiniz belirlersiniz.
+              <strong>Halka açık kayıt yoktur</strong>. Hesabınız yönetici tarafından açılır; davet
+              e-postası ulaştığında parolanızı kendiniz belirlersiniz.
             </p>
 
             <div className="auth-site-links">
@@ -205,6 +206,7 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
           </div>
         </div>
       </div>
+      <SiteFooter compact />
     </div>
   );
 }

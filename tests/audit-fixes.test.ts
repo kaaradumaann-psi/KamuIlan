@@ -30,7 +30,7 @@ import { toPublicJobDetail } from '../src/server/serializers';
 import { renderEmail } from '../src/email/templates';
 import { formatDateMaybeTime, formatDateOnly } from '../src/lib/format';
 import { assertSafeUrl, FetchError } from '../src/sources/fetcher';
-import { sozlesmeliPersonelIlani } from './fixtures/announcements';
+import { sozlesmeliPersonelIlani, belirsizDuyuru } from './fixtures/announcements';
 import type { SourceDefinition } from '../src/config/sources';
 
 const NOW = new Date('2026-10-13T09:00:00+03:00');
@@ -521,3 +521,86 @@ describe('CSRF — çıkış ucu da korunur', () => {
     await store.close();
   });
 });
+
+describe('Yönetim inceleme kuyruğu ve revizyon geçmişi', () => {
+  it('sınıflandırma incelemesinde "kabul et" kararı ilanı yayımlar ve revizyon geçmişi karar alanını döner', async () => {
+    const { repos, app, store } = await makeWorld();
+    const { hash, salt } = await hashPassword(CREDENTIAL);
+    await repos.users.create({
+      email: 'yonetici@ornek.test',
+      passwordHash: hash,
+      passwordSalt: salt,
+      displayName: 'Yönetici',
+      role: 'admin',
+      emailVerified: true,
+    });
+
+    // Belirsiz duyuru inceleme kuyruğuna düşer (henüz job kaydı oluşturulmaz, jobId === null).
+    const raw = belirsizDuyuru();
+    const reviewOutcome = await applyRawAnnouncement(raw, {
+      repos,
+      now: NOW,
+      workerId: 'audit-worker',
+      provenance: 'scraped',
+    });
+    expect(reviewOutcome.action).toBe('review');
+    expect(reviewOutcome.jobId).toBeNull();
+
+    const openQueue = await repos.review.list({ status: 'open' });
+    expect(openQueue).toHaveLength(1);
+    const reviewItem = openQueue[0]!;
+    expect(reviewItem.payload.relatedJobId).toBeUndefined();
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: 'yonetici@ornek.test', password: CREDENTIAL },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const csrf = (loginRes.json() as { csrfToken: string }).csrfToken;
+    const sessionCookie = (loginRes.cookies as { name: string; value: string }[]).find(
+      (cookie) => cookie.name === 'kamuilan_session',
+    )?.value;
+    const csrfCookie = (loginRes.cookies as { name: string; value: string }[]).find(
+      (cookie) => cookie.name === 'kamuilan_csrf',
+    )?.value;
+
+    const resolveRes = await app.inject({
+      method: 'POST',
+      url: `/api/admin/review-queue/${reviewItem.id}/resolve`,
+      cookies: { kamuilan_session: sessionCookie ?? '', kamuilan_csrf: csrfCookie ?? '' },
+      headers: { 'x-csrf-token': csrf },
+      payload: { action: 'accept', note: 'Manuel incelendi, personel alım ilanıdır.' },
+    });
+    expect(resolveRes.statusCode).toBe(200);
+    const resolvedBody = resolveRes.json() as {
+      decision: string;
+      acceptedJobId: string | null;
+    };
+    expect(resolvedBody.decision).toBe('accept');
+    expect(resolvedBody.acceptedJobId).toBeTruthy();
+
+    const createdJob = await repos.jobs.findById(resolvedBody.acceptedJobId!);
+    expect(createdJob).not.toBeNull();
+    expect(createdJob?.classification.decision).toBe('accept');
+    expect(createdJob?.title).toBe(raw.title);
+
+    // Revizyon ucu, arayüz tablosunun beklediği `classificationDecision` alanını döner.
+    const revisionsRes = await app.inject({
+      method: 'GET',
+      url: `/api/admin/jobs/${resolvedBody.acceptedJobId}/revisions`,
+      cookies: { kamuilan_session: sessionCookie ?? '' },
+    });
+    expect(revisionsRes.statusCode).toBe(200);
+    const revisionsBody = revisionsRes.json() as {
+      job: { id: string; classificationDecision: string };
+      revisions: { id: string; summary: string }[];
+    };
+    expect(revisionsBody.job.classificationDecision).toBe('accept');
+    expect(revisionsBody.revisions.length).toBeGreaterThan(0);
+
+    await app.close();
+    await store.close();
+  });
+});
+

@@ -19,7 +19,7 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
   const queryClient = useQueryClient();
 
   const saved = useQuery({
-    queryKey: ['saved-ids'],
+    queryKey: ['saved-jobs'],
     queryFn: () => api.get<SavedJobsResponse>('/api/me/saved-jobs'),
     enabled: Boolean(user),
     staleTime: 30_000,
@@ -34,7 +34,6 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
       api.post<{ saved: boolean; message: string }>(`/api/jobs/${encodeURIComponent(jobId)}/save`),
     onSuccess: () => {
       setProblem(null);
-      void queryClient.invalidateQueries({ queryKey: ['saved-ids'] });
       void queryClient.invalidateQueries({ queryKey: ['saved-jobs'] });
     },
     onError: (error: unknown) => setProblem(errorMessage(error)),
@@ -66,10 +65,11 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
         <Icon name={isSaved ? 'check' : 'save'} size={15} />
         <span>{toggle.isPending ? 'Kaydediliyor…' : isSaved ? 'Kaydedildi' : 'Kaydet'}</span>
       </button>
-      {/* Ekran okuyucular için canlı bölge: durum değişimi duyurulur. */}
-      <span className="text-muted-sm" role={problem ? 'alert' : 'status'} aria-live="polite">
-        {problem ? `Kaydedilemedi: ${problem}` : ''}
-      </span>
+      {problem ? (
+        <span className="text-muted-sm" role="alert" aria-live="polite">
+          Kaydedilemedi: {problem}
+        </span>
+      ) : null}
     </>
   );
 }
