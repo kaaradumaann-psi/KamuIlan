@@ -114,6 +114,11 @@ Tek komutla dört süreç ayağa kalkar:
 | Worker                  | —                     | Tarama + e-posta döngüsü, kalıcı kuyruk       |
 | Geliştirme posta kutusu | http://localhost:1080 | SMTP: `127.0.0.1:1025` (`.env`); gerçek e-posta GİTMEZ |
 
+Supabase/PostgreSQL ile ilk açılışta uzak veritabanı hazırlığı zaman alabilir. `npm run dev`,
+worker'ın hafif heartbeat ucunu (`/api/health/worker`) bekler; kaynak/görev eşitlemesi sürerken
+durum `başlatılıyor` görünür. Worker heartbeat'i alınamazsa terminalde ilgili hata ve worker
+sürecinin günlükleri yazılır; yalnızca arayüzün açılmış olması taramanın çalıştığını kanıtlamaz.
+
 Tek tek çalıştırmak isterseniz: `npm run dev:api`, `npm run dev:worker`,
 `npm run dev:web`, `npm run dev:smtp`.
 

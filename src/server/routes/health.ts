@@ -12,6 +12,16 @@ import type { Repos } from '../../db/repos';
 import { maskEmail } from '../../domain/text';
 import { HEARTBEAT_STALE_MS } from '../../worker/scheduler';
 
+const workerHealthResponse = z.object({
+  checkedAt: z.string(),
+  workers: z.object({
+    total: z.number(),
+    running: z.number(),
+    starting: z.number(),
+    stale: z.number(),
+  }),
+});
+
 const healthResponse = z.object({
   status: z.enum(['ok', 'degraded', 'down']),
   app: z.string(),
@@ -67,6 +77,36 @@ const healthResponse = z.object({
 });
 
 export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
+  // Hafif readiness ucu: dev başlatıcısı bunu kullanır; tam /api/health
+  // kaynak başına tarama istatistikleri topladığından Supabase'ta ağır olabilir.
+  app.get(
+    '/api/health/worker',
+    {
+      schema: {
+        tags: ['health'],
+        summary: 'Worker başlangıç/heartbeat durumu',
+        response: { 200: workerHealthResponse },
+      },
+    },
+    async () => {
+      const now = repos.clock.now();
+      const staleThreshold = new Date(now.getTime() - HEARTBEAT_STALE_MS).toISOString();
+      const heartbeats = (await repos.heartbeats.list()).filter((beat) => beat.role === 'worker');
+      const recent = heartbeats.filter((beat) => beat.lastHeartbeatAt >= staleThreshold);
+      return {
+        checkedAt: now.toISOString(),
+        workers: {
+          total: heartbeats.length,
+          running: recent.filter((beat) => beat.status === 'running').length,
+          starting: recent.filter((beat) => beat.status === 'starting').length,
+          stale: heartbeats.filter(
+            (beat) => beat.status !== 'stopped' && beat.lastHeartbeatAt < staleThreshold,
+          ).length,
+        },
+      };
+    },
+  );
+
   app.get(
     '/api/health',
     {

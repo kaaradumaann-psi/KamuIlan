@@ -129,20 +129,26 @@ export class ScheduledTaskRepo {
   ) {}
 
   /** Görev yoksa oluşturur; aralık değişirse nextRunAt son kuyruklanma zamanından yeniden hesaplanır. */
-  async ensure(input: {
-    kind: ScheduledTaskDoc['kind'];
-    sourceKey: string;
-    intervalMinutes: number;
-    nextRunAt?: string;
-  }): Promise<ScheduledTaskDoc> {
+  async ensure(
+    input: {
+      kind: ScheduledTaskDoc['kind'];
+      sourceKey: string;
+      intervalMinutes: number;
+      nextRunAt?: string;
+    },
+    knownExisting?: ScheduledTaskDoc | null,
+  ): Promise<ScheduledTaskDoc> {
     const now = this.clock.now();
-    const existing = await this.store.findOne('scheduledTasks', { kind: input.kind, sourceKey: input.sourceKey });
+    const existing =
+      knownExisting === undefined
+        ? await this.store.findOne('scheduledTasks', { kind: input.kind, sourceKey: input.sourceKey })
+        : knownExisting;
     if (existing) {
       const intervalChanged = existing.intervalMinutes !== input.intervalMinutes;
-      const nextRunAt =
-        intervalChanged && existing.lastRunAt
-          ? addMilliseconds(existing.lastRunAt, input.intervalMinutes * 60_000)
-          : existing.nextRunAt;
+      if (!intervalChanged) return existing;
+      const nextRunAt = existing.lastRunAt
+        ? addMilliseconds(existing.lastRunAt, input.intervalMinutes * 60_000)
+        : existing.nextRunAt;
       const updated = await this.store.updateOne(
         'scheduledTasks',
         { id: existing.id },

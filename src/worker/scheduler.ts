@@ -44,22 +44,30 @@ export async function ensureScheduledTasks(
   const globalIntervalMinutes = scanIntervalMinutes > 0 ? scanIntervalMinutes : null;
   const sources = await repos.sources.list();
   const before = await repos.scheduledTasks.listAll();
-  const existingKeys = new Set(before.map((task) => `${task.kind}:${task.sourceKey}`));
+  const existingByKey = new Map(before.map((task) => [`${task.kind}:${task.sourceKey}`, task]));
 
   for (const source of sources) {
-    const task = await repos.scheduledTasks.ensure({
-      kind: 'source-scrape',
-      sourceKey: source.key,
-      intervalMinutes: globalIntervalMinutes ?? source.scrapeIntervalMinutes,
-    });
+    const taskKey = `source-scrape:${source.key}`;
+    const existing = existingByKey.get(taskKey) ?? null;
+    const intervalMinutes = globalIntervalMinutes ?? source.scrapeIntervalMinutes;
+    const task = await repos.scheduledTasks.ensure(
+      { kind: 'source-scrape', sourceKey: source.key, intervalMinutes },
+      existing,
+    );
+    let changed = existing !== null && existing.intervalMinutes !== intervalMinutes;
     if (!source.enabled && task.enabled) {
       await repos.scheduledTasks.setEnabled(task.id, false);
       result.disabled += 1;
+      changed = true;
     } else if (source.enabled && !task.enabled) {
       await repos.scheduledTasks.setEnabled(task.id, true);
+      changed = true;
     }
-    if (existingKeys.has(`source-scrape:${source.key}`)) result.updated += 1;
-    else result.created += 1;
+    if (existing) {
+      if (changed) result.updated += 1;
+    } else {
+      result.created += 1;
+    }
   }
 
   const systemTasks: { kind: ScheduledTaskDoc['kind']; intervalMinutes: number; note: string }[] = [
@@ -81,14 +89,21 @@ export async function ensureScheduledTasks(
   ];
 
   for (const task of systemTasks) {
-    const created = await repos.scheduledTasks.ensure({
-      kind: task.kind,
-      sourceKey: SYSTEM_TASK_KEY,
-      intervalMinutes: task.intervalMinutes,
-    });
-    if (existingKeys.has(`${task.kind}:${SYSTEM_TASK_KEY}`)) result.updated += 1;
-    else result.created += 1;
-    void created;
+    const taskKey = `${task.kind}:${SYSTEM_TASK_KEY}`;
+    const existing = existingByKey.get(taskKey) ?? null;
+    await repos.scheduledTasks.ensure(
+      {
+        kind: task.kind,
+        sourceKey: SYSTEM_TASK_KEY,
+        intervalMinutes: task.intervalMinutes,
+      },
+      existing,
+    );
+    if (existing) {
+      if (existing.intervalMinutes !== task.intervalMinutes) result.updated += 1;
+    } else {
+      result.created += 1;
+    }
   }
 
   const all = await repos.scheduledTasks.listAll();

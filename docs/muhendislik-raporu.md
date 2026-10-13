@@ -28,13 +28,13 @@ Doğrulama özeti (14 Ekim 2026; komut çıktıları bu depoda alındı):
 | --------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Tip denetimi                      | `npm run typecheck`                                                                          | geçti (0 hata)                                                                                     |
 | Lint                              | `npm run lint`                                                                               | geçti (0 hata, 0 uyarı)                                                                            |
-| Birim/entegrasyon/arayüz testleri | `npm test`                                                                                   | **291 test / 31 dosya — tamamı geçti**                                                             |
+| Birim/entegrasyon/arayüz testleri | `npm test`                                                                                   | **297 test / 31 dosya — tamamı geçti**                                                             |
 | Üretim derlemesi                  | `npm run build`                                                                              | başarılı (109 modül, `dist/`)                                                                     |
 | Ortam doğrulaması                 | `npm run env:check`                                                                          | kullanılabilir; varsayılan ortamda 3 uyarı (e-posta sağlayıcısı, kısa `APP_SECRET`, yönetici hesabı) |
 | Tasarım/CSS regresyonu            | `tests/design-system.test.ts`                                                                | **6/6 geçti**                                                                                      |
 | Kaynak adaptörü sözleşmesi        | `tests/sources.test.ts`                                                                      | **35/35 geçti**                                                                                    |
-| `npm run dev` smoke               | geçici FileStore, `SOURCE_LIVE_FETCH=0`                                                      | API/Vite 200; 1 taze worker heartbeat; 23 görev işlendi ve `skipped` kaydedildi, başarı uydurulmadı |
-| Kaynak kapsam raporu              | aynı geçici smoke deposu (`npm run sources:report`)                                          | 27 kayıtlı, 23 etkin, 23 geçmiş canlı doğrulama kaydı, 23 adaptör, 0 doğrulama bekleyen hazır, 4 planlı; 23 bayat |
+| `npm run dev` smoke               | geçici FileStore, `SOURCE_LIVE_FETCH=0`                                                      | `/api/health/worker` doğrudan ve Vite proxy üzerinden 200; 1 running heartbeat; canlı tarama kapalı, ilan başarısı iddia edilmedi |
+| Kaynak kapsam raporu              | aynı geçici smoke deposu (`npm run sources:report -- --json`)                                | 27 toplam; 23 etkin/doğrulanmış, 4 planlı; bu canlı-fetch-kapalı smoke'ta henüz başarı yok, 23 kaynak bayat |
 | Canlı kaynak denemesi             | `npm run test:live -- --source=resmigazete-cestili-ilanlar` (`SOURCE_LIVE_FETCH=1`)            | 0/1: TLS kurulmadan `ECONNRESET`; sandbox ağı dış kaynak erişimini doğrulamaya izin vermedi       |
 | Playwright E2E                     | `npm run test:e2e:local`                                                                     | çalıştırılamadı: Chromium headless browser bu ortamda kurulu değil                                 |
 
@@ -55,7 +55,7 @@ Doğrulama özeti (14 Ekim 2026; komut çıktıları bu depoda alındı):
 | 9   | Rol tabanlı yönetim paneli                               | ✅    | `src/pages/Admin.tsx`, `src/server/routes/admin.ts`                                                                                                        |
 | 10  | Zod doğrulamalı REST API + OpenAPI                       | ✅    | `src/server/routes/*`, `/api/docs`                                                                                                                         |
 | 11  | Güvenlik: parola, çerez, CSRF, hız sınırı, SSRF, KVKK    | ✅    | `src/server/passwords.ts`, `src/lib/x-csrf.ts`, `src/sources/fetcher.ts`, `docs/security-kvkk.md`                                                          |
-| 12  | Testler (fixture tabanlı, canlı çağrı yok)               | ✅    | `tests/*` — 31 dosya / 291 test                                                                                                                            |
+| 12  | Testler (fixture tabanlı, canlı çağrı yok)               | ✅    | `tests/*` — 31 dosya / 297 test                                                                                                                            |
 | 13  | Docker ile tek komut ortam + CI                          | ✅    | `infra/docker/*`, `.github/workflows/ci.yml`                                                                                                               |
 | 14  | **Dışarıdan kayıt yok**                                  | ✅    | `POST /api/auth/register` varsayılan 403; hesaplar `POST /api/admin/users` ile davet edilir                                                                |
 | 15  | **Tasarım psikolog/MMPI ile aynı**                       | ✅    | `src/styles/{screen,site,coherence,theme,workspace,dashboard,mobile,responsive,auth}.css` bu repolarla **bayt bayt aynı**; Kamuİlan katmanı `kamuilan.css` |
@@ -302,20 +302,22 @@ rehberi: `docs/source-onboarding.md`.
 | -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
 | `tests/classification.test.ts`   | 21      | ret/kabul/inceleme kararları, tür tespiti, sürüm ve gerekçe                                                           |
 | `tests/extraction.test.ts`       | 26      | alan çıkarımı, tarih biçimleri, KPSS/kontenjan, tahmin yasağı                                                         |
-| `tests/ingest.test.ts`           | 14      | tekilleştirme, sürümleme, kaynak bağlantıları, değişiklik sınıfları                                                   |
-| `tests/sources.test.ts`          | 13      | **kayıt sözleşmesi**, `SOURCE_LIVE_FETCH=0` davranışı, ilan.gov.tr ayrıştırma, `blockElementText`/`İlan No` tuzakları |
+| `tests/ingest.test.ts`           | 16      | tekilleştirme, sürümleme, kaynak bağlantıları, değişiklik sınıfları                                                   |
+| `tests/sources.test.ts`          | 35      | adaptör sözleşmeleri, `SOURCE_LIVE_FETCH=0` davranışı ve kaynak ayrıştırma                                            |
+| `tests/fetcher.test.ts`          | 15      | fetch iptali, host hız sınırı, yeniden deneme ve HTTP taşıyıcısı                                                    |
+| `tests/source-coverage.test.ts`  | 3       | kaynak envanteri kapsamı ve hazır olma doğrulaması                                                                  |
 | `tests/env-loader.test.ts`       | 11      | `key: value` ayrıştırma, tırnak/kaçış, çok satırlı değer, gerçek ortam önceliği, sır gizleme                          |
 | `tests/email.test.ts`            | 10      | şablonlar, tercih eşleştirme, eşleşme gerekçesi                                                                       |
 | `tests/resend-transport.test.ts` | 9       | Resend istek biçimi, hata eşlemesi, zaman aşımı, sağlayıcı seçimi                                                     |
 | `tests/pdf.test.ts`              | 7       | gerçek PDF metin katmanı, bozuk PDF dayanıklılığı, metin sınırlama                                                    |
-| `tests/design-system.test.ts`    | 5       | stil sırası, 9 katmanın SHA-256 eşliği, tanımsız sınıf ve yardımcı sınıf yasağı                                       |
-| `tests/ui.test.tsx`              | 5       | kabuk çizimi (jsdom): kamuya açık sayfalar, oturumsuz panelde giriş kartı, kayıt bağlantısı yok                       |
-| `tests/worker.test.ts`           | 15      | zamanlama, kilit, atlanan/failing kaynak davranışı, uyarı sıklığı                                                     |
-| `tests/server.test.ts`           | 15      | API sözleşmeleri, RBAC, CSRF, kayıt kapalı, maskeli e-posta                                                           |
+| `tests/design-system.test.ts`    | 6       | stil sırası, 9 katmanın SHA-256 eşliği, tanımsız sınıf ve yardımcı sınıf yasağı                                       |
+| `tests/ui.test.tsx`              | 6       | kabuk çizimi (jsdom): kamuya açık sayfalar, oturumsuz panelde giriş kartı, worker başlangıç durumu                    |
+| `tests/worker.test.ts`           | 17      | zamanlama, heartbeat, paralel tarama, kilit, atlanan/failing kaynak davranışı, uyarı sıklığı                         |
+| `tests/server.test.ts`           | 16      | API sözleşmeleri, RBAC, CSRF, worker readiness ve maskeli e-posta                                                      |
 | `tests/email-delivery.test.ts`   | 5       | gerçek SMTP sunucusuyla uçtan uca gönderim                                                                            |
-| `tests/postgres-store.test.ts`   | 7       | gerçek SQL üretimi ve JSONB yolu (PGlite), dosya sürücüsüyle parite                                                   |
+| `tests/postgres-store.test.ts`   | 9       | gerçek SQL üretimi ve JSONB yolu (PGlite), dosya sürücüsüyle parite                                                   |
 | `tests/file-store.test.ts`       | 2       | dosya sürücüsü atomik yazma/sorgu davranışı                                                                           |
-| **Toplam**                       | **291** | **31 dosya**                                                                                                          |
+| **Toplam**                       | **297** | **31 dosya**                                                                                                          |
 
 Testler **canlı kaynağa istek atmaz** (fixture'lar ve sahte taşıyıcılar kullanılır); dosya değişiklikleri
 geçici dizinlerde yapılır. E2E (`e2e/smoke.spec.ts`, `e2e/sources.spec.ts`) API + arayüz ayağa kalkmış
@@ -323,7 +325,7 @@ hâlde çalışır ve "dürüstlük" kontrollerini yapar (ör. arayüzdeki "canl
 işaretli satır sayısına eşit olması).
 
 **Bu ortamda çalıştırılan komutlar ve sonuçları:** `npm run typecheck` ✅ · `npm run lint` ✅ ·
-`npm test` ✅ 165/165 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
+`npm test` ✅ 297/297 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
 Playwright tarayıcıları bu ortamda indirilemediği için **E2E koşulamadı** (kurulum adımları
 `docs/testing.md` içinde).
 

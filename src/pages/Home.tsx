@@ -13,10 +13,10 @@ import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
-import { HEALTH_QUERY_KEY } from '../lib/query-keys';
+import { HEALTH_QUERY_KEY, WORKER_HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
 import { APP_TAGLINE, HONESTY_NOTE } from '../site';
-import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary } from '../types';
+import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary, WorkerHealthResponse } from '../types';
 
 const STATS_KEY = ['home', 'stats'] as const;
 const LATEST_KEY = ['home', 'latest'] as const;
@@ -37,6 +37,11 @@ function SystemStrip() {
   const health = useQuery({
     queryKey: HEALTH_QUERY_KEY,
     queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
+  });
+  const worker = useQuery({
+    queryKey: WORKER_HEALTH_QUERY_KEY,
+    queryFn: ({ signal }) => api.get<WorkerHealthResponse>('/api/health/worker', undefined, signal),
+    refetchInterval: 10_000,
   });
 
   if (health.isLoading)
@@ -69,13 +74,19 @@ function SystemStrip() {
   }
 
   const data = health.data;
-  const workerActive = data.workers.running > 0;
+  const workerRunning = worker.data?.workers.running ?? data.workers.running;
+  const workerStarting = worker.data?.workers.starting ?? 0;
+  const workerPending = worker.isLoading && !worker.data && workerRunning === 0;
+  const workerActive = workerRunning > 0;
+  const workerStartingNow = !workerActive && (workerStarting > 0 || workerPending);
   const state =
     data.status === 'down'
       ? statusLabel(data.status)
-      : !workerActive
-        ? { label: 'Tarama worker’ı çalışmıyor', tone: 'warning' as const }
-        : statusLabel(data.status);
+      : workerStartingNow
+        ? { label: 'Tarama worker’ı başlatılıyor', tone: 'warning' as const }
+        : !workerActive
+          ? { label: 'Tarama worker’ı çalışmıyor', tone: 'warning' as const }
+          : statusLabel(data.status);
   return (
     <aside className="desk-now" role="status">
       <div className="desk-now-top">
@@ -97,7 +108,7 @@ function SystemStrip() {
           </span>
           <span className="desk-now-detail">
             Etkin kaynak: <strong>{data.sources.enabled}</strong> · Worker:{' '}
-            <strong>{workerActive ? 'çalışıyor' : 'çalışmıyor'}</strong> · Gerçek veriyle doğrulanan:{' '}
+            <strong>{workerActive ? 'çalışıyor' : workerStartingNow ? 'başlatılıyor' : 'çalışmıyor'}</strong> · Gerçek veriyle doğrulanan:{' '}
             <strong>{data.sources.verified}</strong>
           </span>
         </div>

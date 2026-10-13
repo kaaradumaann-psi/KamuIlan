@@ -11,7 +11,7 @@ import { createLogger } from '../src/lib/logger';
 
 async function main(): Promise<void> {
   const logger = createLogger('db-indexes', { level: 'info' });
-  const store = await initStore();
+  const store = await initStore(undefined, { ensureIndexes: false });
   const results = await store.ensureIndexes();
   for (const result of results) {
     logger.info(

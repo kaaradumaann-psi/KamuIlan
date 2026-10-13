@@ -36,7 +36,7 @@ import type { JobDoc } from '../src/db/schemas';
 import { sozlesmeliPersonelIlani } from './fixtures/announcements';
 
 const NOW = new Date('2026-10-12T09:00:00+03:00');
-const TEST_ENV = { ...getEnv(), LOG_LEVEL: 'silent' as const, SCHEDULER_ENABLED: false };
+const TEST_ENV = { ...getEnv(), LOG_LEVEL: 'silent' as const, SCHEDULER_ENABLED: false, WORKER_CONCURRENCY: 2 };
 const LOGGER = createLogger('test', { level: 'silent' });
 
 const OK_SOURCE_KEY = 'test-kaynak-ok';
@@ -153,6 +153,9 @@ describe('zamanlayıcı', () => {
     const world = await makeWorld();
     const ensured = await ensureScheduledTasks(world.repos, LOGGER);
     expect(ensured.total).toBeGreaterThanOrEqual(2);
+    const idempotent = await ensureScheduledTasks(world.repos, LOGGER);
+    expect(idempotent.created).toBe(0);
+    expect(idempotent.updated).toBe(0);
 
     const first = await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
     expect(first.enqueued).toBeGreaterThanOrEqual(2);
@@ -279,6 +282,33 @@ describe('worker çalışma zamanı', () => {
     const stats = await world.repos.queue.stats();
     expect(stats.pending).toBeLessThanOrEqual(1);
     expect(stats.active).toBe(0);
+  });
+
+  it('WORKER_CONCURRENCY sınırına kadar farklı kaynakları paralel işler', async () => {
+    const world = await makeWorld();
+    let active = 0;
+    let maxActive = 0;
+    const adapter: SourceAdapter = {
+      key: 'test-liste',
+      label: 'Paralel test listesi',
+      method: 'html-list',
+      notes: 'İki kaynağın aynı anda çalışmasını doğrulayan sahte adaptör.',
+      run: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        active -= 1;
+        return { items: [], requestCount: 1, notes: [], etag: null, lastModified: null, notModified: false };
+      },
+    };
+    const runtime = makeRuntime(world, { adapter });
+    await ensureScheduledTasks(world.repos, LOGGER);
+    await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
+
+    const result = await runtime.tick();
+
+    expect(result.scrapes.processed).toBe(2);
+    expect(maxActive).toBe(2);
   });
 
   it('kaynak erişilemezse ilanlar korunur, kaynak sağlığı işaretlenir', async () => {

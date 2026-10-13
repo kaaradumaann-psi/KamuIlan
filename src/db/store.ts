@@ -78,12 +78,15 @@ export function fileStorePath(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE
 
 let singleton: StoragePort | null = null;
 
-/** Depoyu hazırlar (indeksler dahil). Uygulama başlangıcında bir kez çağrılır. */
-export async function initStore(store?: StoragePort): Promise<StoragePort> {
+/** Depoyu hazırlar (indeksler varsayılan olarak dahil). Uygulama başlangıcında bir kez çağrılır. */
+export async function initStore(
+  store?: StoragePort,
+  options: { ensureIndexes?: boolean } = {},
+): Promise<StoragePort> {
   if (singleton && !store) return singleton;
   const instance = store ?? createStore();
   await instance.init();
-  await instance.ensureIndexes();
+  if (options.ensureIndexes !== false) await instance.ensureIndexes();
   singleton = instance;
   return instance;
 }

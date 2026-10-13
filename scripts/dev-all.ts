@@ -34,14 +34,23 @@ function isLocalMailHost(host: string): boolean {
   return normalized === '' || normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
 }
 
-function run(name: string, args: string[]): void {
-  // Windows'ta Node ≥ 20.12, .cmd dosyalarını shell olmadan spawn edemez
-  // (EINVAL verir); bu yüzden Windows'ta kabuk üzerinden çalıştırılır.
-  const child = spawn(isWindows ? 'npm.cmd' : 'npm', args, {
+function spawnNpm(args: string[]): ChildProcess {
+  // npm run içindeyken npm_execpath, npm CLI JS girişini verir. Node ile
+  // doğrudan çalıştırmak Windows'ta .cmd + shell kullanımını ve DEP0190'ı önler.
+  const npmCli = process.env['npm_execpath'];
+  if (npmCli) {
+    return spawn(process.execPath, [npmCli, ...args], { stdio: 'inherit', env: process.env });
+  }
+  // Betik npm dışında doğrudan çağrılırsa taşınabilir yedek yol.
+  return spawn(isWindows ? 'npm.cmd' : 'npm', args, {
     stdio: 'inherit',
     env: process.env,
     shell: isWindows,
   });
+}
+
+function run(name: string, args: string[]): ChildProcess {
+  const child = spawnNpm(args);
   child.on('error', (error) => {
     console.error(`[dev] "${name}" süreci başlatılamadı: ${error.message}`);
   });
@@ -51,14 +60,15 @@ function run(name: string, args: string[]): void {
     }
   });
   children.push(child);
+  return child;
 }
 
-function shutdown(): void {
+function shutdown(exitCode = 0): void {
   console.log('\n[dev] tüm süreçler kapatılıyor…');
   for (const child of children) {
     if (!child.killed) child.kill('SIGTERM');
   }
-  setTimeout(() => process.exit(0), 500);
+  setTimeout(() => process.exit(exitCode), 500);
 }
 
 process.on('SIGINT', shutdown);
@@ -93,27 +103,33 @@ async function waitForApi(timeoutMs = 60_000): Promise<boolean> {
   return false;
 }
 
-/** API sağlık yanıtındaki taze worker kalp atışıyla worker başlangıcını doğrular. */
-async function hasRunningWorker(): Promise<boolean> {
+/** Hafif heartbeat uç noktası; tam /api/health kaynak başına sorgular yaptığı için burada kullanılmaz. */
+async function getWorkerState(): Promise<'running' | 'starting' | null> {
   try {
-    const response = await fetch(`http://127.0.0.1:${env.PORT}/api/health`, {
-      signal: AbortSignal.timeout(2_000),
+    const response = await fetch(`http://127.0.0.1:${env.PORT}/api/health/worker`, {
+      signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return false;
-    const health = (await response.json()) as { workers?: { running?: unknown } };
-    return typeof health.workers?.running === 'number' && health.workers.running > 0;
+    if (!response.ok) return null;
+    const health = (await response.json()) as {
+      workers?: { running?: unknown; starting?: unknown };
+    };
+    if (typeof health.workers?.running === 'number' && health.workers.running > 0) return 'running';
+    if (typeof health.workers?.starting === 'number' && health.workers.starting > 0) return 'starting';
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-async function waitForWorker(timeoutMs = 20_000): Promise<boolean> {
+async function waitForWorker(workerProcess: ChildProcess, timeoutMs = 180_000): Promise<'running' | 'starting' | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await hasRunningWorker()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (workerProcess.exitCode !== null || workerProcess.signalCode !== null) return null;
+    const state = await getWorkerState();
+    if (state) return state;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  return false;
+  return null;
 }
 
 async function main(): Promise<void> {
@@ -123,11 +139,7 @@ async function main(): Promise<void> {
   console.log(`[dev] veritabanı: ${describeDriver(driver)}` + (driver === 'file' ? ` (${env.DATA_DIR})` : ''));
   console.log('[dev] veritabanı bakımı çalıştırılıyor (kaynak envanteri + görevler)…');
   await new Promise<void>((resolve, reject) => {
-    const migrate = spawn(isWindows ? 'npm.cmd' : 'npm', ['run', 'db:migrate'], {
-      stdio: 'inherit',
-      env: process.env,
-      shell: isWindows,
-    });
+    const migrate = spawnNpm(['run', 'db:migrate']);
     migrate.on('error', reject);
     migrate.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`db:migrate başarısız (${code})`))));
   }).catch((error: unknown) => {
@@ -153,24 +165,33 @@ async function main(): Promise<void> {
       `[dev] API ${env.PORT} portunda bağlantı kabul etmiyor. Süreç günlüklerini kontrol edin ` +
         '(ortam doğrulaması, veritabanı bağlantısı ya da port kullanımı sorunlu olabilir).',
     );
-    shutdown();
     process.exitCode = 1;
+    shutdown(1);
     return;
   }
 
-  run('worker', ['run', 'dev:worker']);
-  console.log('[dev] worker başlangıcı doğrulanıyor (veritabanı kalp atışı bekleniyor)…');
-  if (await waitForWorker()) {
-    console.log('[dev] worker kalp atışı alındı; zamanlanmış işler çalışıyor.');
+  const workerProcess = run('worker', ['run', 'dev:worker']);
+  console.log('[dev] worker başlangıcı doğrulanıyor (hafif heartbeat ucu; Supabase başlangıcı zaman alabilir)…');
+  const workerState = await waitForWorker(workerProcess);
+  if (workerState === 'running') {
+    console.log('[dev] worker heartbeat alındı; zamanlanmış işler çalışıyor.');
+  } else if (workerState === 'starting') {
+    console.log('[dev] worker başlangıç heartbeat’i alındı; kaynak/görev eşitlemesi sürüyor.');
   } else {
     console.error(
-      '[dev] worker kalp atışı alınamadı. Worker günlüklerini, veritabanı ayarını ve `npm run dev:worker` girişini kontrol edin.',
+      '[dev] worker heartbeat’i alınamadı. Worker günlüklerini, veritabanı ayarını ve `npm run dev:worker` girişini kontrol edin.',
     );
   }
   run('web', ['run', 'dev:web']);
 
+  const startupState =
+    workerState === 'running'
+      ? 'hazır'
+      : workerState === 'starting'
+        ? 'arayüz hazır; worker başlatılıyor'
+        : 'arayüz hazır; worker doğrulanamadı';
   console.log(`
-[dev] hazır:
+[dev] ${startupState}:
   • Arayüz        http://localhost:5173
   • API           http://localhost:${env.PORT}/api/health
   • API dokümanı  http://localhost:${env.PORT}/api/docs

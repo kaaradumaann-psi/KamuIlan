@@ -7,6 +7,7 @@ import {
   describeFetchFailure,
   extractCaIssuerUrls,
   FetchError,
+  HostRateLimiter,
   HttpClient,
   loadTrustBundle,
   tlsChainErrorCode,
@@ -30,6 +31,7 @@ function makeClient(mockAgent: MockAgent): HttpClient {
     logger: silentLogger,
     sleep: async () => undefined,
     dispatcher: mockAgent,
+    rateLimiter: new HostRateLimiter(),
   });
   clients.push(client);
   return client;
@@ -55,6 +57,26 @@ describe('HttpClient ağ davranışı', () => {
     });
     expect(response.status).toBe(200);
     expect(response.decoded?.text).toContain('İLAN');
+  });
+
+  it('iptal edilmiş tarama sinyali HTTP isteğini ve yeniden denemeleri durdurur', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    agents.push(mock);
+    const controller = new AbortController();
+    controller.abort();
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async () => undefined,
+      dispatcher: mock,
+      signal: controller.signal,
+      rateLimiter: new HostRateLimiter(),
+    });
+    clients.push(client);
+
+    await expect(
+      client.fetchText(`${ORIGIN}/ilanlar/iptal.htm`, { allowedHosts: ALLOWED, retries: 3 }),
+    ).rejects.toMatchObject({ retryable: false, message: expect.stringContaining('iptal') });
   });
 
   it('ağ düzeyi hatada undici neden kodunu hata mesajına katar (status null)', async () => {
@@ -94,6 +116,21 @@ describe('HttpClient ağ davranışı', () => {
     await expect(
       client.fetchText('https://evil.example.com/x', { allowedHosts: ALLOWED, retries: 0 }),
     ).rejects.toMatchObject({ status: null, retryable: false });
+  });
+});
+
+describe('HostRateLimiter', () => {
+  it('eşzamanlı istemciler aynı host için ayrı zaman aralığı rezerve eder', async () => {
+    const limiter = new HostRateLimiter();
+    const startedAt: number[] = [];
+    await Promise.all(
+      Array.from({ length: 2 }, async () => {
+        await limiter.wait('ortak-ornek.test', 35);
+        startedAt.push(Date.now());
+      }),
+    );
+    startedAt.sort((left, right) => left - right);
+    expect(startedAt[1]! - startedAt[0]!).toBeGreaterThanOrEqual(25);
   });
 });
 
@@ -173,6 +210,7 @@ describe('User-Agent başlık güvenliği (UND_ERR_INVALID_ARG regresyonu)', () 
       logger: silentLogger,
       sleep: async () => undefined,
       dispatcher: mock,
+      rateLimiter: new HostRateLimiter(),
       userAgent: 'Kamuİlan Test ş',
     });
     clients.push(client);

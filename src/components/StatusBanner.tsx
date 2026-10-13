@@ -12,9 +12,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../lib/api';
-import { HEALTH_QUERY_KEY } from '../lib/query-keys';
+import { HEALTH_QUERY_KEY, WORKER_HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { formatNumber, formatRelative } from '../lib/format';
-import type { HealthResponse } from '../types';
+import type { HealthResponse, WorkerHealthResponse } from '../types';
 import { Icon } from './Icon';
 
 const DISMISS_KEY = 'kamuilan:status-banner-dismissed';
@@ -34,6 +34,11 @@ export function StatusBanner() {
     queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
     refetchInterval: 60_000,
   });
+  const worker = useQuery({
+    queryKey: WORKER_HEALTH_QUERY_KEY,
+    queryFn: ({ signal }) => api.get<WorkerHealthResponse>('/api/health/worker', undefined, signal),
+    refetchInterval: 10_000,
+  });
 
   if (dismissed) return null;
   if (health.isLoading || health.isError || !health.data) return null;
@@ -42,9 +47,12 @@ export function StatusBanner() {
   const minutes = data.scans.minutesSinceSuccess;
   const stale = minutes !== null && minutes > 24 * 60;
   const failing = data.sources.failing > 0;
-  const noWorker = data.workers.running === 0;
+  const workerRunning = worker.data?.workers.running ?? data.workers.running;
+  const workerStarting = worker.data?.workers.starting ?? 0;
+  const workerPending = worker.isLoading && !worker.data && workerRunning === 0;
+  const noWorker = workerRunning === 0 && workerStarting === 0 && !workerPending;
 
-  const tone = data.status === 'down' || stale || failing || noWorker ? 'warning' : 'info';
+  const tone = data.status === 'down' || stale || failing || noWorker || workerStarting > 0 || workerPending ? 'warning' : 'info';
   const parts: string[] = [];
   parts.push(
     data.scans.lastSuccessAt
@@ -55,6 +63,8 @@ export function StatusBanner() {
   if (failing) parts.push(`${formatNumber(data.sources.failing)} kaynağa şu an ulaşılamıyor.`);
   if (noWorker) {
     parts.push('Tarama worker’ı şu an çalışmıyor; zamanlanmış taramalar yürütülmüyor.');
+  } else if (workerStarting > 0 || workerPending) {
+    parts.push('Tarama worker’ı başlatılıyor; zamanlanmış görevler hazırlanıyor.');
   } else if (!data.scans.lastSuccessAt) {
     parts.push('İlk başarılı taramanın tamamlanması bekleniyor.');
   }

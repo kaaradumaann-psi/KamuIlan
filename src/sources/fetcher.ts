@@ -19,6 +19,8 @@ import { getEnv } from '../config/env';
 import { createLogger, type Logger } from '../lib/logger';
 
 export interface FetchOptions {
+  /** Üst katman iptal/zaman aşımı sinyali. */
+  signal?: AbortSignal;
   /** Ek başlıklar (ör. Referer). */
   headers?: Record<string, string>;
   /** İzin verilen host'lar. Boşsa yalnızca genel SSRF kontrolü yapılır. */
@@ -138,17 +140,35 @@ export function assertSafeUrl(rawUrl: string, allowedHosts: readonly string[] = 
 
 export class HostRateLimiter {
   private readonly lastRequestAt = new Map<string, number>();
+  private readonly nextRequestAt = new Map<string, number>();
 
-  /** Host için sıradaki uygun zamanı bekler (asenkron, global kilidi bloke etmez). */
-  async wait(host: string, minIntervalMs: number): Promise<void> {
+  /**
+   * Host için sıradaki uygun zamanı atomik olarak rezerve eder. Tek process'teki
+   * ayrı tarama istemcileri de aynı limiter'ı paylaşabilir; böylece paralel
+   * worker işleri aynı resmî host'a istekleri yığmaz.
+   */
+  async wait(host: string, minIntervalMs: number, signal?: AbortSignal): Promise<void> {
     if (minIntervalMs <= 0) return;
-    const last = this.lastRequestAt.get(host) ?? 0;
-    const elapsed = Date.now() - last;
-    const remaining = minIntervalMs - elapsed;
-    if (remaining > 0) {
-      await new Promise((resolve) => setTimeout(resolve, remaining));
-    }
-    this.lastRequestAt.set(host, Date.now());
+    if (signal?.aborted) throw signal.reason ?? new Error('İstek hız sınırı beklerken iptal edildi.');
+
+    const now = Date.now();
+    const scheduledAt = Math.max(now, this.nextRequestAt.get(host) ?? now);
+    this.nextRequestAt.set(host, scheduledAt + minIntervalMs);
+    this.lastRequestAt.set(host, scheduledAt);
+    const delay = scheduledAt - now;
+    if (delay <= 0) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal?.reason ?? new Error('İstek hız sınırı beklerken iptal edildi.'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, delay);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   snapshot(): Record<string, number> {
@@ -156,17 +176,23 @@ export class HostRateLimiter {
   }
 }
 
+const PROCESS_HOST_RATE_LIMITER = new HostRateLimiter();
+
 const HTML_TYPES = ['text/html', 'application/xhtml+xml', 'text/plain', 'application/xml', 'text/xml'];
 const PDF_TYPES = ['application/pdf'];
 const JSON_TYPES = ['application/json', 'text/json'];
 
 export interface HttpClientOptions {
   logger?: Logger;
+  /** Tek bir tarama zaman aşımında istemci isteklerini birlikte iptal eder. */
+  signal?: AbortSignal;
   /** Testlerde sahte saat/bekleme. */
   sleep?: (ms: number) => Promise<void>;
   userAgent?: string;
   /** Testlerde MockAgent enjeksiyonu; üretimde verilmez. */
   dispatcher?: Dispatcher;
+  /** Tarama istemcileri arasında host hız sınırını paylaşmak için. */
+  rateLimiter?: HostRateLimiter;
 }
 
 /**
@@ -235,14 +261,17 @@ export class HttpClient {
   private readonly hostAgents = new Map<string, Agent>();
   /** AIA kovalaması host başına bir kez denenir. */
   private readonly chasedHosts = new Set<string>();
-  private readonly limiter = new HostRateLimiter();
+  private readonly limiter: HostRateLimiter;
   private readonly logger: Logger;
   private readonly userAgent: string;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly signal: AbortSignal | undefined;
 
   constructor(options: HttpClientOptions = {}) {
     this.ownsAgent = options.dispatcher === undefined;
+    this.limiter = options.rateLimiter ?? PROCESS_HOST_RATE_LIMITER;
     this.logger = options.logger ?? createLogger('fetch');
+    this.signal = options.signal;
     this.userAgent =
       toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) ||
       'Mozilla/5.0 (compatible; KamuIlanBot/1.0; +https://kamuilan.halilkaraduman.com.tr)';
@@ -423,6 +452,11 @@ export class HttpClient {
     const maxBytes = options.maxBytes ?? env.MAX_DOCUMENT_BYTES;
     const maxRetries = options.retries ?? env.SCRAPE_MAX_RETRIES;
     const minIntervalMs = options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS;
+    const signal = options.signal ?? this.signal;
+
+    if (signal?.aborted) {
+      throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
+    }
 
     let attempt = 0;
     let lastError: Error | null = null;
@@ -432,6 +466,7 @@ export class HttpClient {
       try {
         const response = await this.performFetch(rawUrl, {
           ...options,
+          signal,
           allowedHosts,
           timeoutMs,
           maxBytes,
@@ -439,6 +474,9 @@ export class HttpClient {
         });
         return response;
       } catch (error) {
+        if (signal?.aborted) {
+          throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
+        }
         const fetchError =
           error instanceof FetchError ? error : new FetchError(rawUrl, describeFetchFailure(error), null, true);
         lastError = fetchError;
@@ -481,12 +519,13 @@ export class HttpClient {
 
     for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
       const url = new URL(currentUrl);
-      await this.limiter.wait(url.hostname, options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS);
+      await this.limiter.wait(url.hostname, options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS, options.signal);
 
       const response = await request(currentUrl, {
         method: options.method ?? 'GET',
         headers: requestHeaders,
         dispatcher: this.dispatcherFor(url),
+        ...(options.signal ? { signal: options.signal } : {}),
         // Not: yönlendirmeler burada ELLE izlenir (her adımda SSRF allowlist doğrulaması
         // yapılır), bu yüzden undici'nin kendi yönlendirme takibi (varsayılan: kapalı)
         // kullanılmaz.

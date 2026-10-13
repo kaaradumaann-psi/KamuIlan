@@ -84,6 +84,10 @@ beforeEach(() => {
     disclaimer: 'Kapsam eksiktir.',
     generatedAt: new Date().toISOString(),
   });
+  responses.set('/api/health/worker', {
+    checkedAt: new Date().toISOString(),
+    workers: { total: 0, running: 0, starting: 0, stale: 0 },
+  });
   responses.set('/api/health', {
     status: 'degraded',
     app: 'Kamuİlan',
@@ -147,6 +151,18 @@ describe('arayüz kabuğu', () => {
     expect(await screen.findByText(/Tarama worker’ı şu an çalışmıyor/)).toBeTruthy();
     const healthRequests = vi.mocked(api.get).mock.calls.filter(([path]) => path === '/api/health');
     expect(healthRequests).toHaveLength(1);
+  });
+
+  it('worker heartbeat hazırlık durumunu kapalı worker gibi göstermeden yeniler', async () => {
+    loginAsTestUser();
+    responses.set('/api/health/worker', {
+      checkedAt: new Date().toISOString(),
+      workers: { total: 1, running: 0, starting: 1, stale: 0 },
+    });
+    renderApp('/');
+
+    expect(await screen.findAllByText(/başlatılıyor/)).not.toHaveLength(0);
+    expect(screen.queryByText(/Tarama worker’ı şu an çalışmıyor/)).toBeNull();
   });
 
   it('ilan listesi filtre formunu ve paylaşılabilir adres notunu gösterir', async () => {

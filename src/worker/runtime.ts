@@ -17,7 +17,7 @@
  *  - Kaynağa erişilemese bile mevcut ilanlar silinmez.
  */
 import { getEnv, type Env } from '../config/env';
-import { APP_VERSION } from '../config/app';
+import { APP_VERSION, SCHEDULER_DEFAULTS } from '../config/app';
 import type { Repos } from '../db/repos';
 import type { JobDoc, ScrapeRunDoc, SourceDoc } from '../db/schemas';
 import { createLogger, type Logger } from '../lib/logger';
@@ -152,18 +152,33 @@ export class WorkerRuntime {
     const stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
     if (this.queue.kind !== 'builtin') return stats; // Redis yolunda işler push edilir.
 
+    const scrapeLeaseMs = Math.max(LEASE_MS, this.env.SCRAPE_TIMEOUT_MS + 90_000);
     const jobs = await this.queue.claim(
       QUEUE_NAMES.scrape,
       this.workerId,
       this.env.WORKER_CONCURRENCY,
-      LEASE_MS,
+      scrapeLeaseMs,
     );
-    for (const job of jobs) {
-      const outcome = await this.handleScrapeJob({
-        id: job.id,
-        payload: job.payload,
-        attempts: job.attempts,
-      });
+    // Claim limiti WORKER_CONCURRENCY ise işler gerçekten de bu sınır içinde
+    // paralel yürütülür. Her tarama için kullanılan HttpClient'lar aynı
+    // process-host limiter'ını paylaşarak minRequestIntervalMs'i korur.
+    const outcomes = await Promise.all(
+      jobs.map(async (job) => {
+        try {
+          return await this.handleScrapeJob({
+            id: job.id,
+            payload: job.payload,
+            attempts: job.attempts,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.lastError = message;
+          this.logger.error({ err: message, jobId: job.id }, 'tarama işi tamamlanamadı');
+          return 'failed' as const;
+        }
+      }),
+    );
+    for (const outcome of outcomes) {
       stats.processed += 1;
       if (outcome === 'failed') stats.failed += 1;
       else if (outcome === 'skipped') stats.skipped += 1;
@@ -448,13 +463,13 @@ export class WorkerRuntime {
   }
 
   /** Kalp atışı hatası iş akışını düşürmemeli; yalnızca günlüğe yazılır. */
-  private async safeHeartbeat(warnings: string[]): Promise<void> {
+  private async safeHeartbeat(warnings: string[], status?: 'starting' | 'running' | 'stopping' | 'stopped'): Promise<void> {
     try {
       await this.repos.heartbeats.beat({
         workerId: this.workerId,
         role: 'worker',
         version: APP_VERSION,
-        status: this.stopRequested ? 'stopping' : 'running',
+        status: status ?? (this.stopRequested ? 'stopping' : 'running'),
         processedJobs: this.processed,
         lastError: this.lastError ?? warnings[0] ?? null,
       });
@@ -468,82 +483,105 @@ export class WorkerRuntime {
 
   /** Kalıcı döngü: tikler arasında beklenir, durdurma isteği ile temiz kapanır. */
   async run(intervalMs = this.env.SCHEDULER_TICK_MS): Promise<void> {
-    this.logger.info(
-      {
-        workerId: this.workerId,
-        intervalMs,
-        backend: this.queue.kind,
-        sources: 'kaynak envanteri hazır',
-        scanIntervalMinutes: this.env.SCAN_INTERVAL_MINUTES || 'kaynak başına',
-      },
-      'worker başladı',
-    );
-    // Tek bir global aralık verilmişse hem yeni görevler hem var olan görevler
-    // aynı aralığa çekilir; 0 ise her kaynağın kendi aralığı korunur.
-    await ensureScheduledTasks(this.repos, this.logger, this.env.SCAN_INTERVAL_MINUTES);
-    await syncTaskIntervals(this.repos, this.env.SCAN_INTERVAL_MINUTES);
+    let heartbeatState: 'starting' | 'running' = 'starting';
+    let heartbeatInFlight: Promise<void> | null = null;
+    await this.safeHeartbeat([], 'starting');
+    const heartbeatTimer = setInterval(() => {
+      if (heartbeatInFlight) return;
+      heartbeatInFlight = this.safeHeartbeat([], this.stopRequested ? 'stopping' : heartbeatState).finally(() => {
+        heartbeatInFlight = null;
+      });
+    }, SCHEDULER_DEFAULTS.heartbeatIntervalMs);
 
-    // Önceki çalıştırmalardan kalan "running" kayıtlar: süreç öldüyse panelde
-    // sahte "çalışıyor" görünmemeleri için stale eşiğini geçenler durduruldu sayılır.
-    const staleBefore = new Date(this.now().getTime() - HEARTBEAT_STALE_MS).toISOString();
-    const stopped = await this.repos.heartbeats.markStaleAsStopped(staleBefore);
-    if (stopped > 0) {
-      this.logger.info({ stopped }, 'kalp atışı eskimiş worker kayıtları "durdu" olarak işaretlendi');
-    }
-    // Önceki süreç ölürken yarım kalmış taramalar da kapatılır; yoksa panelde
-    // sonsuza dek "çalışıyor" görünürler.
-    const closedRuns = await this.repos.runs.closeStaleRunning(
-      staleBefore,
-      'Worker süreci sonlandığı için yarım kalan tarama kapatıldı.',
-    );
-    if (closedRuns > 0) {
-      this.logger.info({ closedRuns }, 'yarım kalmış tarama kayıtları kapatıldı');
-    }
-
-    if (this.queue.kind === 'redis') {
-      // İtmeli arka uç: tarama ve bakım işleri doğrudan işleyiciye bağlanır.
-      const queue = this.queue;
-      queue.startWorker(
-        QUEUE_NAMES.scrape,
-        async (job) => {
-          await this.handleScrapeJob(job);
+    try {
+      this.logger.info(
+        {
+          workerId: this.workerId,
+          intervalMs,
+          backend: this.queue.kind,
+          sources: 'kaynak envanteri hazır',
+          scanIntervalMinutes: this.env.SCAN_INTERVAL_MINUTES || 'kaynak başına',
         },
-        this.env.WORKER_CONCURRENCY,
+        'worker başlangıç işleri hazırlanıyor',
       );
-      queue.startWorker(
-        QUEUE_NAMES.maintenance,
-        async (job) => {
-          await this.handleMaintenanceJob(job);
-        },
-        1,
-      );
-      this.logger.info({}, 'Redis işleyicileri bağlandı (tarama ve bakım)');
-    }
+      // Tek bir global aralık verilmişse hem yeni görevler hem var olan görevler
+      // aynı aralığa çekilir; 0 ise her kaynağın kendi aralığı korunur.
+      await ensureScheduledTasks(this.repos, this.logger, this.env.SCAN_INTERVAL_MINUTES);
+      await syncTaskIntervals(this.repos, this.env.SCAN_INTERVAL_MINUTES);
 
-    while (!this.stopRequested) {
-      const started = Date.now();
-      try {
-        const result = await this.tick();
-        if (result.scrapes.processed > 0 || result.emails.claimed > 0) {
-          this.logger.info(
-            {
-              scrapes: result.scrapes,
-              emails: result.emails,
-              scheduler: result.scheduler,
-              durationMs: Date.now() - started,
-            },
-            'tik tamamlandı',
-          );
-        }
-      } catch (error) {
-        this.lastError = error instanceof Error ? error.message : String(error);
-        this.logger.error({ err: this.lastError }, 'tik hata ile sonuçlandı');
+      // Önceki çalıştırmalardan kalan "running" kayıtlar: süreç öldüyse panelde
+      // sahte "çalışıyor" görünmemeleri için stale eşiğini geçenler durduruldu sayılır.
+      const staleBefore = new Date(this.now().getTime() - HEARTBEAT_STALE_MS).toISOString();
+      const stopped = await this.repos.heartbeats.markStaleAsStopped(staleBefore);
+      if (stopped > 0) {
+        this.logger.info({ stopped }, 'kalp atışı eskimiş worker kayıtları "durdu" olarak işaretlendi');
       }
-      await this.sleep(intervalMs);
-    }
+      // Önceki süreç ölürken yarım kalmış taramalar da kapatılır; yoksa panelde
+      // sonsuza dek "çalışıyor" görünürler.
+      const closedRuns = await this.repos.runs.closeStaleRunning(
+        staleBefore,
+        'Worker süreci sonlandığı için yarım kalan tarama kapatıldı.',
+      );
+      if (closedRuns > 0) {
+        this.logger.info({ closedRuns }, 'yarım kalmış tarama kayıtları kapatıldı');
+      }
 
-    await this.queue.close();
-    this.logger.info({ workerId: this.workerId }, 'worker durdu');
+      if (this.queue.kind === 'redis') {
+        // İtmeli arka uç: tarama ve bakım işleri doğrudan işleyiciye bağlanır.
+        const queue = this.queue;
+        queue.startWorker(
+          QUEUE_NAMES.scrape,
+          async (job) => {
+            await this.handleScrapeJob(job);
+          },
+          this.env.WORKER_CONCURRENCY,
+        );
+        queue.startWorker(
+          QUEUE_NAMES.maintenance,
+          async (job) => {
+            await this.handleMaintenanceJob(job);
+          },
+          1,
+        );
+        this.logger.info({}, 'Redis işleyicileri bağlandı (tarama ve bakım)');
+      }
+
+      heartbeatState = 'running';
+      await this.safeHeartbeat([], 'running');
+      this.logger.info({ workerId: this.workerId }, 'worker zamanlanmış işler için hazır');
+
+      while (!this.stopRequested) {
+        const started = Date.now();
+        try {
+          const result = await this.tick();
+          if (result.scrapes.processed > 0 || result.emails.claimed > 0) {
+            this.logger.info(
+              {
+                scrapes: result.scrapes,
+                emails: result.emails,
+                scheduler: result.scheduler,
+                durationMs: Date.now() - started,
+              },
+              'tik tamamlandı',
+            );
+          }
+        } catch (error) {
+          this.lastError = error instanceof Error ? error.message : String(error);
+          this.logger.error({ err: this.lastError }, 'tik hata ile sonuçlandı');
+        }
+        await this.sleep(intervalMs);
+      }
+    } finally {
+      try {
+        await this.queue.close();
+      } catch (error) {
+        this.logger.warn({ err: error }, 'worker kuyruğu kapatılırken hata oluştu');
+      }
+      clearInterval(heartbeatTimer);
+      if (heartbeatInFlight) await heartbeatInFlight;
+      await this.safeHeartbeat([], 'stopped');
+      this.logger.info({ workerId: this.workerId }, 'worker durdu');
+    }
   }
 
   /** Durdurma isteği: mevcut tik biter, sonra döngü kapanır. */

@@ -1,6 +1,7 @@
 /**
  * Kaynak deposu: envanter kayıtları, sağlık bilgileri ve kapsam özeti.
  */
+import { isDeepStrictEqual } from 'node:util';
 import { createId } from '../../domain/ids';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
@@ -63,14 +64,17 @@ export class SourceRepo {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  /** Envanteri veritabanıyla eşitler (idempotent). */
+  /** Envanteri veritabanıyla eşitler (idempotent); mevcut kayıtları tek sorguda yükler. */
   async seed(definitions: readonly SourceDefinition[] = SOURCE_DEFINITIONS): Promise<{ created: number; updated: number }> {
     let created = 0;
     let updated = 0;
     const now = this.clock.now().toISOString();
+    const existingRows = definitions.length
+      ? await this.store.find('sources', { key: { $in: definitions.map((definition) => definition.key) } }, { limit: definitions.length })
+      : [];
+    const existingByKey = new Map(existingRows.map((source) => [source.key, source]));
 
     for (const definition of definitions) {
-      const existing = await this.store.findOne('sources', { key: definition.key });
       const shared = {
         name: definition.name,
         institution: definition.institution,
@@ -92,12 +96,29 @@ export class SourceRepo {
         coverageNotes: definition.coverageNote,
         allowHosts: definition.allowedHosts,
         tags: definition.tags,
-        updatedAt: now,
       };
+      const existing = existingByKey.get(definition.key);
 
       if (existing) {
-        await this.store.updateOne('sources', { key: definition.key }, shared);
-        updated += 1;
+        const current = {
+          name: existing.name,
+          institution: existing.institution,
+          homepageUrl: existing.homepageUrl,
+          listingUrl: existing.listingUrl,
+          sourceType: existing.sourceType,
+          method: existing.method,
+          adapterKey: existing.adapterKey,
+          status: existing.status,
+          statusNote: existing.statusNote,
+          verification: existing.verification,
+          coverageNotes: existing.coverageNotes,
+          allowHosts: existing.allowHosts,
+          tags: existing.tags,
+        };
+        if (!isDeepStrictEqual(current, shared)) {
+          await this.store.updateOne('sources', { key: definition.key }, { ...shared, updatedAt: now });
+          updated += 1;
+        }
         continue;
       }
 
@@ -105,6 +126,7 @@ export class SourceRepo {
         id: createId('src'),
         key: definition.key,
         ...shared,
+        updatedAt: now,
         enabled: definition.enabled,
         scrapeIntervalMinutes: definition.intervalMinutes,
         minRequestIntervalMs: definition.minRequestIntervalMs,
@@ -132,6 +154,7 @@ export class SourceRepo {
       } as SourceDoc;
       validateDocument('sources', doc);
       await this.store.insertOne('sources', doc);
+      existingByKey.set(definition.key, doc);
       created += 1;
     }
 

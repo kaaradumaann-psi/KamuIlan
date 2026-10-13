@@ -115,13 +115,21 @@ export async function loadKnownItemIds(repos: Repos, sourceKey: string): Promise
   return new Set(links.map((link) => link.sourceItemId));
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+  onTimeout?: () => void,
+): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} zaman aşımına uğradı (${timeoutMs} ms)`)), timeoutMs);
+        timer = setTimeout(() => {
+          onTimeout?.();
+          reject(new Error(`${label} zaman aşımına uğradı (${timeoutMs} ms)`));
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -186,7 +194,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   // açıkça verilen sahte adaptör ağa çıkmadığı için çalıştırılmaya devam eder.
   const liveScanDisabled = !liveFetch && options.adapter === undefined;
   const ownedHttp = options.http === undefined;
-  const http = options.http ?? new HttpClient({ logger });
+  const requestAbort = new AbortController();
+  const http = options.http ?? new HttpClient({ logger, signal: requestAbort.signal });
 
   try {
     if (liveScanDisabled) {
@@ -208,7 +217,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         maxDetailFetches: detailFetchBudget(source.method),
       };
 
-      const runResult = await withTimeout(adapter.run(ctx), timeoutMs, `${adapter.label} taraması`);
+      const runResult = await withTimeout(
+        adapter.run(ctx),
+        timeoutMs,
+        `${adapter.label} taraması`,
+        () => requestAbort.abort(),
+      );
       totals.itemsFound = runResult.items.length;
       totals.httpStatuses = (runResult.httpStatuses ?? []).slice(0, 50);
       adapterNotes = runResult.notes.slice(0, 20);

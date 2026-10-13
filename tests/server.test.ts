@@ -173,6 +173,44 @@ describe('sağlık ve güvenlik başlıkları', () => {
     expect(response.headers['x-frame-options']).toBeTruthy();
   });
 
+  it('hafif worker readiness ucu başlangıç ve çalışan heartbeat durumlarını ayırır', async () => {
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-starting-test',
+      role: 'worker',
+      version: 'test',
+      status: 'starting',
+      processedJobs: 0,
+    });
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-running-test',
+      role: 'worker',
+      version: 'test',
+      status: 'running',
+      processedJobs: 2,
+    });
+
+    const response = await world.app.inject({ method: 'GET', url: '/api/health/worker' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      workers: { total: 2, starting: 1, running: 1, stale: 0 },
+    });
+
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-starting-test',
+      role: 'worker',
+      version: 'test',
+      status: 'stopped',
+      processedJobs: 0,
+    });
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-running-test',
+      role: 'worker',
+      version: 'test',
+      status: 'stopped',
+      processedJobs: 2,
+    });
+  });
+
   it('bilinmeyen uç standart hata gövdesi döner', async () => {
     const response = await world.app.inject({ method: 'GET', url: '/api/bulunmayan-uc' });
     expect(response.statusCode).toBe(404);

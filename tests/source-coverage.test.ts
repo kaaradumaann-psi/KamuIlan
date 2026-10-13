@@ -36,6 +36,19 @@ function sourceDefinition(key: string, status: 'verified' | 'scraper-built', int
 }
 
 describe('kaynak kapsam özeti', () => {
+  it('envanter aynıysa seed tekrarında gereksiz kayıt güncellemesi yapmaz', async () => {
+    const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuilan-source-seed-')));
+    await store.init();
+    try {
+      const repos = createRepos(store, fixedClock(NOW));
+      const definition = sourceDefinition('degismeyen-kaynak', 'verified', 60);
+      expect(await repos.sources.seed([definition])).toEqual({ created: 1, updated: 0 });
+      expect(await repos.sources.seed([definition])).toEqual({ created: 0, updated: 0 });
+    } finally {
+      await store.close();
+    }
+  });
+
   it('hazır ama doğrulanmamış adaptörleri sayar; canlı doğrulananları tekrardan saymaz', async () => {
     const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuilan-source-coverage-')));
     await store.init();

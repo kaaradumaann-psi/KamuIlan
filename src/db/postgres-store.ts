@@ -274,17 +274,21 @@ export class PostgresStore implements StoragePort {
 
   async init(): Promise<void> {
     this.prefix = safeIdentifier(this.prefix);
-    for (const collection of this.collections) {
-      const table = this.table(collection);
-      await this.pool.query(
-        `CREATE TABLE IF NOT EXISTS ${table} (
-           id text PRIMARY KEY,
-           data jsonb NOT NULL,
-           updated_at timestamptz NOT NULL DEFAULT now()
-         )`,
-      );
-      await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
-    }
+    // Şemada koleksiyon başına bağımsız DDL var. Uzak Supabase bağlantısında
+    // seri gidiş-dönüşleri azaltmak için havuzun sınırlı eşzamanlılığını kullan.
+    await Promise.all(
+      this.collections.map(async (collection) => {
+        const table = this.table(collection);
+        await this.pool.query(
+          `CREATE TABLE IF NOT EXISTS ${table} (
+             id text PRIMARY KEY,
+             data jsonb NOT NULL,
+             updated_at timestamptz NOT NULL DEFAULT now()
+           )`,
+        );
+        await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
+      }),
+    );
   }
 
   async close(): Promise<void> {
@@ -305,34 +309,32 @@ export class PostgresStore implements StoragePort {
   }
 
   async ensureIndexes(indexes?: readonly IndexSpec[]): Promise<{ collection: string; name: string; created: boolean }[]> {
-    const result: { collection: string; name: string; created: boolean }[] = [];
     // Diğer sürücülerle (dosya/Mongo) aynı sözleşme: argümansız çağrı
-    // varsayılan `INDEXES` kümesini kurar. `initStore`, `db:migrate` ve
-    // `db:indexes` tam olarak böyle çağırır; varsayılan boş olursa Postgres'te
-    // HİÇBİR indeks (benzersizler dahil) kurulmaz, `uniqueIndexes` haritası
-    // boş kalır ve `insertIfAbsent`'in benzersiz-çakışma çözümü devreye
-    // giremezdi (`indeksler: 0 tanım` çıktısı bu hatanın belirtisiydi).
-    const specs = indexes ?? INDEXES;
-    for (const spec of specs) {
-      const table = this.table(spec.collection);
-      if (spec.keys.length === 0) continue;
-      const expression = spec.keys
-        .map(([path]) => `(data -> ${quoteLiteral(path)})`)
-        .join(', ');
-      const name = indexIdentifier(table, `${spec.unique ? 'uniq' : 'idx'}_${spec.name}`);
-      await this.pool.query(
-        `CREATE ${spec.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table} (${expression})`,
-      );
-      result.push({ collection: spec.collection, name, created: true });
+    // varsayılan `INDEXES` kümesini kurar. Varsayılan boş olursa Postgres'te
+    // benzersizler dahil hiçbir ek indeks kurulmaz ve atomik ekleme bozulur.
+    const specs = (indexes ?? INDEXES).filter((spec) => spec.keys.length > 0);
+    const ensured = await Promise.all(
+      specs.map(async (spec) => {
+        const table = this.table(spec.collection);
+        const expression = spec.keys
+          .map(([path]) => `(data -> ${quoteLiteral(path)})`)
+          .join(', ');
+        const name = indexIdentifier(table, `${spec.unique ? 'uniq' : 'idx'}_${spec.name}`);
+        await this.pool.query(
+          `CREATE ${spec.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table} (${expression})`,
+        );
+        return { spec, result: { collection: spec.collection, name, created: true } };
+      }),
+    );
 
-      if (spec.unique) {
-        const existing = this.uniqueIndexes.get(spec.collection) ?? [];
-        const fields = spec.keys.map(([path]) => path);
-        if (!existing.some((entry) => entry.name === name)) existing.push({ name, fields });
-        this.uniqueIndexes.set(spec.collection, existing);
-      }
+    for (const { spec, result } of ensured) {
+      if (!spec.unique) continue;
+      const existing = this.uniqueIndexes.get(spec.collection) ?? [];
+      const fields = spec.keys.map(([path]) => path);
+      if (!existing.some((entry) => entry.name === result.name)) existing.push({ name: result.name, fields });
+      this.uniqueIndexes.set(spec.collection, existing);
     }
-    return result;
+    return ensured.map(({ result }) => result);
   }
 
   /** Ön filtre + doğrulama: nihai karar `matchesQuery` ile verilir. */

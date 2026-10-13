@@ -26,8 +26,7 @@ async function main(): Promise<void> {
 
   const store = await initStore();
   const repos = createRepos(store);
-  const indexes = await store.ensureIndexes();
-  logger.info({ created: indexes.filter((index) => index.created).length }, 'indeksler hazır');
+  logger.info({ driver: store.driver }, 'veritabanı ve indeksler hazır');
 
   const app = await buildApp({ repos, serveStatic: true });
   const port = env.PORT;

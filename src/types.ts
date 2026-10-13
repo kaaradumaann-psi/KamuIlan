@@ -162,6 +162,11 @@ export interface HealthResponse {
   warnings: string[];
 }
 
+export interface WorkerHealthResponse {
+  checkedAt: string;
+  workers: { total: number; running: number; starting: number; stale: number };
+}
+
 export interface SourceCoverageEntry {
   key: string;
   name: string;

@@ -23,11 +23,11 @@ import { normalizeTr } from '../src/domain/text';
 async function main(): Promise<void> {
   const env = getEnv();
   const logger = createLogger('migrate', { level: env.LOG_LEVEL });
-  const store = await initStore();
+  const store = await initStore(undefined, { ensureIndexes: false });
   const repos = createRepos(store);
 
   const indexes = await store.ensureIndexes();
-  console.log(`• indeksler: ${indexes.length} tanım (yeni: ${indexes.filter((index) => index.created).length})`);
+  console.log(`• indeksler: ${indexes.length} tanım kontrol edildi (yeni: ${indexes.filter((index) => index.created).length})`);
 
   const seed = await repos.sources.seed(SOURCE_DEFINITIONS);
   console.log(`• kaynak envanteri: ${seed.created} eklendi, ${seed.updated} güncellendi (toplam ${SOURCE_DEFINITIONS.length})`);
