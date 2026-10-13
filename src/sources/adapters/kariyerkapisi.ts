@@ -68,6 +68,16 @@ function detailUrlIn(rowHtml: string, listingUrl: string): string | null {
   }
 }
 
+/**
+ * HTTP listesi satırsız döndüğünde tanı notuna eklenir: sunucunun bot
+ * istemciye gerçek liste yerine ne verdiği (örn. bekleme/engelleme
+ * sayfası) bir sonraki koşumda başlığından anlaşılır.
+ */
+function pageTitleNote(html: string): string {
+  const title = /<title[^>]*>([^<]{1,120})<\/title>/i.exec(html)?.[1]?.trim();
+  return title ? ` (sayfa başlığı: "${title}")` : '';
+}
+
 /** Satırdaki eylem bağlantısı mı (Başvur / İlana Git / detay adresi)? */
 function isActionAnchor(text: string, href: string): boolean {
   // JS /i bayrağı Türkçe "İ" harfini "i" ile eşleştirmez; metin önce
@@ -270,13 +280,17 @@ export function parseKariyerDetail(html: string): KariyerDetail {
 }
 
 export class KariyerKapisiAdapter implements SourceAdapter {
+  /** Test dikişi: sayfaları oluşturan işlev (varsayılan: gerçek Chromium). */
+  constructor(private readonly renderPagesFn?: (urls: string[]) => Promise<Map<string, string>>) {}
+
   readonly key = 'kariyer-kapisi-isealim';
   readonly label = 'Kariyer Kapısı — kamu işe alım ilanları';
   readonly method = 'html-list';
   readonly notes =
     'Liste sunucu tarafında üretilir: önce düz HTTP ile satırlar okunur; liste boş gelirse aynı ayrıştırma ' +
     'başsız tarayıcıyla açılmış sayfada koşulur. Detaylar (/IlanDetay?i=) sınırlı sayıda çekilir: ilan numarası, ' +
-    'başvuru tarihleri, tür, kontenjan ve tam metin alınır; başvuru adresi e-Devlet bağlantısıdır.';
+    'başvuru tarihleri, tür, kontenjan ve tam metin alınır; başvuru adresi e-Devlet bağlantısıdır. ' +
+    'Detay bütçesi önce daha önce görülmemiş ilanlara harcanır.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
     const { source, liveFetch } = ctx;
@@ -309,7 +323,15 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       httpStatuses.push(response.status);
       listHtml = response.decoded?.text ?? response.body.toString('utf8');
       rows = parseKariyerRows(listHtml, source.listingUrl);
-      if (rows.length > 0) notes.push(`Liste HTTP ile okundu: ${rows.length} ilan satırı.`);
+      if (rows.length > 0) {
+        notes.push(`Liste HTTP ile okundu: ${rows.length} ilan satırı.`);
+      } else {
+        // 5. canlı koşumda HTTP 200 döndü ama satır ayrıştırılamadı; sunucunun
+        // tarayıcı-dışı istemciye ne verdiği bu notla görünür hale gelir.
+        notes.push(
+          `HTTP listesi ${response.status} ile alındı (${listHtml.length} karakter) ancak satır ayrıştırılamadı${pageTitleNote(listHtml)}; tarayıcı denenecek.`,
+        );
+      }
     } catch (error) {
       notes.push(
         `HTTP listesi alınamadı (${error instanceof Error ? error.message : String(error)}); tarayıcı denenecek.`,
@@ -341,9 +363,44 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     // 3) Detaylar: yalnız iç detay bağlantısı (/IlanDetay?i=) taşıyan satırlar
     //    için ve ctx.maxDetailFetches sınırıyla. Dış "İlana Git" satırlarında
     //    çekilecek detay sayfası yoktur; başvuru adresi satırın kendisidir.
-    const items: RawAnnouncement[] = [];
+    //    Bütçe önce daha önce görülmemiş ilanlara harcanır; her taramada yeni
+    //    bir dilim detaylanır (5. koşumda hep ilk 5'e takılındığı görüldü).
+    const detailByItemId = new Map<string, KariyerDetail>();
+    const detailLinksByItemId = new Map<string, { text: string; url: string }[]>();
+    const knownItemIds = ctx.knownItemIds ?? new Set<string>();
+    const detailCandidates = rows.filter((row) => /IlanDetay\?i=/i.test(row.url));
+    const orderedCandidates = [
+      ...detailCandidates.filter((row) => !knownItemIds.has(row.sourceItemId)),
+      ...detailCandidates.filter((row) => knownItemIds.has(row.sourceItemId)),
+    ];
     let detailFetches = 0;
-    let limitNoted = false;
+    for (const candidate of orderedCandidates) {
+      if (detailFetches >= ctx.maxDetailFetches) {
+        notes.push(
+          `Detay çekme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar liste verisiyle kaydedildi.`,
+        );
+        break;
+      }
+      detailFetches += 1;
+      const fetched = await this.fetchDetailHtml(ctx, candidate.url, viaBrowser).catch((error: unknown) => {
+        notes.push(`Detay okunamadı (${candidate.url}): ${describeBrowserFailure(error)}`);
+        return null;
+      });
+      if (!fetched) continue;
+      requestCount += 1;
+      if (fetched.status) httpStatuses.push(fetched.status);
+      detailByItemId.set(candidate.sourceItemId, parseKariyerDetail(fetched.html));
+      const detailLinks = anchors(loadHtml(fetched.html), 'body', candidate.url)
+        .filter((link) => /başvur/i.test(link.text) || link.href.includes('turkiye.gov.tr'))
+        .slice(0, 10)
+        .map((link) => ({ text: link.text, url: link.href }));
+      if (detailLinks.length > 0) detailLinksByItemId.set(candidate.sourceItemId, detailLinks);
+    }
+    if (detailByItemId.size > 0) {
+      notes.push(`${detailByItemId.size} ilanın detay sayfası da okundu (ilan no/tarihler/metin).`);
+    }
+
+    const items: RawAnnouncement[] = [];
 
     for (const row of rows) {
       const itemNotes: string[] = [];
@@ -361,42 +418,21 @@ export class KariyerKapisiAdapter implements SourceAdapter {
         ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
       };
 
-      if (/IlanDetay\?i=/i.test(row.url)) {
-        if (detailFetches >= ctx.maxDetailFetches) {
-          if (!limitNoted) {
-            limitNoted = true;
-            notes.push(
-              `Detay çekme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar liste verisiyle kaydedildi.`,
-            );
-          }
-        } else {
-          detailFetches += 1;
-          const fetched = await this.fetchDetailHtml(ctx, row.url, viaBrowser).catch((error: unknown) => {
-            notes.push(`Detay okunamadı (${row.url}): ${describeBrowserFailure(error)}`);
-            return null;
-          });
-          if (fetched) {
-            requestCount += 1;
-            if (fetched.status) httpStatuses.push(fetched.status);
-            const detail = parseKariyerDetail(fetched.html);
-            if (detail.referenceNo) item.referenceNo = detail.referenceNo;
-            if (detail.applicationStartAt) item.applicationStartAt = detail.applicationStartAt;
-            if (detail.applicationEndAt) item.applicationEndAt = detail.applicationEndAt;
-            if (detail.applicationUrl) item.applicationUrl = detail.applicationUrl;
-            if (detail.category) item.sourceCategory = detail.category;
-            if (detail.quota) item.quota = detail.quota;
-            if (detail.bodyText) {
-              item.bodyText = detail.bodyText;
-              item.rawExcerpt = detail.bodyText.slice(0, 1_200);
-              item.extractionConfidence = 0.8;
-            }
-            const detailLinks = anchors(loadHtml(fetched.html), 'body', row.url)
-              .filter((link) => /başvur/i.test(link.text) || link.href.includes('turkiye.gov.tr'))
-              .slice(0, 10)
-              .map((link) => ({ text: link.text, url: link.href }));
-            if (detailLinks.length > 0) item.links = detailLinks;
-          }
+      const detail = detailByItemId.get(row.sourceItemId);
+      if (detail) {
+        if (detail.referenceNo) item.referenceNo = detail.referenceNo;
+        if (detail.applicationStartAt) item.applicationStartAt = detail.applicationStartAt;
+        if (detail.applicationEndAt) item.applicationEndAt = detail.applicationEndAt;
+        if (detail.applicationUrl) item.applicationUrl = detail.applicationUrl;
+        if (detail.category) item.sourceCategory = detail.category;
+        if (detail.quota) item.quota = detail.quota;
+        if (detail.bodyText) {
+          item.bodyText = detail.bodyText;
+          item.rawExcerpt = detail.bodyText.slice(0, 1_200);
+          item.extractionConfidence = 0.8;
         }
+        const detailLinks = detailLinksByItemId.get(row.sourceItemId);
+        if (detailLinks) item.links = detailLinks;
       }
 
       items.push(item);
@@ -433,6 +469,7 @@ export class KariyerKapisiAdapter implements SourceAdapter {
 
   /** Adresleri tek Chromium oturumunda sırayla açıp oluşturulmuş HTML'lerini döndürür. */
   private async renderPages(urls: string[]): Promise<Map<string, string>> {
+    if (this.renderPagesFn) return this.renderPagesFn(urls);
     const pages = new Map<string, string>();
     await withChromiumPage(async (page) => {
       for (const url of urls) {

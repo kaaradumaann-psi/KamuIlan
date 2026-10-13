@@ -694,6 +694,99 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
   });
 });
 
+describe('Kariyer Kapısı tarama akışı (run)', () => {
+  const LIST_HTML = `<html><head><title>Kariyer Kapısı - Anasayfa</title></head><body><div id="pnlIlanlar">
+    <div class="row">
+      <div class="col-md-1"><img class="kurum_logolari_icin" src="/UPS/a.png"></div>
+      <div class="col-md-3"><span><b>HAZİNE VE MALİYE BAKANLIĞI</b> <span>PERSONEL GENEL MÜDÜRLÜĞÜ</span></span></div>
+      <div class="col-md-4"><span>HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</span></div>
+      <div class="col-md-2"><span><b>14 Ekim 2026</b> <b>Çarşamba</b></span></div>
+      <div class="col-md-2"><a href="IlanDetay?i=11111111-1111-4111-8111-111111111111">Başvur</a></div>
+    </div>
+    <div class="row">
+      <div class="col-md-1"><img class="kurum_logolari_icin" src="/UPS/b.png"></div>
+      <div class="col-md-3"><span><b>ANKARA ÜNİVERSİTESİ REKTÖRLÜĞÜ</b> <span>PERSONEL DAİRE BAŞKANLIĞI</span></span></div>
+      <div class="col-md-4"><span>ANKARA ÜNİVERSİTESİ REKTÖRLÜĞÜ - SÖZLEŞMELİ PERSONEL İLANI 2026</span></div>
+      <div class="col-md-2"><span><b>16 Ekim 2026</b> <b>Cuma</b></span></div>
+      <div class="col-md-2"><a href="IlanDetay?i=22222222-2222-4222-8222-222222222222">Başvur</a></div>
+    </div>
+    <div class="row">
+      <div class="col-md-1"><img class="kurum_logolari_icin" src="/UPS/c.png"></div>
+      <div class="col-md-3"><span><b>MİLLİ SAVUNMA BAKANLIĞI</b> <span>PERSONEL TEMİN DAİRE BAŞKANLIĞI</span></span></div>
+      <div class="col-md-4"><span>MİLLİ SAVUNMA BAKANLIĞI - SÖZLEŞMELİ PERSONEL TEMİNİ DUYURUSU</span></div>
+      <div class="col-md-2"><span><b>20 Ekim 2026</b> <b>Salı</b></span></div>
+      <div class="col-md-2"><a href="https://personeltemin.msb.gov.tr/AnaSayfa/DuyuruDetay/?id=33333333-3333-4333-8333-333333333333">İlana Git</a></div>
+    </div>
+  </div></body></html>`;
+
+  const detailHtml = (no: string): string => `<html><body>
+    <span id="lbl_ILN_NO">${no}</span>
+    <span id="lbl_IlanTuru">Yeterlik Sınavı İlanları</span>
+    <span id="lbl_BasDate">05.10.2026</span>
+    <span id="lbl_BitDate">14.10.2026</span>
+    <div id="lbl_anailanmetni">${'İlan metni burada yer alır; başvuru şartları ve sınav takvimi açıklanır. '.repeat(4)}</div>
+    <div id="div_AltIlan">Unvan (UZMAN) TÜRKİYE GENELİ Kontenjan (5)</div>
+    <a id="href_BasvuruLinki" href="https://www.turkiye.gov.tr/ornek-kariyer-kapisi-kamu-ise-alim">BAŞVUR</a>
+  </body></html>`;
+
+  const kariyerSource = () => SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'kariyer-kapisi-isealim');
+
+  it('HTTP listesi doluysa detayları birleştirir; dış satır detay beklemez', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    const { http } = fakeHttp((url) => {
+      if (url.includes('IlanDetay')) return detailHtml('ILN00000101');
+      if (url.includes('/isealim')) return LIST_HTML;
+      return undefined;
+    });
+    const result = await new KariyerKapisiAdapter().run(contextFor(kariyerSource()!, http, true));
+    expect(result.items.length).toBe(3);
+    expect(result.notes.some((note) => note.includes('Liste HTTP ile okundu: 3 ilan satırı'))).toBe(true);
+    expect(result.items[0]?.referenceNo).toBe('ILN00000101');
+    expect(result.items[0]?.applicationUrl).toBe('https://www.turkiye.gov.tr/ornek-kariyer-kapisi-kamu-ise-alim');
+    expect(result.items[0]?.quota).toBe(5);
+    expect(result.items[2]?.applicationUrl).toContain('personeltemin.msb.gov.tr');
+    expect(result.items[2]?.referenceNo).toBeUndefined();
+  });
+
+  it('detay bütçesi önce yeni ilanlara harcanır (bilinenler arkaya)', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    const { http } = fakeHttp((url) => {
+      if (url.includes('11111111-1111')) return detailHtml('ILN00000101');
+      if (url.includes('22222222-2222')) return detailHtml('ILN00000102');
+      if (url.includes('/isealim')) return LIST_HTML;
+      return undefined;
+    });
+    const ctx = {
+      ...contextFor(kariyerSource()!, http, true),
+      knownItemIds: new Set(['11111111-1111-4111-8111-111111111111']),
+      maxDetailFetches: 1,
+    };
+    const result = await new KariyerKapisiAdapter().run(ctx);
+    expect(result.items[0]?.referenceNo).toBeUndefined();
+    expect(result.items[1]?.referenceNo).toBe('ILN00000102');
+    expect(result.notes.some((note) => note.includes('Detay çekme sınırı (1) doldu'))).toBe(true);
+  });
+
+  it('HTTP listesi satırsızsa başlığı not düşüp tarayıcıdan okur', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    const { http } = fakeHttp((url) => {
+      if (url.includes('/isealim')) {
+        return '<html><head><title>Lütfen Bekleyiniz</title></head><body>Doğrulanıyor…</body></html>';
+      }
+      return undefined;
+    });
+    const render = async (urls: string[]): Promise<Map<string, string>> =>
+      new Map(urls.map((url) => [url, url.includes('IlanDetay') ? detailHtml('ILN00000109') : LIST_HTML]));
+    const result = await new KariyerKapisiAdapter(render).run(contextFor(kariyerSource()!, http, true));
+    expect(result.items.length).toBe(3);
+    expect(
+      result.notes.some((note) => note.includes('satır ayrıştırılamadı (sayfa başlığı: "Lütfen Bekleyiniz")')),
+    ).toBe(true);
+    expect(result.notes.some((note) => note.includes('Liste tarayıcı ile okundu: 3 ilan satırı'))).toBe(true);
+    expect(result.items[0]?.referenceNo).toBe('ILN00000109');
+  });
+});
+
 describe('ilan.gov.tr tarayıcı yedeği', () => {
   it('HTTP listesi kabuksa tarayıcı çıktısındaki kartları okur', async () => {
     const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'ilan-gov-tr');

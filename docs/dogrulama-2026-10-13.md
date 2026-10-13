@@ -174,9 +174,24 @@ ve ayrıştırıcı ilk koşuda 5/5 satırı doğru kurdu. Test:
 `tests/sources.test.ts` (31/31). Canlı doğrulama sıradaki koşumda
 (listede 27 aktif satır bekleniyor).
 
+Beşinci canlı koşum (13.10.2026, 12:12; yeni kod): **23/23 kaynak,
+423 ham kayıt.** Kariyer Kapısı hedefe ulaştı: **27 kaydın tamamı**
+(23 iç detay bağlantısı + 4 dış başvuru). Liste tarayıcı ile okundu;
+düz HTTP 200 dönmesine rağmen satır vermedi — kök nedenin (sunucunun
+tarayıcı-dışı istemciye verdiği sayfa) bir sonraki koşumda
+kendiliğinden görünmesi için alınan sayfanın başlığı tanı notuna
+eklendi. ilan.gov.tr tarayıcı sayfalaması kanıtlandı (5 sayfa × 12
+kart = 60 satır; kayıt üst sınırıyla 40 işlendi). Resmî Gazete
+tarayıcı yoluyla yine 5 kayıt üretti. Koşumun gösterdiği son kusur da
+kapatıldı: Kariyer'de detay bütçesi her koşumda aynı ilk 5 ilana
+takılıyordu; bütçe artık önce daha önce görülmemiş ilanlara
+harcanıyor, böylece her taramada yeni bir dilim (ilan numarası,
+gövde, kontenjan, e-Devlet bağlantısı) tamamlanıyor. Kariyer Kapısı
+kaydı `verified` yapıldı.
+
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **224/224 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **227/227 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz
