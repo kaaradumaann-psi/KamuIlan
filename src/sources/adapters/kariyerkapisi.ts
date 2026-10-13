@@ -1,35 +1,296 @@
 /**
  * Kariyer Kapısı (kariyerkapisi.gov.tr/isealim).
  *
- * Durum (canlı gözlem, 2026-10-12): sayfa istemci tarafında (JS) doldurulur;
- * basit HTML isteğinde "aktif ilan yok" görünür. Bu yüzden EN PAHALI yöntem
- * burada saklanır ama varsayılan değildir: adaptör bunu açıkça bildirir ve
- * tarayıcı bağımlılığı kurulu değilse uyarı olarak raporlar.
- *
- * Yöntem: yalnızca `playwright` kuruluysa başsız tarayıcı; aksi halde
- * "yapı tanınmadı" hatası (sessiz boş dönüş yok).
+ * Doğrulanmış yapı (13.10.2026; liste + detay sayfalarının gerçek DOM'u
+ * kullanıcıdan alındı):
+ *   Liste: #pnlIlanlar içinde satır satır: kurum logosu | kurum/birim |
+ *   ilan başlığı | bitiş tarihi | "Başvur" (/IlanDetay?i=<uuid>) ya da
+ *   "İlana Git" (kurumun kendi dış başvuru adresi) düğmesi. Sayfa
+ *   sunucu tarafında üretilir; önce düz HTTP denenir, liste boş
+ *   gelirse tarayıcı yedeğine düşülür.
+ *   Detay: /IlanDetay?i=<uuid> — #lbl_ILN_NO (ILN...), #lbl_IlanTuru,
+ *   #lbl_BasDate / #lbl_BitDate, #lbl_anailanmetni (tam metin),
+ *   #href_BasvuruLinki (e-Devlet başvuru adresi), kontenjan bilgisi.
  */
-import { anchors, loadHtml, readableText } from '../../lib/html';
-import { cleanTitle } from '../listing-utils';
+import { collapseWhitespace } from '../../domain/text';
+import { firstDateOnlyIn, toIstanbulIso } from '../../domain/dates';
+import { sha256Hex } from '../../domain/ids';
+import { absoluteUrl, anchors, loadHtml, readableText } from '../../lib/html';
+import { cleanInstitution, cleanTitle } from '../listing-utils';
 import { AdapterUnavailableError } from '../errors';
+import { describeBrowserFailure, withChromiumPage } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 
-interface BrowserLike {
-  newPage(): Promise<{
-    goto(url: string, options: { waitUntil: string; timeout: number }): Promise<unknown>;
-    content(): Promise<string>;
-    close(): Promise<void>;
-  }>;
-  close(): Promise<void>;
+export interface KariyerRow {
+  sourceItemId: string;
+  url: string;
+  title: string;
+  institution?: string;
+  applicationEndAt?: string;
+  /** Dış başvuru adresi (satır "İlana Git" diyorsa). */
+  applicationUrl?: string;
+}
+
+export interface KariyerDetail {
+  bodyText?: string;
+  referenceNo?: string;
+  applicationStartAt?: string;
+  applicationEndAt?: string;
+  applicationUrl?: string;
+  category?: string;
+  quota?: number;
+}
+
+/** İlan detay adresindeki uuid en kararlı kimliktir; yoksa sondaki uzun sayı, o da yoksa null. */
+function itemIdFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    for (const param of ['i', 'id']) {
+      const value = parsed.searchParams.get(param);
+      if (value && /^[0-9a-f-]{16,}$/i.test(value)) return value;
+    }
+    const segments = parsed.pathname.split('/').filter((segment) => segment.length > 0);
+    const last = segments[segments.length - 1] ?? '';
+    return /(\d{6,})$/.exec(last)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function detailUrlIn(rowHtml: string, listingUrl: string): string | null {
+  const match = /IlanDetay\?i=([0-9a-f-]{36})/i.exec(rowHtml);
+  if (!match) return null;
+  try {
+    return `${new URL(listingUrl).origin}/IlanDetay?i=${match[1]}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * HTTP listesi satırsız döndüğünde tanı notuna eklenir: sunucunun bot
+ * istemciye gerçek liste yerine ne verdiği (örn. bekleme/engelleme
+ * sayfası) bir sonraki koşumda başlığından anlaşılır.
+ */
+function pageTitleNote(html: string): string {
+  const title = /<title[^>]*>([^<]{1,120})<\/title>/i.exec(html)?.[1]?.trim();
+  return title ? ` (sayfa başlığı: "${title}")` : '';
+}
+
+/** Satırdaki eylem bağlantısı mı (Başvur / İlana Git / detay adresi)? */
+function isActionAnchor(text: string, href: string): boolean {
+  // JS /i bayrağı Türkçe "İ" harfini "i" ile eşleştirmez; metin önce
+  // Türkçe küçük harfe çevrilir ("İlana Git" → "ilana git").
+  const normalized = text.toLocaleLowerCase('tr');
+  return /IlanDetay\?i=/i.test(href) || normalized === 'başvur' || normalized === 'ilana git';
+}
+
+/**
+ * Liste sayfasındaki ilanları ayrıştırır. Önce gerçek <table> düzeni,
+ * yoksa eylem bağlantılarından satır kapsayıcısına tırmanan div düzeni.
+ */
+export function parseKariyerRows(html: string, listingUrl: string): KariyerRow[] {
+  const $ = loadHtml(html);
+  const rows: KariyerRow[] = [];
+  const seen = new Set<string>();
+
+  $('table').each((_tableIndex, table) => {
+    const headerText = collapseWhitespace($(table).find('tr').first().text()).toLocaleLowerCase('tr');
+    const isIlanTable = headerText.includes('aktif ilanlar');
+    $(table)
+      .find('tr')
+      .each((_rowIndex, tr) => {
+        const cells = $(tr).find('td');
+        if (cells.length < 3) return;
+        const texts = cells.map((_cellIndex, td) => collapseWhitespace($(td).text())).get();
+        const title = cleanTitle(texts[1] ?? '');
+        if (title.length < 15) return;
+        const dateOnly = firstDateOnlyIn(texts[2] ?? '') ?? firstDateOnlyIn(texts.join(' '));
+        if (!isIlanTable && !dateOnly) return;
+
+        const rowHtml = $(tr).html() ?? '';
+        let url = detailUrlIn(rowHtml, listingUrl);
+        if (!url) {
+          const href = $(tr).find('a[href]').first().attr('href');
+          if (href) {
+            try {
+              url = new URL(href, listingUrl).toString();
+            } catch {
+              url = null;
+            }
+          }
+        }
+        url ??= listingUrl;
+
+        const institution = cleanInstitution(texts[0] ?? '') ?? undefined;
+        const sourceItemId =
+          itemIdFromUrl(url) ?? `kk-${sha256Hex(`${institution ?? ''}|${title}|${dateOnly ?? ''}`).slice(0, 16)}`;
+        if (seen.has(sourceItemId)) return;
+        seen.add(sourceItemId);
+
+        rows.push({
+          sourceItemId,
+          url,
+          title,
+          ...(institution ? { institution } : {}),
+          ...(dateOnly ? { applicationEndAt: toIstanbulIso(dateOnly, '23:59') } : {}),
+        });
+      });
+  });
+
+  if (rows.length === 0) return rowsFromActionAnchors($, listingUrl);
+  return rows;
+}
+
+/**
+ * Div ızgara düzeni (gerçek sayfadaki yapı): her eylem bağlantısından
+ * (Başvur / İlana Git) satır kapsayıcısına tırmanılır; kurum/başlık/bitiş
+ * tarihi kapsayıcının metin hücrelerinden okunur. Dış adrese giden
+ * satırlar da ilandır (başvuru adresi dış bağlantıdır).
+ */
+function rowsFromActionAnchors($: ReturnType<typeof loadHtml>, listingUrl: string): KariyerRow[] {
+  const rows: KariyerRow[] = [];
+  const seen = new Set<string>();
+
+  $('a[href]').each((_index, element) => {
+    const anchorText = collapseWhitespace($(element).text());
+    const rawHref = $(element).attr('href') ?? '';
+    if (!isActionAnchor(anchorText, rawHref)) return;
+    const url = absoluteUrl(rawHref, listingUrl, $);
+    if (!url) return;
+
+    // Satır kapsayıcısı: tek eylem bağlantısı içeren ve tarih barındıran en küçük üst öğe.
+    let container = $(element);
+    for (let depth = 0; depth < 7; depth += 1) {
+      const parent = container.parent();
+      if (parent.length === 0) break;
+      const actionCount = parent
+        .find('a[href]')
+        .toArray()
+        .filter((candidate) => isActionAnchor(collapseWhitespace($(candidate).text()), $(candidate).attr('href') ?? ''))
+        .length;
+      if (actionCount !== 1) break;
+      container = parent;
+      const text = collapseWhitespace(container.text());
+      if (text.length >= 60 && firstDateOnlyIn(text)) break;
+    }
+
+    const fullText = collapseWhitespace(container.text());
+    const dateOnly = firstDateOnlyIn(fullText);
+    if (!dateOnly) return;
+
+    const cells = container
+      .children()
+      .map((_cellIndex, cell) => collapseWhitespace($(cell).text()))
+      .get()
+      .filter((text) => text.length > 0);
+    let title = cells.length >= 3 ? cleanTitle(cells[1] ?? '') : '';
+    let institutionText = cells.length >= 3 ? (cells[0] ?? '') : '';
+
+    if (title.length < 15) {
+      const pool = new Set<string>();
+      container.find('*').each((_childIndex, child) => {
+        const text = collapseWhitespace($(child).text());
+        if (text) pool.add(text);
+      });
+      const candidates = [...pool].filter(
+        (text) =>
+          text.length >= 15 &&
+          text !== fullText &&
+          !isActionAnchor(text, ''),
+      );
+      title = cleanTitle(candidates.sort((a, b) => b.length - a.length)[0] ?? '');
+      institutionText ||= candidates.find(
+        (text) => text !== title && /(Bakanlı|Başkanlı|Üniversite|Müdürlüğü|Belediye|Kurumu|Ajansı)/i.test(text),
+      ) ?? '';
+    }
+    if (title.length < 15) return;
+
+    const isDetailLink = /IlanDetay\?i=/i.test(url);
+    const institution = cleanInstitution(institutionText) ?? undefined;
+    const sourceItemId =
+      itemIdFromUrl(url) ?? `kk-${sha256Hex(`${institution ?? ''}|${title}|${dateOnly}`).slice(0, 16)}`;
+    if (seen.has(sourceItemId)) return;
+    seen.add(sourceItemId);
+
+    rows.push({
+      sourceItemId,
+      url,
+      title,
+      ...(institution ? { institution } : {}),
+      applicationEndAt: toIstanbulIso(dateOnly, '23:59'),
+      ...(isDetailLink ? {} : { applicationUrl: url }),
+    });
+  });
+
+  return rows;
+}
+
+/** Detay sayfasından ilan numarası, tarihler, tür, kontenjan ve gövde metnini çıkarır. */
+export function parseKariyerDetail(html: string): KariyerDetail {
+  const $ = loadHtml(html);
+  const detail: KariyerDetail = {};
+  const byId = (id: string): string => collapseWhitespace($(`#${id}`).first().text());
+
+  // Önce kararlı öğe kimlikleri (gerçek sayfada doğrulandı).
+  const referenceNo = byId('lbl_ILN_NO');
+  if (/\bILN\d{5,}\b/.test(referenceNo)) detail.referenceNo = referenceNo.match(/\bILN\d{5,}\b/)?.[0];
+
+  const startDate = firstDateOnlyIn(byId('lbl_BasDate'));
+  if (startDate) detail.applicationStartAt = toIstanbulIso(startDate, '00:00');
+  const endDate = firstDateOnlyIn(byId('lbl_BitDate'));
+  if (endDate) detail.applicationEndAt = toIstanbulIso(endDate, '23:59');
+
+  const category = byId('lbl_IlanTuru');
+  if (category.length >= 3) detail.category = category;
+
+  const applyHref = $('#href_BasvuruLinki').first().attr('href') ?? $('a[href*="turkiye.gov.tr"]').first().attr('href');
+  if (applyHref) detail.applicationUrl = applyHref;
+
+  const mainText = collapseWhitespace($('#lbl_anailanmetni').first().text());
+  if (mainText.length > 200) detail.bodyText = mainText.slice(0, 20_000);
+
+  const quotaMatch = /Kontenjan\s*\((\d+)\)/.exec(collapseWhitespace($('#div_AltIlan').first().text()));
+  if (quotaMatch?.[1]) detail.quota = Number.parseInt(quotaMatch[1], 10);
+
+  // Kimlikler bulunamazsa (yapı değişimi) metin kalıplarına düşülür.
+  const text = readableText($, 'body', 20_000);
+  if (!detail.referenceNo) {
+    const reference = /\bILN\d{5,}\b/.exec(text);
+    if (reference) detail.referenceNo = reference[0];
+  }
+  if (!detail.applicationStartAt) {
+    const start = /Başvuru Başlangıç\s*:?\s*(\d{2}\.\d{2}\.\d{4})/.exec(text);
+    const parsed = start ? firstDateOnlyIn(start[1] ?? '') : null;
+    if (parsed) detail.applicationStartAt = toIstanbulIso(parsed, '00:00');
+  }
+  if (!detail.applicationEndAt) {
+    const end = /Başvuru Bitiş\s*:?\s*(\d{2}\.\d{2}\.\d{4})/.exec(text);
+    const parsed = end ? firstDateOnlyIn(end[1] ?? '') : null;
+    if (parsed) detail.applicationEndAt = toIstanbulIso(parsed, '23:59');
+  }
+  if (!detail.category) {
+    const categoryMatch = /İlan Türü\s*:?\s*([A-ZÇĞİÖŞÜ][^|]{2,60}?)(?=\s+Başvuru Başlangıç|\s+Kalan Zaman|\s+BAŞVUR\b|$)/.exec(text);
+    if (categoryMatch) detail.category = collapseWhitespace(categoryMatch[1] ?? '');
+  }
+  if (!detail.bodyText && text.length > 200) detail.bodyText = text;
+
+  return detail;
 }
 
 export class KariyerKapisiAdapter implements SourceAdapter {
+  /** Test dikişi: sayfaları oluşturan işlev (varsayılan: gerçek Chromium). */
+  constructor(private readonly renderPagesFn?: (urls: string[]) => Promise<Map<string, string>>) {}
+
   readonly key = 'kariyer-kapisi-isealim';
   readonly label = 'Kariyer Kapısı — kamu işe alım ilanları';
-  readonly method = 'browser';
+  readonly method = 'html-list';
   readonly notes =
-    'Liste JS ile doldurulur. Tarayıcı (Playwright) kuruluysa başsız tarayıcıyla okunur; kurulu değilse kaynak "erişilebilir ama otomatik toplanamıyor" olarak raporlanır. En pahalı yöntem olduğu için son tercihtir.';
+    'Liste sunucu tarafında üretilir: önce düz HTTP ile satırlar okunur; liste boş gelirse aynı ayrıştırma ' +
+    'başsız tarayıcıyla açılmış sayfada koşulur. Detaylar (/IlanDetay?i=) sınırlı sayıda çekilir: ilan numarası, ' +
+    'başvuru tarihleri, tür, kontenjan ve tam metin alınır; başvuru adresi e-Devlet bağlantısıdır. ' +
+    'Detay bütçesi önce daha önce görülmemiş ilanlara harcanır.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
     const { source, liveFetch } = ctx;
@@ -45,94 +306,178 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       };
     }
 
-    const html = await this.renderWithBrowser(source.listingUrl).catch((error: unknown) => {
-      throw new AdapterUnavailableError(
-        source.key,
-        describeBrowserFailure(error),
-        'Başsız tarayıcı (playwright) gerekiyor: npm i -D playwright && npx playwright install chromium',
-      );
-    });
+    const notes: string[] = [];
+    const httpStatuses: number[] = [];
+    let requestCount = 0;
+    let rows: KariyerRow[] = [];
+    let viaBrowser = false;
+    let listHtml = '';
 
-    const $ = loadHtml(html);
-    const rows: RawAnnouncement[] = [];
-    const seen = new Set<string>(ctx.knownItemIds ?? []);
-
-    for (const anchor of anchors($, 'a[href]', source.listingUrl, 400)) {
-      if (!/ilan|kadro|alim|alım/i.test(`${anchor.href} ${anchor.text}`)) continue;
-      const itemId = /\/(\d{4,})/.exec(anchor.href)?.[1] ?? anchor.href.slice(-40);
-      if (seen.has(itemId)) continue;
-      const title = cleanTitle(anchor.text);
-      if (title.length < 15) continue;
-      rows.push({
-        sourceKey: source.key,
-        sourceItemId: itemId,
-        url: anchor.href,
-        title,
-        institution: source.institution,
-        attachments: [],
-        sourceCategory: 'kariyer kapısı',
-        extractionConfidence: 0.5,
-      });
-      seen.add(itemId);
-      if (rows.length >= 30) break;
-    }
-
-    const pageText = readableText($, 'body', 400);
-    return {
-      items: rows,
-      requestCount: 1,
-      notes: [
-        `Tarayıcı ile okundu: ${rows.length} ilan bağlantısı bulundu.`,
-        rows.length === 0 ? `Sayfada ilan bulunamadı. Sayfa özeti: "${pageText.slice(0, 140)}"` : 'Kayıtlar başvuru bağlantısıyla birlikte alınır.',
-      ],
-      etag: null,
-      lastModified: null,
-      notModified: false,
-      httpStatuses: [200],
-    };
-  }
-
-  private async renderWithBrowser(url: string): Promise<string> {
-    // Playwright isteğe bağlı bağımlılıktır: yalnızca gerektiğinde yüklenir.
-    const moduleName = 'playwright';
-    const playwright = (await import(/* @vite-ignore */ moduleName).catch(() => {
-      throw new Error('playwright paketi kurulu değil.');
-    })) as { chromium?: { launch(options: { headless: boolean }): Promise<BrowserLike> } };
-    if (!playwright.chromium) throw new Error('playwright.chromium bulunamadı.');
-
-    const browser = await playwright.chromium.launch({ headless: true });
+    // 1) Düz HTTP: sayfa sunucu tarafında üretiliyor (doğrulandı).
     try {
-      const page = await browser.newPage();
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
-      const html = await page.content();
-      await page.close();
-      return html;
-    } finally {
-      await browser.close();
+      const response = await ctx.http.fetchText(source.listingUrl, {
+        allowedHosts: source.allowedHosts,
+        minIntervalMs: source.minRequestIntervalMs,
+      });
+      requestCount += 1;
+      httpStatuses.push(response.status);
+      listHtml = response.decoded?.text ?? response.body.toString('utf8');
+      rows = parseKariyerRows(listHtml, source.listingUrl);
+      if (rows.length > 0) {
+        notes.push(`Liste HTTP ile okundu: ${rows.length} ilan satırı.`);
+      } else {
+        // 5. canlı koşumda HTTP 200 döndü ama satır ayrıştırılamadı; sunucunun
+        // tarayıcı-dışı istemciye ne verdiği bu notla görünür hale gelir.
+        notes.push(
+          `HTTP listesi ${response.status} ile alındı (${listHtml.length} karakter) ancak satır ayrıştırılamadı${pageTitleNote(listHtml)}; tarayıcı denenecek.`,
+        );
+      }
+    } catch (error) {
+      notes.push(
+        `HTTP listesi alınamadı (${error instanceof Error ? error.message : String(error)}); tarayıcı denenecek.`,
+      );
     }
-  }
-}
 
-/**
- * Tarayıcı hatasını okunabilir bir özete indirger.
- *
- * Playwright, kurulum eksikliğinde çok satırlı bir kutu basar (kurulum
- * komutları, doküman bağlantıları, `Call log`). Bu metin olduğu gibi kaynak
- * sağlığına yazılırsa panel okunmaz hale gelir. İlk satırlar + kurulum ipucu
- * korunur; ayrıntı kısaltılır.
- */
-function describeBrowserFailure(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const lines = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const first = lines[0] ?? 'Bilinmeyen tarayıcı hatası';
-  const summary = lines.slice(1).find((line) => /browser|chromium|executable|timeout|net::|ENOTFOUND|ECONN/i.test(line));
-  const parts = [first];
-  if (summary && summary !== first) parts.push(summary);
-  if (/Executable doesn't exist|Please run the following command/i.test(raw)) {
-    parts.push('Kurulum: npx playwright install chromium (ya da kaynağı manuel yönteme alın).');
+    // 2) Tarayıcı yedeği: liste boşsa ya da HTTP hata verdiyse.
+    if (rows.length === 0) {
+      const pages = await this.renderPages([source.listingUrl]).catch((error: unknown) => {
+        throw new AdapterUnavailableError(
+          source.key,
+          describeBrowserFailure(error),
+          'Başsız tarayıcı (playwright) gerekiyor: npm i -D playwright && npx playwright install chromium',
+        );
+      });
+      listHtml = pages.get(source.listingUrl) ?? '';
+      rows = parseKariyerRows(listHtml, source.listingUrl);
+      viaBrowser = true;
+      requestCount += 1;
+      if (rows.length > 0) notes.push(`Liste tarayıcı ile okundu: ${rows.length} ilan satırı.`);
+    }
+    if (rows.length === 0) {
+      notes.push(
+        `Liste sayfası alındı (${listHtml.length} karakter) ancak ilan satırı ayrıştırılamadı; sayfa yapısı değişmiş olabilir.`,
+      );
+      return { items: [], requestCount, notes, etag: null, lastModified: null, notModified: false, httpStatuses };
+    }
+
+    // 3) Detaylar: yalnız iç detay bağlantısı (/IlanDetay?i=) taşıyan satırlar
+    //    için ve ctx.maxDetailFetches sınırıyla. Dış "İlana Git" satırlarında
+    //    çekilecek detay sayfası yoktur; başvuru adresi satırın kendisidir.
+    //    Bütçe önce daha önce görülmemiş ilanlara harcanır; her taramada yeni
+    //    bir dilim detaylanır (5. koşumda hep ilk 5'e takılındığı görüldü).
+    const detailByItemId = new Map<string, KariyerDetail>();
+    const detailLinksByItemId = new Map<string, { text: string; url: string }[]>();
+    const knownItemIds = ctx.knownItemIds ?? new Set<string>();
+    const detailCandidates = rows.filter((row) => /IlanDetay\?i=/i.test(row.url));
+    const orderedCandidates = [
+      ...detailCandidates.filter((row) => !knownItemIds.has(row.sourceItemId)),
+      ...detailCandidates.filter((row) => knownItemIds.has(row.sourceItemId)),
+    ];
+    let detailFetches = 0;
+    for (const candidate of orderedCandidates) {
+      if (detailFetches >= ctx.maxDetailFetches) {
+        notes.push(
+          `Detay çekme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar liste verisiyle kaydedildi.`,
+        );
+        break;
+      }
+      detailFetches += 1;
+      const fetched = await this.fetchDetailHtml(ctx, candidate.url, viaBrowser).catch((error: unknown) => {
+        notes.push(`Detay okunamadı (${candidate.url}): ${describeBrowserFailure(error)}`);
+        return null;
+      });
+      if (!fetched) continue;
+      requestCount += 1;
+      if (fetched.status) httpStatuses.push(fetched.status);
+      detailByItemId.set(candidate.sourceItemId, parseKariyerDetail(fetched.html));
+      const detailLinks = anchors(loadHtml(fetched.html), 'body', candidate.url)
+        .filter((link) => /başvur/i.test(link.text) || link.href.includes('turkiye.gov.tr'))
+        .slice(0, 10)
+        .map((link) => ({ text: link.text, url: link.href }));
+      if (detailLinks.length > 0) detailLinksByItemId.set(candidate.sourceItemId, detailLinks);
+    }
+    if (detailByItemId.size > 0) {
+      notes.push(`${detailByItemId.size} ilanın detay sayfası da okundu (ilan no/tarihler/metin).`);
+    }
+
+    const items: RawAnnouncement[] = [];
+
+    for (const row of rows) {
+      const itemNotes: string[] = [];
+      if (viaBrowser) itemNotes.push('Liste tarayıcı ile okundu.');
+      const item: RawAnnouncement = {
+        sourceKey: source.key,
+        sourceItemId: row.sourceItemId,
+        url: row.url,
+        title: row.title,
+        ...(row.institution ? { institution: row.institution } : {}),
+        ...(row.applicationEndAt ? { applicationEndAt: row.applicationEndAt } : {}),
+        ...(row.applicationUrl ? { applicationUrl: row.applicationUrl } : {}),
+        attachments: [],
+        extractionConfidence: 0.6,
+        ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
+      };
+
+      const detail = detailByItemId.get(row.sourceItemId);
+      if (detail) {
+        if (detail.referenceNo) item.referenceNo = detail.referenceNo;
+        if (detail.applicationStartAt) item.applicationStartAt = detail.applicationStartAt;
+        if (detail.applicationEndAt) item.applicationEndAt = detail.applicationEndAt;
+        if (detail.applicationUrl) item.applicationUrl = detail.applicationUrl;
+        if (detail.category) item.sourceCategory = detail.category;
+        if (detail.quota) item.quota = detail.quota;
+        if (detail.bodyText) {
+          item.bodyText = detail.bodyText;
+          item.rawExcerpt = detail.bodyText.slice(0, 1_200);
+          item.extractionConfidence = 0.8;
+        }
+        const detailLinks = detailLinksByItemId.get(row.sourceItemId);
+        if (detailLinks) item.links = detailLinks;
+      }
+
+      items.push(item);
+    }
+
+    notes.push(`${requestCount} istek yapıldı, ${items.length} ilan hazırlandı.`);
+    return { items, requestCount, notes, etag: null, lastModified: null, notModified: false, httpStatuses };
   }
-  return parts.join(' | ').slice(0, 400);
+
+  /**
+   * Detay sayfasını okur: liste tarayıcıdan geldiyse doğrudan tarayıcı,
+   * aksi halde önce düz HTTP (boş/hata durumunda tarayıcı yedeği).
+   */
+  private async fetchDetailHtml(
+    ctx: AdapterContext,
+    url: string,
+    preferBrowser: boolean,
+  ): Promise<{ html: string; status: number | null }> {
+    if (!preferBrowser) {
+      try {
+        const response = await ctx.http.fetchText(url, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+        });
+        const html = response.decoded?.text ?? response.body.toString('utf8');
+        if (html.length > 0) return { html, status: response.status };
+      } catch {
+        // Detay HTTP ile okunamazsa tarayıcı yedeğine düşülür.
+      }
+    }
+    const pages = await this.renderPages([url]);
+    return { html: pages.get(url) ?? '', status: null };
+  }
+
+  /** Adresleri tek Chromium oturumunda sırayla açıp oluşturulmuş HTML'lerini döndürür. */
+  private async renderPages(urls: string[]): Promise<Map<string, string>> {
+    if (this.renderPagesFn) return this.renderPagesFn(urls);
+    const pages = new Map<string, string>();
+    await withChromiumPage(async (page) => {
+      for (const url of urls) {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+        await page.waitForTimeout(500);
+        pages.set(url, await page.content());
+      }
+    });
+    return pages;
+  }
 }

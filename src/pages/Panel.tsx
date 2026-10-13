@@ -176,6 +176,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
         <Link className={view === 'history' ? 'subnav-tab is-active' : 'subnav-tab'} to="/panel/gecmis">
           Bildirim geçmişi
         </Link>
+        <Link className="subnav-tab" to="/panel/kaydedilenler">
+          Kaydettiklerim
+        </Link>
       </nav>
 
       {data.notice && <InfoNote tone="warning">{data.notice}</InfoNote>}
@@ -185,7 +188,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       {view === 'preferences' && (
         <Card
           title="Bildirim tercihleri"
-          description="Kriterlerin tümü 'VEYA' mantığıyla filtrelenir; ilan bu kriterlerden en az birine uyduğunda bildirim üretilir."
+          description="İlan, yazdığınız kelimelerden herhangi birine uyduğunda bildirim alırsınız. Boş bıraktığınız alan yok sayılır."
         >
           <form
             className="form-grid-2col"
@@ -463,10 +466,10 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       )}
 
       {view === 'preferences' && (
-        <Card title="Hesap ve veriler" description="KVKK: verilerinizi kendiniz yönetirsiniz.">
+        <Card title="Hesap ve veriler" description="Bilgileriniz sizin elinizde.">
           <p className="body-copy">
             Bildirimleri duraklatmak ya da hesabınızı silmek için aşağıdaki işlemleri kullanabilirsiniz. Hesap
-            silindiğinde e-posta adresiniz anonim hale getirilir; toplanan ilan verileri (kamuya açık
+            silindiğinde e-posta adresiniz tanınmaz hale getirilir; toplanan ilan bilgileri (herkese açık
             kayıtlar) korunur.
           </p>
           <div className="danger-zone">

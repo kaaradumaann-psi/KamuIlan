@@ -509,6 +509,12 @@ describe('hız sınırlama', () => {
     expect(limited?.headers['retry-after']).toBeTruthy();
     expect((limited?.json() as { error: { code: string } }).error.code).toBe('rate_limited');
 
+    // Oturum okuma sıkı kovada değildir: giriş kilitliyken bile session
+    // sorulabilir (uygulama her sayfada sorar; kilitlenirse kullanıcı
+    // durduk yere giriş ekranına düşerdi).
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session' });
+    expect(session.statusCode).toBe(200);
+
     await app.close();
     await store.close();
     process.env.AUTH_RATE_LIMIT_MAX_REQUESTS = '';

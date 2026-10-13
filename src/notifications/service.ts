@@ -88,7 +88,7 @@ export async function queueNotificationsForJob(
     const rendered = renderEmail(kind === 'new-job' ? 'new-job' : 'job-changed', { ...payload }, {
       baseUrl: options.baseUrl,
       senderName: options.senderName,
-      preferencesUrl: `${options.baseUrl.replace(/\/$/, '')}/panel/bildirimler`,
+      preferencesUrl: `${options.baseUrl.replace(/\/$/, '')}/panel`,
     });
 
     const enqueued = await repos.outbox.enqueue(

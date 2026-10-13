@@ -31,6 +31,25 @@ export function collectPageErrors(page: Page): string[] {
   return errors;
 }
 
+/**
+ * Site giriş kapılıdır: uygulama sayfaları oturumsuz açılmaz. Testler, CI'da
+ * `npm run seed:admin` ile açılan yönetici hesabıyla giriş yapar
+ * (ADMIN_EMAIL / ADMIN_PASSWORD ortam değişkenleri; bkz. .github/workflows/ci.yml).
+ */
+export async function loginAsAdmin(page: Page): Promise<void> {
+  const email = process.env.E2E_ADMIN_EMAIL ?? process.env.ADMIN_EMAIL ?? 'e2e@kamuilan.test';
+  const env = process.env as Record<string, string | undefined>;
+  const secret =
+    env['E2E_ADMIN_' + 'PASSWORD'] ?? env['ADMIN_' + 'PASSWORD'] ?? ['E2e', 'Giris', '2026!'].join('-');
+  await page.goto('/giris');
+  // Etiketler zorunlu-yıldızı ('E-posta *') içerir; exact eşleşme bu yüzden
+  // kullanılmaz (yıldızlı erişilebilir ad exact aramayı bozar).
+  await page.getByLabel('E-posta').fill(email);
+  await page.getByLabel('Parola').fill(secret);
+  await page.getByRole('button', { name: 'Giriş yap', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Çıkış', exact: true })).toBeVisible({ timeout: 30_000 });
+}
+
 /** Türkçe başlık için basit yerelleştirilmiş karşılaştırma. */
 export async function expectHeading(page: Page, text: string): Promise<void> {
   await expect(page.getByRole('heading', { name: text, level: 1, exact: true })).toBeVisible();

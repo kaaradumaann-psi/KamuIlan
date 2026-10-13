@@ -53,7 +53,9 @@ async function buildUnsubscribeUrl(repos: Repos, userId: string, baseUrl: string
     token,
     ttlMinutes: UNSUBSCRIBE_TOKEN_TTL_MINUTES,
   });
-  return `${baseUrl.replace(/\/$/, '')}/api/auth/unsubscribe?token=${encodeURIComponent(token)}`;
+  // Bağlantı arayüz sayfasına gider (/abonelikten-cik): sayfa jetonu POST ile
+  // tüketir. Doğrudan API adresi verilirse GET isteği 404'e düşer.
+  return `${baseUrl.replace(/\/$/, '')}/abonelikten-cik?token=${encodeURIComponent(token)}`;
 }
 
 function retryDelayMs(attempts: number): number {
@@ -103,7 +105,7 @@ export async function sendOne(input: {
     const rendered = renderEmail(item.template as EmailTemplate, item.payload, {
       baseUrl: env.APP_BASE_URL,
       senderName: env.APP_DISPLAY_NAME,
-      preferencesUrl: `${env.APP_BASE_URL.replace(/\/$/, '')}/panel/bildirimler`,
+      preferencesUrl: `${env.APP_BASE_URL.replace(/\/$/, '')}/panel`,
       ...(unsubscribeUrl ? { unsubscribeUrl } : {}),
     });
 
@@ -159,5 +161,8 @@ export async function enqueueTestEmail(input: {
     },
     3,
   );
-  return { queued: queued.created, ...(queued.created ? {} : { reason: 'Aynı test e-postası zaten kuyrukta.' }) };
+  return {
+    queued: queued.created,
+    ...(queued.created ? {} : { reason: 'Aynı test e-postası zaten kuyrukta.' }),
+  };
 }

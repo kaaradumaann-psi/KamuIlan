@@ -19,9 +19,15 @@ const children: ChildProcess[] = [];
 const isWindows = process.platform === 'win32';
 
 function run(name: string, args: string[]): void {
+  // Windows'ta Node ≥ 20.12, .cmd dosyalarını shell olmadan spawn edemez
+  // (EINVAL verir); bu yüzden Windows'ta kabuk üzerinden çalıştırılır.
   const child = spawn(isWindows ? 'npm.cmd' : 'npm', args, {
     stdio: 'inherit',
     env: process.env,
+    shell: isWindows,
+  });
+  child.on('error', (error) => {
+    console.error(`[dev] "${name}" süreci başlatılamadı: ${error.message}`);
   });
   child.on('exit', (code, signal) => {
     if (code !== 0 && signal === null) {
@@ -45,7 +51,12 @@ process.on('SIGTERM', shutdown);
 async function main(): Promise<void> {
   console.log('[dev] veritabanı bakımı çalıştırılıyor (kaynak envanteri + görevler)…');
   await new Promise<void>((resolve, reject) => {
-    const migrate = spawn(isWindows ? 'npm.cmd' : 'npm', ['run', 'db:migrate'], { stdio: 'inherit', env: process.env });
+    const migrate = spawn(isWindows ? 'npm.cmd' : 'npm', ['run', 'db:migrate'], {
+      stdio: 'inherit',
+      env: process.env,
+      shell: isWindows,
+    });
+    migrate.on('error', reject);
     migrate.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`db:migrate başarısız (${code})`))));
   }).catch((error: unknown) => {
     console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`);

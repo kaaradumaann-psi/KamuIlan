@@ -11,6 +11,7 @@ import { blockElementText, elementText, loadHtml, readableText } from '../../lib
 import { cleanTitle, extractReferenceNumbers, parseListingDate } from '../listing-utils';
 import { PROVINCES } from '../../domain';
 import { normalizeUrl } from '../../domain/urls';
+import { describeBrowserFailure, renderPageHtml } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 
@@ -29,11 +30,13 @@ interface Row {
 }
 
 export class IlanGovTrAdapter implements SourceAdapter {
+  constructor(private readonly renderListing?: (url: string) => Promise<string>) {}
+
   readonly key = 'ilan-gov-tr';
   readonly label = 'ilan.gov.tr — personel alımı';
   readonly method = 'html-list';
   readonly notes =
-    'Basın İlan Kurumu portalı. Liste sayfaları HTML olarak okunur; her ilanın detay sayfasından metin ve ek belgeler alınır.';
+    'Basın İlan Kurumu portalı. Liste önce düz HTTP ile okunur; liste JS ile dolduğu için boş gelirse (canlıda görüldü) sayfalar tarayıcıyla izlenir. Her ilanın detay sayfasından metin ve ek belgeler alınır.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
     const { source, http, liveFetch } = ctx;
@@ -55,9 +58,26 @@ export class IlanGovTrAdapter implements SourceAdapter {
     const rows: Row[] = [];
     let notModified = false;
 
+    // Liste düz HTTP ile boş gelip tarayıcıya düşüldüyse kalan sayfalar da
+    // tarayıcıyla izlenir (13.10.2026 canlı koşum: sayfa 1 tarayıcıdan 12 kart
+    // getirdi ancak sayfalama yapılamadığı için gerisi okunamadı).
+    let browserMode = false;
+
     for (let page = 1; page <= MAX_PAGES; page += 1) {
       const url = new URL(source.listingUrl);
       if (page > 1) url.searchParams.set('currentPage', String(page));
+
+      if (browserMode) {
+        const rendered = await this.renderRows(url.toString(), notes);
+        requestCount += 1;
+        if (rendered === null) break;
+        notes.push(`Sayfa ${page}: ${rendered.length} ilan satırı (tarayıcı).`);
+        if (rendered.length === 0) break;
+        rows.push(...rendered);
+        if (new Set(rows.map((row) => row.itemId)).size < rows.length) break; // tekrar eden sayfa = son
+        continue;
+      }
+
       const response = await http.fetchText(url.toString(), {
         allowedHosts: source.allowedHosts,
         minIntervalMs: source.minRequestIntervalMs,
@@ -69,20 +89,35 @@ export class IlanGovTrAdapter implements SourceAdapter {
         notes.push('Liste içeriği değişmedi (ETag/Last-Modified) — ayrıntı isteği yapılmadı.');
         break;
       }
-      const pageRows = parseListing(
-        response.decoded?.text ?? response.body.toString('utf8'),
-        source.listingUrl,
-      );
+      const html = response.decoded?.text ?? response.body.toString('utf8');
+      const pageRows = parseListing(html, source.listingUrl);
       notes.push(`Sayfa ${page}: ${pageRows.length} ilan satırı.`);
-      if (pageRows.length === 0) break;
+      if (pageRows.length === 0) {
+        if (page === 1) {
+          // Liste JS ile doluyor olabilir (düz HTTP kabuk döndürür): tarayıcı yedeği.
+          const recovered = await this.recoverWithBrowser(url.toString(), notes);
+          if (recovered.length > 0) {
+            rows.push(...recovered);
+            requestCount += 1;
+            browserMode = true;
+            continue;
+          }
+          const excerpt = readableText(loadHtml(html), 'body', 200);
+          notes.push(`Sayfa özeti: "${excerpt.slice(0, 200)}"`);
+        }
+        break;
+      }
       const before = rows.length;
       rows.push(...pageRows);
       if (new Set(rows.map((row) => row.itemId)).size < rows.length) break; // tekrar eden sayfa = son
       if (rows.length === before) break;
     }
 
+    // Sayfa tekrarı (portal currentPage'i yok sayarsa) aynı kartı iki kez
+    // getirebilir; kayıtlar kimliğe göre tekilleştirilir.
+    const uniqueRows = [...new Map(rows.map((row) => [row.itemId, row])).values()];
     const seen = new Set<string>(ctx.knownItemIds ?? []);
-    const fresh = rows.filter((row) => !seen.has(row.itemId)).slice(0, MAX_ITEMS);
+    const fresh = uniqueRows.filter((row) => !seen.has(row.itemId)).slice(0, MAX_ITEMS);
     const items: RawAnnouncement[] = [];
 
     for (const row of fresh) {
@@ -107,12 +142,31 @@ export class IlanGovTrAdapter implements SourceAdapter {
       });
     }
 
-    if (fresh.length === 0 && rows.length > 0) {
+    if (fresh.length === 0 && uniqueRows.length > 0) {
       notes.push('Yeni ilan yok (tümü daha önce görülmüş) — idempotent tarama.');
     }
-    notes.push(`Listede ${rows.length} ilan, işlenen ${items.length}.`);
+    notes.push(`Listede ${uniqueRows.length} ilan, işlenen ${items.length}.`);
 
     return { items, requestCount, notes, etag: null, lastModified: null, notModified, httpStatuses };
+  }
+
+  /** Sayfayı tarayıcıyla açıp satırları ayrıştırır; hata olursa not düşüp null döner. */
+  private async renderRows(url: string, notes: string[]): Promise<Row[] | null> {
+    try {
+      const render = this.renderListing ?? ((target: string) => renderPageHtml(target));
+      return parseListing(await render(url), url);
+    } catch (error) {
+      notes.push(`Tarayıcı sayfası açılamadı: ${describeBrowserFailure(error)}`);
+      return null;
+    }
+  }
+
+  /** Düz HTTP listesi boşsa sayfayı tarayıcıyla açıp aynı ayrıştırıcıyı koşar. */
+  private async recoverWithBrowser(url: string, notes: string[]): Promise<Row[]> {
+    const rows = await this.renderRows(url, notes);
+    if (rows === null) return [];
+    notes.push(`Liste HTTP ile boş geldi; tarayıcı ile ${rows.length} ilan satırı bulundu.`);
+    return rows;
   }
 
   private async readDetail(

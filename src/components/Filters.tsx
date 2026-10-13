@@ -4,10 +4,13 @@
  * Filtre durumu bileşenin içinde tutulmaz; sayfa URL sorgu parametrelerini
  * yönetir. Böylece aynı bağlantı başka birinde aynı sonucu verir.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
-import { EMPLOYMENT_TYPE_LABELS } from '../lib/format';
+import { EDUCATION_LABELS, EMPLOYMENT_TYPE_LABELS } from '../lib/format';
+
+/** KPSS puan türleri — `src/domain/types.ts` KPSS_SCORE_TYPES ile aynı liste. */
+export const KPSS_TYPE_OPTIONS = ['P1', 'P2', 'P3', 'P10', 'P93', 'P94', 'P121', 'P124', 'DHBT'] as const;
 import { Icon } from './Icon';
 import { Checkbox, Field } from './ui';
 
@@ -20,6 +23,11 @@ export interface JobFilters {
   deadlineFrom: string;
   deadlineTo: string;
   minQuota: string;
+  education: string;
+  department: string;
+  kpssType: string;
+  /** Adayın kendi KPSS puanı: taban puanı bunu aşan ilanlar elenir. */
+  kpssScore: string;
   hasApplicationUrl: boolean;
   sort: string;
 }
@@ -33,6 +41,10 @@ export const EMPTY_FILTERS: JobFilters = {
   deadlineFrom: '',
   deadlineTo: '',
   minQuota: '',
+  education: '',
+  department: '',
+  kpssType: '',
+  kpssScore: '',
   hasApplicationUrl: false,
   sort: 'newest',
 };
@@ -47,6 +59,10 @@ export function filtersFromParams(params: URLSearchParams): JobFilters {
     deadlineFrom: params.get('deadlineFrom') ?? '',
     deadlineTo: params.get('deadlineTo') ?? '',
     minQuota: params.get('minQuota') ?? '',
+    education: params.get('education') ?? '',
+    department: params.get('department') ?? '',
+    kpssType: params.get('kpssType') ?? '',
+    kpssScore: params.get('kpssScore') ?? '',
     hasApplicationUrl: params.get('hasApplicationUrl') === '1',
     sort: params.get('sort') ?? 'newest',
   };
@@ -62,6 +78,10 @@ export function filtersToParams(filters: JobFilters, page: number, pageSize = 20
   if (filters.deadlineFrom) params.set('deadlineFrom', filters.deadlineFrom);
   if (filters.deadlineTo) params.set('deadlineTo', filters.deadlineTo);
   if (filters.minQuota) params.set('minQuota', filters.minQuota);
+  if (filters.education) params.set('education', filters.education);
+  if (filters.department) params.set('department', filters.department);
+  if (filters.kpssType) params.set('kpssType', filters.kpssType);
+  if (filters.kpssScore) params.set('kpssScore', filters.kpssScore);
   if (filters.hasApplicationUrl) params.set('hasApplicationUrl', '1');
   if (filters.sort !== 'newest') params.set('sort', filters.sort);
   if (page > 1) params.set('page', String(page));
@@ -79,6 +99,10 @@ export function activeFilterCount(filters: JobFilters): number {
     filters.deadlineFrom,
     filters.deadlineTo,
     filters.minQuota,
+    filters.education,
+    filters.department,
+    filters.kpssType,
+    filters.kpssScore,
     filters.hasApplicationUrl ? 'x' : '',
   ].filter((value) => value !== '').length;
 }
@@ -97,6 +121,21 @@ export function FilterForm({
   busy?: boolean;
 }): ReactNode {
   const update = (patch: Partial<JobFilters>): void => onChange({ ...filters, ...patch });
+  const advancedCount = [
+    filters.institution,
+    filters.education,
+    filters.department,
+    filters.kpssType,
+    filters.kpssScore,
+    filters.deadlineFrom,
+    filters.deadlineTo,
+    filters.minQuota,
+    filters.hasApplicationUrl ? 'x' : '',
+    filters.sort !== 'newest' ? 'x' : '',
+  ].filter((value) => value !== '').length;
+  // Gelişmiş filtre URL'den geliyorsa (paylaşılan bağlantı) bölüm açık başlar;
+  // yoksa kapalıdır: önce temel arama, gerisi isteğe bağlı.
+  const [advancedOpen, setAdvancedOpen] = useState(advancedCount > 0);
 
   return (
     <form
@@ -109,7 +148,7 @@ export function FilterForm({
     >
       <CityDatalist />
       <div className="filter-grid">
-        <Field label="Anahtar kelime" htmlFor="filter-q" hint="Başlık, kurum veya ilan metninde arar.">
+        <Field label="Ne arıyorsunuz?" htmlFor="filter-q" hint="İş, kurum veya meslek adı yazın.">
           <span className="search-input-wrap">
             <Icon name="search" size={16} />
             <input
@@ -120,15 +159,6 @@ export function FilterForm({
               placeholder="ör. hemşire, zabıta, öğretim görevlisi"
             />
           </span>
-        </Field>
-
-        <Field label="Kurum" htmlFor="filter-institution">
-          <input
-            id="filter-institution"
-            value={filters.institution}
-            onChange={(event) => update({ institution: event.target.value })}
-            placeholder="ör. Üniversitesi, Bakanlığı"
-          />
         </Field>
 
         <Field label="İl" htmlFor="filter-city">
@@ -170,76 +200,164 @@ export function FilterForm({
             <option value="closed">Kapandı</option>
           </select>
         </Field>
-
-        <Field label="En az kontenjan" htmlFor="filter-quota" hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır.">
-          <input
-            id="filter-quota"
-            type="number"
-            min={1}
-            inputMode="numeric"
-            value={filters.minQuota}
-            onChange={(event) => update({ minQuota: event.target.value })}
-          />
-        </Field>
-
-        <Field label="Son başvuru (başlangıç)" htmlFor="filter-from">
-          <input
-            id="filter-from"
-            className="date-filter-field"
-            type="date"
-            value={filters.deadlineFrom}
-            onChange={(event) => update({ deadlineFrom: event.target.value })}
-          />
-        </Field>
-
-        <Field label="Son başvuru (bitiş)" htmlFor="filter-to">
-          <input
-            id="filter-to"
-            className="date-filter-field"
-            type="date"
-            value={filters.deadlineTo}
-            onChange={(event) => update({ deadlineTo: event.target.value })}
-          />
-        </Field>
-
-        <Field label="Sıralama" htmlFor="filter-sort">
-          <select
-            id="filter-sort"
-            className="filter-select"
-            value={filters.sort}
-            onChange={(event) => update({ sort: event.target.value })}
-          >
-            <option value="newest">Sisteme eklenme (yeni → eski)</option>
-            <option value="deadline">Son başvuru tarihi (yakın → uzak)</option>
-            <option value="published">Yayım tarihi (yeni → eski)</option>
-            <option value="institution">Kurum adı (A → Z)</option>
-            <option value="title">İlan başlığı (A → Z)</option>
-          </select>
-        </Field>
       </div>
-
-      <Checkbox
-        id="filter-app-url"
-        checked={filters.hasApplicationUrl}
-        onChange={(checked) => update({ hasApplicationUrl: checked })}
-        label="Yalnızca başvuru bağlantısı olan ilanlar"
-        hint="Başvuru adresi yalnızca ilanda açıkça verilmişse doldurulur."
-      />
 
       <div className="filter-actions">
         <button type="submit" className="btn-primary" disabled={busy}>
           <Icon name="search" size={16} />
-          <span>{busy ? 'Aranıyor…' : 'Filtrele'}</span>
+          <span>{busy ? 'Aranıyor…' : 'Ara'}</span>
         </button>
         <button type="button" className="btn-secondary" onClick={onReset}>
           <Icon name="close" size={15} />
-          <span>Filtreleri temizle</span>
+          <span>Temizle</span>
         </button>
-        <Link className="btn-secondary" to="/kaynaklar">
-          <Icon name="list" size={15} />
-          <span>Hangi kaynaklar taranıyor?</span>
-        </Link>
+        <button
+          type="button"
+          className="btn-secondary"
+          aria-expanded={advancedOpen}
+          aria-controls="gelismis-filtreler"
+          onClick={() => setAdvancedOpen((open) => !open)}
+        >
+          <Icon name="filter" size={15} />
+          <span>
+            Gelişmiş filtreler{advancedCount > 0 ? ` (${advancedCount} seçili)` : ''}
+          </span>
+        </button>
       </div>
+
+      {advancedOpen && (
+        <div id="gelismis-filtreler" className="page-stack-sm">
+          <div className="filter-grid">
+            <Field label="Kurum" htmlFor="filter-institution">
+              <input
+                id="filter-institution"
+                value={filters.institution}
+                onChange={(event) => update({ institution: event.target.value })}
+                placeholder="ör. Üniversitesi, Bakanlığı"
+              />
+            </Field>
+
+            <Field label="Eğitim düzeyi" htmlFor="filter-education" hint="İlanda aranan öğrenim düzeyi.">
+              <select
+                id="filter-education"
+                className="filter-select"
+                value={filters.education}
+                onChange={(event) => update({ education: event.target.value })}
+              >
+                <option value="">Tümü</option>
+                {Object.entries(EDUCATION_LABELS)
+                  .filter(([value]) => value !== 'belirtilmemis' && value !== 'lise')
+                  .map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+
+            <Field label="Bölüm / program" htmlFor="filter-department" hint="ör. hemşirelik, bilgisayar mühendisliği">
+              <input
+                id="filter-department"
+                value={filters.department}
+                onChange={(event) => update({ department: event.target.value })}
+                placeholder="ör. hemşirelik"
+              />
+            </Field>
+
+            <Field label="KPSS puan türü" htmlFor="filter-kpss-type">
+              <select
+                id="filter-kpss-type"
+                className="filter-select"
+                value={filters.kpssType}
+                onChange={(event) => update({ kpssType: event.target.value })}
+              >
+                <option value="">Tümü</option>
+                {KPSS_TYPE_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    KPSS {value}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field
+              label="KPSS puanım"
+              htmlFor="filter-kpss-score"
+              hint="Taban puanı puanınızı aşan ilanlar elenir. Yalnızca taban puanı belirtilen ilanlarda çalışır."
+            >
+              <input
+                id="filter-kpss-score"
+                type="number"
+                min={0}
+                max={100}
+                inputMode="decimal"
+                value={filters.kpssScore}
+                onChange={(event) => update({ kpssScore: event.target.value })}
+                placeholder="ör. 72"
+              />
+            </Field>
+
+            <Field label="En az kontenjan" htmlFor="filter-quota" hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır.">
+              <input
+                id="filter-quota"
+                type="number"
+                min={1}
+                inputMode="numeric"
+                value={filters.minQuota}
+                onChange={(event) => update({ minQuota: event.target.value })}
+              />
+            </Field>
+
+            <Field label="Son başvuru: en erken" htmlFor="filter-from" hint="Son günü bu tarihten önce olmayanlar.">
+              <input
+                id="filter-from"
+                className="date-filter-field"
+                type="date"
+                value={filters.deadlineFrom}
+                onChange={(event) => update({ deadlineFrom: event.target.value })}
+              />
+            </Field>
+
+            <Field label="Son başvuru: en geç" htmlFor="filter-to" hint="Son günü bu tarihten sonra olmayanlar.">
+              <input
+                id="filter-to"
+                className="date-filter-field"
+                type="date"
+                value={filters.deadlineTo}
+                onChange={(event) => update({ deadlineTo: event.target.value })}
+              />
+            </Field>
+
+            <Field label="Sıralama" htmlFor="filter-sort">
+              <select
+                id="filter-sort"
+                className="filter-select"
+                value={filters.sort}
+                onChange={(event) => update({ sort: event.target.value })}
+              >
+                <option value="newest">Önce yeni eklenenler</option>
+                <option value="deadline">Önce son günü yakın olanlar</option>
+                <option value="published">Önce yeni yayımlananlar</option>
+                <option value="institution">Kurum adı (A → Z)</option>
+                <option value="title">İlan başlığı (A → Z)</option>
+              </select>
+            </Field>
+          </div>
+
+          <Checkbox
+            id="filter-app-url"
+            checked={filters.hasApplicationUrl}
+            onChange={(checked) => update({ hasApplicationUrl: checked })}
+            label="Yalnızca başvuru bağlantısı olan ilanlar"
+            hint="Başvuru adresi yalnızca ilanda açıkça verilmişse doldurulur."
+          />
+        </div>
+      )}
+
+      <p className="text-muted-sm">
+        Adres çubuğundaki bağlantıyı paylaşırsanız aynı liste karşı tarafta da açılır.{' '}
+        <Link to="/kaynaklar">Hangi kaynaklar taranıyor?</Link>
+      </p>
     </form>
   );
 }

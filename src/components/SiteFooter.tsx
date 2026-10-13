@@ -67,7 +67,7 @@ export function SiteFooter({
             Kullanım
           </Link>
           <Link className="site-footer-link" to={INFO_ROUTES.kaynaklar}>
-            Kaynaklar
+            İlan kaynakları
           </Link>
           <span className="site-footer-sep" aria-hidden="true">
             ·
@@ -91,8 +91,8 @@ export function SiteFooter({
         <div className="site-footer-legal">
           <div className="site-footer-legal-inner">
             <p className="site-footer-disclaimer">
-              Kamuİlan ilanları resmî kaynaklarından derler ve kaynağına bağlantı verir. Kapsam eksiktir; başvuru
-              öncesi ilanın resmî sayfasını doğrulayın. Otomatik çekim yapılamayan kaynaklar panelde açıkça işaretlidir.
+              Kamuİlan ilanları resmî kaynaklarından toplar ve her birini kaynağına bağlantı ile gösterir.
+              Her ilanı bulamayabiliriz; başvuru yapmadan önce ilanın resmî sayfasını mutlaka kontrol edin.
             </p>
           </div>
         </div>

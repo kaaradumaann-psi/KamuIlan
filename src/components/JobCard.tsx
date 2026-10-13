@@ -8,13 +8,13 @@ import { Link } from 'react-router-dom';
 import { EMPLOYMENT_TYPE_LABELS, deadlineLabel, formatDateOnly, formatRelative } from '../lib/format';
 import type { PublicJobSummary } from '../types';
 import { Icon } from './Icon';
+import { SaveJobButton } from './SaveJobButton';
 import { Tag } from './ui';
 
-/** Kapanış bilgisi etiket tonu (duruma göre). */
+/** Kapanış bilgisi etiket tonu (sunucu durumu: open | closing-soon | closed | unknown). */
 function deadlineTone(job: PublicJobSummary): 'success' | 'warning' | 'info' | 'neutral' {
   if (job.deadline.state === 'closing-soon') return 'warning';
-  if (job.deadline.state === 'active') return 'success';
-  if (job.deadline.state === 'upcoming') return 'info';
+  if (job.deadline.state === 'open') return 'success';
   return 'neutral';
 }
 
@@ -38,13 +38,15 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
       </h3>
 
       <div className="job-card-tags">
-        <Tag tone="accent">{job.employmentTypeLabel || EMPLOYMENT_TYPE_LABELS[job.employmentType] || 'Belirsiz'}</Tag>
+        <Tag tone="accent">
+          {job.employmentTypeLabel || EMPLOYMENT_TYPE_LABELS[job.employmentType] || 'Belirsiz'}
+        </Tag>
         {city && <Tag icon="mapPin">{city}</Tag>}
         {job.quota !== null && <Tag icon="user">{`${job.quota} kişi`}</Tag>}
         <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
         {job.provenance === 'sample' && <Tag tone="warning">Örnek veri</Tag>}
         {job.criticalMissingFields && job.criticalMissingFields.length > 0 && (
-          <Tag tone="warning">{`${job.criticalMissingFields.length} alan eksik`}</Tag>
+          <Tag tone="warning">Bazı bilgiler eksik</Tag>
         )}
       </div>
 
@@ -68,7 +70,7 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
           )}
           <li>
             <Icon name="list" size={13} />{' '}
-            {job.sourceKeys.length > 1 ? `${job.sourceKeys.length} kaynak` : '1 kaynak'}
+            {job.sourceKeys.length > 1 ? `${job.sourceKeys.length} sitede yayımlandı` : '1 sitede yayımlandı'}
           </li>
         </ul>
       )}
@@ -86,9 +88,9 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
           )}
         </span>
         <span>
-          Son doğrulama:{' '}
-          {job.lastVerifiedAt ? formatRelative(job.lastVerifiedAt) : 'henüz doğrulanmadı'}
+          Son kontrol: {job.lastVerifiedAt ? formatRelative(job.lastVerifiedAt) : 'henüz yapılmadı'}
         </span>
+        <SaveJobButton jobId={job.id} compact />
       </footer>
     </article>
   );

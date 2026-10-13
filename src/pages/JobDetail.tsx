@@ -1,9 +1,10 @@
 /**
  * İlan detayı.
  *
- * Gösterilen her alan kayıttan gelir; her alanın hangi katmandan (liste, detay,
- * belge, bağlantı) alındığı "alan kaynağı" olarak listelenir. Bilinmeyen alanlar
- * "belirtilmemiş" olarak işaretlenir ve belirsizlik uyarıları gösterilir.
+ * Gösterilen her bilgi ilandan gelir; bilinmeyenler "belirtilmemiş" olarak
+ * işaretlenir, kesin olmayanlar ayrıca uyarılır. Mühendislik ayrıntısı
+ * (alan kaynağı, sınıflandırma kararı) aday ekranında gösterilmez; bu bilgi
+ * yönetim/inceleme ekranlarında durur.
  */
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -13,7 +14,6 @@ import {
   EDUCATION_LABELS,
   EMPLOYMENT_TYPE_LABELS,
   JOB_STATUS_LABELS,
-  confidenceLabel,
   deadlineLabel,
   formatDate,
   formatDateOnly,
@@ -22,32 +22,10 @@ import {
   turkishCapitalize,
 } from '../lib/format';
 import type { PublicJobDetail } from '../types';
-import { Card, EmptyState, ErrorNotice, InfoNote, LoadingCard, ProgressBar, Tag, DefinitionList } from '../components/ui';
+import { Card, EmptyState, ErrorNotice, InfoNote, LoadingCard, Tag, DefinitionList } from '../components/ui';
 import { Icon } from '../components/Icon';
-
-const FIELD_LABELS: Record<string, string> = {
-  title: 'Başlık',
-  institution: 'Kurum',
-  unit: 'Birim',
-  quota: 'Kontenjan',
-  city: 'İl',
-  district: 'İlçe',
-  applicationStartAt: 'Başvuru başlangıcı',
-  applicationEndAt: 'Son başvuru',
-  applicationEndDate: 'Son başvuru (gün)',
-  applicationUrl: 'Başvuru bağlantısı',
-  publishedAt: 'Yayım tarihi',
-  originalRefNo: 'Resmî ilan no',
-  employmentType: 'İstihdam türü',
-};
-
-const SOURCE_KIND_LABELS: Record<string, string> = {
-  listing: 'liste sayfası',
-  detail: 'ilan detay sayfası',
-  document: 'ek belge (PDF)',
-  link: 'ilan içi bağlantı',
-  unstated: 'belirtilmemiş',
-};
+import { SaveJobButton } from '../components/SaveJobButton';
+import { downloadDeadlineIcs } from '../lib/calendar';
 
 export function JobDetailPage(): ReactNode {
   const { id = '' } = useParams();
@@ -96,13 +74,18 @@ export function JobDetailPage(): ReactNode {
           <Tag tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
             {JOB_STATUS_LABELS[job.status] ?? job.status}
           </Tag>
-          <Tag tone={job.deadline.state === 'closing-soon' ? 'warning' : job.deadline.state === 'closed' ? 'neutral' : 'info'}>
+          <Tag
+            tone={
+              job.deadline.state === 'closing-soon'
+                ? 'warning'
+                : job.deadline.state === 'closed'
+                  ? 'neutral'
+                  : 'info'
+            }
+          >
             {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
           </Tag>
           {job.provenance === 'sample' && <Tag tone="warning">örnek veri (gerçek ilan değil)</Tag>}
-          <Tag tone={job.classification.confidence >= 0.8 ? 'success' : 'neutral'}>
-            {`sınıflandırma: ${confidenceLabel(job.classification.confidence)}`}
-          </Tag>
         </div>
 
         <h1 className="page-title">{job.title}</h1>
@@ -122,10 +105,35 @@ export function JobDetailPage(): ReactNode {
               <span>Başvuru bağlantısı</span>
             </a>
           ) : (
-            <span className="btn-secondary is-disabled" aria-disabled="true" title="İlanda başvuru bağlantısı belirtilmemiş">
+            <span
+              className="btn-secondary is-disabled"
+              aria-disabled="true"
+              title="İlanda başvuru bağlantısı belirtilmemiş"
+            >
               <Icon name="info" size={15} />
               <span>Başvuru bağlantısı belirtilmemiş</span>
             </span>
+          )}
+          <SaveJobButton jobId={job.id} />
+          {job.applicationEndDate && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() =>
+                downloadDeadlineIcs({
+                  id: job.id,
+                  title: job.title,
+                  institution: job.institution,
+                  applicationEndDate: job.applicationEndDate,
+                  applicationEndAt: job.applicationEndAt,
+                  detailUrl: job.detailUrl,
+                })
+              }
+              title="Son başvuru gününü takviminize ekleyin (1 gün önce hatırlatır)"
+            >
+              <Icon name="calendar" size={15} />
+              <span>Son günü takvime ekle</span>
+            </button>
           )}
           <Link className="btn-secondary" to="/ilanlar">
             <Icon name="search" size={15} />
@@ -135,36 +143,81 @@ export function JobDetailPage(): ReactNode {
       </header>
 
       {job.uncertainties.length > 0 && (
-        <InfoNote tone="warning" title="Belirsizlikler">
+        <InfoNote tone="warning" title="Kesin olmayan bilgiler">
           {job.uncertainties.join(' ')}
         </InfoNote>
       )}
 
-      <Card title="Temel bilgiler" description="Alanlar yalnızca kaynakta yazıyorsa doldurulur.">
+      <Card title="Temel bilgiler" description="Bu bilgiler ilanın kendisinden alınır; yazmayan yerde belirtilmemiş görürsünüz.">
         <DefinitionList
           items={[
             { term: 'Kontenjan', value: formatNumber(job.quota) },
-            { term: 'İl / İlçe', value: [job.city, job.district].filter(Boolean).join(' / ') || 'belirtilmemiş' },
+            {
+              term: 'İl / İlçe',
+              value: [job.city, job.district].filter(Boolean).join(' / ') || 'belirtilmemiş',
+            },
             { term: 'Unvan(lar)', value: job.titles.length > 0 ? job.titles.join(', ') : 'belirtilmemiş' },
             {
               term: 'Başvuru başlangıcı',
               value: job.applicationStartAt ? formatDateTime(job.applicationStartAt) : 'belirtilmemiş',
             },
-            { term: 'Son başvuru', value: job.applicationEndAt ? formatDateTime(job.applicationEndAt) : 'belirtilmemiş' },
+            {
+              term: 'Son başvuru',
+              value: job.applicationEndAt ? formatDateTime(job.applicationEndAt) : 'belirtilmemiş',
+            },
             { term: 'Yayım tarihi', value: job.publishedAt ? formatDate(job.publishedAt) : 'belirtilmemiş' },
             { term: 'Resmî ilan no', value: job.originalRefNo ?? 'belirtilmemiş' },
             { term: 'Başvuru yöntemi', value: job.applicationMethod ?? 'belirtilmemiş' },
-            { term: 'İlk görülme', value: formatDateTime(job.firstSeenAt) },
+            { term: 'Burada ilk görülme', value: formatDateTime(job.firstSeenAt) },
             {
-              term: 'Son doğrulama',
-              value: job.lastVerifiedAt ? formatDateTime(job.lastVerifiedAt) : 'doğrulanmadı',
-              hint: 'Kaynağın son başarılı taramasında bu kaydın görüldüğü an.',
+              term: 'Son kontrol',
+              value: job.lastVerifiedAt ? formatDateTime(job.lastVerifiedAt) : 'henüz yapılmadı',
+              hint: 'İlanın hâlâ yayında olduğunu en son ne zaman kontrol ettik?',
             },
           ]}
         />
       </Card>
 
-      <Card title="Koşullar ve nitelikler" description="Yalnızca ilan metninde açıkça yazan bilgiler; eksik alanlar boş bırakılır.">
+      <Card
+        title="Başvuru kontrol listesi"
+        description="Başvurmadan önce bu ilanın gerçek alanlarına göre kontrol edin."
+      >
+        <ol className="checklist">
+          <li>
+            <strong>Resmî metni okuyun:</strong> Yukarıdaki "Resmî ilanı aç" bağlantısı tek kesin kaynaktır;
+            özet burada, koşullar kaynaktadır.
+          </li>
+          <li>
+            <strong>Son günü not edin:</strong>{' '}
+            {job.applicationEndDate
+              ? `Son başvuru ${formatDateOnly(job.applicationEndDate)}${job.applicationEndAt ? ` (${formatDateTime(job.applicationEndAt)})` : ''}. "Son günü takvime ekle" ile hatırlatma kurabilirsiniz.`
+              : 'Bu ilanda son başvuru tarihi belirtilmemiş; resmî metinden doğrulayın.'}
+          </li>
+          <li>
+            <strong>Başvuru yolu:</strong>{' '}
+            {job.applicationUrl
+              ? 'Başvuru bağlantısı ilanda verilmiş; süresi içinde o adresten ilerleyin.'
+              : job.applicationMethod
+                ? job.applicationMethod
+                : 'Başvuru bağlantısı/yöntemi ilanda ayrıca belirtilmemiş; resmî metindeki başvuru bölümüne bakın.'}
+          </li>
+          <li>
+            <strong>Belgeler:</strong>{' '}
+            {job.attachments.length > 0
+              ? `İlanın ${job.attachments.length} ek belgesi aşağıda listeli; kılavuzu indirmeden başvurmayın.`
+              : 'Bu kayıtta ek belge yok; istenen belgeler resmî metinde yazar.'}
+          </li>
+          <li>
+            <strong>Değişiklik takibi:</strong> Bu ilanı kaydederseniz listenizde tutarsınız; bildirim
+            tercihiniz açıksa tarih/kontenjan/koşul değişiklikleri e-posta ile de bildirilir.
+          </li>
+        </ol>
+      </Card>
+
+      <Card
+        title="Koşullar ve nitelikler"
+        description="Yalnızca ilanda açıkça yazan koşullar; yazmayanlar belirtilmemiş görünür."
+      >
         <DefinitionList
           items={[
             {
@@ -176,14 +229,17 @@ export function JobDetailPage(): ReactNode {
             },
             {
               term: 'Bölüm / program',
-              value: requirements.departments.length > 0 ? requirements.departments.join(', ') : 'belirtilmemiş',
+              value:
+                requirements.departments.length > 0 ? requirements.departments.join(', ') : 'belirtilmemiş',
             },
             {
               term: 'KPSS',
               value:
                 requirements.kpssScoreTypes.length > 0 || requirements.kpssMinScore !== null
                   ? `${requirements.kpssScoreTypes.join(', ') || 'tür belirtilmemiş'}${
-                      requirements.kpssMinScore !== null ? ` — en az ${formatNumber(requirements.kpssMinScore)} puan` : ''
+                      requirements.kpssMinScore !== null
+                        ? ` — en az ${formatNumber(requirements.kpssMinScore)} puan`
+                        : ''
                     }${requirements.kpssYear ? ` (${requirements.kpssYear})` : ''}`
                   : 'belirtilmemiş',
             },
@@ -196,19 +252,29 @@ export function JobDetailPage(): ReactNode {
             },
             {
               term: 'Deneyim',
-              value: requirements.minExperienceYears !== null ? `en az ${requirements.minExperienceYears} yıl` : 'belirtilmemiş',
+              value:
+                requirements.minExperienceYears !== null
+                  ? `en az ${requirements.minExperienceYears} yıl`
+                  : 'belirtilmemiş',
             },
             {
               term: 'Yabancı dil',
-              value: requirements.foreignLanguages.length > 0 ? requirements.foreignLanguages.join(', ') : 'belirtilmemiş',
+              value:
+                requirements.foreignLanguages.length > 0
+                  ? requirements.foreignLanguages.join(', ')
+                  : 'belirtilmemiş',
             },
             {
               term: 'Sertifika / belge',
-              value: requirements.certificates.length > 0 ? requirements.certificates.join(', ') : 'belirtilmemiş',
+              value:
+                requirements.certificates.length > 0 ? requirements.certificates.join(', ') : 'belirtilmemiş',
             },
             {
               term: 'Özel koşullar',
-              value: requirements.specialConditions.length > 0 ? requirements.specialConditions.join(', ') : 'belirtilmemiş',
+              value:
+                requirements.specialConditions.length > 0
+                  ? requirements.specialConditions.join(', ')
+                  : 'belirtilmemiş',
             },
           ]}
         />
@@ -217,17 +283,14 @@ export function JobDetailPage(): ReactNode {
       {job.attachments.length > 0 && (
         <Card
           title="Ek belgeler"
-          description="İlan sahibinin yayımladığı dosyalar; içerik çalıştırılmaz, yalnızca kaynağına bağlantı verilir."
+          description="Kurumun yayımladığı dosyalar; bağlantıya tıklayınca kurumun sitesinde açılır."
         >
           <ul className="link-row">
             {job.attachments.map((attachment) => (
               <li key={attachment.url}>
                 <a href={attachment.url} target="_blank" rel="noreferrer noopener">
                   <Icon name="file" size={15} />
-                  <span>
-                    {attachment.label || turkishCapitalize(attachment.kind)}{' '}
-                    <span className="cell-mono">({attachment.kind.toUpperCase()})</span>
-                  </span>
+                  <span>{attachment.label || turkishCapitalize(attachment.kind)}</span>
                 </a>
               </li>
             ))}
@@ -235,63 +298,39 @@ export function JobDetailPage(): ReactNode {
         </Card>
       )}
 
-      <Card title="Kaynaklar ve doğrulama" description="Bu ilanın bulunduğu tüm kaynaklar; hiçbiri diğerinin yerine geçmez.">
+      <Card
+        title="Bu ilanı nereden aldık?"
+        description="İlanın yayımlandığı resmî adresler. Kesin bilgi için her zaman asıl adrese bakın."
+      >
         <ul className="provenance-list">
           {job.sources.map((source) => (
             <li className="provenance-source" key={source.sourceKey + source.url}>
               <div className="provenance-head">
                 <strong>{source.sourceName ?? source.sourceKey}</strong>
-                <Tag tone={source.active ? 'success' : 'neutral'}>{source.active ? 'kaynakta aktif' : 'kaynakta görünmüyor'}</Tag>
+                <Tag tone={source.active ? 'success' : 'neutral'}>
+                  {source.active ? 'hâlâ yayında' : 'şu an görünmüyor'}
+                </Tag>
               </div>
               <a href={source.url} target="_blank" rel="noreferrer noopener" className="provenance-snippet">
                 {source.url}
               </a>
               <p className="text-muted-sm">
-                İlk görülme: {formatDateTime(source.firstSeenAt)} · Son görülme: {formatDateTime(source.lastSeenAt)}
-                {source.publishedAt ? ` · Kaynaktaki yayım: ${formatDate(source.publishedAt)}` : ''}
+                Burada ilk kez: {formatDateTime(source.firstSeenAt)} · En son:{' '}
+                {formatDateTime(source.lastSeenAt)}
+                {source.publishedAt ? ` · Yayımlanma: ${formatDate(source.publishedAt)}` : ''}
               </p>
             </li>
           ))}
         </ul>
       </Card>
 
-      <Card title="Alan bazlı kaynak izi" description="Her alanın hangi katmandan çıkarıldığı.">
-        <ProgressBar value={job.extractionConfidence} label="Çıkarım güveni" />
-        <ul className="provenance-list">
-          {Object.entries(job.fieldSources).map(([field, source]) => (
-            <li className="provenance-source" key={field}>
-              <div className="provenance-head">
-                <strong>{FIELD_LABELS[field] ?? field}</strong>
-                <Tag>{SOURCE_KIND_LABELS[source.kind] ?? source.kind}</Tag>
-              </div>
-              {source.snippet && <p className="provenance-snippet">“{source.snippet.slice(0, 200)}”</p>}
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <Card title="İlan metni özeti" description="Ham metinden alıntı; biçimlendirme uygulanmaz (güvenlik gereği).">
+      <Card title="İlan metninden özet" description="İlanın kendi metninden bir bölüm; tamamı resmî adreste.">
         <p className="job-excerpt">{job.textExcerpt || 'Metin alınamadı.'}</p>
       </Card>
 
-      <Card title="Sınıflandırma kararı" description="Kural motoru kararı; kararsız kayıtlar kullanıcıya gösterilmez.">
-        <p>
-          Karar: <strong>{job.classification.decision === 'accept' ? 'kabul' : job.classification.decision}</strong> · Tür:{' '}
-          {EMPLOYMENT_TYPE_LABELS[job.classification.employmentType] ?? job.classification.employmentType} · Sürüm:{' '}
-          <span className="cell-mono">{job.classification.version}</span>
-        </p>
-        {job.classification.reasons.length > 0 && (
-          <ul className="checklist">
-            {job.classification.reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
       <InfoNote title="Kesin bilgi kaynağındadır">
-        Başvuru koşullarını ilanın resmî kaynağından doğrulayın; değişiklikler önce kaynakta olur. Kamuİlan yalnızca
-        yayımlanmış ilanları toplar ve gördüğü son hâli gösterir.
+        Başvuru koşullarını ilanın resmî kaynağından doğrulayın; değişiklikler önce kaynakta olur. Kamuİlan
+        yalnızca yayımlanmış ilanları toplar ve gördüğü son hâli gösterir.
         {job.applicationEndDate ? ` Son başvuru günü: ${formatDateOnly(job.applicationEndDate)}.` : ''}
       </InfoNote>
     </article>

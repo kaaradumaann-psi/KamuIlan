@@ -21,6 +21,8 @@ export interface JobSearchFilters {
   educationLevels?: string[];
   departments?: string[];
   kpssScoreTypes?: string[];
+  /** Aday uygunluğu: belirtilen taban puan bu değerden yüksek olan ilanlar elenir. */
+  kpssMaxScore?: number;
   sourceKeys?: string[];
   status?: JobStatus[];
   deadlineFrom?: string;
@@ -118,10 +120,14 @@ export class JobRepo {
   }
 
   async updateJob(jobId: string, patch: Record<string, unknown>): Promise<JobDoc | null> {
-    const updated = await this.store.updateOne('jobs', { id: jobId }, {
-      ...patch,
-      updatedAt: this.clock.now().toISOString(),
-    });
+    const updated = await this.store.updateOne(
+      'jobs',
+      { id: jobId },
+      {
+        ...patch,
+        updatedAt: this.clock.now().toISOString(),
+      },
+    );
     if (updated) validateDocument('jobs', updated);
     return updated;
   }
@@ -132,7 +138,10 @@ export class JobRepo {
     return { link: result.document, created: result.inserted };
   }
 
-  async touchSourceLink(linkId: string, patch: { lastSeenAt: string; title?: string; active?: boolean }): Promise<void> {
+  async touchSourceLink(
+    linkId: string,
+    patch: { lastSeenAt: string; title?: string; active?: boolean },
+  ): Promise<void> {
     await this.store.updateOne('jobSources', { id: linkId }, patch);
   }
 
@@ -167,9 +176,18 @@ export class JobRepo {
       clauses.push({ employmentType: { $in: filters.employmentTypes } });
     }
     if (filters.cities && filters.cities.length > 0) {
-      clauses.push({ city: { $in: filters.cities.map((city) => city) } });
+      // Türkçe duyarlı karşılaştırma: kullanıcı 'istanbul', 'İSTANBUL' ya da
+      // 'Istanbul' yazsa da aynı şehri bulur (normalize edilmiş alanla).
+      // Eski kayıtlarda normalize alan yoksa ham değer de birebir denenir.
+      const needles = filters.cities.map((city) => normalizeTr(city)).filter(Boolean);
+      if (needles.length > 0) {
+        clauses.push({
+          $or: [{ cityNormalized: { $in: needles } }, { city: { $in: filters.cities } }],
+        });
+      }
     }
-    if (filters.sourceKeys && filters.sourceKeys.length > 0) clauses.push({ sourceKeys: { $in: filters.sourceKeys } });
+    if (filters.sourceKeys && filters.sourceKeys.length > 0)
+      clauses.push({ sourceKeys: { $in: filters.sourceKeys } });
     if (filters.educationLevels && filters.educationLevels.length > 0) {
       clauses.push({ 'requirements.educationLevels': { $in: filters.educationLevels } });
     }
@@ -181,8 +199,15 @@ export class JobRepo {
     if (filters.kpssScoreTypes && filters.kpssScoreTypes.length > 0) {
       clauses.push({ 'requirements.kpssScoreTypes': { $in: filters.kpssScoreTypes } });
     }
-    if (filters.institution) clauses.push({ institutionNormalized: { $regex: normalizeTr(filters.institution), $regexFlags: 'i' } });
-    if (filters.title) clauses.push({ titleNormalized: { $regex: normalizeTr(filters.title), $regexFlags: 'i' } });
+    if (filters.kpssMaxScore !== undefined) {
+      // Taban puanı belirtilmemiş ilanlar bu filtrede elenir (puan uydurulmaz);
+      // arayüz bu sınırı kullanıcaya açıkça söyler.
+      clauses.push({ 'requirements.kpssMinScore': { $lte: filters.kpssMaxScore } });
+    }
+    if (filters.institution)
+      clauses.push({ institutionNormalized: { $regex: normalizeTr(filters.institution), $regexFlags: 'i' } });
+    if (filters.title)
+      clauses.push({ titleNormalized: { $regex: normalizeTr(filters.title), $regexFlags: 'i' } });
     if (filters.q) {
       const needle = normalizeTr(filters.q);
       clauses.push({
@@ -232,7 +257,11 @@ export class JobRepo {
     const counts = new Map<string, number>();
     for (const job of jobs) counts.set(job.employmentType, (counts.get(job.employmentType) ?? 0) + 1);
 
-    const lastRuns = await this.store.find('scrapeRuns', { status: 'success' }, { limit: 1, sort: [['startedAt', -1]] });
+    const lastRuns = await this.store.find(
+      'scrapeRuns',
+      { status: 'success' },
+      { limit: 1, sort: [['startedAt', -1]] },
+    );
     const lastRun = lastRuns[0];
 
     return {
@@ -274,7 +303,9 @@ export class JobRepo {
   }
 
   buildJobDocument(
-    input: Omit<JobDoc, 'id' | 'createdAt' | 'updatedAt' | 'firstSeenAt' | 'lastSeenAt' | 'version'> & { seenAt: string },
+    input: Omit<JobDoc, 'id' | 'createdAt' | 'updatedAt' | 'firstSeenAt' | 'lastSeenAt' | 'version'> & {
+      seenAt: string;
+    },
   ): JobDoc {
     const { seenAt, ...rest } = input;
     return {

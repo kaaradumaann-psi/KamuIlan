@@ -7,12 +7,21 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { FilterForm, activeFilterCount, filtersFromParams, filtersToParams, type JobFilters } from '../components/Filters';
+import {
+  EMPTY_FILTERS,
+  FilterForm,
+  activeFilterCount,
+  filtersFromParams,
+  filtersToParams,
+  type JobFilters,
+} from '../components/Filters';
+
+const EMPTY_PRESET: JobFilters = EMPTY_FILTERS;
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { EmptyState, ErrorNotice, LoadingCard, Pagination, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
-import { formatDateTime, formatNumber } from '../lib/format';
+import { formatNumber } from '../lib/format';
 import { HONESTY_NOTE } from '../site';
 import type { JobListResponse } from '../types';
 
@@ -54,6 +63,12 @@ export function JobsPage() {
         deadlineFrom: query.deadlineFrom || undefined,
         deadlineTo: query.deadlineTo || undefined,
         minQuota: query.minQuota || undefined,
+        // Eğitim/bölüm/KPSS filtreleri formda toplanıyordu ama isteğe
+        // EKLENMİYORDU (sessizce etkisizdiler) — artık gönderiliyorlar.
+        education: query.education || undefined,
+        department: query.department || undefined,
+        kpssType: query.kpssType || undefined,
+        kpssMaxScore: query.kpssScore ? Number(query.kpssScore) : undefined,
         hasApplicationUrl: query.hasApplicationUrl ? true : undefined,
         sort: query.sort,
         page,
@@ -69,9 +84,44 @@ export function JobsPage() {
   }
 
   function reset(): void {
-    setParams(filtersToParams({ ...draft, q: '', city: '', institution: '', employmentType: '', status: '', deadlineFrom: '', deadlineTo: '', minQuota: '', hasApplicationUrl: false, sort: 'newest' }, 1, PAGE_SIZE), {
-      replace: true,
-    });
+    setParams(
+      filtersToParams(
+        {
+          ...draft,
+          q: '',
+          city: '',
+          institution: '',
+          employmentType: '',
+          status: '',
+          deadlineFrom: '',
+          deadlineTo: '',
+          minQuota: '',
+          education: '',
+          department: '',
+          kpssType: '',
+          kpssScore: '',
+          hasApplicationUrl: false,
+          sort: 'newest',
+        },
+        1,
+        PAGE_SIZE,
+      ),
+      { replace: true },
+    );
+  }
+
+  /** Hazır görünümler: adayın en sık kullandığı üç bakış (URL filtrelerine çevrilir). */
+  function applyPreset(preset: 'all' | 'open' | 'closing7' | 'newest'): void {
+    const today = new Date();
+    const in7 = new Date(today.getTime() + 7 * 86_400_000);
+    const iso = (date: Date): string => date.toISOString().slice(0, 10);
+    const base: JobFilters = { ...EMPTY_PRESET, ...urlFilters };
+    if (preset === 'all') apply({ ...EMPTY_PRESET });
+    else if (preset === 'open')
+      apply({ ...base, status: 'active', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
+    else if (preset === 'closing7')
+      apply({ ...base, status: 'active', deadlineFrom: iso(today), deadlineTo: iso(in7), sort: 'deadline' });
+    else apply({ ...base, sort: 'newest' });
   }
 
   function goToPage(next: number): void {
@@ -89,7 +139,8 @@ export function JobsPage() {
           <span className="kicker">İlan arama</span>
           <h1 className="page-title">Kamu personel alım ilanları</h1>
           <p className="info-lede">
-            Filtreler adres çubuğuna yazılır: bulduğunuz listeyi bağlantı olarak paylaşabilirsiniz.
+            Ne aradığınızı yazın, isterseniz il ve tür seçip <strong>Ara</strong>'ya
+            basın. Daha fazla seçenek isterseniz gelişmiş filtreler bir tık altta.
           </p>
         </div>
         <div className="page-head-actions">
@@ -106,6 +157,21 @@ export function JobsPage() {
           </button>
         </div>
       </header>
+
+      <div className="preset-row" role="group" aria-label="Hazır görünümler">
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('all')}>
+          Tümü
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('open')}>
+          Başvurusu açık
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('closing7')}>
+          Son günü yaklaşanlar
+        </button>
+        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('newest')}>
+          Yeni eklenenler
+        </button>
+      </div>
 
       {panelOpen && (
         <div id="filtre-paneli">
@@ -127,8 +193,7 @@ export function JobsPage() {
             {activeCount > 0 && <Tag tone="accent">{`${activeCount} filtre etkin`}</Tag>}
             <span className="inline-sep" />
             <span className="text-muted-sm">
-              Sayfa {jobs.data.page}/{Math.max(1, jobs.data.pages)} · listeleme zamanı{' '}
-              {formatDateTime(jobs.data.generatedAt)}
+              Sayfa {jobs.data.page}/{Math.max(1, jobs.data.pages)}
             </span>
           </>
         ) : (
@@ -150,7 +215,7 @@ export function JobsPage() {
         <EmptyState
           icon="search"
           title="Bu filtrelerle ilan bulunamadı"
-          description="Filtreleri gevşetmeyi deneyin. Kayıt sayısı kaynaklara ve tarama kapsamına bağlıdır; sistem tüm ilanları topladığını iddia etmez."
+          description="Seçimlerinizi azaltıp yeniden deneyin; belki aradığınız ilan henüz burada değildir."
         />
       )}
 

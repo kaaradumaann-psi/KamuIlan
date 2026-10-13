@@ -12,7 +12,8 @@ export const SITE_LABEL = 'www.halilkaraduman.com.tr';
 export const CONTACT_EMAIL = 'contact@halilkaraduman.com.tr';
 export const APP_NAME = 'Kamuİlan';
 export const APP_DOMAIN = 'kamuilan.halilkaraduman.com.tr';
-export const APP_TAGLINE = 'Kamu personel alım ilanları — topla, doğrula, bildir.';
+export const APP_TAGLINE =
+  'Resmî kurumların personel alım ilanları tek listede: arayın, kaydedin, son başvuru gününü kaçırmayın.';
 export const DEVELOPER_CREDIT = `${COPYRIGHT_HOLDER} tarafından kamuda çalışan adaylar için geliştirilmiştir.`;
 export const POLICY_EFFECTIVE_DATE = '12 Ekim 2026';
 export const POLICY_UPDATED_LABEL = `Son güncelleme: ${POLICY_EFFECTIVE_DATE}`;
@@ -24,5 +25,5 @@ export const POLICY_UPDATED_LABEL = `Son güncelleme: ${POLICY_EFFECTIVE_DATE}`;
  * listesinin altında açıkça yazılıdır.
  */
 export const HONESTY_NOTE =
-  'Kapsam eksiktir ve bunu saklamıyoruz: bazı kurumlar yalnızca kendi sayfalarında ilan yayımlar. ' +
-  'Her kaydın resmî kaynağına bağlantı verilir; doğrulanmamış kaynak entegrasyon iddiası taşımaz.';
+  'Her ilanı bulamayabiliriz: bazı kurumlar ilanını yalnızca kendi sayfasında duyurur. ' +
+  'Bulduğumuz her ilanda sizi asıl kaynağa götürürüz; emin olmadığımız bilgiyi de açıkça işaretleriz.';

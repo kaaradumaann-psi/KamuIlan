@@ -154,12 +154,12 @@ export function MobileNav({ items, user, onLogin, onLogout }: MobileNavProps) {
                 </div>
 
                 <span className="mobile-nav-kicker" id="mobile-nav-group-info">
-                  Site
+                  Bilgi
                 </span>
                 <div className="mobile-nav-group" role="group" aria-labelledby="mobile-nav-group-info">
                   <a className="mobile-nav-link" href={INFO_ROUTES.kaynaklar} onClick={() => setOpen(false)}>
                     <Icon name="list" size={18} />
-                    <span>Kaynaklar ve kapsam</span>
+                    <span>İlan kaynakları</span>
                   </a>
                   <a className="mobile-nav-link" href={INFO_ROUTES.sss} onClick={() => setOpen(false)}>
                     <Icon name="info" size={18} />
@@ -167,7 +167,7 @@ export function MobileNav({ items, user, onLogin, onLogout }: MobileNavProps) {
                   </a>
                   <a className="mobile-nav-link" href={INFO_ROUTES.gizlilik} onClick={() => setOpen(false)}>
                     <Icon name="shield" size={18} />
-                    <span>Gizlilik &amp; KVKK</span>
+                    <span>Gizlilik</span>
                   </a>
                   <a className="mobile-nav-link" href={INFO_ROUTES.kullanim} onClick={() => setOpen(false)}>
                     <Icon name="file" size={18} />
@@ -240,11 +240,11 @@ export function MobileNav({ items, user, onLogin, onLogout }: MobileNavProps) {
                       className="btn-secondary btn-sm"
                       onClick={() => {
                         setOpen(false);
-                        navigate('/bildirimler');
+                        navigate('/panel');
                       }}
                     >
                       <Icon name="bell" size={15} />
-                      <span>Bildirim kur</span>
+                      <span>Bildirimler</span>
                     </button>
                   </>
                 )}

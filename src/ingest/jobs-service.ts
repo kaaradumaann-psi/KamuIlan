@@ -112,6 +112,7 @@ export function buildJobDocument(
     status,
     statusReason: status === 'unknown' ? 'Tarih bilgisi bulunamadı' : '',
     city: extraction.city ?? raw.city ?? null,
+    cityNormalized: normalizeTr(extraction.city ?? raw.city ?? ''),
     district: extraction.district ?? raw.district ?? null,
     quota: extraction.quota ?? raw.quota ?? null,
     applicationStartAt,

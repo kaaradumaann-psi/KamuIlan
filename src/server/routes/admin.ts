@@ -118,7 +118,10 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       runs: runSummary,
       reviewQueue: reviewCounts,
       outbox: outboxStats,
-      queue: queueStats,
+      // Arayüz sözleşmesi { backend, counts, dead } bekler; repo istatistiği
+      // düz bir durum->sayı kaydıdır — burada normalize edilmezse panel
+      // `counts.pending` okurken patlar (beyaz ekran).
+      queue: { backend: repos.store.driver, counts: queueStats, dead: queueStats.dead ?? 0 },
       workers,
       workerWarning:
         workers.some((worker) => worker.stale) || workers.length === 0
