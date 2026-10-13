@@ -48,6 +48,29 @@ export interface FetchResponse {
   bytes: number;
 }
 
+/**
+ * undici hatalarının asıl nedeni `cause` zincirindedir (ör. UND_ERR_CONNECT_TIMEOUT,
+ * ECONNRESET, CERT_HAS_EXPIRED). Yalnızca üst mesajı saklamak ("fetch failed")
+ * canlı tanıyı imkânsızlaştırır; bu yüzden kod + neden mesaja eklenir.
+ */
+export function describeFetchFailure(error: unknown): string {
+  if (error instanceof FetchError) return error.message;
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current !== null && current !== undefined; depth += 1) {
+    if (current instanceof Error) {
+      const code = (current as Error & { code?: unknown }).code;
+      const label = typeof code === 'string' && code.length > 0 ? `${code}: ${current.message}` : current.message;
+      if (label && !parts.includes(label)) parts.push(label);
+      current = (current as Error & { cause?: unknown }).cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+  return parts.join(' <- ') || 'Bilinmeyen ağ hatası';
+}
+
 export class FetchError extends Error {
   readonly url: string;
   readonly status: number | null;
@@ -130,6 +153,8 @@ export interface HttpClientOptions {
   /** Testlerde sahte saat/bekleme. */
   sleep?: (ms: number) => Promise<void>;
   userAgent?: string;
+  /** Testlerde MockAgent enjeksiyonu; üretimde verilmez. */
+  dispatcher?: Dispatcher;
 }
 
 export class HttpClient {
@@ -140,19 +165,27 @@ export class HttpClient {
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: HttpClientOptions = {}) {
+    this.ownsAgent = options.dispatcher === undefined;
     this.logger = options.logger ?? createLogger('fetch');
     this.userAgent = options.userAgent ?? getEnv().SCRAPE_USER_AGENT;
     this.sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-    this.agent = new Agent({
-      connections: 8,
-      headersTimeout: 30_000,
-      bodyTimeout: 60_000,
-      keepAliveTimeout: 10_000,
-    });
+    this.agent =
+      options.dispatcher ??
+      new Agent({
+        connections: 8,
+        headersTimeout: 30_000,
+        bodyTimeout: 60_000,
+        keepAliveTimeout: 10_000,
+        // Kırık IPv6 yolu olan ağlarda (ev bağlantıları) tek aileye takılıp
+        // zaman aşımına düşmemek için adres ailesi otomatik seçilir.
+        connect: { autoSelectFamily: true, timeout: 15_000 },
+      });
   }
 
+  private readonly ownsAgent: boolean;
+
   async close(): Promise<void> {
-    await this.agent.close();
+    if (this.ownsAgent) await this.agent.close();
   }
 
   /** Metin (HTML/XML/JSON) getirir. */
@@ -195,12 +228,20 @@ export class HttpClient {
         });
         return response;
       } catch (error) {
-        const fetchError = error instanceof FetchError ? error : new FetchError(rawUrl, String(error), null, true);
+        const fetchError =
+          error instanceof FetchError ? error : new FetchError(rawUrl, describeFetchFailure(error), null, true);
         lastError = fetchError;
         if (!fetchError.retryable || attempt > maxRetries) throw fetchError;
         const backoff = Math.min(2 ** attempt * 500, 15_000) * (0.8 + Math.random() * 0.4);
         this.logger.warn(
-          { url: rawUrl, attempt, maxRetries, status: fetchError.status, backoffMs: Math.round(backoff) },
+          {
+            url: rawUrl,
+            attempt,
+            maxRetries,
+            status: fetchError.status,
+            error: fetchError.message,
+            backoffMs: Math.round(backoff),
+          },
           'istek başarısız, yeniden denenecek',
         );
         await this.sleep(Math.round(backoff));
