@@ -39,7 +39,7 @@ export function SaveJobButton({ jobId, compact = false }: { jobId: string; compa
       <button
         type="button"
         className={compact ? 'btn-secondary btn-sm' : 'btn-secondary'}
-        onClick={() => navigate('/panel')}
+        onClick={() => navigate('/giris')}
         title="Kaydetmek için giriş yapın (hesap yönetici davetiyle açılır)"
       >
         <Icon name="save" size={15} />

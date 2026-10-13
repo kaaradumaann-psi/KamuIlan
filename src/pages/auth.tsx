@@ -10,7 +10,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
 import { Card, ErrorNotice, Field, InfoNote } from '../components/ui';
 import { Icon } from '../components/Icon';
@@ -21,9 +21,11 @@ import { APP_DOMAIN, APP_NAME, CONTACT_EMAIL, HONESTY_NOTE, POLICY_EFFECTIVE_DAT
 function useAfterAuth(): () => void {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   return () => {
     void queryClient.invalidateQueries({ queryKey: ['session'] });
-    navigate('/panel');
+    const state = location.state as { from?: string } | null;
+    navigate(state?.from && state.from.startsWith('/') ? state.from : '/', { replace: true });
   };
 }
 
@@ -61,7 +63,8 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
           <span className="auth-eyebrow">Oturum</span>
           <h1 className="auth-heading">Giriş yap</h1>
           <p className="text-muted-sm">
-            Bildirim tercihlerinizi yönetmek için oturum açın. İlan listesi ve ilan detayları oturum gerektirmez.
+            Kamuİlan kapalı bir takip sistemidir: ilanları, kaynakları ve bildirimlerinizi görmek için oturum
+            açın.
           </p>
         </div>
 
@@ -104,7 +107,12 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
           {needsVerification && (
             <InfoNote tone="warning" title="E-posta doğrulanmamış">
               Bildirim gönderebilmek için önce e-posta adresinizi doğrulamanız gerekir.{' '}
-              <button type="button" className="board-text-link" onClick={() => resend.mutate()} disabled={resend.isPending}>
+              <button
+                type="button"
+                className="board-text-link"
+                onClick={() => resend.mutate()}
+                disabled={resend.isPending}
+              >
                 {resend.isPending ? 'Gönderiliyor…' : 'Doğrulama bağlantısını yeniden gönder'}
               </button>
             </InfoNote>
@@ -118,13 +126,11 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
 
         <div className="auth-footer-help">
           <Link to="/sifremi-unuttum">Parolamı unuttum</Link>
-          <span className="inline-sep" />
-          <Link to="/">İlanlara dön</Link>
         </div>
 
         <InfoNote tone="info" title="Halka açık kayıt yoktur">
           Hesabınız yönetici tarafından açılır. Davet e-postası size ulaştığında parolanızı belirleyip giriş
-          yapabilirsiniz. Kendi kendine kayıt kapalıdır; ilan listesini görmek için hesap gerekmez.
+          yapabilirsiniz. Kendi kendine kayıt kapalıdır.
         </InfoNote>
 
         <div className="auth-site-return">
@@ -179,8 +185,8 @@ export function ForgotPasswordPage(): ReactNode {
           </button>
         </form>
         <InfoNote title="Güvenlik">
-          Adresin kayıtlı olup olmadığını dışarıya sızdırmamak için yanıt her durumda aynıdır: bağlantı yalnızca
-          adres kayıtlıysa gönderilir.
+          Adresin kayıtlı olup olmadığını dışarıya sızdırmamak için yanıt her durumda aynıdır: bağlantı
+          yalnızca adres kayıtlıysa gönderilir.
         </InfoNote>
       </Card>
     </InfoPageShell>
@@ -210,8 +216,8 @@ export function ResetPasswordPage(): ReactNode {
     return (
       <InfoPageShell kicker="Şifre işlemleri" title="Bağlantı eksik" backTo="/giris">
         <InfoNote tone="warning" title="Bağlantı geçersiz">
-          Adres çubuğunda <code>token</code> parametresi yok. E-postadaki bağlantının tamamını açtığınızdan emin olun;
-          gerekirse parolamı unuttum adımını yeniden çalıştırın.
+          Adres çubuğunda <code>token</code> parametresi yok. E-postadaki bağlantının tamamını açtığınızdan
+          emin olun; gerekirse parolamı unuttum adımını yeniden çalıştırın.
         </InfoNote>
       </InfoPageShell>
     );
@@ -288,11 +294,16 @@ export function VerifyEmailPage(): ReactNode {
         {token && state === 'idle' && (
           <div className="page-stack">
             <p>
-              Doğrulama bağlantısı hazır. Onaylamak için düğmeye basın; bildirimler yalnızca doğrulanmış adreslere
-              gönderilir.
+              Doğrulama bağlantısı hazır. Onaylamak için düğmeye basın; bildirimler yalnızca doğrulanmış
+              adreslere gönderilir.
             </p>
             <div className="filter-actions">
-              <button type="button" className="btn-primary" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate()}
+              >
                 <Icon name="check" size={15} />
                 <span>{mutation.isPending ? 'Doğrulanıyor…' : 'E-postamı doğrula'}</span>
               </button>
@@ -305,8 +316,8 @@ export function VerifyEmailPage(): ReactNode {
         )}
         {state === 'done' && (
           <InfoNote tone="success" title="Adres doğrulandı">
-            Artık kriterlerinize uyan ilanları e-posta ile alabilirsiniz. <Link to="/panel">Bildirim tercihlerine
-            gidin.</Link>
+            Artık kriterlerinize uyan ilanları e-posta ile alabilirsiniz.{' '}
+            <Link to="/panel">Bildirim tercihlerine gidin.</Link>
           </InfoNote>
         )}
       </Card>
@@ -329,18 +340,23 @@ export function UnsubscribePage(): ReactNode {
       <Card>
         {!token && (
           <InfoNote tone="warning" title="Bağlantı eksik">
-            E-postadaki "Bildirimlerden çık" bağlantısının tamamını açın. Çıkma işlemi jetonludur; jeton yoksa işlem
-            yapılmaz.
+            E-postadaki "Bildirimlerden çık" bağlantısının tamamını açın. Çıkma işlemi jetonludur; jeton yoksa
+            işlem yapılmaz.
           </InfoNote>
         )}
         {token && state === 'idle' && (
           <div className="page-stack">
             <p>
-              Bu bağlantı, ilan bildirimlerini durdurur. Hesabınız ve bildirim geçmişiniz silinmez; tercihlerinizi
-              sonra yeniden açabilirsiniz.
+              Bu bağlantı, ilan bildirimlerini durdurur. Hesabınız ve bildirim geçmişiniz silinmez;
+              tercihlerinizi sonra yeniden açabilirsiniz.
             </p>
             <div className="filter-actions">
-              <button type="button" className="btn-danger" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate()}
+              >
                 <Icon name="bell" size={15} />
                 <span>{mutation.isPending ? 'İşleniyor…' : 'Bildirimleri durdur'}</span>
               </button>
@@ -389,9 +405,10 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Kamuİlan tüm kamu ilanlarını topluyor mu?',
     answer: (
       <>
-        Hayır ve bunu iddia etmiyoruz. Bazı kurumlar ilanlarını yalnızca kendi sayfalarında yayımlar; bir kısmı da
-        yalnızca haftalık yayımlanan resmî bültenlerde çıkar. Kaynaklar sayfasında hangi kaynağın canlı doğrulandığı,
-        hangisinin planlandığı ve son başarılı taramanın ne zaman olduğu yazılıdır. {HONESTY_NOTE}
+        Hayır ve bunu iddia etmiyoruz. Bazı kurumlar ilanlarını yalnızca kendi sayfalarında yayımlar; bir
+        kısmı da yalnızca haftalık yayımlanan resmî bültenlerde çıkar. Kaynaklar sayfasında hangi kaynağın
+        canlı doğrulandığı, hangisinin planlandığı ve son başarılı taramanın ne zaman olduğu yazılıdır.{' '}
+        {HONESTY_NOTE}
       </>
     ),
   },
@@ -399,9 +416,10 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'İlan bilgileri nereden geliyor?',
     answer: (
       <>
-        Yalnızca resmî kaynaklardan: Resmî Gazete, ilan.gov.tr, ÖSYM, İŞKUR ve kurumların kendi ilan sayfaları.
-        Her kaydın altında kaynak bağlantıları ve son doğrulama zamanı gösterilir. Uydurma veya elle üretilmiş ilan
-        yayımlanmaz; örnek/demo verisi varsa arayüzde açıkça "örnek veri" olarak işaretlenir.
+        Yalnızca resmî kaynaklardan: Resmî Gazete, ilan.gov.tr, ÖSYM, İŞKUR ve kurumların kendi ilan
+        sayfaları. Her kaydın altında kaynak bağlantıları ve son doğrulama zamanı gösterilir. Uydurma veya
+        elle üretilmiş ilan yayımlanmaz; örnek/demo verisi varsa arayüzde açıkça "örnek veri" olarak
+        işaretlenir.
       </>
     ),
   },
@@ -409,8 +427,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Bilgiler ne sıklıkla güncelleniyor?',
     answer: (
       <>
-        Sistem test aşamasında olduğu için tarama aralığı varsayılan olarak 1 dakikadır; üretim kurulumunda bu değer
-        kaynak başına 30–360 dakika aralığında ayarlanır. Her kaynağın kendi aralığı vardır ve taramalar
+        Sistem test aşamasında olduğu için tarama aralığı varsayılan olarak 1 dakikadır; üretim kurulumunda bu
+        değer kaynak başına 30–360 dakika aralığında ayarlanır. Her kaynağın kendi aralığı vardır ve taramalar
         zamanlanmış işlerle yürür; tarayıcı sekmesi kapalıyken de çalışmaya devam eder.
       </>
     ),
@@ -428,9 +446,9 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Başvuru bağlantısı neden boş olabiliyor?',
     answer: (
       <>
-        Çünkü ilan metninde başvuru adresi yazmıyorsa sistem bağlantı üretmez. Başvuru linki hiçbir zaman tahmin
-        edilmez; yalnızca kaynakta açıkça verilen adres gösterilir. Böyle durumlarda resmî ilan bağlantısını açıp
-        ayrıntıları kaynaktan okumanız gerekir.
+        Çünkü ilan metninde başvuru adresi yazmıyorsa sistem bağlantı üretmez. Başvuru linki hiçbir zaman
+        tahmin edilmez; yalnızca kaynakta açıkça verilen adres gösterilir. Böyle durumlarda resmî ilan
+        bağlantısını açıp ayrıntıları kaynaktan okumanız gerekir.
       </>
     ),
   },
@@ -438,8 +456,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Hesap nasıl açılır?',
     answer: (
       <>
-        Halka açık kayıt yoktur. Hesap yalnızca yönetici tarafından açılır: size bir davet e-postası gelir, parolanızı
-        kendiniz belirlersiniz. İlan aramak ve ilan detaylarını okumak için hesap gerekmez.
+        Halka açık kayıt yoktur. Hesap yalnızca yönetici tarafından açılır: size bir davet e-postası gelir,
+        parolanızı kendiniz belirlersiniz. İlan aramak ve ilan detaylarını okumak için hesap gerekmez.
       </>
     ),
   },
@@ -447,9 +465,10 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Bildirimler nasıl çalışıyor?',
     answer: (
       <>
-        Kaydettiğiniz kriterlere (unvan, kurum, il, istihdam türü, eğitim, KPSS puanı, son başvuruya kalan gün,
-        anahtar kelimeler) uyan yeni ilanlar ve değişiklikler e-posta ile gönderilir. Aynı ilan için tekrar tekrar
-        bildirim gitmez; her e-posta ilgili ilan sürümü ve eşleşme gerekçesiyle birlikte kayda geçer.
+        Kaydettiğiniz kriterlere (unvan, kurum, il, istihdam türü, eğitim, KPSS puanı, son başvuruya kalan
+        gün, anahtar kelimeler) uyan yeni ilanlar ve değişiklikler e-posta ile gönderilir. Aynı ilan için
+        tekrar tekrar bildirim gitmez; her e-posta ilgili ilan sürümü ve eşleşme gerekçesiyle birlikte kayda
+        geçer.
       </>
     ),
   },
@@ -458,8 +477,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     answer: (
       <>
         "Sağlayıcıya iletildi" / "kabul edildi" durumları gönderim sağlayıcısının yanıtına dayanır; teslim
-        (inbox) garantisi değildir. Hata hâlinde kayıt, deneme sayısı ve hata mesajıyla birlikte yönetim panelinde
-        görünür ve sınırlı sayıda yeniden denenir.
+        (inbox) garantisi değildir. Hata hâlinde kayıt, deneme sayısı ve hata mesajıyla birlikte yönetim
+        panelinde görünür ve sınırlı sayıda yeniden denenir.
       </>
     ),
   },
@@ -469,7 +488,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
       <>
         Parolalar geri döndürülemez biçimde (scrypt) saklanır; oturum çerezleri HttpOnly/Secure ve oturum açma
         istekleri CSRF korumalıdır. E-posta adresleri günlüklerde maskelenir. Veritabanı Supabase üzerinde
-        barındırılır, yalnızca sunucu tarafı anahtarlarla erişilir. Ayrıntılar Gizlilik &amp; KVKK sayfasındadır.
+        barındırılır, yalnızca sunucu tarafı anahtarlarla erişilir. Ayrıntılar Gizlilik &amp; KVKK
+        sayfasındadır.
       </>
     ),
   },
@@ -477,8 +497,8 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Bir ilan hatalı görünüyorsa ne yapmalıyım?',
     answer: (
       <>
-        Önce resmî kaynağı kontrol edin: bağlayıcı olan kaynaktır. Kayıt gerçekten hatalıysa ilan detayındaki resmî
-        bağlantı ve ilan numarasıyla birlikte {CONTACT_EMAIL} adresine yazabilirsiniz; düzeltme inceleme
+        Önce resmî kaynağı kontrol edin: bağlayıcı olan kaynaktır. Kayıt gerçekten hatalıysa ilan detayındaki
+        resmî bağlantı ve ilan numarasıyla birlikte {CONTACT_EMAIL} adresine yazabilirsiniz; düzeltme inceleme
         kuyruğuna alınır.
       </>
     ),
@@ -519,8 +539,9 @@ export function PrivacyPage(): ReactNode {
                   içeriğinde kişisel veri bulunmaz; ilanlar kurumların kamuya açık duyurularıdır.
                 </p>
                 <p>
-                  Kişisel veri, yalnızca bildirim hizmetini kullanan hesaplarda işlenir: e-posta adresi, görünen ad
-                  (isteğe bağlı), parola özeti, oturum kayıtları, bildirim tercihleri ve gönderim geçmişi.
+                  Kişisel veri, yalnızca bildirim hizmetini kullanan hesaplarda işlenir: e-posta adresi,
+                  görünen ad (isteğe bağlı), parola özeti, oturum kayıtları, bildirim tercihleri ve gönderim
+                  geçmişi.
                 </p>
               </>
             ),
@@ -532,21 +553,21 @@ export function PrivacyPage(): ReactNode {
               <PolicyList
                 items={[
                   <>
-                    <strong>Hesap verileri:</strong> e-posta adresi, isteğe bağlı görünen ad, parola özeti ve tuzu.
-                    Amaç: oturum açma ve bildirim gönderimi.
+                    <strong>Hesap verileri:</strong> e-posta adresi, isteğe bağlı görünen ad, parola özeti ve
+                    tuzu. Amaç: oturum açma ve bildirim gönderimi.
                   </>,
                   <>
-                    <strong>Tercih verileri:</strong> unvan, kurum, il, istihdam türü, eğitim düzeyi, bölüm, KPSS
-                    türü ve taban puanı, son başvuruya kalan gün, anahtar kelimeler. Amaç: yalnızca size uygun
-                    ilanları bildirmek.
+                    <strong>Tercih verileri:</strong> unvan, kurum, il, istihdam türü, eğitim düzeyi, bölüm,
+                    KPSS türü ve taban puanı, son başvuruya kalan gün, anahtar kelimeler. Amaç: yalnızca size
+                    uygun ilanları bildirmek.
                   </>,
                   <>
                     <strong>Kayıt/denetim verileri:</strong> oturum açma zamanı, bildirim gönderim kayıtları,
                     yönetici işlem kayıtları. Amaç: güvenlik ve hesap verebilirlik.
                   </>,
                   <>
-                    <strong>Teknik veriler:</strong> istek zamanı ve yol bilgisi gibi sınırlı kayıtlar. IP adresi
-                    günlüklerde kişiyle ilişkilendirilmez; hız sınırı için kısa süreli tutulur.
+                    <strong>Teknik veriler:</strong> istek zamanı ve yol bilgisi gibi sınırlı kayıtlar. IP
+                    adresi günlüklerde kişiyle ilişkilendirilmez; hız sınırı için kısa süreli tutulur.
                   </>,
                 ]}
               />
@@ -557,9 +578,9 @@ export function PrivacyPage(): ReactNode {
             title: 'Hukuki dayanak',
             body: (
               <p>
-                Bildirim hizmeti için işleme, açık rızanıza ve hizmetin ifasına dayanır; hesap oluşturan kişi parola
-                belirleyerek bu koşulları kabul etmiş sayılır. Güvenlik kayıtları, KVKK m.5/2-f kapsamında meşru
-                menfaatle tutulur.
+                Bildirim hizmeti için işleme, açık rızanıza ve hizmetin ifasına dayanır; hesap oluşturan kişi
+                parola belirleyerek bu koşulları kabul etmiş sayılır. Güvenlik kayıtları, KVKK m.5/2-f
+                kapsamında meşru menfaatle tutulur.
               </p>
             ),
           },
@@ -580,8 +601,8 @@ export function PrivacyPage(): ReactNode {
                       <strong>Cloudflare:</strong> barındırma, alan adı ve trafik koruması.
                     </>,
                     <>
-                      <strong>Resend:</strong> işlem e-postalarının gönderimi (doğrulama, davet, bildirim). E-posta
-                      adresi ve gönderim içeriği sağlayıcıya iletilir.
+                      <strong>Resend:</strong> işlem e-postalarının gönderimi (doğrulama, davet, bildirim).
+                      E-posta adresi ve gönderim içeriği sağlayıcıya iletilir.
                     </>,
                   ]}
                 />
@@ -644,8 +665,8 @@ export function PrivacyPage(): ReactNode {
             title: 'Çerezler',
             body: (
               <p>
-                Yalnızca oturum çerezi ve CSRF jetonu kullanılır. Reklam/izleme çerezi yoktur; üçüncü taraf analitik
-                aracı çalıştırılmaz.
+                Yalnızca oturum çerezi ve CSRF jetonu kullanılır. Reklam/izleme çerezi yoktur; üçüncü taraf
+                analitik aracı çalıştırılmaz.
               </p>
             ),
           },
@@ -667,8 +688,8 @@ export function TermsPage(): ReactNode {
             body: (
               <>
                 <p>
-                  Kamuİlan, resmî kaynaklarda yayımlanmış ilanları toplar, sınıflandırır ve aranabilir hâle getirir.
-                  Kaynak sayfasında hangi kaynağın canlı doğrulandığı listelenir.
+                  Kamuİlan, resmî kaynaklarda yayımlanmış ilanları toplar, sınıflandırır ve aranabilir hâle
+                  getirir. Kaynak sayfasında hangi kaynağın canlı doğrulandığı listelenir.
                 </p>
                 <p>{HONESTY_NOTE}</p>
               </>
@@ -679,9 +700,9 @@ export function TermsPage(): ReactNode {
             title: 'Bağlayıcı kaynak ilanın kendisidir',
             body: (
               <p>
-                Sistemdeki bilgiler özet ve yardımcı niteliktedir. Başvuru koşulları, tarihler ve kontenjanlar için
-                yalnızca ilanın resmî kaynağı bağlayıcıdır. Başvuru öncesi ilanın kaynağını açıp doğrulamanız
-                gerekir.
+                Sistemdeki bilgiler özet ve yardımcı niteliktedir. Başvuru koşulları, tarihler ve kontenjanlar
+                için yalnızca ilanın resmî kaynağı bağlayıcıdır. Başvuru öncesi ilanın kaynağını açıp
+                doğrulamanız gerekir.
               </p>
             ),
           },
@@ -718,8 +739,8 @@ export function TermsPage(): ReactNode {
             body: (
               <p>
                 Bildirim göndermek için e-posta adresinin doğrulanmış olması gerekir. Bildirimleri panelden
-                duraklatabilir, her e-postanın altındaki bağlantıyla tümüyle durdurabilirsiniz. Gönderim kaydı, bir
-                e-postanın sağlayıcı tarafından kabul edildiğini gösterir; teslim garantisi vermez.
+                duraklatabilir, her e-postanın altındaki bağlantıyla tümüyle durdurabilirsiniz. Gönderim
+                kaydı, bir e-postanın sağlayıcı tarafından kabul edildiğini gösterir; teslim garantisi vermez.
               </p>
             ),
           },
@@ -739,8 +760,8 @@ export function TermsPage(): ReactNode {
             title: 'İçerik ve telif',
             body: (
               <p>
-                İlanların telifi ilanı yayımlayan kuruma aittir; Kamuİlan yalnızca kaynağa bağlantı verir ve özet
-                gösterir. Arayüz kodu ve tasarımı {APP_NAME} hizmetine aittir.
+                İlanların telifi ilanı yayımlayan kuruma aittir; Kamuİlan yalnızca kaynağa bağlantı verir ve
+                özet gösterir. Arayüz kodu ve tasarımı {APP_NAME} hizmetine aittir.
               </p>
             ),
           },
@@ -749,8 +770,8 @@ export function TermsPage(): ReactNode {
             title: 'Değişiklikler',
             body: (
               <p>
-                Koşullar güncellenebilir; güncel sürüm bu sayfada yayımlanır ve yürürlük tarihi başlıkta yazılır.
-                Sorularınız için: {CONTACT_EMAIL}.
+                Koşullar güncellenebilir; güncel sürüm bu sayfada yayımlanır ve yürürlük tarihi başlıkta
+                yazılır. Sorularınız için: {CONTACT_EMAIL}.
               </p>
             ),
           },

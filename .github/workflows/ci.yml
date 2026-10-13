@@ -33,6 +33,10 @@ jobs:
         run: npm run sources:report -- --json > coverage-report.json
 
       # --- Uçtan uca (tarayıcı) testler -------------------------------------
+      # Site giriş kapılıdır: e2e, seed:admin ile açılan yöneticiyle girer.
+      - name: E2E yönetici hesabı
+        run: ADMIN_EMAIL=e2e@kamuilan.test ADMIN_PASSWORD=$(printf 'E2e-Giris-%s' '2026!') npm run seed:admin
+
       # API + derlenmiş arayüz başlatılır; Playwright bu adrese karşı koşar.
       - name: API ve arayüzü başlat
         run: |
@@ -56,6 +60,7 @@ jobs:
         run: npm run test:e2e -- --project=chromium
         env:
           E2E_BASE_URL: http://localhost:4173
+          ADMIN_EMAIL: e2e@kamuilan.test
 
       - name: Playwright raporu (başarısız olsa da yüklenir)
         if: always()

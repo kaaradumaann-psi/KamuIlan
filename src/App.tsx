@@ -6,13 +6,16 @@
  * (`.app-main`) ve altta site alt bilgisi. Dar ekranda aynı hedefler erişilebilir
  * bir menü paneline taşınır (`.mobile-nav-*`).
  *
- * Kamu ilanları HALK AÇIKTIR: liste, detay, kaynaklar ve bilgi sayfaları oturum
- * gerektirmez. Oturum yalnızca bildirim tercihleri (`/panel`) ve yönetim
- * (`/yonetim`) için gerekir; bu iki sayfa oturumsuz açılırsa giriş kartı gösterilir.
+ * Site GİRİŞ KAPILIDIR (psikolog/MMPI ile aynı model): oturum yoksa uygulama
+ * kabuğu hiç açılmaz, kullanıcı doğrudan giriş ekranına alınır ve girişten
+ * sonra istediği sayfaya devam eder. Yalnızca kimlik sayfaları (giriş, parola
+ * sıfırlama, e-posta doğrulama, abonelikten çıkma) ve bilgi sayfaları (SSS,
+ * gizlilik, kullanım) oturumsuz açıktır — e-posta bağlantıları çalışmalıdır.
  * Dışarıdan kayıt YOKTUR — hesap yalnızca yönetici davetiyle açılır.
  */
 import { useEffect, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StatusBanner } from './components/StatusBanner';
 import { MobileNav, type MobileNavItem } from './components/MobileNav';
 import { BrandMark } from './components/BrandMark';
@@ -212,7 +215,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     type="button"
                     className="btn-logout"
                     onClick={() => {
-                      void logout().then(() => navigate('/'));
+                      void logout().then(() => navigate('/giris'));
                     }}
                   >
                     Çıkış
@@ -239,7 +242,7 @@ function AppShell({ children }: { children: ReactNode }) {
               {...(user
                 ? {
                     onLogout: () => {
-                      void logout().then(() => navigate('/'));
+                      void logout().then(() => navigate('/giris'));
                     },
                   }
                 : {})}
@@ -257,6 +260,42 @@ function AppShell({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Uygulama kapısı: oturum doğrulanmadan kabuk (gezinme + içerik) hiç
+ * render edilmez. Oturum yoksa kullanıcı, girişten sonra kaldığı yere
+ * dönecek şekilde giriş ekranına yönlendirilir.
+ */
+function RequireAuthGate({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (loading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card loading-state-card" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <h4>Oturum doğrulanıyor…</h4>
+          <p>Hesabınız kontrol ediliyor.</p>
+        </div>
+      </div>
+    );
+  }
+  if (!user) {
+    const from = `${location.pathname}${location.search}`;
+    return (
+      <Navigate
+        to="/giris"
+        state={{
+          from,
+          reason:
+            'Kamuİlan kapalı bir sistemdir: ilanları görmek için giriş yapın. Hesap, yönetici davetiyle açılır.',
+        }}
+        replace
+      />
+    );
+  }
+  return <>{children}</>;
 }
 
 /** Oturum gerektiren sayfalar için giriş kartı (psikologdaki auth kapısı). */
@@ -297,50 +336,54 @@ export default function App() {
       <Route
         path="*"
         element={
-          <AppShell>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/ilanlar" element={<JobsPage />} />
-              <Route path="/ilanlar/:id" element={<JobDetailPage />} />
-              <Route path="/kaynaklar" element={<SourcesPage />} />
-              <Route
-                path="/panel"
-                element={
-                  <RequiresSession reason="Bildirim tercihleri hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
-                    <PanelPage view="preferences" />
-                  </RequiresSession>
-                }
-              />
-              <Route
-                path="/panel/kaydedilenler"
-                element={
-                  <RequiresSession reason="Kaydettiğiniz ilanlar hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
-                    <SavedJobsPage />
-                  </RequiresSession>
-                }
-              />
-              {/* Eski e-posta bağlantıları: tercih bağlantısı artık /panel. */}
-              <Route path="/panel/bildirimler" element={<Navigate to="/panel" replace />} />
-              <Route
-                path="/panel/gecmis"
-                element={
-                  <RequiresSession reason="Bildirim geçmişi hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
-                    <PanelPage view="history" />
-                  </RequiresSession>
-                }
-              />
-              <Route
-                path="/yonetim"
-                element={
-                  <RequiresSession reason="Yönetim paneli yalnızca yönetici hesaplarına açıktır.">
-                    <AdminPage />
-                  </RequiresSession>
-                }
-              />
-              <Route path="/404" element={<NotFoundPage />} />
-              <Route path="*" element={<Navigate to="/404" replace />} />
-            </Routes>
-          </AppShell>
+          <RequireAuthGate>
+            <AppShell>
+              <ErrorBoundary>
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/ilanlar" element={<JobsPage />} />
+                  <Route path="/ilanlar/:id" element={<JobDetailPage />} />
+                  <Route path="/kaynaklar" element={<SourcesPage />} />
+                  <Route
+                    path="/panel"
+                    element={
+                      <RequiresSession reason="Bildirim tercihleri hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
+                        <PanelPage view="preferences" />
+                      </RequiresSession>
+                    }
+                  />
+                  <Route
+                    path="/panel/kaydedilenler"
+                    element={
+                      <RequiresSession reason="Kaydettiğiniz ilanlar hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
+                        <SavedJobsPage />
+                      </RequiresSession>
+                    }
+                  />
+                  {/* Eski e-posta bağlantıları: tercih bağlantısı artık /panel. */}
+                  <Route path="/panel/bildirimler" element={<Navigate to="/panel" replace />} />
+                  <Route
+                    path="/panel/gecmis"
+                    element={
+                      <RequiresSession reason="Bildirim geçmişi hesabınıza bağlıdır. Giriş yapın; hesap açmak için yöneticiden davet isteyin.">
+                        <PanelPage view="history" />
+                      </RequiresSession>
+                    }
+                  />
+                  <Route
+                    path="/yonetim"
+                    element={
+                      <RequiresSession reason="Yönetim paneli yalnızca yönetici hesaplarına açıktır.">
+                        <AdminPage />
+                      </RequiresSession>
+                    }
+                  />
+                  <Route path="/404" element={<NotFoundPage />} />
+                  <Route path="*" element={<Navigate to="/404" replace />} />
+                </Routes>
+              </ErrorBoundary>
+            </AppShell>
+          </RequireAuthGate>
         }
       />
     </Routes>

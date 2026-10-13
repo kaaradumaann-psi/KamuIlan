@@ -2,16 +2,18 @@
  * Duman testleri: temel sayfalar gerçekten açılıyor mu, konsol hatası var mı,
  * korumalı alanlar oturumsuz kullanıcıya ne gösteriyor?
  *
- * Veritabanı boş olabilir: boş durumda da bu testler geçmelidir. Testler
- * Kamuİlan'ın kuralına uyar: dışarıdan kayıt YOKTUR, bu yüzden hiçbir test
- * "kayıt ol" akışını aramaz; oturum gerektiren sayfalar giriş kartı gösterir.
+ * Veritabanı boş olabilir: boş durumda da bu testler geçmelidir. Site GİRİŞ
+ * KAPILIDIR: uygulama sayfaları önce yönetici girişiyle açılır; oturumsuz
+ * istekler giriş ekranına düşer. Dışarıdan kayıt YOKTUR, hiçbir test
+ * "kayıt ol" akışını aramaz (yardımcı: loginAsAdmin, seed:admin hesabı).
  */
 import { expect, test } from '@playwright/test';
-import { collectPageErrors, expectHeading } from './support/api';
+import { collectPageErrors, expectHeading, loginAsAdmin } from './support/api';
 
 test.describe('temel sayfalar', () => {
   test('ana sayfa açılır, sistem durumunu ve dürüst kapsam notunu gösterir', async ({ page }) => {
     const errors = collectPageErrors(page);
+    await loginAsAdmin(page);
     await page.goto('/');
 
     await expectHeading(page, 'Kamu personel alım ilanları — kaynaklı, tekilleştirilmiş, takvime bağlı');
@@ -26,6 +28,7 @@ test.describe('temel sayfalar', () => {
 
   test('ana sayfa araması ilan listesine sorgu parametreleriyle taşınır', async ({ page }) => {
     const errors = collectPageErrors(page);
+    await loginAsAdmin(page);
     await page.goto('/');
 
     await page.getByLabel('Arama terimi', { exact: true }).fill('hemşire');
@@ -41,6 +44,7 @@ test.describe('temel sayfalar', () => {
 
   test('ilan listesi filtreleri URL üzerinden paylaşılabilir', async ({ page }) => {
     const errors = collectPageErrors(page);
+    await loginAsAdmin(page);
     await page.goto('/ilanlar');
     await expectHeading(page, 'Kamu personel alım ilanları');
 
@@ -63,6 +67,7 @@ test.describe('temel sayfalar', () => {
 
   test('kaynaklar sayfası kapsamı ve doğrulama durumunu açıkça yazar', async ({ page }) => {
     const errors = collectPageErrors(page);
+    await loginAsAdmin(page);
     await page.goto('/kaynaklar');
 
     await expectHeading(page, 'Kaynaklar ve kapsam');
@@ -76,20 +81,24 @@ test.describe('temel sayfalar', () => {
     expect(errors).toEqual([]);
   });
 
-  test('panel oturumsuz açıldığında giriş kartı gösterir, kayıt bağlantısı sunmaz', async ({ page }) => {
+  test('oturumsuz kullanıcı her sayfada giriş ekranına düşer, kayıt bağlantısı sunulmaz', async ({
+    page,
+  }) => {
     const errors = collectPageErrors(page);
     await page.goto('/panel');
 
+    await expect(page).toHaveURL(/\/giris/);
     await expectHeading(page, 'Giriş yap');
     await expect(page.getByText('Halka açık kayıt yoktur')).toBeVisible();
     await expect(page.getByText(/Hesabınız yönetici tarafından açılır/)).toBeVisible();
+    await expect(page.getByText(/kapalı bir sistemdir/)).toBeVisible();
     expect(errors).toEqual([]);
   });
 
-  test('yönetim bölümü RBAC ile korunur', async ({ page }) => {
+  test('yönetim bölümü oturumsuz açılamaz (giriş kapısı + RBAC)', async ({ page }) => {
     await page.goto('/yonetim');
+    await expect(page).toHaveURL(/\/giris/);
     await expectHeading(page, 'Giriş yap');
-    await expect(page.getByText(/Yönetim paneli yalnızca yönetici hesaplarına açıktır/)).toBeVisible();
   });
 
   test('bilgi sayfaları (SSS, gizlilik, kullanım) oturumsuz açılır', async ({ page }) => {
@@ -104,6 +113,7 @@ test.describe('temel sayfalar', () => {
   });
 
   test('bilinmeyen yol 404 sayfasına düşer', async ({ page }) => {
+    await loginAsAdmin(page);
     await page.goto('/boyle-bir-sayfa-yok');
     await expect(page.getByText('Sayfa bulunamadı')).toBeVisible();
   });
@@ -115,6 +125,7 @@ test.describe('temel sayfalar', () => {
     expect(body.database.healthy).toBe(true);
     expect(['ok', 'degraded']).toContain(body.status);
 
+    await loginAsAdmin(page);
     await page.goto('/');
     // Arayüz de aynı proxy üzerinden veri çekebiliyor (konsol hatası yok).
     await expect(page.getByText(/Son başarılı tarama/).first()).toBeVisible();

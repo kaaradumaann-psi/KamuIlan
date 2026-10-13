@@ -7,6 +7,11 @@
  * kaynaklar "doğrulandı" gibi gösterilemez.
  */
 import { expect, test } from '@playwright/test';
+import { loginAsAdmin } from './support/api';
+
+test.beforeEach(async ({ page }) => {
+  await loginAsAdmin(page);
+});
 
 test('kapsam özeti ile tablodaki doğrulama işaretleri tutarlıdır', async ({ page }) => {
   await page.goto('/kaynaklar');

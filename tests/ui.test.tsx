@@ -3,9 +3,9 @@
  * Arayüz kabuğu testleri (jsdom).
  *
  * Bu testler tarayıcı gerektirmez ama arayüzün çalışma zamanı sözleşmesini
- * doğrular: kabuk çizilebiliyor mu, kamuya açık sayfalar oturumsuz açılıyor mu,
- * oturum gerektiren sayfa giriş kartı gösteriyor mu ve **dışarıdan kayıt
- * bağlantısı hiçbir yerde yok mu**.
+ * doğrular: kabuk giriş yapmış kullanıcıda çizilebiliyor mu, site giriş
+ * kapılıyken oturumsuz kullanıcı giriş ekranına düşüyor mu ve **dışarıdan
+ * kayıt bağlantısı hiçbir yerde yok mu**.
  *
  * Ağ erişimi yoktur: `src/lib/api` modülü sahte yanıtlarla değiştirilir.
  */
@@ -61,8 +61,20 @@ beforeEach(() => {
     byEmploymentType: [],
     lastSuccessfulScanAt: null,
   });
-  responses.set('/api/jobs', { items: [], total: 0, page: 1, pageSize: 20, pages: 1, sort: 'newest', generatedAt: new Date().toISOString() });
-  responses.set('/api/jobs/deadlines/upcoming', { items: [], days: 14, generatedAt: new Date().toISOString() });
+  responses.set('/api/jobs', {
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 20,
+    pages: 1,
+    sort: 'newest',
+    generatedAt: new Date().toISOString(),
+  });
+  responses.set('/api/jobs/deadlines/upcoming', {
+    items: [],
+    days: 14,
+    generatedAt: new Date().toISOString(),
+  });
   responses.set('/api/sources', {
     sources: [],
     planned: [],
@@ -78,7 +90,13 @@ beforeEach(() => {
     checkedAt: new Date().toISOString(),
     database: { driver: 'file', healthy: true, latencyMs: 1, detail: null },
     versions: { classification: '2026.10.1', extraction: '2026.10.1', dedupe: '2026.10.1' },
-    scans: { lastSuccessAt: null, lastFailureAt: null, minutesSinceSuccess: null, totalRuns: 0, failedRuns: 0 },
+    scans: {
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      minutesSinceSuccess: null,
+      totalRuns: 0,
+      failedRuns: 0,
+    },
     workers: { total: 0, running: 0, stale: 0, items: [] },
     queue: { backend: 'database', pending: 0, active: 0, dead: 0 },
     sources: { total: 9, enabled: 8, verified: 3, built: 5, failing: 0, stale: 8, planned: 18 },
@@ -90,13 +108,33 @@ afterEach(() => {
   cleanup();
 });
 
+/** Oturum açmış test kullanıcısı (site giriş kapılıdır). */
+function loginAsTestUser(): void {
+  responses.set('/api/auth/session', {
+    authenticated: true,
+    user: {
+      id: 'usr_test',
+      email: 'aday@ornek.test',
+      displayName: 'Test Aday',
+      role: 'user',
+      status: 'active',
+      emailVerified: true,
+      emailVerifiedAt: '2026-10-13T09:00:00+03:00',
+      createdAt: '2026-10-13T09:00:00+03:00',
+      lastLoginAt: '2026-10-13T09:00:00+03:00',
+    },
+    csrfToken: 'test-csrf',
+  });
+}
+
 describe('arayüz kabuğu', () => {
-  it('kamuya açık ana sayfayı kabuk içinde çizer', async () => {
+  it('ana sayfayı giriş yapmış kullanıcıda kabuk içinde çizer', async () => {
+    loginAsTestUser();
     renderApp('/');
 
-    expect(screen.getAllByText('Kamuİlan').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Kamuİlan')).length).toBeGreaterThan(0);
     expect(
-      screen.getByRole('heading', { level: 1, name: /Kamu personel alım ilanları/ }),
+      await screen.findByRole('heading', { level: 1, name: /Kamu personel alım ilanları/ }),
     ).toBeTruthy();
     expect(screen.getByLabelText('Arama terimi')).toBeTruthy();
     // Dürüstlük notu kabukta ve ana sayfada görünür.
@@ -105,9 +143,12 @@ describe('arayüz kabuğu', () => {
   });
 
   it('ilan listesi filtre formunu ve paylaşılabilir adres notunu gösterir', async () => {
+    loginAsTestUser();
     renderApp('/ilanlar');
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Kamu personel alım ilanları' })).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Kamu personel alım ilanları' }),
+    ).toBeTruthy();
     expect(await screen.findByRole('form', { name: 'İlan filtreleri' })).toBeTruthy();
     expect(screen.getByLabelText('İl')).toBeTruthy();
     expect(screen.getByText(/adres çubuğuna yazılır/)).toBeTruthy();
@@ -131,6 +172,7 @@ describe('arayüz kabuğu', () => {
   });
 
   it('kaynaklar sayfası kapsam özetini dürüst etiketlerle yazar', async () => {
+    loginAsTestUser();
     renderApp('/kaynaklar');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Kaynaklar ve kapsam' })).toBeTruthy();
