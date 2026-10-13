@@ -105,7 +105,58 @@ export class FileStore implements StoragePort {
     this.flush();
   }
 
+  /**
+   * Diskteki kayıtları belleğe katar (yalnızca bizde OLMAYAN kimlikler).
+   *
+   * Neden: `close()` sırasındaki yazma, okuma tazelemesinden geçmez. Uzun süre
+   * yaşayıp hiç yazmayan bir süreç (ör. salt-okuma bir betik ya da API süreci),
+   * başka bir süreç ek kayıt yazdıysa kapanırken eski kopyasını diske basar ve
+   * o kayıtlar KAYBOLUR. Gerçek olay: `seed:demo` ile eklenen ilanlar, kapanan
+   * bir sürecin bayat yazımıyla silinmişti. Bu yüzden her yazımdan ÖNCE disk
+   * okunur ve bilmediğimiz kayıtlar korunur.
+   *
+   * Sınır: silme işlemleri birleştirilmez (bir süreçte silinen kayıt, başka bir
+   * sürecin belleğinde duruyorsa geri gelebilir). Geliştirme deposu için
+   * "veri kaybı olmasın" ilkesi esas alınmıştır; üretimde Postgres/Mongo
+   * kullanılır ve bu yol çalışmaz.
+   */
+  private mergeExternalChanges(): void {
+    if (!existsSync(this.filePath)) return;
+    let mtimeMs: number;
+    let size: number;
+    let parsed: FilePayload;
+    try {
+      const stat = statSync(this.filePath);
+      mtimeMs = stat.mtimeMs;
+      size = stat.size;
+      if (mtimeMs === this.loadedMtimeMs && size === this.loadedSize) return;
+      parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as FilePayload;
+    } catch {
+      // Okunamayan/bozuk dosya: bellekteki durumu koru, üzerine yazma kararını
+      // çağıran akış versin (loadFromDisk bu durumu ayrıca ele alır).
+      return;
+    }
+
+    for (const [name, docs] of Object.entries(parsed.collections ?? {})) {
+      if (!(name in this.data) || !Array.isArray(docs)) continue;
+      const ours = this.data[name as CollectionName] as unknown as Record<string, unknown>[];
+      const known = new Set(
+        ours.map((row) => row['id']).filter((id): id is string => typeof id === 'string'),
+      );
+      for (const row of docs as unknown as Record<string, unknown>[]) {
+        const id = row['id'];
+        if (typeof id === 'string' && known.has(id)) continue;
+        ours.push(row);
+        if (typeof id === 'string') known.add(id);
+      }
+    }
+    this.loadedMtimeMs = mtimeMs;
+    this.loadedSize = size;
+  }
+
   private flush(): void {
+    // Yazmadan önce diskle birleştir: başka süreçlerin kayıtları ezilmesin.
+    this.mergeExternalChanges();
     const payload: FilePayload = {
       version: 1,
       savedAt: new Date().toISOString(),

@@ -244,7 +244,32 @@ function jobBodyText(payload: JobEmailPayload): string {
   return lines.join('\n');
 }
 
+/**
+ * Konu satırını güvenli hâle getirir.
+ *
+ * Konu, taranan web içeriğinden (ilan başlığı/kurum adı) gelebilir. Denetim
+ * karakterleri (CR/LF) e-posta başlık enjeksiyonuna kapı açar; her taşıyıcıda
+ * ayrı ayrı savunma yapmak yerine konu TEK yerde temizlenir. Uzunluk da
+ * sınırlanır (başlık taşması).
+ */
+export function sanitizeSubject(value: string): string {
+  const cleaned = value
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length > 0 ? cleaned.slice(0, 200) : 'Kamuİlan bildirimi';
+}
+
 export function renderEmail(
+  template: EmailTemplate,
+  payload: Record<string, unknown>,
+  ctx: RenderContext,
+): RenderedEmail {
+  const rendered = renderEmailBody(template, payload, ctx);
+  return { ...rendered, subject: sanitizeSubject(rendered.subject) };
+}
+
+function renderEmailBody(
   template: EmailTemplate,
   payload: Record<string, unknown>,
   ctx: RenderContext,

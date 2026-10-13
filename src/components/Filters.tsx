@@ -7,7 +7,8 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
-import { EDUCATION_LABELS, EMPLOYMENT_TYPE_LABELS } from '../lib/format';
+import { EDUCATION_LEVELS, EDUCATION_LEVEL_LABELS } from '../domain/types';
+import { EMPLOYMENT_TYPE_LABELS, normalizeEducationLevel } from '../lib/format';
 
 /** KPSS puan türleri — `src/domain/types.ts` KPSS_SCORE_TYPES ile aynı liste. */
 export const KPSS_TYPE_OPTIONS = ['P1', 'P2', 'P3', 'P10', 'P93', 'P94', 'P121', 'P124', 'DHBT'] as const;
@@ -59,7 +60,8 @@ export function filtersFromParams(params: URLSearchParams): JobFilters {
     deadlineFrom: params.get('deadlineFrom') ?? '',
     deadlineTo: params.get('deadlineTo') ?? '',
     minQuota: params.get('minQuota') ?? '',
-    education: params.get('education') ?? '',
+    // Paylaşılmış eski bağlantılar: 'lise' → 'ortaogretim', 'belirtilmemis' → seçili değil.
+    education: normalizeEducationLevel(params.get('education') ?? ''),
     department: params.get('department') ?? '',
     kpssType: params.get('kpssType') ?? '',
     kpssScore: params.get('kpssScore') ?? '',
@@ -245,13 +247,13 @@ export function FilterForm({
                 onChange={(event) => update({ education: event.target.value })}
               >
                 <option value="">Tümü</option>
-                {Object.entries(EDUCATION_LABELS)
-                  .filter(([value]) => value !== 'belirtilmemis' && value !== 'lise')
-                  .map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
+                {/* Kanonik liste (domain): 'lise'/'belirtilmemis' uydurma değer
+                    sunulmaz — 'lise' hiçbir kayıtla eşleşmiyordu. */}
+                {EDUCATION_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {EDUCATION_LEVEL_LABELS[level]}
+                  </option>
+                ))}
               </select>
             </Field>
 

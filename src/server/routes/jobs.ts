@@ -10,6 +10,7 @@ import { PAGINATION } from '../../config/app';
 import type { Repos } from '../../db/repos';
 import type { JobSort } from '../../db/repos/jobs';
 import { JOB_STATUSES } from '../../domain';
+import { toIstanbulDateOnly } from '../../domain/dates';
 
 type JobStatus = (typeof JOB_STATUSES)[number];
 import { ApiError } from '../errors';
@@ -49,6 +50,22 @@ function asArray(value: string | string[] | undefined): string[] | undefined {
   return list.length > 0 ? list : undefined;
 }
 
+/**
+ * Görüntüleme takma adlarını kanonik filtre değerine çevirir.
+ *
+ * Arayüz yalnızca kanonik değer gönderir (`ortaogretim`); ama eski/paylaşılmış
+ * bağlantılarda `lise` gibi takma ad bulunabilir. Bu değer olduğu gibi filtreye
+ * geçerse sorgu sessizce boş dönerdi (kullanıcı "ilan yok" sanırdı). Takma ad
+ * çevrilir; TANINMAYAN değer olduğu gibi bırakılır (filtre boş sonuç verir —
+ * "seçtiğiniz düzeyde ilan yok" dürüst cevaptır, filtreyi yok saymak değil).
+ */
+const EDUCATION_ALIASES: Record<string, string> = { lise: 'ortaogretim' };
+
+function canonicalEducation(values: string[] | undefined): string[] | undefined {
+  if (!values) return undefined;
+  return [...new Set(values.map((value) => EDUCATION_ALIASES[value] ?? value))];
+}
+
 export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
   app.get(
     '/api/jobs',
@@ -67,7 +84,9 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
           ...(asArray(query.employmentType) !== undefined
             ? { employmentTypes: asArray(query.employmentType) }
             : {}),
-          ...(asArray(query.education) !== undefined ? { educationLevels: asArray(query.education) } : {}),
+          ...(canonicalEducation(asArray(query.education)) !== undefined
+            ? { educationLevels: canonicalEducation(asArray(query.education)) }
+            : {}),
           ...(asArray(query.department) !== undefined ? { departments: asArray(query.department) } : {}),
           ...(asArray(query.kpssType) !== undefined ? { kpssScoreTypes: asArray(query.kpssType) } : {}),
           ...(query.kpssMaxScore !== undefined ? { kpssMaxScore: query.kpssMaxScore } : {}),
@@ -125,7 +144,9 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
     async (request) => {
       const params = z.object({ id: z.string().min(3).max(64) }).parse(request.params);
       const job = await repos.jobs.findById(params.id);
-      if (!job) throw ApiError.notFound('İlan bulunamadı.');
+      // Yalnızca KABUL EDİLMİŞ ilanlar: sınıflandırma/tekilleştirme kararı
+      // bekleyen (ya da reddedilmiş) ham kayıtlar herkese açık uçtan dönmez.
+      if (!job || job.classification.decision !== 'accept') throw ApiError.notFound('İlan bulunamadı.');
       const links = await repos.jobs.listSourceLinks(job.id);
       return {
         jobId: job.id,
@@ -149,6 +170,8 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['jobs'], summary: 'İlanın değişiklik geçmişi' } },
     async (request) => {
       const params = z.object({ id: z.string().min(3).max(64) }).parse(request.params);
+      const job = await repos.jobs.findById(params.id);
+      if (!job || job.classification.decision !== 'accept') throw ApiError.notFound('İlan bulunamadı.');
       const revisions = await repos.jobs.listRevisions(params.id);
       return { jobId: params.id, revisions: revisions.map(toRevision) };
     },
@@ -218,8 +241,10 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
         })
         .parse(request.query);
       const now = repos.clock.now();
-      const from = new Date(now.getTime()).toISOString().slice(0, 10);
-      const to = new Date(now.getTime() + query.days * 86_400_000).toISOString().slice(0, 10);
+      // Tarih karşılaştırması Türkiye gününe göre yapılır: UTC'de gün dönümü
+      // İstanbul'dan 3 saat önce olduğu için pencere bir gün kayabiliyordu.
+      const from = toIstanbulDateOnly(now);
+      const to = toIstanbulDateOnly(new Date(now.getTime() + query.days * 86_400_000));
       const result = await repos.jobs.search(
         {
           status: ['active'],

@@ -10,6 +10,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
 import { Icon } from '../components/Icon';
 import {
@@ -478,7 +479,10 @@ function ReviewTab(): ReactNode {
             <ul className="note-list push">
               {item.candidateJobIds.map((id) => (
                 <li key={id}>
-                  Aday ilan: <a href={`/ilanlar/${id}`}>{query.data?.candidateTitles[id] ?? id}</a>
+                  Aday ilan:{' '}
+                  <Link to={`/ilanlar/${encodeURIComponent(id)}`}>
+                    {query.data?.candidateTitles[id] ?? id}
+                  </Link>
                 </li>
               ))}
             </ul>

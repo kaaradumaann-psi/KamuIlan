@@ -98,10 +98,19 @@ const PRIVATE_HOST_PATTERNS: readonly RegExp[] = [
   /^169\.254\./, // link-local + bulut metadata (169.254.169.254)
   /^::1$/,
   /^\[?::1\]?$/,
-  /^fc00:/i,
-  /^fe80:/i,
+  // IPv4 eşlemeli IPv6 (::ffff:127.0.0.1) ve özel bloklar.
+  /^\[?::ffff:/i,
+  /^\[?(fc|fd|fe8|fe9|fea|feb)[0-9a-f]{2}:/i,
   /\.internal$/i,
   /^metadata\./i,
+  /**
+   * Sayısal/ondalık yazılmış IPv4 (ör. 2130706433 = 127.0.0.1, 0x7f000001).
+   * Tarayıcı değiliz ama bu biçimler bazı DNS/vekil katmanlarında çözülür;
+   * kaynak adresleri her zaman alan adıdır — sayısal host kabul edilmez.
+   */
+  /^0x[0-9a-f]+$/i,
+  /^\d+$/,
+  /^\d{1,3}(\.\d{1,3}){3}$/,
 ];
 
 export function assertSafeUrl(rawUrl: string, allowedHosts: readonly string[] = []): URL {

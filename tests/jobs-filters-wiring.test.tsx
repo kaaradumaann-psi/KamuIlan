@@ -93,3 +93,51 @@ describe('ilan sayfası filtre bağlantısı', () => {
     second.unmount();
   });
 });
+
+describe('eğitim düzeyi filtresi', () => {
+  it('yalnızca kanonik düzeyler sunulur (takma ad yok)', async () => {
+    getMock.mockClear();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/ilanlar']}>
+          <JobsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Gelişmiş filtreler varsayılan kapalıdır; düğmeye basıp aç.
+    const advanced = screen.getByRole('button', { name: /Gelişmiş filtreler/ });
+    advanced.click();
+    const select = (await waitFor(() => {
+      const found = document.getElementById('filter-education');
+      expect(found).toBeTruthy();
+      return found as HTMLSelectElement;
+    })) as HTMLSelectElement;
+    const values = [...select.options].map((option) => option.value);
+    // Kanonik ortaöğretim sunulur; 'lise' (hiçbir kayıtla eşleşmeyen takma ad)
+    // ve sunucunun reddettiği 'belirtilmemis' sunulmaz.
+    expect(values).toContain('ortaogretim');
+    expect(values).toContain('lisans');
+    expect(values).not.toContain('lise');
+    expect(values).not.toContain('belirtilmemis');
+    // Etiket Türkçe ve anlaşılır kalır.
+    const orta = [...select.options].find((option) => option.value === 'ortaogretim');
+    expect(orta?.textContent).toContain('Ortaöğretim');
+  });
+
+  it('eski paylaşılmış bağlantıdaki education=lise kanonik değere çevrilir', async () => {
+    getMock.mockClear();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/ilanlar?education=lise']}>
+          <JobsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(getMock).toHaveBeenCalled());
+    const lastCall = getMock.mock.calls.at(-1) as unknown as [string, Record<string, unknown>];
+    expect(lastCall[1]?.['education']).toBe('ortaogretim');
+  });
+});

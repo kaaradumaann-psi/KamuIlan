@@ -53,6 +53,10 @@ Geliştirme için çoğu değer boş kalabilir. En az:
   adaptörler ağa çıkmaz (demo/test için).
 - `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: her kaynak dakikada bir
   taranır. Üretimde `0` (kaynak başına `intervalMinutes`) veya 30–360 önerilir.
+- `TRUST_PROXY`, `CORS_ORIGINS`, `DOCS_ENABLED` — güvenlik anahtarları;
+  varsayılanları güvenli seçeneklerdir. Yalnızca ters vekil/CORS gerçekten
+  gerektiğinde değiştirin:
+  [deployment.md → Ters vekil arkasında çalıştırma](./deployment.md#ters-vekil-arkasında-çalıştırma-trust_proxy-cors_origins-docs_enabled).
 
 ### Üretim anahtarları (Supabase + Cloudflare + Resend)
 

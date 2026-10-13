@@ -161,6 +161,18 @@ export function uniquePreserve<T>(values: Iterable<T>): T[] {
 }
 
 /** Masks an e-mail address for logs: a***@example.com */
+/**
+ * Kullanıcı/kaynak içeriğini düzenli ifade KAYNAĞI olarak güvenli hâle getirir.
+ *
+ * Arama kutusuna `(((((((a)+)+)` yazan bir kullanıcı (ya da başlığında regex
+ * karakteri geçen taranmış bir ilan) aksi hâlde ya isteği 500'e düşürür ya da
+ * düzenli ifade motorunu kilitler (ReDoS). Arama daima DÜZ METİN eşleşmesidir;
+ * `%`, `*` gibi karakterler özel anlam taşımaz.
+ */
+export function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function maskEmail(email: string): string {
   const [local, domain] = email.split('@');
   if (!local || !domain) return '***';

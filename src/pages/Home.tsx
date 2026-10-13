@@ -97,12 +97,12 @@ export function HomePage() {
   const closing = useQuery({
     queryKey: CLOSING_KEY,
     queryFn: () =>
-      api.get<{ items: PublicJobSummary[]; days: number; generatedAt: string }>(
-        '/api/jobs/deadlines/upcoming',
-        {
-          days: 14,
-        },
-      ),
+      api.get<{
+        items: PublicJobSummary[];
+        total: number;
+        humanRange: string;
+        range: { from: string; to: string; days: number };
+      }>('/api/jobs/deadlines/upcoming', { days: 14 }),
   });
 
   function submit(event: FormEvent) {
@@ -240,7 +240,9 @@ export function HomePage() {
                     <span className="cell-subtitle">{job.institution}</span>
                   </div>
                   <div className="report-list-meta">
-                    <span className="date-tag">{formatDateOnly(job.applicationEndAt)}</span>
+                    <span className="date-tag">
+                      {formatDateOnly(job.applicationEndAt ?? job.applicationEndDate)}
+                    </span>
                     <span className="text-muted-sm">
                       {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
                     </span>

@@ -41,7 +41,15 @@ export const DEADLINE_LABELS: Record<string, string> = {
   unknown: 'Tarih belirtilmemiş',
 };
 
-/** Eğitim düzeyi etiketleri — kanonik değerler EDUCATION_LEVELS (domain) ile aynıdır. */
+/**
+ * Eğitim düzeyi ETİKETLERİ.
+ *
+ * `lise` ve `belirtilmemis` birer GÖRÜNTÜLEME takma adıdır (eski kayıtlarda
+ * görülebilir); kanonik değerler `src/domain/types.ts` EDUCATION_LEVELS'tir ve
+ * ortaöğretim için `ortaogretim` kullanılır. Form seçenekleri bu sözlükten
+ * ÜRETİLMEZ: `belirtilmemis` sunucuda geçersizdir (400), `lise` ise hiçbir
+ * kayıtla eşleşmez (filtrede sessizce 0 sonuç veriyordu).
+ */
 export const EDUCATION_LABELS: Record<string, string> = {
   ilkogretim: 'İlköğretim',
   ortaogretim: 'Ortaöğretim (lise)',
@@ -52,6 +60,11 @@ export const EDUCATION_LABELS: Record<string, string> = {
   doktora: 'Doktora',
   belirtilmemis: 'Belirtilmemiş',
 };
+
+/** Eski/paylaşılmış bağlantılardaki takma adları kanonik değere çevirir. */
+export function normalizeEducationLevel(value: string): string {
+  return value === 'lise' ? 'ortaogretim' : value === 'belirtilmemis' ? '' : value;
+}
 
 export const SOURCE_STATUS_LABELS: Record<string, string> = {
   verified: 'Çalıştığı kanıtlanmış',
@@ -97,12 +110,51 @@ export function formatDate(value: string | null | undefined): string {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'long', timeZone: ISTANBUL }).format(date);
 }
 
-/** "2026-10-30" gibi yalnızca tarih içeren değerler için (saat uydurulmaz). */
+/**
+ * Gün gösterimi (saat uydurulmaz).
+ *
+ * İki biçimi de kabul eder:
+ *  - `2026-10-30` → doğrudan gün.
+ *  - `2026-10-30T00:00:00+03:00` → gün, İSTANBUL saatine göre belirlenir.
+ *
+ * Eski hata: tam ISO damgası da tarih sanılıp `split('-')` ile parçalanıyordu ve
+ * ekrana "NaN Ekim 2026" yazıyordu (her ilan kartında ve ana sayfadaki son gün
+ * listesinde görünüyordu).
+ */
 export function formatDateOnly(value: string | null | undefined): string {
   if (!value) return 'belirtilmemiş';
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) return value;
-  return `${Number(day)} ${monthName(Number(month))} ${year}`;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!match) return value;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value.trim())) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      const [year, month, day] = new Intl.DateTimeFormat('en-CA', {
+        timeZone: ISTANBUL,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+        .format(date)
+        .split('-');
+      return `${Number(day)} ${monthName(Number(month))} ${year}`;
+    }
+  }
+  return `${Number(match[3])} ${monthName(Number(match[2]))} ${match[1]}`;
+}
+
+/**
+ * Başvuru tarihi/saati: saat metinde GERÇEKTEN yazılıysa saat gösterilir.
+ *
+ * Çıkarım motoru saati bilinmeyen tarihlerde 00:00 yazar (gün başı). Bunu
+ * kullanıcıya "00:00" diye göstermek, ilanda olmayan bir saat uydurmak olur.
+ */
+export function formatDateMaybeTime(value: string | null | undefined): string {
+  if (!value) return 'belirtilmemiş';
+  const match = /T(\d{2}):(\d{2})/.exec(value);
+  if (!match || (match[1] === '00' && match[2] === '00')) {
+    return formatDateOnly(value);
+  }
+  return formatDateTime(value);
 }
 
 function monthName(month: number): string {

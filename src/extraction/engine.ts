@@ -592,12 +592,19 @@ export function extractApplicationUrl(
 }
 
 export function extractApplicationMethod(text: string, hasApplicationUrl: boolean): string | null {
+  const normalized = normalizeTr(text);
   const found: string[] = [];
   for (const method of APPLICATION_METHODS) {
-    if (normalizeTr(text).includes(normalizeTr(method))) found.push(method);
+    if (normalized.includes(normalizeTr(method))) found.push(method);
   }
-  if (found.length === 0) return hasApplicationUrl ? null : null;
-  return found.slice(0, 3).join(', ');
+  if (found.length === 0) return null;
+  // Kapsanan ifadeleri at: "posta yoluyla" varken "posta" ayrıca yazılmasın.
+  const unique = found.filter(
+    (method) =>
+      !found.some((other) => other !== method && normalizeTr(other).includes(normalizeTr(method))),
+  );
+  void hasApplicationUrl;
+  return unique.slice(0, 3).join(', ');
 }
 
 export function extractReference(title: string, body: string): string | null {

@@ -2,7 +2,7 @@
  * İlan deposu: tekil ilanlar, kaynak bağları, sürüm geçmişi ve arama.
  */
 import { createId } from '../../domain/ids';
-import { normalizeTr } from '../../domain/text';
+import { escapeRegExp, normalizeTr } from '../../domain/text';
 import { toIstanbulDateOnly } from '../../domain/dates';
 import type { JobStatus } from '../../domain';
 import type { Clock } from '../../lib/clock';
@@ -96,12 +96,12 @@ export class JobRepo {
     const limit = params.limit ?? 40;
     const byInstitution = await this.store.find(
       'jobs',
-      { institutionNormalized: { $regex: params.institutionNormalized.slice(0, 24), $regexFlags: 'i' } },
+      { institutionNormalized: { $regex: escapeRegExp(params.institutionNormalized.slice(0, 24)), $regexFlags: 'i' } },
       { limit, sort: [['createdAt', -1]] },
     );
     const byTitle = await this.store.find(
       'jobs',
-      { titleNormalized: { $regex: params.titleNormalized.slice(0, 24), $regexFlags: 'i' } },
+      { titleNormalized: { $regex: escapeRegExp(params.titleNormalized.slice(0, 24)), $regexFlags: 'i' } },
       { limit, sort: [['createdAt', -1]] },
     );
     const byPeriod = params.applicationEndDate
@@ -205,16 +205,23 @@ export class JobRepo {
       clauses.push({ 'requirements.kpssMinScore': { $lte: filters.kpssMaxScore } });
     }
     if (filters.institution)
-      clauses.push({ institutionNormalized: { $regex: normalizeTr(filters.institution), $regexFlags: 'i' } });
+      clauses.push({
+        institutionNormalized: { $regex: escapeRegExp(normalizeTr(filters.institution)), $regexFlags: 'i' },
+      });
     if (filters.title)
-      clauses.push({ titleNormalized: { $regex: normalizeTr(filters.title), $regexFlags: 'i' } });
+      clauses.push({
+        titleNormalized: { $regex: escapeRegExp(normalizeTr(filters.title)), $regexFlags: 'i' },
+      });
     if (filters.q) {
-      const needle = normalizeTr(filters.q);
+      // Kullanıcı girdisi DÜZ METİN olarak aranır (regex değil): aksi hâlde
+      // geçersiz desen 500'e, kötü desen kilitlenmeye (ReDoS) yol açardı.
+      const needle = escapeRegExp(normalizeTr(filters.q));
       clauses.push({
         $or: [
           { titleNormalized: { $regex: needle, $regexFlags: 'i' } },
           { institutionNormalized: { $regex: needle, $regexFlags: 'i' } },
-          { textExcerpt: { $regex: needle, $regexFlags: 'i' } },
+          // Gövde araması normalize edilmiş kopyada yapılır (Türkçe karakterler).
+          { textNormalized: { $regex: needle, $regexFlags: 'i' } },
         ],
       });
     }

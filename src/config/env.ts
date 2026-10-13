@@ -35,7 +35,34 @@ const envSchema = z.object({
   /** API portu (vite proxy varsayılanı 3000'e bakar). */
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   HOST: z.string().default('0.0.0.0'),
+  /**
+   * X-Forwarded-For başlığına GÜVENİLİR Mİ?
+   *
+   * Varsayılan KAPALI: başlık istemci tarafından serbestçe yazılabilir; açıkken
+   * saldırgan her istekte farklı bir IP uydurup hız sınırını atlar ve denetim
+   * kaydına yalan IP yazdırır. Yalnızca uygulama, başlığı KENDİSİ ÜRETEN bir
+   * vekil sunucunun (Cloudflare/Nginx) arkasındayken 1 yapın.
+   */
+  TRUST_PROXY: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /**
+   * OpenAPI arayüzü (/api/docs). Varsayılan: yalnızca üretim dışı ortamlarda açık.
+   * Üretimde API yüzeyini ve şemayı dışarıya göstermemek için KAPALIDIR;
+   * bilinçli olarak açmak isterseniz DOCS_ENABLED=1 verin.
+   */
+  DOCS_ENABLED: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+  /**
+   * Geliştirmede CORS: yalnızca bu liste (virgülle ayrılmış) vekil/arayüz
+   * kaynaklarına izin verilir. `origin: true` (her kaynağa izin) KULLANILMAZ:
+   * oturum çerezleriyle birlikte her siteden istek kabul etmek gereksiz risk.
+   */
+  CORS_ORIGINS: z.string().default(''),
 
   DATA_DIR: z.string().default('./data'),
   /**

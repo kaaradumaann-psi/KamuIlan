@@ -10,6 +10,11 @@
 - [ ] `ALLOW_PUBLIC_REGISTRATION=0` (dışarıdan kayıt kapalı; hesaplar davetle)
 - [ ] Tarama sıklığı: testte `SCAN_INTERVAL_MINUTES=1`, üretimde `0` veya 30–360
 - [ ] Ters vekil (reverse proxy) + TLS; API ve worker ayrı süreçler
+- [ ] Ters vekil arkasındaysa `TRUST_PROXY=1` (yoksa istemci IP'si vekilin IP'si
+      görünür; giriş hız sınırı yanlış hesaplanır)
+- [ ] Arayüz API'yi başka bir alan adından çağırıyorsa `CORS_ORIGINS` (tam
+      kaynak listesi); aynı alan adından çağırıyorsa **boş** bırakılır
+- [ ] `DOCS_ENABLED=0` (Swagger `/api/docs` üretimde kapalı)
 - [ ] İndeksler oluşturuldu (`npm run db:indexes`)
 - [ ] Kaynak envanteri + zamanlanmış görevler yazıldı (`npm run db:migrate`)
 - [ ] Yedekleme/geri yükleme denendi ([operations.md](./operations.md))
@@ -167,6 +172,60 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
    satır eklemek de giriş sağlamaz (özet biçimi uyuşmaz). Ayrıntı:
    [setup.md → Kullanıcılar hangi veritabanında?](./setup.md#kullanıcılar-hangi-veritabanında-supabase-notu)
 
+## Ters vekil arkasında çalıştırma (`TRUST_PROXY`, `CORS_ORIGINS`, `DOCS_ENABLED`)
+
+Bu üç değişken **güvenlik açısından** önemlidir ve varsayılanları en güvenli
+seçenekleri seçer. Yanlış ayarlanırlarsa sistem açık verir; bu yüzden dağıtım
+öncesi tek tek doğrulanmalıdır.
+
+| Değişken       | Varsayılan | Ne zaman değiştirilir                                                                 |
+| -------------- | ---------- | ------------------------------------------------------------------------------------- |
+| `TRUST_PROXY`  | `0`        | Yalnızca API gerçekten bir ters vekilin (Cloudflare, Nginx, Docker) arkasındaysa `1`.  |
+| `CORS_ORIGINS` | boş        | Yalnızca arayüz API ile **farklı** bir kaynaktan konuşuyorsa (virgülle ayrılmış liste). |
+| `DOCS_ENABLED` | `0`        | Hiçbir zaman. Yalnızca üretim dışı ortamda açın.                                       |
+
+### `TRUST_PROXY` — istemci IP'si ve hız sınırları
+
+`TRUST_PROXY=0` iken API `X-Forwarded-For` başlığına **güvenmez**; istemci
+IP'si doğrudan soket adresinden alınır. Bu doğru varsayılandır, çünkü vekil
+arkasında değilken başlığa güvenmek saldırganın hız sınırını sahte IP'lerle
+atlamasına (ve denetim kayıtlarında yanlış IP görünmesine) yol açar.
+
+- Vekil arkasında `TRUST_PROXY=1` verilmezse **tüm istekler vekilin IP'sinden**
+  gelir: giriş/kayıt hız sınırı kovaları ortaklaşır, tek bir kullanıcı yanlış
+  parola denemeleriyle herkesi kilitleyebilir.
+- Vekil arkasında **değilken** `TRUST_PROXY=1` vermek ise başlık sahtelemesini
+  açık hâle getirir. Vekilin `X-Forwarded-For` başlığını **kendisi yazdığından**
+  emin olun (gelen değeri temizlemek vekilin işidir).
+- Docker Compose ve depodaki Nginx yapılandırmaları bu nedenle yalnızca
+  gerçek bir vekil varsa `TRUST_PROXY=1` ile çalıştırılır.
+
+### `CORS_ORIGINS` — tarayıcı kaynak allowlist'i
+
+Varsayılan boştur: API yalnızca **kendi alan adından** gelen tarayıcı
+isteklerine CORS başlığı ekler (arayüz `dist/` aynı alan adından sunulduğunda
+gerekli değildir). Ayrı bir alan adı/port gerekliyse tam kaynak yazılır:
+
+```bash
+CORS_ORIGINS=https://kamuilan.halilkaraduman.com.tr,https://panel.ornek.com
+```
+
+- Joker (`*`) **desteklenmez**; her kaynak tam olarak yazılır.
+- Listede olmayan kaynaklar için CORS başlığı dönmez; tarayıcı isteği bloklar.
+- `credentials` (çerez) desteği yalnızca listedeki kaynaklar için açılır.
+
+### `DOCS_ENABLED` — Swagger/OpenAPI uçları
+
+Üretimde (`NODE_ENV=production`) Swagger/OpenAPI uçları, `DOCS_ENABLED=1`
+verilmedikçe **kapalıdır** ve `/api/docs` + `/api/openapi.json` adresleri 404
+döner. Geliştirmede (`NODE_ENV=production` değilken) varsayılan olarak açıktır.
+Üretimde kapalı tutun: şema, iç uçların tam listesini ve alan adlarını
+dışarıya açar. Dağıtım sonrası hızlı kontrol:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<alan-adı>/api/docs   # beklenen: 404
+```
+
 ## Ölçeklendirme
 
 - **Çok örnekli API**: oturumlar imzalı çerezle taşınır; yatay ölçeklenebilir.
@@ -206,10 +265,9 @@ süreç uyuduğunda hiçbir tarama yapılmaz. Bu nedenle:
 
 ## CI
 
-`.github/workflows/ci.yml`: `npm ci` → `typecheck` → `lint` → **`format:check`**
-→ `test` → `build` → `env:check` → `sources:report --json` → API+arayüz başlatma
-→ Playwright E2E. CI'da `SOURCE_LIVE_FETCH=0` olduğu için hiçbir gerçek kaynağa
-istek atılmaz.
+`.github/workflows/ci.yml`: `npm ci` → `typecheck` → `lint` → `test` → `build`
+→ `env:check` → `sources:report --json` → API+arayüz başlatma → Playwright E2E.
+CI'da `SOURCE_LIVE_FETCH=0` olduğu için hiçbir gerçek kaynağa istek atılmaz.
 
 Aynı adımları dağıtımdan önce yerelde çalıştırın:
 

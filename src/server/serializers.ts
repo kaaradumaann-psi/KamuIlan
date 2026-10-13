@@ -77,7 +77,7 @@ export interface PublicJobDetail extends PublicJobSummary {
 
 export function deadlineOf(job: JobDoc, now: Date = new Date()): { state: string; daysLeft: number | null } {
   const endDate = job.applicationEndDate;
-  if (!endDate) return { state: 'bilinmiyor', daysLeft: null };
+  if (!endDate) return { state: 'unknown', daysLeft: null };
   const today = toIstanbulDateOnly(now);
   const daysLeft = Math.round(
     (Date.parse(`${endDate}T00:00:00+03:00`) - Date.parse(`${today}T00:00:00+03:00`)) / 86_400_000,
@@ -124,7 +124,7 @@ export function toPublicJobDetail(
   return {
     ...summary,
     applicationUrl: job.applicationUrl,
-    applicationMethod: null,
+    applicationMethod: job.applicationMethod ?? null,
     originalRefNo: job.originalRefNo,
     textExcerpt: job.textExcerpt,
     requirements: job.requirements,

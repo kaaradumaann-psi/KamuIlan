@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from './Icon';
 import type { IconName } from './Icon';
 import { INFO_ROUTES } from './SiteFooter';
@@ -157,22 +157,22 @@ export function MobileNav({ items, user, onLogin, onLogout }: MobileNavProps) {
                   Bilgi
                 </span>
                 <div className="mobile-nav-group" role="group" aria-labelledby="mobile-nav-group-info">
-                  <a className="mobile-nav-link" href={INFO_ROUTES.kaynaklar} onClick={() => setOpen(false)}>
+                  <Link className="mobile-nav-link" to={INFO_ROUTES.kaynaklar} onClick={() => setOpen(false)}>
                     <Icon name="list" size={18} />
                     <span>İlan kaynakları</span>
-                  </a>
-                  <a className="mobile-nav-link" href={INFO_ROUTES.sss} onClick={() => setOpen(false)}>
+                  </Link>
+                  <Link className="mobile-nav-link" to={INFO_ROUTES.sss} onClick={() => setOpen(false)}>
                     <Icon name="info" size={18} />
                     <span>Sıkça sorulan sorular</span>
-                  </a>
-                  <a className="mobile-nav-link" href={INFO_ROUTES.gizlilik} onClick={() => setOpen(false)}>
+                  </Link>
+                  <Link className="mobile-nav-link" to={INFO_ROUTES.gizlilik} onClick={() => setOpen(false)}>
                     <Icon name="shield" size={18} />
                     <span>Gizlilik</span>
-                  </a>
-                  <a className="mobile-nav-link" href={INFO_ROUTES.kullanim} onClick={() => setOpen(false)}>
+                  </Link>
+                  <Link className="mobile-nav-link" to={INFO_ROUTES.kullanim} onClick={() => setOpen(false)}>
                     <Icon name="file" size={18} />
                     <span>Kullanım koşulları</span>
-                  </a>
+                  </Link>
                   <a
                     className="mobile-nav-link mobile-nav-link-wide"
                     href={SITE_URL}

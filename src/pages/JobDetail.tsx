@@ -16,6 +16,7 @@ import {
   JOB_STATUS_LABELS,
   deadlineLabel,
   formatDate,
+  formatDateMaybeTime,
   formatDateOnly,
   formatDateTime,
   formatNumber,
@@ -159,11 +160,17 @@ export function JobDetailPage(): ReactNode {
             { term: 'Unvan(lar)', value: job.titles.length > 0 ? job.titles.join(', ') : 'belirtilmemiş' },
             {
               term: 'Başvuru başlangıcı',
-              value: job.applicationStartAt ? formatDateTime(job.applicationStartAt) : 'belirtilmemiş',
+              value: job.applicationStartAt ? formatDateMaybeTime(job.applicationStartAt) : 'belirtilmemiş',
             },
             {
               term: 'Son başvuru',
-              value: job.applicationEndAt ? formatDateTime(job.applicationEndAt) : 'belirtilmemiş',
+              // Saat bilinmiyorsa bile GÜN bilinir; günü göstermemek bilgiyi
+              // saklamak olurdu (ör. yalnızca "30.10.2026" yazan ilanlar).
+              value: job.applicationEndAt
+                ? formatDateMaybeTime(job.applicationEndAt)
+                : job.applicationEndDate
+                  ? formatDateOnly(job.applicationEndDate)
+                  : 'belirtilmemiş',
             },
             { term: 'Yayım tarihi', value: job.publishedAt ? formatDate(job.publishedAt) : 'belirtilmemiş' },
             { term: 'Resmî ilan no', value: job.originalRefNo ?? 'belirtilmemiş' },
@@ -190,7 +197,7 @@ export function JobDetailPage(): ReactNode {
           <li>
             <strong>Son günü not edin:</strong>{' '}
             {job.applicationEndDate
-              ? `Son başvuru ${formatDateOnly(job.applicationEndDate)}${job.applicationEndAt ? ` (${formatDateTime(job.applicationEndAt)})` : ''}. "Son günü takvime ekle" ile hatırlatma kurabilirsiniz.`
+              ? `Son başvuru ${formatDateOnly(job.applicationEndDate)}${job.applicationEndAt ? ` (${formatDateMaybeTime(job.applicationEndAt)})` : ''}. "Son günü takvime ekle" ile hatırlatma kurabilirsiniz.`
               : 'Bu ilanda son başvuru tarihi belirtilmemiş; resmî metinden doğrulayın.'}
           </li>
           <li>
