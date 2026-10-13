@@ -243,12 +243,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://personel.meb.gov.tr/',
     adapterKey: 'meb-duyuru-listesi',
     method: 'html-list',
-    status: 'method-defined',
+    status: 'verified',
     statusNote:
-      'Liste sayfası JS ile yüklendiği için kurumun resmî RSS beslemesi kullanılır (meb_iys_dosyalar/xml/rss_duyurular.xml). Besleme bağımsız kanaldan doğrulandı; uygulamanın ilk canlı koşumu bekleniyor.',
-    lastVerifiedAt: null,
+      'Liste sayfası JS ile yüklendiği için kurumun resmî RSS beslemesi kullanılır (meb_iys_dosyalar/xml/rss_duyurular.xml). Canlı koşumlarda doğrulandı.',
+    lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
-      'RSS beslemesi 13.10.2026 tarihinde bağımsız incelemeyle açıldı: Haberler (kategori 1) ve Duyurular (kategori 2) kayıtları /www/<slug>/icerik/<id> bağlantıları ve yayın tarihleriyle geliyor. İlk canlı tarama sonucu bekleniyor.',
+      'RSS beslemesi 13.10.2026 tarihinde bağımsız incelemeyle açıldı: Haberler (kategori 1) ve Duyurular (kategori 2) kayıtları /www/<slug>/icerik/<id> bağlantıları ve yayın tarihleriyle geliyor. ' +
+      '13.10.2026 canlı koşumlarında (1-5) beslemeden her seferinde 50 kayıt okundu, 30 yeni kayıt işlendi.',
     coverageNote:
       'Öğretmen ve personel alım duyuruları. Yoğun atama/yer değiştirme içeriği nedeniyle yalnızca alım ilanları kabul edilir.',
     enabled: true,
