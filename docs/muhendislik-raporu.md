@@ -261,10 +261,12 @@ Koleksiyonlar (Zod şemaları `src/db/schemas.ts`): `sources`, `jobs`, `jobSourc
 | Kamuİlan (SBB) merkezî ekran    | HTML/JSON             | Erişim kısıtlı                      | Bu ortamdan WAF 403; kısıt aşılmaz, engellenmediği ortamda otomatik denenir     |
 | e-Devlet/eşube                  | Elle yöntem           | Kayıt                               | Otomatik erişim yok; kullanıcıya elle başvuru yolu gösterilir                   |
 
-**Planlanan (henüz entegre edilmedi, ilanları kısmen diğer kaynaklardan gelir):** 18 kurum grubu —
-bakanlıklar, AFAD, SGK, GİB, TÜİK, DSİ, KGM, Tapu-Kadastro, TÜBİTAK, YÖK, üniversiteler (125) ve
-hastaneleri, büyükşehir/il/ilçe belediyeleri, düzenleyici kurullar. Ayrıntı: `docs/sources.md`,
-kaynak ekleme rehberi: `docs/source-onboarding.md`.
+**Kurum kaynakları:** bakanlıklar, başkanlıklar ve düzenleyici kurumlar (Sağlık, Adalet, İçişleri,
+AFAD, SGK, GİB, TÜİK, DSİ, KGM, Tapu-Kadastro, TÜBİTAK, YÖK, BDDK, SPK, EPDK, RTÜK, TMSF) genel
+`kurum-duyuru-listesi` adaptörüyle taranmaya hazırdır (canlı doğrulama bekler; yapı uymazsa sessiz
+boş yerine hata kaydeder). **Tek kaynak yapılamayan:** üniversiteler (125), üniversite hastaneleri
+ve belediyeler — merkezî kaynaklarla dolaylı kapsanır. Ayrıntı: `docs/sources.md`, kaynak ekleme
+rehberi: `docs/source-onboarding.md`.
 
 > **Dürüstlük notu:** Canlı doğrulama yalnızca bu deponun çalıştığı ortamdan gerçekten erişilip liste
 > okunabilen kaynaklar için yapılmıştır. Adaptörü yazılmış olmak "doğrulandı" anlamına gelmez ve arayüzde

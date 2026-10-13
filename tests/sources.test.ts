@@ -268,3 +268,41 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
     expect(result.items[0]?.attachments).toEqual([]);
   });
 });
+
+describe('genel kurum duyuru adaptörü', () => {
+  const kurumSource = SOURCE_DEFINITIONS.find((source) => source.key === 'sgk-duyurular');
+
+  it('kurum duyuru listesinden ilan çıkarır, kurum adını kaynak kaydından alır', async () => {
+    expect(kurumSource).toBeDefined();
+    if (!kurumSource) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const listing = `<html><body><ul>
+      <li><a href="/duyuru/2026-personel-alimi-12345">SGK 100 Personel Alım İlanı yayımlandı</a> <span>10.10.2026</span></li>
+      <li><a href="/duyuru/ihale-duyurusu-98765">Bilgisayar alımı ihale duyurusu metni</a> <span>09.10.2026</span></li>
+    </ul></body></html>`;
+    const { http } = fakeHttp((url) => (url === kurumSource.listingUrl ? listing : undefined));
+    const result = await adapter.run(contextFor(kurumSource, http, true));
+    expect(result.items.length).toBe(2);
+    expect(result.items[0]?.institution).toBe('Sosyal Güvenlik Kurumu');
+    expect(result.items[0]?.title).toContain('Personel Alım İlanı');
+    expect(result.items[0]?.publishedAt).toContain('2026-10-10');
+  });
+
+  it('sayfa yapısı uymazsa boş dönmez, yapı hatası fırlatır', async () => {
+    if (!kurumSource) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http } = fakeHttp(() => '<html><body><p>Portal yenilendi</p></body></html>');
+    await expect(adapter.run(contextFor(kurumSource, http, true))).rejects.toThrow(/Liste yapısı tanınmadı/);
+  });
+
+  it('envanterdeki tüm kurum kaynakları kayıtlı adaptörü kullanır', () => {
+    const kurumSources = SOURCE_DEFINITIONS.filter((source) => source.adapterKey === 'kurum-duyuru-listesi');
+    expect(kurumSources.length).toBeGreaterThanOrEqual(18);
+    for (const source of kurumSources) {
+      expect(source.enabled, source.key).toBe(true);
+      expect(source.status, source.key).toBe('method-defined');
+    }
+    // Planlanan listede artık yalnızca toplu gruplar kalır (üniversite/belediye gibi).
+    expect(PLANNED_SOURCES.length).toBeLessThanOrEqual(4);
+  });
+});

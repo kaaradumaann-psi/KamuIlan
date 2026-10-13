@@ -15,7 +15,7 @@ import { OsymAdapter } from './adapters/osym';
 import { SbbKamuIlanAdapter } from './adapters/sbb-kamuilan';
 import { KariyerKapisiAdapter } from './adapters/kariyerkapisi';
 import { ManualEntryAdapter } from './adapters/manual-entry';
-import { createIskurAdapter, createMebAdapter } from './adapters/anchor-list';
+import { createIskurAdapter, createKurumAdapter, createMebAdapter } from './adapters/anchor-list';
 
 const ADAPTERS: readonly SourceAdapter[] = [
   new ResmiGazeteAdapter(),
@@ -25,6 +25,7 @@ const ADAPTERS: readonly SourceAdapter[] = [
   new KariyerKapisiAdapter(),
   createIskurAdapter(),
   createMebAdapter(),
+  createKurumAdapter(),
   new ManualEntryAdapter(),
 ];
 

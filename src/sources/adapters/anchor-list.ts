@@ -134,7 +134,7 @@ export class AnchorListAdapter implements SourceAdapter {
         sourceItemId: itemId,
         url: candidate.url,
         title,
-        institution: this.config.defaultInstitution,
+        institution: source.institution || this.config.defaultInstitution,
         ...(publishedAt ? { publishedAt } : {}),
         sourceCategory: this.config.sourceCategory,
         ...(bodyText ? { bodyText } : {}),
@@ -231,6 +231,30 @@ export function createIskurAdapter(): AnchorListAdapter {
     defaultInstitution: 'Türkiye İş Kurumu (İŞKUR)',
     sourceCategory: 'kamu personel alımı',
     maxItems: 30,
+  });
+}
+
+/**
+ * Genel kurum duyuru listesi (bakanlıklar ve bağlı kurumlar).
+ *
+ * Kurumun resmî duyuru sayfasındaki bağlantıları okur; kurum adı kaynak
+ * kaydından gelir. Sayfa yapısı uymazsa adaptör boş dönmez, yapı hatası
+ * fırlatır — hata tarama kaydında ve kaynak sağlığında görünür. "Personel
+ * alımı" olmayan duyurular (ihale, sonuç, atama) sınıflandırma hattında elenir.
+ */
+export function createKurumAdapter(): AnchorListAdapter {
+  return new AnchorListAdapter({
+    key: 'kurum-duyuru-listesi',
+    label: 'Kurum duyuru listesi (genel)',
+    notes:
+      'Kurum duyuru sayfası HTML olarak okunur; yalnızca personel alımı duyuruları kabul edilir, ' +
+      'diğer duyurular sınıflandırmada elenir. Yapı değişirse tarama kaydı hata gösterir.',
+    pathPattern: /\/(duyuru|duyurular|haber|haberler|ilan|ilanlar|icerik|detay|sayfa)/i,
+    rowSelector: 'li, tr, article, .card, div',
+    minTitleLength: 18,
+    defaultInstitution: '',
+    sourceCategory: 'personel alım duyurusu',
+    maxItems: 25,
   });
 }
 

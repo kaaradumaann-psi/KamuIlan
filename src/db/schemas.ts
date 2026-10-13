@@ -82,6 +82,8 @@ export const jobSchema = z.object({
   status: z.enum(JOB_STATUSES),
   statusReason: z.string().default(''),
   city: z.string().nullable(),
+  /** Şehir filtresinin Türkçe/büyük-küçük duyarsız eşleşmesi için (titleNormalized kalıbı). */
+  cityNormalized: z.string().default(''),
   district: z.string().nullable(),
   quota: z.number().int().positive().nullable(),
   applicationStartAt: z.string().nullable(),

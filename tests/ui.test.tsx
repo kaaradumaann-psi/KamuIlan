@@ -151,7 +151,7 @@ describe('arayüz kabuğu', () => {
     ).toBeTruthy();
     expect(await screen.findByRole('form', { name: 'İlan filtreleri' })).toBeTruthy();
     expect(screen.getByLabelText('İl')).toBeTruthy();
-    expect(screen.getByText(/adres çubuğuna yazılır/)).toBeTruthy();
+    expect(screen.getByText(/Ne aradığınızı yazın/)).toBeTruthy();
   });
 
   it('oturumsuz panelde giriş kartı gösterir ve kayıt bağlantısı sunmaz', async () => {

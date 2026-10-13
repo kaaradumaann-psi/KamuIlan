@@ -636,6 +636,14 @@
     gap: 24px;
   }
 
+  /* Açılır alt bölümler (ör. gelişmiş filtreler) için sıkı ritim. */
+  .page-stack-sm {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
   .page-head {
     display: flex;
     align-items: flex-start;

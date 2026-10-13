@@ -31,17 +31,27 @@ Durum sözlüğü (`src/config/sources.ts`):
 **Not:** `iskur-esube-acik-is` kaydı `manual-entry` adaptörüne bağlıdır ve kapalıdır;
 otomatik tarama yapmaz.
 
-## Planlanan kaynaklar (henüz entegre edilmedi)
+## Kurum kaynakları (genel adaptör)
 
-`PLANNED_SOURCES` listesinde **18** kayıt vardır ve arayüzde "Planlanan kaynaklar
-(henüz entegre edilmedi)" başlığı altında açıkça gösterilir: Sağlık Bakanlığı,
-Adalet Bakanlığı, İçişleri Bakanlığı, Göç İdaresi, AFAD, SGK, GİB, TÜİK, DSİ,
-KGM, Tapu ve Kadastro, TÜBİTAK, YÖK, devlet üniversiteleri (125 kurum),
-üniversite hastaneleri, büyükşehir belediyeleri, il/ilçe belediyeleri ve
-düzenleyici-denetleyici kurumlar (BDDK, SPK, EPDK, RTÜK, TMSF...).
+Bakanlıklar, başkanlıklar, genel müdürlükler ve düzenleyici kurumların duyuru
+sayfaları `kurum-duyuru-listesi` adaptörüyle taranır: Sağlık Bakanlığı (YHGM),
+Adalet, İçişleri, Göç İdaresi, AFAD, SGK, GİB, TÜİK, DSİ, KGM, Tapu ve Kadastro,
+TÜBİTAK, YÖK, BDDK, SPK, EPDK, RTÜK ve TMSF. Bu kaynaklar
+**"adaptörü yazılmış"** (method-defined) durumundadır: adres kurumun resmî
+duyuru sayfasıdır ancak bu ortamdan canlı yapı doğrulaması yapılmadı. Sayfa
+yapısı uymazsa tarama sessizce boş dönmez; `structure` hatası kaydeder ve
+kaynak sağlığında görünür. Canlı doğrulama: `npm run test:live`.
 
-Bu kurumların ilanlarının bir kısmı Resmî Gazete ve ilan.gov.tr üzerinden dolaylı
-olarak kapsanır; kendi sayfaları doğrulanmadan "entegre" sayılmazlar.
+## Tek kaynak yapılamayan toplu gruplar
+
+Yüzlerce ayrı siteden oluşan gruplar tek tek kaynak yapılmaz; merkezî
+kaynaklarla (Resmî Gazete, ilan.gov.tr) dolaylı kapsanır ve `PLANNED_SOURCES`
+listesinde (4 kayıt) arayüzde açıkça gösterilir: devlet üniversiteleri (125
+kurum), üniversite hastaneleri, büyükşehir belediyeleri, il/ilçe belediyeleri.
+
+İŞKUR e-Şube (esube.iskur.gov.tr) oturum ve form gönderimi (postback)
+gerektirdiği için otomatik taranamaz; kapalı kayıt olarak durur. İŞKUR'un iki
+liste kaynağı (kamu memur alımı, kurum dışı kamu isçi alımı) aktiftir.
 
 ## Kapsam politikası (dürüstlük ilkeleri)
 

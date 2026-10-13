@@ -42,8 +42,11 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
    yönetimi ve teslim kaydı ("sağlayıcı kabul etti" — "teslim edildi" değil).
 7. **Yönetim sağlar** — kaynak CRUD, tarama geçmişi, hata ayrıntıları,
    sınıflandırma/tekilleştirme inceleme kuyruğu, e-posta kuyruğu, kapsam raporu,
-   denetim kaydı (RBAC korumalı). Kapsam şu an **9 kayıtlı kaynak + 18 planlanan
-   kurum**dur; hedef, kurumları tek tek canlı doğrulayarak listeyi büyütmektir.
+   denetim kaydı (RBAC korumalı). Kapsam şu an **27 kayıtlı kaynak**tır: merkezî
+   kaynaklara ek olarak bakanlıklar, başkanlıklar ve düzenleyici kurumlar genel
+   kurum adaptörüyle taranır; canlı doğrulaması yapılmamış olanlar arayüzde
+   "adaptörü yazılmış" olarak işaretlenir. Yalnızca 4 toplu grup (üniversiteler,
+   üniversite hastaneleri, belediyeler) merkezî kaynaklarla dolaylı kapsanır.
 
 ## Hızlı başlangıç
 

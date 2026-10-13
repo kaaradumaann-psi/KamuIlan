@@ -130,7 +130,7 @@ export function HomePage() {
         <div className="hero-band-inner">
           <div className="hero-text-side">
             <span className="kicker">Kamu ilanı takip sistemi</span>
-            <h1>Kamu personel alım ilanları — kaynaklı, tekilleştirilmiş, takvime bağlı</h1>
+            <h1>Kamu personel alım ilanları</h1>
             <p className="info-lede">{APP_TAGLINE}</p>
             <form className="hero-search" onSubmit={submit} role="search" aria-label="İlan ara">
               <div className="search-input-wrapper">

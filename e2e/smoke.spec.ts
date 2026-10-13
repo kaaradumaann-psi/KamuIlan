@@ -51,7 +51,7 @@ test.describe('temel sayfalar', () => {
     const form = page.getByRole('form', { name: 'İlan filtreleri', exact: true });
     await expect(form).toBeVisible();
     await page.getByLabel('İl', { exact: true }).fill('Ankara');
-    await form.getByRole('button', { name: 'Filtrele', exact: true }).click();
+    await form.getByRole('button', { name: 'Ara', exact: true }).click();
 
     // Filtre URL'de kalıcı olmalı: bağlantı kopyalanınca aynı sonuç açılır.
     await expect(page).toHaveURL(/city=Ankara/);

@@ -176,7 +176,15 @@ export class JobRepo {
       clauses.push({ employmentType: { $in: filters.employmentTypes } });
     }
     if (filters.cities && filters.cities.length > 0) {
-      clauses.push({ city: { $in: filters.cities.map((city) => city) } });
+      // Türkçe duyarlı karşılaştırma: kullanıcı 'istanbul', 'İSTANBUL' ya da
+      // 'Istanbul' yazsa da aynı şehri bulur (normalize edilmiş alanla).
+      // Eski kayıtlarda normalize alan yoksa ham değer de birebir denenir.
+      const needles = filters.cities.map((city) => normalizeTr(city)).filter(Boolean);
+      if (needles.length > 0) {
+        clauses.push({
+          $or: [{ cityNormalized: { $in: needles } }, { city: { $in: filters.cities } }],
+        });
+      }
     }
     if (filters.sourceKeys && filters.sourceKeys.length > 0)
       clauses.push({ sourceKeys: { $in: filters.sourceKeys } });

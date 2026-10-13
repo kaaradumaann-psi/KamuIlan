@@ -9,9 +9,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 process.env.NODE_ENV = 'test';
 process.env.APP_SECRET = 'full-render-secret-0123456789abcdef';
@@ -51,6 +51,8 @@ const { SessionProvider } = await import('../src/lib/session');
 const NOW = new Date('2026-10-12T09:00:00+03:00');
 const CREDENTIAL = ['Guclu', 'Parola', '2026!'].join('-');
 let jobId = '';
+
+afterEach(() => cleanup());
 
 function renderPage(ui: React.ReactNode, path = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
