@@ -96,7 +96,7 @@ export function SourcesPage(): ReactNode {
             </ul>
           </InfoNote>
 
-          <InfoNote tone="warning" title="Kapsam uyarısı">
+          <InfoNote tone="warning" title="Bilmeniz gereken">
             {query.data.disclaimer}
           </InfoNote>
 

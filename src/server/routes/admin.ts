@@ -585,7 +585,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
       unscheduled: coverage.sources.filter((entry) => !registryKeys.has(entry.key)).map((entry) => entry.key),
       unknownRegistryAdapters: SOURCE_DEFINITIONS.filter((definition) => !coverage.sources.some((entry) => entry.key === definition.key)).map((definition) => definition.key),
       disclaimer:
-        'Bu rapor hiçbir zaman "tüm ilanlar toplanıyor" iddiası taşımaz: yalnızca kayıtlı kaynaklar taranır, planlanan kurum sayfaları listede açıkça bekler.',
+        'Bu rapor hiçbir zaman "tüm ilanlar toplanıyor" iddiası taşımaz: yalnızca listede olan kaynaklara bakılır; henüz başlanmamış kurumlar listede açıkça görünür.',
       generatedAt: repos.clock.now().toISOString(),
     };
   });

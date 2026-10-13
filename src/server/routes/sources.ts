@@ -26,7 +26,7 @@ export function registerSourceRoutes(app: FastifyInstance, repos: Repos): void {
       })),
       summary: coverage.summary,
       disclaimer:
-        'Kaynak listesi eksiksiz değildir; bazı kurumlar yalnızca kendi sayfalarında ilan yayımlar. Kapsam raporu hangi kaynağın doğrulandığını ve hangilerinin planlandığını gösterir.',
+        'Liste eksiksiz değildir: bazı kurumlar ilanını yalnızca kendi sayfasında duyurur. Burada hangi kurumlara düzenli baktığımızı ve hangilerine henüz başlamadığımızı açıkça gösteririz.',
       generatedAt: repos.clock.now().toISOString(),
     };
   });
