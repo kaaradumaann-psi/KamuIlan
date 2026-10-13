@@ -17,11 +17,12 @@ test.describe('temel sayfalar', () => {
     await page.goto('/');
 
     await expectHeading(page, 'Kamu personel alım ilanları');
-    // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum).
-    await expect(page.getByText(/Son başarılı tarama|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
+    // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum):
+    // "İlanlar en son: henüz güncellenmedi".
+    await expect(page.getByText(/İlanlar en son:/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'İlanlarda ara', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Sistem nasıl çalışıyor?', exact: true })).toBeVisible();
-    await expect(page.getByText(/Kapsam eksiktir/).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Bu site nasıl çalışıyor?', exact: true })).toBeVisible();
+    await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
@@ -70,13 +71,15 @@ test.describe('temel sayfalar', () => {
     await loginAsAdmin(page);
     await page.goto('/kaynaklar');
 
-    await expectHeading(page, 'Kaynaklar ve kapsam');
-    await expect(page.getByRole('table', { name: /Kaynak listesi ve sağlık durumu/ })).toBeVisible();
-    // Kapsamın eksik olduğu açıkça yazılır (abartılı iddia yok).
-    await expect(page.getByText(/Kapsam eksiktir/).first()).toBeVisible();
-    // "Canlı doğrulanmış" ile "adaptörü yazılmış" ayrımı korunur.
-    await expect(page.getByText('Canlı doğrulanmış').first()).toBeVisible();
-    await expect(page.getByText('Adaptörü yazılmış').first()).toBeVisible();
+    await expectHeading(page, 'İlanları nereden alıyoruz?');
+    await expect(page.getByRole('table', { name: /Kaynak listesi ve durumu/ })).toBeVisible();
+    // Kapsamın eksik olduğu açıkça yazılır (abartılı iddia yok): hem sayfa
+    // girişinde hem sunucudan gelen kapsam uyarısında.
+    await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
+    await expect(page.getByText(/eksiksiz değildir/).first()).toBeVisible();
+    // "Çalıştığı kanıtlanan" ile "hazırlanan" ayrımı korunur.
+    await expect(page.getByText('Çalıştığı kanıtlanan').first()).toBeVisible();
+    await expect(page.getByText('Hazırlanan').first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
@@ -127,7 +130,8 @@ test.describe('temel sayfalar', () => {
 
     await loginAsAdmin(page);
     await page.goto('/');
-    // Arayüz de aynı proxy üzerinden veri çekebiliyor (konsol hatası yok).
-    await expect(page.getByText(/Son başarılı tarama/).first()).toBeVisible();
+    // Arayüz de aynı proxy üzerinden veri çekebiliyor (konsol hatası yok):
+    // durum şeridi "İlanlar en son: ..." bilgisini gösterir.
+    await expect(page.getByText(/İlanlar en son:/).first()).toBeVisible();
   });
 });
