@@ -126,11 +126,23 @@ düzeltme gözleme dayanacak). Kapanan bulgular:
    halkayı AIA üzerinden tamamlayıp doğrulamayı **açık** tutarak yeniden
    deniyor; indirilen sertifika güven paketiyle zincir doğrulamasından
    geçmek zorunda. Test: `tests/fetcher.test.ts` (yardımcı birim
-   testleri). ilan.gov.tr / BDDK / TMSF'de canlı sonucu bekleniyor.
+   testleri).
+
+Üçüncü canlı koşum (13.10.2026, 10:59): **22/23 kaynak, 351 ham kayıt.**
+AIA düzeltmesi doğrulandı: BDDK (25) ve TMSF (4) çalıştı, kayıtları
+`verified` yapıldı; ilan.gov.tr sayfayı açtı (200) ancak liste JS ile
+dolduğu için 0 satır döndü. Kariyer Kapısı'nda tanı notu sorunu
+gösterdi: ilanlar <table> değil div satırları (ayrıştırıcıya bağlantıdan
+satır kuran yedek eklendi). Resmî Gazete, UA biçimi deneyine rağmen
+başlık zaman aşımında kaldı — yavaşlatma istemci kimliğine değil
+bağlantının tarayıcı olup olmadığına bakıyor. Bu iki kaynağa da
+Kariyer Kapısı modeliyle **gerçek tarayıcı yedeği** eklendi
+(paylaşılan `src/sources/browser-session.ts`); sıradaki canlı koşum
+doğrulayacak.
 
 ## Koşum sonuçları (13.10.2026)
 
-- Birim/entegrasyon testleri: **217/217 yeşil** (23 dosya)
+- Birim/entegrasyon testleri: **220/220 yeşil** (23 dosya)
 - Tarayıcı testleri (Playwright, gerçek Chromium): **9/9 yeşil**
   (bu ortamda tarayıcı, kaynaktan derlenen NSS kütüphaneleriyle çalıştırıldı)
 - Tip denetimi, lint, üretim derlemesi: temiz

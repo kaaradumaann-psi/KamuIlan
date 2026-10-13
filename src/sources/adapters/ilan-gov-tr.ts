@@ -11,6 +11,7 @@ import { blockElementText, elementText, loadHtml, readableText } from '../../lib
 import { cleanTitle, extractReferenceNumbers, parseListingDate } from '../listing-utils';
 import { PROVINCES } from '../../domain';
 import { normalizeUrl } from '../../domain/urls';
+import { describeBrowserFailure, renderPageHtml } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 
@@ -29,6 +30,8 @@ interface Row {
 }
 
 export class IlanGovTrAdapter implements SourceAdapter {
+  constructor(private readonly renderListing?: (url: string) => Promise<string>) {}
+
   readonly key = 'ilan-gov-tr';
   readonly label = 'ilan.gov.tr — personel alımı';
   readonly method = 'html-list';
@@ -69,12 +72,23 @@ export class IlanGovTrAdapter implements SourceAdapter {
         notes.push('Liste içeriği değişmedi (ETag/Last-Modified) — ayrıntı isteği yapılmadı.');
         break;
       }
-      const pageRows = parseListing(
-        response.decoded?.text ?? response.body.toString('utf8'),
-        source.listingUrl,
-      );
+      const html = response.decoded?.text ?? response.body.toString('utf8');
+      const pageRows = parseListing(html, source.listingUrl);
       notes.push(`Sayfa ${page}: ${pageRows.length} ilan satırı.`);
-      if (pageRows.length === 0) break;
+      if (pageRows.length === 0) {
+        if (page === 1) {
+          // Liste JS ile doluyor olabilir (düz HTTP kabuk döndürür): tarayıcı yedeği.
+          const recovered = await this.recoverWithBrowser(url.toString(), notes);
+          if (recovered.length > 0) {
+            rows.push(...recovered);
+            requestCount += 1;
+          } else {
+            const excerpt = readableText(loadHtml(html), 'body', 200);
+            notes.push(`Sayfa özeti: "${excerpt.slice(0, 200)}"`);
+          }
+        }
+        break;
+      }
       const before = rows.length;
       rows.push(...pageRows);
       if (new Set(rows.map((row) => row.itemId)).size < rows.length) break; // tekrar eden sayfa = son
@@ -113,6 +127,19 @@ export class IlanGovTrAdapter implements SourceAdapter {
     notes.push(`Listede ${rows.length} ilan, işlenen ${items.length}.`);
 
     return { items, requestCount, notes, etag: null, lastModified: null, notModified, httpStatuses };
+  }
+
+  /** Düz HTTP listesi boşsa sayfayı tarayıcıyla açıp aynı ayrıştırıcıyı koşar. */
+  private async recoverWithBrowser(url: string, notes: string[]): Promise<Row[]> {
+    try {
+      const render = this.renderListing ?? ((target: string) => renderPageHtml(target));
+      const rows = parseListing(await render(url), url);
+      notes.push(`Liste HTTP ile boş geldi; tarayıcı ile ${rows.length} ilan satırı bulundu.`);
+      return rows;
+    } catch (error) {
+      notes.push(`Tarayıcı yedeği de çalışmadı: ${describeBrowserFailure(error)}`);
+      return [];
+    }
   }
 
   private async readDetail(

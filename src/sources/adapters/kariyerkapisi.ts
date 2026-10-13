@@ -15,23 +15,12 @@
 import { collapseWhitespace } from '../../domain/text';
 import { firstDateOnlyIn, toIstanbulIso } from '../../domain/dates';
 import { sha256Hex } from '../../domain/ids';
-import { anchors, loadHtml, readableText } from '../../lib/html';
+import { absoluteUrl, anchors, loadHtml, readableText } from '../../lib/html';
+import { describeBrowserFailure, withChromiumPage } from '../browser-session';
 import { cleanInstitution, cleanTitle } from '../listing-utils';
 import { AdapterUnavailableError } from '../errors';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
-
-interface BrowserPageLike {
-  goto(url: string, options: { waitUntil: string; timeout: number }): Promise<unknown>;
-  content(): Promise<string>;
-  waitForSelector(selector: string, options: { timeout: number }): Promise<unknown>;
-  close(): Promise<void>;
-}
-
-interface BrowserLike {
-  newPage(): Promise<BrowserPageLike>;
-  close(): Promise<void>;
-}
 
 export interface KariyerRow {
   sourceItemId: string;
@@ -124,6 +113,75 @@ export function parseKariyerRows(html: string, listingUrl: string): KariyerRow[]
           ...(dateOnly ? { applicationEndAt: toIstanbulIso(dateOnly, '23:59') } : {}),
         });
       });
+  });
+
+  if (rows.length === 0) return rowsFromDetailAnchors($, listingUrl);
+  return rows;
+}
+
+/**
+ * Tablo öğesi kullanılmayan (div ızgarası) liste düzeni: her "Başvur"
+ * bağlantısından satır kapsayıcısına tırmanılır; kurum/başlık/bitiş tarihi
+ * kapsayıcının hücrelerinden (doğrudan çocuklar) okunur.
+ */
+function rowsFromDetailAnchors($: ReturnType<typeof loadHtml>, listingUrl: string): KariyerRow[] {
+  const rows: KariyerRow[] = [];
+  const seen = new Set<string>();
+
+  $('a[href*="IlanDetay?i="]').each((_index, element) => {
+    const url = absoluteUrl($(element).attr('href'), listingUrl, $);
+    if (!url) return;
+    const sourceItemId = itemIdFromUrl(url);
+    if (!sourceItemId || seen.has(sourceItemId)) return;
+
+    // Satır kapsayıcısı: tek detay bağlantısı içeren ve tarih barındıran en küçük üst öğe.
+    let container = $(element);
+    for (let depth = 0; depth < 7; depth += 1) {
+      const parent = container.parent();
+      if (parent.length === 0) break;
+      if (parent.find('a[href*="IlanDetay?i="]').length !== 1) break;
+      container = parent;
+      const text = collapseWhitespace(container.text());
+      if (text.length >= 60 && firstDateOnlyIn(text)) break;
+    }
+
+    const fullText = collapseWhitespace(container.text());
+    const dateOnly = firstDateOnlyIn(fullText);
+    if (!dateOnly) return;
+
+    const cells = container
+      .children()
+      .map((_cellIndex, cell) => collapseWhitespace($(cell).text()))
+      .get()
+      .filter((text) => text.length > 0);
+    let title = cells.length >= 3 ? cleanTitle(cells[1] ?? '') : '';
+    let institutionText = cells.length >= 3 ? (cells[0] ?? '') : '';
+
+    if (title.length < 15) {
+      const pool = new Set<string>();
+      container.find('*').each((_childIndex, child) => {
+        const text = collapseWhitespace($(child).text());
+        if (text) pool.add(text);
+      });
+      const candidates = [...pool].filter(
+        (text) => text.length >= 15 && text !== fullText && !/^ba[sş]vur$/i.test(text),
+      );
+      title = cleanTitle(candidates.sort((a, b) => b.length - a.length)[0] ?? '');
+      institutionText ||= candidates.find(
+        (text) => text !== title && /(Bakanlı|Başkanlı|Üniversite|Müdürlüğü|Belediye|Kurumu|Ajansı)/i.test(text),
+      ) ?? '';
+    }
+    if (title.length < 15) return;
+
+    seen.add(sourceItemId);
+    const institution = cleanInstitution(institutionText) ?? undefined;
+    rows.push({
+      sourceItemId,
+      url,
+      title,
+      ...(institution ? { institution } : {}),
+      applicationEndAt: toIstanbulIso(dateOnly, '23:59'),
+    });
   });
 
   return rows;
@@ -283,51 +341,15 @@ export class KariyerKapisiAdapter implements SourceAdapter {
 
   /** Verilen adresleri tek tarayıcı oturumunda sırayla açar; adres→HTML döndürür. */
   private async renderPages(urls: string[]): Promise<Map<string, string>> {
-    // Playwright isteğe bağlı bağımlılıktır: yalnızca gerektiğinde yüklenir.
-    const moduleName = 'playwright';
-    const playwright = (await import(/* @vite-ignore */ moduleName).catch(() => {
-      throw new Error('playwright paketi kurulu değil.');
-    })) as { chromium?: { launch(options: { headless: boolean }): Promise<BrowserLike> } };
-    if (!playwright.chromium) throw new Error('playwright.chromium bulunamadı.');
-
-    const browser = await playwright.chromium.launch({ headless: true });
     const rendered = new Map<string, string>();
-    try {
-      const page = await browser.newPage();
+    await withChromiumPage(async (page) => {
       for (const url of urls) {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
-        // Liste tablosu XHR ile dolar; satırların gelmesi için kısa bekleme.
-        await page.waitForSelector('table tbody tr', { timeout: 12_000 }).catch(() => undefined);
+        // Liste XHR ile dolar; satırların yerleşmesi için kısa bekleme.
+        await page.waitForTimeout(1_500);
         rendered.set(url, await page.content());
       }
-      await page.close();
-      return rendered;
-    } finally {
-      await browser.close();
-    }
+    });
+    return rendered;
   }
-}
-
-/**
- * Tarayıcı hatasını okunabilir bir özete indirger.
- *
- * Playwright, kurulum eksikliğinde çok satırlı bir kutu basar (kurulum
- * komutları, doküman bağlantıları, `Call log`). Bu metin olduğu gibi kaynak
- * sağlığına yazılırsa panel okunmaz hale gelir. İlk satırlar + kurulum ipucu
- * korunur; ayrıntı kısaltılır.
- */
-function describeBrowserFailure(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const lines = raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const first = lines[0] ?? 'Bilinmeyen tarayıcı hatası';
-  const summary = lines.slice(1).find((line) => /browser|chromium|executable|timeout|net::|ENOTFOUND|ECONN/i.test(line));
-  const parts = [first];
-  if (summary && summary !== first) parts.push(summary);
-  if (/Executable doesn't exist|Please run the following command/i.test(raw)) {
-    parts.push('Kurulum: npx playwright install chromium (ya da kaynağı manuel yönteme alın).');
-  }
-  return parts.join(' | ').slice(0, 400);
 }

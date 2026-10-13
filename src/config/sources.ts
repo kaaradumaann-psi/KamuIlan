@@ -103,7 +103,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'html-list',
     status: 'verified',
     statusNote:
-      '"Personel Alımı" filtresi (ats=5) sayfa sayfa okunur; ilan detayında kurum, ilan numarası ve metin bulunur.',
+      'Sertifika zinciri AIA ile tamamlanıyor (13.10.2026 canlı koşumda sayfa 200 döndü). Liste JS ile dolduğu için tarayıcı yedeği eklendi; ilk dolu canlı koşum bekleniyor.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
       `${VERIFIED_AT} canlı doğrulama: personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
@@ -631,12 +631,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.bddk.org.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'method-defined',
+    status: 'verified',
     statusNote:
-      'Adres ve sayfa yapısı kurumun sitesinden incelenerek doğrulandı; ilk canlı tarama bekleniyor. Yapı değişirse tarama boş dönmez, hata kaydeder. 13.10.2026 canlı koşumunda sertifika zinciri Node CA listesinde doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE); HTTP istemcisine sistem CA birleşimi eklendi, yeniden canlı doğrulama bekleniyor.',
-    lastVerifiedAt: null,
+      'Sertifika zinciri eksikliği AIA tamamlama ile aşıldı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
+    lastVerifiedAt: '2026-10-13',
     verificationEvidence:
-      'Liste adresi ve bağlantı biçimi 13.10.2026 tarihinde kurumun resmî sitesinden bağımsız incelemeyle doğrulandı; uygulamanın kendi tarayıcısıyla ilk canlı tarama sonucu bekleniyor.',
+      '13.10.2026 canlı doğrulama koşumu (kullanıcı ağı): AIA ara sertifika tamamlaması sonrası 25 ham kayıt döndü.',
     coverageNote: 'BDDK uzman yardımcısı ve kariyer meslek alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -731,12 +731,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.tmsf.org.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'method-defined',
+    status: 'verified',
     statusNote:
-      'Adres ve sayfa yapısı kurumun sitesinden incelenerek doğrulandı; ilk canlı tarama bekleniyor. Yapı değişirse tarama boş dönmez, hata kaydeder. 13.10.2026 canlı koşumunda sertifika zinciri Node CA listesinde doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE); HTTP istemcisine sistem CA birleşimi eklendi, yeniden canlı doğrulama bekleniyor.',
-    lastVerifiedAt: null,
+      'Sertifika zinciri eksikliği AIA tamamlama ile aşıldı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
+    lastVerifiedAt: '2026-10-13',
     verificationEvidence:
-      'Liste adresi ve bağlantı biçimi 13.10.2026 tarihinde kurumun resmî sitesinden bağımsız incelemeyle doğrulandı; uygulamanın kendi tarayıcısıyla ilk canlı tarama sonucu bekleniyor.',
+      '13.10.2026 canlı doğrulama koşumu (kullanıcı ağı): AIA ara sertifika tamamlaması sonrası 4 ham kayıt döndü.',
     coverageNote: 'TMSF fon uzman yardımcısı alımları.',
     enabled: true,
     intervalMinutes: 360,

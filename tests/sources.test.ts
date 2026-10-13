@@ -491,6 +491,32 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(rows[1]?.sourceItemId).not.toBe(rows[0]?.sourceItemId);
   });
 
+  it('tablo öğesi yoksa (div ızgarası) Başvur bağlantılarından satırları kurar', async () => {
+    const { parseKariyerRows } = await import('../src/sources/adapters/kariyerkapisi');
+    const html = `<html><body><div class="liste">
+      <div class="satir">
+        <div class="kurum"><div>HAZİNE VE MALİYE BAKANLIĞI <span>PERSONEL GENEL MÜDÜRLÜĞÜ</span></div></div>
+        <div class="baslik">HAZİNE VE MALİYE BAKANLIĞI - MUHASEBE UZMANLIĞI YETERLİK SINAVI DUYURUSU</div>
+        <div class="tarih">14 Ekim 2026 Çarşamba</div>
+        <div class="aksiyon"><a href="https://kariyerkapisi.gov.tr/IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390">Başvur</a></div>
+      </div>
+      <div class="satir">
+        <div class="kurum">ATATÜRK ÜNİVERSİTESİ REKTÖRLÜĞÜ</div>
+        <div class="baslik">ATATÜRK ÜNİVERSİTESİ REKTÖRLÜĞÜ - SÖZLEŞMELİ PERSONEL ALIM İLANI (2026-1)</div>
+        <div class="tarih">16 Ekim 2026 Cuma</div>
+        <div class="aksiyon"><a href="/IlanDetay?i=bbed829a-5960-4a8a-b8a3-8c84226efb36">Başvur</a></div>
+      </div>
+    </div></body></html>`;
+    const rows = parseKariyerRows(html, 'https://kariyerkapisi.gov.tr/isealim');
+    expect(rows.length).toBe(2);
+    expect(rows[0]?.sourceItemId).toBe('9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
+    expect(rows[0]?.title).toContain('MUHASEBE UZMANLIĞI');
+    expect(rows[0]?.institution).toContain('MALİYE');
+    expect(rows[0]?.applicationEndAt).toContain('2026-10-14');
+    expect(rows[1]?.url).toBe('https://kariyerkapisi.gov.tr/IlanDetay?i=bbed829a-5960-4a8a-b8a3-8c84226efb36');
+    expect(rows[1]?.applicationEndAt).toContain('2026-10-16');
+  });
+
   it('detay sayfasından ilan numarası/tarihler/tür çıkarır', async () => {
     const { parseKariyerDetail } = await import('../src/sources/adapters/kariyerkapisi');
     const html = `<html><body><main>
@@ -504,5 +530,63 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(detail.applicationEndAt).toContain('2026-10-14');
     expect(detail.category).toBe('Yeterlik Sınavı İlanları');
     expect(detail.bodyText).toContain('Muhasebe Uzman Yardımcısı');
+  });
+});
+
+describe('ilan.gov.tr tarayıcı yedeği', () => {
+  it('HTTP listesi kabuksa tarayıcı çıktısındaki kartları okur', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'ilan-gov-tr');
+    const card = `<html><body><a href="https://www.ilan.gov.tr/ilan/2254672/kamu-akademik-personel-necmettin-erbakan-universitesi-ogretim-gorevlisi-alim-ilani"><div>NECMETTİN ERBAKAN ÜNİVERSİTESİ REKTÖRLÜĞÜ</div><div>Necmettin Erbakan Üniversitesi Öğretim Görevlisi Alım İlanı</div><div>YOK853485</div><div>KONYA</div></a></body></html>`;
+    const { http } = fakeHttp((url) => {
+      if (url.includes('/ilan/2254672')) {
+        return `<html><body><main><p>${'Öğretim görevlisi alım ilanı detay metni burada yer alır. '.repeat(6)}</p></main></body></html>`;
+      }
+      return '<html><body><div id="app">Yükleniyor…</div></body></html>';
+    });
+    const result = await new IlanGovTrAdapter(async () => card).run(contextFor(source!, http, true));
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]?.sourceItemId).toBe('2254672');
+    expect(result.items[0]?.title).toContain('Öğretim Görevlisi Alım İlanı');
+    expect(result.notes.some((note) => note.includes('tarayıcı ile 1 ilan'))).toBe(true);
+  });
+});
+
+describe('Resmî Gazete tarayıcı yedeği', () => {
+  it('HTTP cevap vermezse bölüm ve PDF tarayıcı oturumundan okunur', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    const sectionHtml = `<html><body><table>
+      <tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-1.pdf">(PDF)</a></td></tr>
+    </table></body></html>`;
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        throw new FetchError(url, 'UND_ERR_HEADERS_TIMEOUT: Headers Timeout Error', null, true);
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('HTTP yolu kullanılmamalı');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+    const browser = {
+      async open() {
+        return {
+          async fetchHtml(url: string): Promise<string> {
+            return url.includes('20261012') ? sectionHtml : '<html><body>ÇEŞİTLİ İLÂNLAR</body></html>';
+          },
+          async fetchBytes(): Promise<Buffer> {
+            return Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
+          },
+          async close(): Promise<void> {
+            /* oturum yok */
+          },
+        };
+      },
+    };
+
+    const result = await new ResmiGazeteAdapter(browser).run(contextFor(source!, http, true));
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261012-4-1.pdf');
+    expect(result.notes.some((note) => note.includes('tarayıcı ile okundu'))).toBe(true);
   });
 });
