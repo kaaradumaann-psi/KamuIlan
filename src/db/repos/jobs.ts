@@ -24,6 +24,8 @@ export interface JobSearchFilters {
   title?: string;
   cities?: string[];
   employmentTypes?: string[];
+  /** `process`: yalnızca süreç duyuruları; `job`: süreç duyuruları hariç iş ilanları. */
+  kind?: 'job' | 'process';
   educationLevels?: string[];
   departments?: string[];
   kpssScoreTypes?: string[];
@@ -258,6 +260,9 @@ export class JobRepo {
     if (filters.employmentTypes && filters.employmentTypes.length > 0) {
       clauses.push({ employmentType: { $in: filters.employmentTypes } });
     }
+    // Eski kayıtlarda classification.kind yoktur; bunlar iş ilanıdır ($ne eksik alanı eşler).
+    if (filters.kind === 'process') clauses.push({ 'classification.kind': 'process' });
+    if (filters.kind === 'job') clauses.push({ 'classification.kind': { $ne: 'process' } });
     if (filters.cities && filters.cities.length > 0) {
       // Türkçe duyarlı karşılaştırma: kullanıcı 'istanbul', 'İSTANBUL' ya da
       // 'Istanbul' yazsa da aynı şehri bulur (normalize edilmiş alanla).
@@ -393,11 +398,16 @@ export class JobRepo {
     let closed = 0;
     for (const job of candidates) {
       if (job.applicationEndDate || job.applicationEndAt) continue;
-      if (!isStalePublication(sanePublishedDate(job.publishedAt, todayDateOnly), todayDateOnly, maxAgeDays)) continue;
+      if (!isStalePublication(sanePublishedDate(job.publishedAt, todayDateOnly), todayDateOnly, maxAgeDays))
+        continue;
       await this.store.updateOne(
         'jobs',
         { id: job.id },
-        { status: 'closed', statusReason: 'Yayımından uzun süre geçti ve son başvuru tarihi belirtilmemiş.', updatedAt: now },
+        {
+          status: 'closed',
+          statusReason: 'Yayımından uzun süre geçti ve son başvuru tarihi belirtilmemiş.',
+          updatedAt: now,
+        },
       );
       closed += 1;
     }

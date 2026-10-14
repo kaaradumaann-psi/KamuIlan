@@ -22,6 +22,10 @@ import {
   POSITIVE_RULES,
   RECRUITMENT_CATEGORY_PATTERN,
   RECRUITMENT_EVIDENCE_PATTERN,
+  PROCESS_BYPASS_RULE_IDS,
+  PROCESS_TITLE_CONTEXT_PATTERN,
+  PROCESS_TITLE_EXCLUDE_PATTERN,
+  PROCESS_TITLE_SIGNAL_PATTERN,
   SOFT_NEGATIVE_RULES,
   TITLE_REJECT_RULES,
   type KeywordRule,
@@ -104,6 +108,7 @@ export function classify(input: ClassificationInput): ClassificationResult {
     const rule = inServiceQualificationExam ? 'ret-baslik.hizmet-ici-yeterlik' : 'ret-baslik.basin-duyurusu';
     return {
       decision: 'reject',
+      kind: 'job',
       employmentType: 'belirsiz',
       confidence: 0.95,
       reasons: [reason, `Kural: ${rule}`],
@@ -113,12 +118,21 @@ export function classify(input: ClassificationInput): ClassificationResult {
     };
   }
 
-  // 1) Başlık düzeyinde kesin ret
-  const titleRejections = matchRules(titleText, TITLE_REJECT_RULES);
+  // Süreç duyurusu mu? (personel bağlamı + süreç sinyali + dışlama yok)
+  const processNotice =
+    PROCESS_TITLE_CONTEXT_PATTERN.test(titleText) &&
+    PROCESS_TITLE_SIGNAL_PATTERN.test(titleText) &&
+    !PROCESS_TITLE_EXCLUDE_PATTERN.test(titleText);
+
+  // 1) Başlık düzeyinde kesin ret (süreç duyurusunda sonuç/sınav-kura kuralları atlanır)
+  const titleRejections = matchRules(titleText, TITLE_REJECT_RULES).filter(
+    (rule) => !(processNotice && PROCESS_BYPASS_RULE_IDS.has(rule.id)),
+  );
   if (titleRejections.length > 0) {
     const primary = titleRejections[0] as MatchedRule;
     return {
       decision: 'reject',
+      kind: 'job',
       employmentType: 'belirsiz',
       confidence: 0.92,
       reasons: [primary.reason, `Kural: ${primary.id}`],
@@ -134,11 +148,28 @@ export function classify(input: ClassificationInput): ClassificationResult {
     const primary = bodyRejections[0] as MatchedRule;
     return {
       decision: 'reject',
+      kind: 'job',
       employmentType: 'belirsiz',
       confidence: 0.85,
       reasons: [primary.reason, `Kural: ${primary.id}`],
       rules: bodyRejections.map((rule) => rule.id),
       negativeSignals: bodyRejections.map((rule) => rule.reason),
+      version: CLASSIFICATION_VERSION,
+    };
+  }
+
+  // 2b) Süreç duyurusu: gerçek personel alımının kura/sınav/sonuç aşaması. İş ilanı değil, ayrı kategori.
+  if (processNotice) {
+    const reason =
+      'Gerçek bir personel alımının süreç duyurusu (kura, sınav, mülakat veya sonuç); yeni iş ilanı değil, ayrı kategoride tutulur';
+    return {
+      decision: 'accept',
+      kind: 'process',
+      employmentType: detectEmploymentType(titleText, bodyText).type,
+      confidence: 0.8,
+      reasons: [reason, 'Kural: süreç.personel-alimi'],
+      rules: ['süreç.personel-alimi'],
+      negativeSignals: [],
       version: CLASSIFICATION_VERSION,
     };
   }
@@ -209,6 +240,7 @@ export function classify(input: ClassificationInput): ClassificationResult {
 
   return {
     decision,
+    kind: 'job',
     employmentType,
     confidence: Number(confidence.toFixed(2)),
     reasons,

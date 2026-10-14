@@ -26,6 +26,14 @@ oturumuyla okunur. Bu yüzden yerel makinede Chromium kurulu olmalıdır:
 npx playwright install chromium
 ```
 
+Kimlik politikası: HTTP istemcisi projenin açık botu (`SCRAPE_USER_AGENT`) ile çalışır. Tarayıcı
+yedeği Playwright'ın kendi kimliğini kullanır; tarayıcı kimliği taklit edilmez ve TLS doğrulaması
+kapatılmaz. Yedeğin canlı kaynakta çalışıp çalışmadığını ayrı görmek için:
+
+```bash
+npm run probe:resmigazete   # HTTP ve Chromium sonuçlarını ayrı ayrı yazar (veritabanına yazmaz)
+```
+
 E2E testleri için tarayıcı gerekir:
 
 ```bash
@@ -224,12 +232,41 @@ Sınıflandırma kuralları değiştiğinde (ör. iş ilanı dışı duyuruları
 kayıtlar için:
 
 ```bash
-npm run jobs:reclassify            # kuru çalıştırma: ne değişeceğini raporlar (yazmaz)
-npm run jobs:reclassify -- --apply # değişiklikleri yazar
+npm run jobs:reclassify                              # kuru çalıştırma: özet (yazmaz)
+npm run jobs:reclassify -- --report rapor.json       # kayıt bazlı JSON raporu (yazmaz)
+npm run jobs:reclassify -- --apply                   # değişiklikleri yazar (önce yedek alır)
 ```
 
-Yalnızca açık ret sinyali olan kayıtlar "reddedildi" olur ve akıştan çıkar; kayıt silinmez.
-Supabase üzerinde çalıştırmadan önce kuru çalıştırma çıktısını inceleyin.
+Her kayıt iki türden birine ayrılır:
+
+- **İş ilanı (`job`)**: personel alım ilanı. Akışta kalır.
+- **Süreç duyurusu (`process`)**: gerçek bir personel alımının kura, sınav yeri/tarihi, sınav metni,
+  çağrılacak adaylar, mülakat veya sonuç duyurusu. Akışta ayrı tür olarak kalır. Tür yalnızca
+  başlıktan belirlenir ve personel bağlamı (personel, alım, işçi, memur, sözleşmeli, kadro)
+  ile süreç sinyalinin birlikte bulunmasını ister. Yer değiştirme, görevde yükselme, ünvan
+  değişikliği, tercih, eğitim, basın, satış ve ihale ifadeleri süreç olarak kabul edilmez.
+
+Ret sinyali olan kayıtlar "reddedildi" olur ve akıştan çıkar; kayıt silinmez. Süreç duyuruları akışta ve filtrelerde görünür; e-posta ve Telegram \"yeni ilan\" bildirimi üretmez,
+AI önerilerine de girmez. Reddedilen veya süreç olan kayıtların bekleyen bildirimleri `--apply` ile
+bastırılır (gönderilmiş bildirimler geri alınamaz; rapordaki `notifications` alanında görülür).
+Yeniden
+sınıflandırma kabul edilmiş kayıtların türünü de günceller.
+
+Supabase üzerinde çalıştırmadan önce ilk satırdaki veritabanı adını ve kuru çalıştırma çıktısını
+inceleyin. `--report` yalnızca okur; ret gerekçelerini ve gövde özetini inceleyebilmeniz için kullanın.
+
+### Geri alma
+
+`--apply` çalışmadan önce tüm ilan kayıtlarının yedeği `data/backups/jobs-before-reclassify-*.json`
+dosyasına yazılır. Yedek yazılamazsa hiçbir kayıt değiştirilmez. Geri almak için:
+
+```bash
+npm run jobs:restore -- data/backups/jobs-before-reclassify-<tarih>.json          # kuru çalıştırma
+npm run jobs:restore -- data/backups/jobs-before-reclassify-<tarih>.json --apply  # geri yükle
+```
+
+Geri yükleme yalnızca yedekteki kimlikleri birebir geri yazar; geri yüklemeden önce mevcut durumun
+yedeği de alınır.
 
 ## Kapsam raporu
 

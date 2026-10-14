@@ -23,6 +23,7 @@ const listQuery = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   city: z.union([z.string(), z.array(z.string())]).optional(),
   employmentType: z.union([z.string(), z.array(z.string())]).optional(),
+  kind: z.enum(['job', 'process']).optional(),
   education: z.union([z.string(), z.array(z.string())]).optional(),
   department: z.union([z.string(), z.array(z.string())]).optional(),
   kpssType: z.union([z.string(), z.array(z.string())]).optional(),
@@ -84,6 +85,7 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
           ...(asArray(query.employmentType) !== undefined
             ? { employmentTypes: asArray(query.employmentType) }
             : {}),
+          ...(query.kind !== undefined ? { kind: query.kind } : {}),
           ...(canonicalEducation(asArray(query.education)) !== undefined
             ? { educationLevels: canonicalEducation(asArray(query.education)) }
             : {}),

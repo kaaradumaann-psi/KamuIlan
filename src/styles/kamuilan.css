@@ -269,6 +269,13 @@
     gap: 6px;
   }
 
+  .job-card-note {
+    margin: 0;
+    color: var(--slate-500);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
   .job-card-meta {
     list-style: none;
     margin: 0;

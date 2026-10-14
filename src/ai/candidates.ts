@@ -48,7 +48,8 @@ export async function selectCandidates(
 ): Promise<JobCandidate[]> {
   if (!hasProfileSignal(profile)) return [];
   const page = await repos.jobs.search(
-    { status: ['active', 'upcoming'] },
+    // Süreç duyurusu (kura/sınav/sonuç) başvurulacak bir ilan değildir; öneri havuzuna girmez.
+    { status: ['active', 'upcoming'], kind: 'job' },
     { pageSize: CANDIDATE_POOL_SIZE, sort: 'newest' },
   );
 

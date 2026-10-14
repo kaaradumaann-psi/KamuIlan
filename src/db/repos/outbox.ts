@@ -38,13 +38,68 @@ export function outboxIdempotencyKey(input: {
   return sha256Hex([input.userId ?? 'anon', input.kind, input.reference].join('|')).slice(0, 48);
 }
 
+/**
+ * Bir ilana ait bekleyen (henüz gönderilmemiş) bildirimleri bastırır. İlan artık bildirim
+ * gerektirmiyorsa (süreç duyurusuna dönüştü ya da reddedildi) çağrılır. Gönderilmiş işler
+ * geri alınamaz; yalnızca `pending`/`failed` işler etkilenir.
+ */
+export async function suppressPendingOutboxForJob(
+  store: StoragePort,
+  jobId: string,
+  reason: string,
+  now: Date,
+): Promise<number> {
+  const pending = await store.find(
+    'emailOutbox',
+    { jobId, status: { $in: ['pending', 'failed'] } },
+    { limit: 1000 },
+  );
+  const stamp = now.toISOString();
+  let count = 0;
+  for (const item of pending) {
+    const updated = await store.updateOne(
+      'emailOutbox',
+      { id: item.id, status: item.status },
+      {
+        status: 'suppressed',
+        lastError: reason.slice(0, 500),
+        lockedBy: null,
+        lockedUntil: null,
+        updatedAt: stamp,
+      },
+    );
+    if (updated) count += 1;
+  }
+  return count;
+}
+
+/** Bir ilanın bildirim işlerinin durum dökümü (salt okunur). */
+export async function outboxSummaryForJob(
+  store: StoragePort,
+  jobId: string,
+): Promise<{ pending: number; sent: number; failed: number; dead: number; suppressed: number }> {
+  const items = await store.find('emailOutbox', { jobId }, { limit: 1000 });
+  const summary = { pending: 0, sent: 0, failed: 0, dead: 0, suppressed: 0 };
+  for (const item of items) {
+    if (item.status === 'pending' || item.status === 'sending') summary.pending += 1;
+    else if (item.status === 'accepted') summary.sent += 1;
+    else if (item.status === 'failed') summary.failed += 1;
+    else if (item.status === 'dead') summary.dead += 1;
+    else if (item.status === 'suppressed') summary.suppressed += 1;
+  }
+  return summary;
+}
+
 export class OutboxRepo {
   constructor(
     private readonly store: StoragePort,
     private readonly clock: Clock = systemClock,
   ) {}
 
-  async enqueue(input: EnqueueEmailInput, maxAttemptsDefault = 5): Promise<{ item: EmailOutboxDoc; created: boolean }> {
+  async enqueue(
+    input: EnqueueEmailInput,
+    maxAttemptsDefault = 5,
+  ): Promise<{ item: EmailOutboxDoc; created: boolean }> {
     const now = this.clock.now().toISOString();
     const doc: EmailOutboxDoc = {
       id: createId('eml'),
@@ -122,20 +177,28 @@ export class OutboxRepo {
   }
 
   /** Sağlayıcı mesajı kabul etti. Teslim edildiği iddia edilmez. */
-  async markAccepted(id: string, providerMessageId: string | null, providerResponse: string | null): Promise<void> {
+  async markAccepted(
+    id: string,
+    providerMessageId: string | null,
+    providerResponse: string | null,
+  ): Promise<void> {
     const now = this.clock.now().toISOString();
     const current = await this.store.findOne('emailOutbox', { id });
-    await this.store.updateOne('emailOutbox', { id }, {
-      status: 'accepted',
-      providerMessageId,
-      providerResponse,
-      acceptedAt: now,
-      lockedBy: null,
-      lockedUntil: null,
-      lastError: null,
-      attempts: (current?.attempts ?? 0) + 1,
-      updatedAt: now,
-    });
+    await this.store.updateOne(
+      'emailOutbox',
+      { id },
+      {
+        status: 'accepted',
+        providerMessageId,
+        providerResponse,
+        acceptedAt: now,
+        lockedBy: null,
+        lockedUntil: null,
+        lastError: null,
+        attempts: (current?.attempts ?? 0) + 1,
+        updatedAt: now,
+      },
+    );
   }
 
   /** Başarısız gönderim: yeniden deneme zamanı verilir; sınır dolduysa `dead`. */
@@ -147,16 +210,20 @@ export class OutboxRepo {
     const exhausted = attempts >= current.maxAttempts;
     const status: EmailOutboxDoc['status'] = retryAt && !exhausted ? 'pending' : 'dead';
 
-    return this.store.updateOne('emailOutbox', { id }, {
-      status,
-      attempts,
-      lastError: error.slice(0, 500),
-      failedAt: now,
-      nextAttemptAt: retryAt ?? now,
-      lockedBy: null,
-      lockedUntil: null,
-      updatedAt: now,
-    });
+    return this.store.updateOne(
+      'emailOutbox',
+      { id },
+      {
+        status,
+        attempts,
+        lastError: error.slice(0, 500),
+        failedAt: now,
+        nextAttemptAt: retryAt ?? now,
+        lockedBy: null,
+        lockedUntil: null,
+        updatedAt: now,
+      },
+    );
   }
 
   async findById(id: string): Promise<EmailOutboxDoc | null> {
@@ -164,7 +231,12 @@ export class OutboxRepo {
   }
 
   async list(
-    filter: { status?: EmailOutboxDoc['status']; userId?: string; jobId?: string; channel?: EmailOutboxDoc['channel'] } = {},
+    filter: {
+      status?: EmailOutboxDoc['status'];
+      userId?: string;
+      jobId?: string;
+      channel?: EmailOutboxDoc['channel'];
+    } = {},
     limit = 100,
   ): Promise<EmailOutboxDoc[]> {
     const query: Record<string, unknown> = {};
@@ -176,7 +248,14 @@ export class OutboxRepo {
   }
 
   async stats(): Promise<Record<EmailOutboxDoc['status'], number>> {
-    const statuses: EmailOutboxDoc['status'][] = ['pending', 'sending', 'accepted', 'failed', 'dead', 'suppressed'];
+    const statuses: EmailOutboxDoc['status'][] = [
+      'pending',
+      'sending',
+      'accepted',
+      'failed',
+      'dead',
+      'suppressed',
+    ];
     const counts = await Promise.all(statuses.map((status) => this.store.count('emailOutbox', { status })));
     return statuses.reduce<Record<EmailOutboxDoc['status'], number>>(
       (acc, status, index) => {
@@ -197,7 +276,11 @@ export class OutboxRepo {
    * bağlantısı kaldırıldığında veya engellendiğinde çağrılır: bağlantı kalktıktan
    * sonra eski bildirimlerin gönderilmesi istenmeyen bir mesaj olurdu.
    */
-  async suppressPendingForUser(userId: string, channel: EmailOutboxDoc['channel'], reason: string): Promise<number> {
+  async suppressPendingForUser(
+    userId: string,
+    channel: EmailOutboxDoc['channel'],
+    reason: string,
+  ): Promise<number> {
     const now = this.clock.now().toISOString();
     const pending = await this.store.find(
       'emailOutbox',
@@ -209,7 +292,13 @@ export class OutboxRepo {
       const updated = await this.store.updateOne(
         'emailOutbox',
         { id: item.id, status: item.status },
-        { status: 'suppressed', lastError: reason.slice(0, 500), lockedBy: null, lockedUntil: null, updatedAt: now },
+        {
+          status: 'suppressed',
+          lastError: reason.slice(0, 500),
+          lockedBy: null,
+          lockedUntil: null,
+          updatedAt: now,
+        },
       );
       if (updated) count += 1;
     }
@@ -222,21 +311,31 @@ export class OutboxRepo {
     await this.store.updateOne(
       'emailOutbox',
       { id },
-      { status: 'suppressed', lastError: reason.slice(0, 500), lockedBy: null, lockedUntil: null, updatedAt: now },
+      {
+        status: 'suppressed',
+        lastError: reason.slice(0, 500),
+        lockedBy: null,
+        lockedUntil: null,
+        updatedAt: now,
+      },
     );
   }
 
   /** Ölü mektubu elle yeniden kuyruğa alır (yönetici işlemi). */
   async requeue(id: string): Promise<EmailOutboxDoc | null> {
     const now = this.clock.now().toISOString();
-    return this.store.updateOne('emailOutbox', { id, status: 'dead' }, {
-      status: 'pending',
-      attempts: 0,
-      nextAttemptAt: now,
-      lastError: null,
-      lockedBy: null,
-      lockedUntil: null,
-      updatedAt: now,
-    });
+    return this.store.updateOne(
+      'emailOutbox',
+      { id, status: 'dead' },
+      {
+        status: 'pending',
+        attempts: 0,
+        nextAttemptAt: now,
+        lastError: null,
+        lockedBy: null,
+        lockedUntil: null,
+        updatedAt: now,
+      },
+    );
   }
 }

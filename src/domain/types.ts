@@ -170,8 +170,16 @@ export interface RawAnnouncement {
   notes?: string[];
 }
 
+/**
+ * `job`: personel alım ilanı. `process`: gerçek bir alımın kura/sınav/mülakat/sonuç
+ * duyurusu (ayrı kategori, akışta tutulur). Yalnızca `decision === 'accept'` için anlamlıdır.
+ */
+export const CLASSIFICATION_KINDS = ['job', 'process'] as const;
+export type ClassificationKind = (typeof CLASSIFICATION_KINDS)[number];
+
 export interface ClassificationResult {
   decision: ClassificationDecision;
+  kind: ClassificationKind;
   employmentType: EmploymentType;
   confidence: number;
   reasons: string[];

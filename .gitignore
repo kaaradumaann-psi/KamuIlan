@@ -12,3 +12,7 @@ playwright-report/
 .DS_Store
 *.tsbuildinfo
 .eslintcache
+
+# Yeniden sınıflandırma raporu ve canlı probe çıktıları (kişisel/operasyonel veri içerebilir)
+reclassify-report*.json
+probe-resmigazete-*.json

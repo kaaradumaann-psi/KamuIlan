@@ -1,26 +1,43 @@
 /**
  * Mevcut ilan kayıtlarını güncel sınıflandırma ve temizlik kurallarıyla yeniden değerlendirir.
  *
- *   npm run jobs:reclassify            → KURU ÇALIŞTIRMA: yalnızca ne değişeceğini raporlar
- *   npm run jobs:reclassify -- --apply → değişiklikleri veritabanına yazar
+ *   npm run jobs:reclassify                         → KURU ÇALIŞTIRMA: yalnızca özet
+ *   npm run jobs:reclassify -- --report <dosya>     → kuru çalıştırma + kayıt bazlı JSON raporu (yazmaz)
+ *   npm run jobs:reclassify -- --apply              → değişiklikleri yazar (önce tam yedek alır)
  *
- * Yapılan işler: sayfa kabuğu temizliği, iş ilanı kanıt kapısı (iş ilanı olmayanlar
- * "reddedildi" olarak işaretlenir ve akıştan kalkar; kayıt silinmez), yayım tarihi
- * doğrulaması ve eski ilanların durumunun yeniden hesaplanması.
+ * Kararlar: iş ilanı (`job`) ve süreç duyurusu (`process`) akışta kalır; ret kuralına
+ * takılanlar akıştan çıkar (silinmez). Yedekten geri dönüş: `npm run jobs:restore -- <yedek>`.
  *
  * Yapılandırılmış veritabanını (DATABASE_DRIVER) kullanır. Supabase/Postgres üzerinde
- * çalıştırmadan önce mutlaka kuru çalıştırma çıktısını inceleyin.
+ * çalıştırmadan önce ilk satırdaki veritabanı adını ve kuru çalıştırma çıktısını mutlaka inceleyin.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { getEnv } from '../src/config/env';
 import { effectiveDriver, describeDriver, initStore, closeStore } from '../src/db/store';
 import { createRepos } from '../src/db/repos';
 import type { JobDoc } from '../src/db/schemas';
-import { reclassifyJob } from '../src/ingest/reclassify';
+import {
+  applyReclassification,
+  buildReport,
+  needsNotificationSuppression,
+  planReclassification,
+  writeJobsBackup,
+} from '../src/ingest/reclassify-batch';
+import { outboxSummaryForJob } from '../src/db/repos/outbox';
+
+function optionValue(flag: string): string | null | undefined {
+  const index = process.argv.indexOf(flag);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith('--')) return null;
+  return value;
+}
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
+  const reportOption = optionValue('--report');
+  if (reportOption === null) throw new Error('--report için bir dosya yolu verin.');
   const env = getEnv();
   const driver = effectiveDriver(env);
   console.log(`Veritabanı: ${describeDriver(driver)}`);
@@ -28,62 +45,72 @@ async function main(): Promise<void> {
 
   const store = await initStore(undefined, { ensureIndexes: false });
   createRepos(store);
-  const jobs = await store.find('jobs', {}, { limit: 100_000 });
+  const jobs = (await store.find('jobs', {}, { limit: 100_000 })) as JobDoc[];
   const now = new Date();
+  const { planned, summary } = planReclassification(jobs, now);
 
-  if (apply) {
-    // Yazmadan önce tam yedek: veritabanı değişikliği geri alınabilir olmalı.
-    // Yedek yazılamazsa hiçbir kayıt değiştirilmez.
-    const backupDir = join(env.DATA_DIR, 'backups');
-    mkdirSync(backupDir, { recursive: true });
-    const backupPath = join(
-      backupDir,
-      `jobs-before-reclassify-${now.toISOString().replace(/[:.]/g, '-')}.json`,
+  if (reportOption) {
+    const reportPath = resolve(reportOption);
+    const rows = await buildReport(store, planned);
+    writeFileSync(
+      reportPath,
+      JSON.stringify(
+        { generatedAt: now.toISOString(), database: describeDriver(driver), summary, records: rows },
+        null,
+        2,
+      ),
+      { encoding: 'utf8' },
     );
-    writeFileSync(backupPath, JSON.stringify(jobs, null, 2), { encoding: 'utf8', flag: 'wx' });
-    console.log(`Yedek yazıldı (${jobs.length} kayıt): ${backupPath}`);
+    console.log(`Rapor yazıldı (${rows.length} kayıt, yalnızca okuma): ${reportPath}`);
   }
 
-  let acceptedBefore = 0;
-  let acceptedAfter = 0;
-  let newlyRejected = 0;
-  let newlyAccepted = 0;
-  let titlesCleaned = 0;
-  let statusChanged = 0;
   let written = 0;
-  const rejectedSamples: string[] = [];
-
-  for (const job of jobs as JobDoc[]) {
-    if (job.classification.decision === 'accept') acceptedBefore += 1;
-    const result = reclassifyJob(job, now);
-    if (result.decisionTo === 'accept') acceptedAfter += 1;
-    else if (job.classification.decision === 'accept') {
-      newlyRejected += 1;
-      if (rejectedSamples.length < 40) {
-        rejectedSamples.push(`- [${result.decisionTo}] ${job.title}`);
-      }
-    }
-    if (result.decisionTo === 'accept' && job.classification.decision !== 'accept') newlyAccepted += 1;
-    if (result.titleCleaned) titlesCleaned += 1;
-    if (result.statusFrom !== result.statusTo) statusChanged += 1;
-    if (result.changed && apply) {
-      await store.updateOne('jobs', { id: job.id }, result.patch);
-      written += 1;
-    }
+  if (apply) {
+    // Yazmadan önce tam yedek: yedek yazılamazsa hiçbir kayıt değiştirilmez.
+    const backupPath = writeJobsBackup(env.DATA_DIR, jobs, now, 'before-reclassify');
+    console.log(`Yedek yazıldı (${jobs.length} kayıt): ${backupPath}`);
+    const applied = await applyReclassification(store, planned, now);
+    written = applied.written;
+    console.log(`Bastırılan bekleyen bildirim: ${applied.notificationsSuppressed}`);
   }
+
+  const rejectedSamples = planned
+    .filter(({ job, result }) => job.classification.decision === 'accept' && result.decisionTo !== 'accept')
+    .slice(0, 40)
+    .map(
+      ({ job, result }) =>
+        `- [${result.decisionTo}] ${job.title} — ${result.classification.reasons[0] ?? ''}`,
+    );
+  const processSamples = planned
+    .filter(({ result }) => result.decisionTo === 'accept' && result.kindTo === 'process')
+    .map(({ job }) => `- ${job.title}`);
 
   console.log('');
-  console.log(`Toplam ilan kaydı:            ${jobs.length}`);
-  console.log(`Akışta (kabul) önce:          ${acceptedBefore}`);
-  console.log(`Akışta (kabul) sonra:         ${acceptedAfter}`);
-  console.log(`Akıştan çıkacak (reddedilen): ${newlyRejected}`);
-  console.log(`Akışa girecek:                ${newlyAccepted}`);
-  console.log(`Başlığı temizlenecek:         ${titlesCleaned}`);
-  console.log(`Durumu değişecek:             ${statusChanged}`);
-  if (apply) console.log(`Yazılan kayıt:                ${written}`);
+  console.log(`Toplam ilan kaydı:                 ${summary.total}`);
+  console.log(`Akışta (kabul) önce:               ${summary.acceptedBefore}`);
+  console.log(`Akışta (kabul) sonra:              ${summary.acceptedAfter}`);
+  console.log(`  - iş ilanı (job):                ${summary.acceptedJobs}`);
+  console.log(`  - süreç duyurusu (process):      ${summary.keptAsProcess}`);
+  console.log(`Akıştan çıkacak (reddedilen):      ${summary.rejected}`);
+  console.log(`Akışa girecek:                     ${summary.newlyAccepted}`);
+  console.log(`Türü değişecek (job/process):      ${summary.kindChanged}`);
+  console.log(`Başlığı temizlenecek:              ${summary.titlesCleaned}`);
+  console.log(`Durumu değişecek:                  ${summary.statusChanged}`);
+  console.log(`Toplam değişecek kayıt:            ${summary.changed}`);
+  const pendingNotifications = (
+    await Promise.all(planned.map(({ job }) => outboxSummaryForJob(store, job.id)))
+  ).reduce((total, item) => total + item.pending, 0);
+  const suppressTargets = planned.filter(({ result }) => needsNotificationSuppression(result));
+  console.log(`Bekleyen bildirim (tüm kayıtlar):  ${pendingNotifications}`);
+  console.log(`Bastırılacak bildirim kaydı:       ${suppressTargets.length} ilan`);
+  if (apply) console.log(`Yazılan kayıt:                     ${written}`);
   if (rejectedSamples.length > 0) {
     console.log('\nAkıştan çıkacak ilk örnekler:');
     console.log(rejectedSamples.join('\n'));
+  }
+  if (processSamples.length > 0) {
+    console.log('\nSüreç duyurusu olarak akışta kalacaklar:');
+    console.log(processSamples.join('\n'));
   }
   if (!apply) console.log('\nUygulamak için: npm run jobs:reclassify -- --apply');
   await closeStore();

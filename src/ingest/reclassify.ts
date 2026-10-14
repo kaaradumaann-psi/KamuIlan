@@ -1,4 +1,5 @@
 import type { JobDoc } from '../db/schemas';
+import type { ClassificationKind, ClassificationResult } from '../domain/types';
 import { classify } from '../classification/engine';
 import { sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeTr, stripUiChrome } from '../domain/text';
@@ -13,6 +14,11 @@ export interface ReclassifyResult {
   /** Karar kabulden reddetmeye (veya tersine) döndü mü? */
   decisionFrom: JobDoc['classification']['decision'];
   decisionTo: JobDoc['classification']['decision'];
+  /** Kayıttaki tür (job/process) ve yeni kural setinin türü. */
+  kindFrom: ClassificationKind;
+  kindTo: ClassificationKind;
+  /** Güncel kurallardan çıkan tam sınıflandırma (rapor ve gerekçe için). */
+  classification: ClassificationResult;
   titleCleaned: boolean;
   statusFrom: JobDoc['status'];
   statusTo: JobDoc['status'];
@@ -54,21 +60,27 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
   const decisionFrom = job.classification.decision;
   const decisionTo: JobDoc['classification']['decision'] =
     classification.decision === 'reject' ? 'reject' : decisionFrom;
+  // Tür (job/process): kabul edilmiş kayıtlar dahil her zaman güncel kurala göre güncellenir.
+  const kindFrom: ClassificationKind = job.classification.kind ?? 'job';
+  const kindTo: ClassificationKind = classification.kind;
+  const kindChanged = kindFrom !== kindTo;
+  const adoptNewReasons = decisionTo === 'reject' || kindChanged;
   if (
     decisionFrom !== decisionTo ||
+    kindChanged ||
     (decisionTo === 'reject' &&
       (job.classification.version !== classification.version ||
         job.classification.reasons.join('|') !== classification.reasons.join('|')))
   ) {
     patch.classification = {
       decision: decisionTo,
+      kind: kindTo,
       employmentType: job.classification.employmentType,
-      confidence: decisionTo === 'reject' ? classification.confidence : job.classification.confidence,
-      reasons: decisionTo === 'reject' ? classification.reasons : job.classification.reasons,
-      rules: decisionTo === 'reject' ? classification.rules : job.classification.rules,
-      negativeSignals:
-        decisionTo === 'reject' ? classification.negativeSignals : job.classification.negativeSignals,
-      version: decisionTo === 'reject' ? classification.version : job.classification.version,
+      confidence: adoptNewReasons ? classification.confidence : job.classification.confidence,
+      reasons: adoptNewReasons ? classification.reasons : job.classification.reasons,
+      rules: adoptNewReasons ? classification.rules : job.classification.rules,
+      negativeSignals: adoptNewReasons ? classification.negativeSignals : job.classification.negativeSignals,
+      version: adoptNewReasons ? classification.version : job.classification.version,
       classifiedAt: now.toISOString(),
     };
   }
@@ -99,5 +111,16 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
 
   const changed = Object.keys(patch).length > 0;
   if (changed) patch.updatedAt = now.toISOString();
-  return { patch, changed, decisionFrom, decisionTo, titleCleaned, statusFrom, statusTo };
+  return {
+    patch,
+    changed,
+    decisionFrom,
+    decisionTo,
+    kindFrom,
+    kindTo,
+    classification,
+    titleCleaned,
+    statusFrom,
+    statusTo,
+  };
 }

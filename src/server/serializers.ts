@@ -18,6 +18,8 @@ export interface PublicJobSummary {
   title: string;
   institution: string;
   unit: string | null;
+  /** `job`: iş ilanı; `process`: gerçek bir alımın kura/sınav/sonuç duyurusu. */
+  kind: 'job' | 'process';
   employmentType: string;
   employmentTypeLabel: string;
   status: string;
@@ -155,6 +157,7 @@ export function toPublicJobSummary(job: JobDoc, now: Date = new Date()): PublicJ
     title: job.title,
     institution: job.institution,
     unit: job.unit,
+    kind: job.classification.kind ?? 'job',
     employmentType: job.employmentType,
     employmentTypeLabel: EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType,
     status: job.status,

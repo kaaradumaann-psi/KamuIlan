@@ -13,7 +13,7 @@ import type { JobDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
 import { outboxIdempotencyKey } from '../db/repos/outbox';
 import { buildJobPayload, renderEmail } from '../email/templates';
-import { matchPreferenceToJob } from './matcher';
+import { isProcessNotice, matchPreferenceToJob, PROCESS_NOTICE_SUPPRESSION } from './matcher';
 
 export interface QueueNotificationsOptions {
   repos: Repos;
@@ -36,6 +36,8 @@ export interface QueueNotificationsResult {
   alreadyExists: number;
   skippedUnverified: number;
   skippedPaused: number;
+  /** Tüm kanallar bastırıldıysa neden (ör. süreç duyurusu). Yoksa null. */
+  suppressedReason: string | null;
 }
 
 /**
@@ -61,7 +63,15 @@ export async function queueNotificationsForJob(
     alreadyExists: 0,
     skippedUnverified: 0,
     skippedPaused: 0,
+    suppressedReason: null,
   };
+
+  // Süreç duyuruları (kura, sınav, sonuç) yeni ilan değildir: hiçbir kullanıcıya olay, e-posta
+  // veya Telegram kuyruğu üretilmez. Akış ve filtreler bu kayıtları yine gösterir.
+  if (isProcessNotice(job)) {
+    result.suppressedReason = PROCESS_NOTICE_SUPPRESSION;
+    return result;
+  }
 
   const preferences = await repos.notifications.listNotifiable();
   for (const preference of preferences) {
@@ -70,7 +80,11 @@ export async function queueNotificationsForJob(
     const user = await repos.users.findById(preference.userId);
     if (!user || user.status !== 'active') continue;
 
-    const channels = await deliveryChannelsFor(repos, user.id, user.emailVerified && user.emailVerifiedAt !== null);
+    const channels = await deliveryChannelsFor(
+      repos,
+      user.id,
+      user.emailVerified && user.emailVerifiedAt !== null,
+    );
     if (!channels.email && !channels.telegram) {
       // Doğrulanmamış adrese e-posta gitmez (yanlış adres riski); Telegram da bağlı değil.
       if (!user.emailVerified || user.emailVerifiedAt === null) result.skippedUnverified += 1;
@@ -106,11 +120,15 @@ export async function queueNotificationsForJob(
     let queuedAny = false;
 
     if (channels.email) {
-      const rendered = renderEmail(template, { ...payload }, {
-        baseUrl: options.baseUrl,
-        senderName: options.senderName,
-        preferencesUrl: `${options.baseUrl.replace(/\/$/, '')}/panel`,
-      });
+      const rendered = renderEmail(
+        template,
+        { ...payload },
+        {
+          baseUrl: options.baseUrl,
+          senderName: options.senderName,
+          preferencesUrl: `${options.baseUrl.replace(/\/$/, '')}/panel`,
+        },
+      );
       const enqueued = await repos.outbox.enqueue(
         {
           channel: 'email',
@@ -188,10 +206,7 @@ export async function deliveryChannelsFor(
  *
  * Not: Hesap silinmez; kullanıcı panelden bildirimleri yeniden açabilir.
  */
-export async function unsubscribeByToken(
-  repos: Repos,
-  token: string,
-): Promise<{ userId: string } | null> {
+export async function unsubscribeByToken(repos: Repos, token: string): Promise<{ userId: string } | null> {
   const consumed = await repos.users.consumeToken(token, 'unsubscribe');
   if (!consumed) return null;
   const preference = await repos.notifications.upsertPreference(consumed.userId, {

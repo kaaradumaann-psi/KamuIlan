@@ -20,6 +20,8 @@ export interface JobFilters {
   city: string;
   institution: string;
   employmentType: string;
+  /** Tür: '' tümü, 'job' iş ilanları, 'process' süreç duyuruları. */
+  kind: string;
   status: string;
   deadlineFrom: string;
   deadlineTo: string;
@@ -38,6 +40,7 @@ export const EMPTY_FILTERS: JobFilters = {
   city: '',
   institution: '',
   employmentType: '',
+  kind: '',
   status: '',
   deadlineFrom: '',
   deadlineTo: '',
@@ -56,6 +59,7 @@ export function filtersFromParams(params: URLSearchParams): JobFilters {
     city: params.get('city') ?? '',
     institution: params.get('institution') ?? '',
     employmentType: params.get('employmentType') ?? '',
+    kind: params.get('kind') ?? '',
     status: params.get('status') ?? '',
     deadlineFrom: params.get('deadlineFrom') ?? '',
     deadlineTo: params.get('deadlineTo') ?? '',
@@ -76,6 +80,7 @@ export function filtersToParams(filters: JobFilters, page: number, pageSize = 20
   if (filters.city) params.set('city', filters.city);
   if (filters.institution) params.set('institution', filters.institution);
   if (filters.employmentType) params.set('employmentType', filters.employmentType);
+  if (filters.kind) params.set('kind', filters.kind);
   if (filters.status) params.set('status', filters.status);
   if (filters.deadlineFrom) params.set('deadlineFrom', filters.deadlineFrom);
   if (filters.deadlineTo) params.set('deadlineTo', filters.deadlineTo);
@@ -189,6 +194,19 @@ export function FilterForm({
           </select>
         </Field>
 
+        <Field label="Tür" htmlFor="filter-kind">
+          <select
+            id="filter-kind"
+            className="filter-select"
+            value={filters.kind}
+            onChange={(event) => update({ kind: event.target.value })}
+          >
+            <option value="">Tümü</option>
+            <option value="job">İş ilanları</option>
+            <option value="process">Süreç duyuruları (kura, sınav, sonuç)</option>
+          </select>
+        </Field>
+
         <Field label="Durum" htmlFor="filter-status">
           <select
             id="filter-status"
@@ -221,9 +239,7 @@ export function FilterForm({
           onClick={() => setAdvancedOpen((open) => !open)}
         >
           <Icon name="filter" size={15} />
-          <span>
-            Gelişmiş filtreler{advancedCount > 0 ? ` (${advancedCount} seçili)` : ''}
-          </span>
+          <span>Gelişmiş filtreler{advancedCount > 0 ? ` (${advancedCount} seçili)` : ''}</span>
         </button>
       </div>
 
@@ -257,7 +273,11 @@ export function FilterForm({
               </select>
             </Field>
 
-            <Field label="Bölüm / program" htmlFor="filter-department" hint="ör. hemşirelik, bilgisayar mühendisliği">
+            <Field
+              label="Bölüm / program"
+              htmlFor="filter-department"
+              hint="ör. hemşirelik, bilgisayar mühendisliği"
+            >
               <input
                 id="filter-department"
                 value={filters.department}
@@ -299,7 +319,11 @@ export function FilterForm({
               />
             </Field>
 
-            <Field label="En az kontenjan" htmlFor="filter-quota" hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır.">
+            <Field
+              label="En az kontenjan"
+              htmlFor="filter-quota"
+              hint="Yalnızca kontenjanı belirtilen ilanlarda çalışır."
+            >
               <input
                 id="filter-quota"
                 type="number"
@@ -310,7 +334,11 @@ export function FilterForm({
               />
             </Field>
 
-            <Field label="Son başvuru: en erken" htmlFor="filter-from" hint="Son günü bu tarihten önce olmayanlar.">
+            <Field
+              label="Son başvuru: en erken"
+              htmlFor="filter-from"
+              hint="Son günü bu tarihten önce olmayanlar."
+            >
               <input
                 id="filter-from"
                 className="date-filter-field"
@@ -320,7 +348,11 @@ export function FilterForm({
               />
             </Field>
 
-            <Field label="Son başvuru: en geç" htmlFor="filter-to" hint="Son günü bu tarihten sonra olmayanlar.">
+            <Field
+              label="Son başvuru: en geç"
+              htmlFor="filter-to"
+              hint="Son günü bu tarihten sonra olmayanlar."
+            >
               <input
                 id="filter-to"
                 className="date-filter-field"

@@ -28,7 +28,7 @@ nedenle sorunlu olduğunu yazar.
 | Son başvuru durumlarının yenilenmesi            | 12 saatte bir   | Worker ("deadline-refresh" görevi)                                              |
 | Kapsam denetimi                                 | Günlük          | Worker ("coverage-audit" görevi)                                                |
 | Yedek                                           | Günlük          | aşağıya bakın                                                                   |
-| Eski ilan kayıtlarını yeniden sınıflandırma     | Kural değişince | `npm run jobs:reclassify` (kuru), sonra `-- --apply`                            |
+| Eski ilan kayıtlarını yeniden sınıflandırma     | Kural değişince | `npm run jobs:reclassify` (kuru), `--report` ile inceleme, sonra `-- --apply`   |
 
 Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çalıştır" veya
 `POST /api/admin/maintenance/:kind`.

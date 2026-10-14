@@ -60,10 +60,20 @@ function overlap<T extends string>(values: readonly T[], needles: readonly T[]):
   return needles.filter((needle) => set.has(needle));
 }
 
+/** Süreç duyurusu (kura, sınav, sonuç): bildirim kuyruğuna hiçbir koşulda girmez; yalnızca akışta görünür. */
+export const PROCESS_NOTICE_SUPPRESSION = 'süreç duyurusu: bildirim gönderilmez (yalnızca akışta gösterilir)';
+
+export function isProcessNotice(job: Pick<JobDoc, 'classification'>): boolean {
+  return job.classification.kind === 'process';
+}
+
 /** İlanı kullanıcı tercihiyle karşılaştırır. */
 export function matchPreferenceToJob(input: MatchInput): MatchResult {
   const { preference, job, kind, now } = input;
   const reasons: string[] = [];
+  if (isProcessNotice(job)) {
+    return { matched: false, reasons: [], suppressedReason: PROCESS_NOTICE_SUPPRESSION };
+  }
 
   if (!preference.enabled) {
     return { matched: false, reasons: [], suppressedReason: 'bildirimler kapalı' };
@@ -97,7 +107,8 @@ export function matchPreferenceToJob(input: MatchInput): MatchResult {
   if (titleHits.length > 0) reasons.push(`unvan: ${titleHits.slice(0, 3).join(', ')}`);
 
   const jobTitleHits = overlap(job.titles, filters.titles);
-  if (jobTitleHits.length > 0 && titleHits.length === 0) reasons.push(`unvan: ${jobTitleHits.slice(0, 3).join(', ')}`);
+  if (jobTitleHits.length > 0 && titleHits.length === 0)
+    reasons.push(`unvan: ${jobTitleHits.slice(0, 3).join(', ')}`);
 
   const institutionHits = includesAny(job.institution, filters.institutions);
   if (filters.institutions.length > 0 && institutionHits.length === 0) {
@@ -151,7 +162,11 @@ export function matchPreferenceToJob(input: MatchInput): MatchResult {
       return { matched: false, reasons: [], suppressedReason: 'ilanda KPSS taban puanı belirtilmemiş' };
     }
     if (jobScore > filters.kpssMinScore) {
-      return { matched: false, reasons: [], suppressedReason: 'KPSS taban puanı kullanıcı eşiğinin üzerinde' };
+      return {
+        matched: false,
+        reasons: [],
+        suppressedReason: 'KPSS taban puanı kullanıcı eşiğinin üzerinde',
+      };
     }
     reasons.push(`KPSS taban puanı: ${jobScore}`);
   }

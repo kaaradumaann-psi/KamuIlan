@@ -28,6 +28,8 @@ export interface PublicJobSummary {
   id: string;
   title: string;
   institution: string;
+  /** `job`: iş ilanı; `process`: gerçek bir alımın kura/sınav/sonuç duyurusu. */
+  kind: 'job' | 'process';
   unit: string | null;
   employmentType: EmploymentType;
   employmentTypeLabel: string;

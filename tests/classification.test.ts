@@ -84,13 +84,14 @@ describe('sınıflandırma: reddedilmesi gerekenler', () => {
     expect(result.decision).toBe('reject');
   });
 
-  it('personel alımı SONUÇ duyurusunu yeni ilan saymaz', () => {
+  it('personel alımı SONUÇ duyurusu yeni ilan değil; süreç duyurusu olarak ayrı kategoride kalır', () => {
     const result = classify({
       title: '2026 Yılı Sözleşmeli Personel Alımı Sonuçları Açıklandı',
       body: 'Sözleşmeli personel alımı için başvuru yapan adayların sonuçları ilan edilmiştir.',
     });
-    expect(result.decision).toBe('reject');
-    expect(result.reasons.join(' ')).toContain('sonuç');
+    expect(result.decision).toBe('accept');
+    expect(result.kind).toBe('process');
+    expect(result.reasons.join(' ')).toContain('süreç');
   });
 
   it('yerleştirme sonuçları duyurusunu reddeder', () => {

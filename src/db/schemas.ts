@@ -147,6 +147,8 @@ export const jobSchema = z.object({
   primarySourceKey: z.string().min(2),
   classification: z.object({
     decision: z.enum(['accept', 'reject', 'review']),
+    /** Eski kayıtlarda yok; varsayılan `job`. */
+    kind: z.enum(['job', 'process']).default('job'),
     employmentType: z.enum(EMPLOYMENT_TYPES),
     confidence: z.number().min(0).max(1),
     reasons: z.array(z.string()),

@@ -250,7 +250,8 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
   {
     id: 'ret-baslik.yer-degistirme-satis',
     reason: 'Başlık yer değiştirme, gayrimenkul satışı ya da çerez bildirimi — iş ilanı değil',
-    pattern: /\b(?:yer\s+degistirme\w*|satis\s+ilan\w*|satis\s+duyur\w*|gayrimenkul\s+satis\w*|cerez\w*|cookie\w*)/,
+    pattern:
+      /\b(?:yer\s+degistirme\w*|satis\s+ilan\w*|satis\s+duyur\w*|gayrimenkul\s+satis\w*|cerez\w*|cookie\w*)/,
     weight: 0,
   },
   {
@@ -362,6 +363,34 @@ export const SOFT_NEGATIVE_RULES: readonly KeywordRule[] = [
  */
 export const RECRUITMENT_EVIDENCE_PATTERN =
   /\b(?:personel\s+alim\w*|alim\s+ilan\w*|alim\s+yapil\w*|alim\s+duyur\w*|isci\s+alim\w*|memur\s+alim\w*|sozlesmeli\s+(?:\w+\s+){0,3}personel|sozlesmeli\s+personel|kadro\w*|istihdam\w*|giris\s+sinavi|uzman\s+yardimci\w*|alinacak\w*|alinmak\s+uzere|alinacaktir|basvuru\s+(?:yapabilir|yapilacak|sarti))/;
+
+/**
+ * Süreç duyuruları: gerçek bir personel alımının kura, sınav, mülakat, sonuç gibi
+ * devam eden aşamaları. Yeni iş ilanı değildir; ayrı `kind: 'process'` kategorisinde
+ * akışta tutulur. Başlıkta hem personel bağlamı hem süreç sinyali zorunludur.
+ */
+export const PROCESS_TITLE_CONTEXT_PATTERN =
+  /\b(?:personel\w*|alim\w*|isci\w*|memur\w*|sozlesmeli\w*|kadro\w*|istihdam\w*|uzman\s+yardimci\w*)\b/;
+
+export const PROCESS_TITLE_SIGNAL_PATTERN =
+  /\b(?:kura\w*|cagrilacak\s+adaylar|sinav\s+(?:yeri|tarih|metin|sonuc|takvim|kilavuz)\w*|sozlu\s+sinav\w*|uygulamali\s+sinav\w*|mulakat\w*|sonuc\w*|kazanan\w*|yedek\s+liste\w*|asil\s+ve\s+yedek\w*|nihai\s+liste\w*)/;
+
+/** Bu ifadelerden biri varsa başlık süreç duyurusu sayılmaz (kurum içi, eğitim, yer değiştirme vb.). */
+export const PROCESS_TITLE_EXCLUDE_PATTERN =
+  /\b(?:yer\s+degistirme\w*|gorevde\s+yukselme\w*|unvan\s+degisiklig\w*|satis\w*|ihale\w*|basin\w*|konferans\w*|tercih\w*|ek\s+yerlestirme|dikey\s+gecis|yks\b|ogrenci\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|rektor\w*|cerez\w*|kira\w*|proje\s+cagri\w*|arastirma\s+programlari)/;
+
+/**
+ * Süreç duyurusu olduğunda bu başlık ret kuralları atlanır. Sonuç, sınav/kura ve
+ * yerleştirme ifadeleri yalnızca personel bağlamı + süreç sinyali + dışlama yokken süreç
+ * sayılır. `ogrenci-kabul-tercih` kuralının öğrenci/YKS/tercih terimleri PROCESS_TITLE_EXCLUDE_PATTERN
+ * içinde olduğundan, bu kuralın süreç için atlanması öğrenci yerleştirmelerini açmaz.
+ * Diğer ret kuralları (yer değiştirme, basın, satış, ihale vb.) aynen geçerlidir.
+ */
+export const PROCESS_BYPASS_RULE_IDS: ReadonlySet<string> = new Set([
+  'ret-baslik.sonuc-duyurusu',
+  'ret-baslik.sinav-metni-kura',
+  'ret-baslik.ogrenci-kabul-tercih',
+]);
 
 export const RECRUITMENT_CATEGORY_PATTERN =
   /\b(?:kamu\s*-?\s*akademik\s+personel|personel\s+alim|alim\s+ve\s+sinav|akademik\s+personel\s+alim|kamu\s+personel)/;

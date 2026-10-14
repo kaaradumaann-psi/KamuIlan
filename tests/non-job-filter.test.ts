@@ -15,13 +15,10 @@ const NON_JOB_TITLES = [
   'Uluslararası Konferans Duyurusu',
   'Üniversite İzleme ve Değerlendirme Raporu',
   'Öncelikli Alanlardaki Doktora Programlarına Öğrenci Seçme Sınavı için Başvurular Uzatılmıştır',
-  'Sözleşmeli Bilişim Personeli Sözlü Sınavına Çağrılacak Adaylar Hakkında Duyuru',
-  'Karayolları 50 İşçi Alımına İlişkin Noter Kurası Duyurusu',
   'Hindistan ITEC Kapsamında Verilen Uzmanlık Eğitimlerine Başvurular',
   'Uluslararası Araştırma Programları 2026 Yılı Başvuru Duyurusu',
   'TÜBİTAK 1001 Proje Çağrısı Açıldı',
   '2026-YKS Ek Yerleştirme Tercihleri Başladı',
-  'Sözleşmeli Zabıt Katibi Uygulamalı Sınav Metinleri',
   'Gayrimenkul Satış İlanı (Ankara İli)',
   'Hazine ve Maliye Bakanlığı Personel Dairesi Başkanlığı Duyurusu',
 ];
@@ -47,6 +44,59 @@ describe('iş ilanı dışındaki başlıklar kabul edilmez', () => {
   });
 });
 
+/**
+ * Gerçek bir personel alımının kura, sınav, sonuç aşamaları: iş ilanı değil, ama
+ * kullanıcı akışta görmek istiyor. Ayrı `kind: 'process'` kategorisinde kabul edilir.
+ */
+const PROCESS_TITLES: Array<[string, string]> = [
+  [
+    'Karayolları Genel Müdürlüğü 50 İşçi Alımına İlişkin Noter Kurası Duyurusu',
+    'Karayolları Genel Müdürlüğü 50 işçi alımına ilişkin noter huzurunda kura çekimi yapılacaktır.',
+  ],
+  [
+    'Sözleşmeli Bilişim Personeli Sözlü/Uygulama Sınavına Çağrılacak Adaylar',
+    'Sözleşmeli bilişim personeli alımı sınavına çağrılacak adaylar listesi aşağıdadır.',
+  ],
+  [
+    'Bakanlık Merkez Teşkilatı Destek Personeli (Şoför) Uygulamalı Sınav Yeri ve Tarihlerine İlişkin Duyuru',
+    'Destek personeli (şoför) alımı uygulamalı sınav yeri ve tarihleri aşağıda yer almaktadır.',
+  ],
+  [
+    'Sözleşmeli Zabıt Katibi Uygulamalı Sınav Metinleri ve Değerlendirme Kriterleri',
+    'Sözleşmeli zabıt katibi alımı uygulamalı sınav metinleri ve değerlendirme kriterleri yayımlanmıştır.',
+  ],
+  [
+    'Sağlık Bakanlığı Sözleşmeli Sağlık Personeli Yerleştirme Sonuçları',
+    'Sözleşmeli sağlık personeli alımı yerleştirme sonuçları ilan edilmiştir.',
+  ],
+  [
+    '2026 Yılı Sözleşmeli Personel Alımı Sonuçları Açıklandı',
+    'Sözleşmeli personel alımı için başvuru yapan adayların sonuçları ilan edilmiştir.',
+  ],
+];
+for (const [title, body] of PROCESS_TITLES) {
+  it(`süreç duyurusu: "${title}" kabul edilir, kind=process`, () => {
+    const result = classify({ title, body, sourceCategory: 'personel alımı' });
+    expect(result.decision).toBe('accept');
+    expect(result.kind).toBe('process');
+  });
+}
+
+const PROCESS_EXCLUDED_TITLES = [
+  'Kamu Personeli Yer Değiştirme Sonuçları',
+  'Görevde Yükselme Sınavı Sonuçları Açıklandı',
+  'Personel Unvan Değişikliği Sınav Sonuçları',
+  'Personel Alımı Basın Duyurusu Sonuçları',
+];
+describe('süreç duyurusu dışlamaları reddedilir', () => {
+  for (const title of PROCESS_EXCLUDED_TITLES) {
+    it(`"${title}" süreç sayılmaz`, () => {
+      const result = classify({ title, body: GENERIC_BODY, sourceCategory: 'personel alımı' });
+      expect(result.decision).not.toBe('accept');
+    });
+  }
+});
+
 describe('gerçek personel ilanları kabul edilir', () => {
   const JOB_TITLES: Array<[string, string]> = [
     [
@@ -64,6 +114,7 @@ describe('gerçek personel ilanları kabul edilir', () => {
     it(`"${title}" kabul edilir`, () => {
       const result = classify({ title, body, sourceCategory: 'personel alımı' });
       expect(result.decision).toBe('accept');
+      expect(result.kind).toBe('job');
     });
   }
 });
