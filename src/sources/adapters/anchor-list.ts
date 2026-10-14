@@ -144,9 +144,20 @@ function parseAnchorListPage(
     });
 
   const entries: ListEntry[] = [];
+  const candidateElements = new Set<AnyNode>(candidates.map((candidate) => candidate.element));
   for (const candidate of candidates) {
     const anchorText = elementText($(candidate.element), 400);
-    const rowText = elementText($(candidate.element).closest(config.rowSelector), 900) || anchorText;
+    // Satır yalnızca bu bağlantıya aitse satır metni (tarih, kısa özet) kullanılır. Aynı satırda
+    // birden çok aday bağlantı varsa satır paylaşılıyordur: ilk bulunan tarih ya da gövde komşu
+    // duyuruya ait olabilir. Bu durumda yalnızca bağlantının kendi metni kullanılır.
+    const row = $(candidate.element).closest(config.rowSelector);
+    const sharedRow =
+      row.length > 0 &&
+      row
+        .find('a[href]')
+        .toArray()
+        .filter((anchor) => candidateElements.has(anchor as AnyNode)).length > 1;
+    const rowText = sharedRow ? anchorText : elementText(row, 900) || anchorText;
     const title = cleanTitle(anchorText.length >= config.minTitleLength ? anchorText : rowText);
     if (title.length < config.minTitleLength || isChromeLikeTitle(title)) continue;
     entries.push({

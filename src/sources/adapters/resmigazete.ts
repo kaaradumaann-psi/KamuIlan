@@ -17,7 +17,7 @@ import { addDaysDateOnly, toIstanbulDateOnly, toIstanbulIso } from '../../domain
 import { normalizeUrl } from '../../domain/urls';
 import type { JobAttachment, RawAnnouncement } from '../../domain';
 import { AdapterStructureError } from '../errors';
-import { cleanInstitution } from '../listing-utils';
+import { cleanInstitution, ownCardText } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
 import { assertSafeUrl, FetchError, isTransientTransportFailure, type FetchResponse } from '../fetcher';
@@ -635,9 +635,10 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       if (seen.has(href)) return;
       seen.add(href);
 
-      const container = node.closest('td, li, tr, div');
+      // Paylaşılmış hücrede (birden çok PDF) satır metni komşu belgeye ait olabilir: yalnız bağlantı metni.
       const rowText = collapseWhitespace(
-        (container.length > 0 ? container.text() : node.parent().text()) || node.text(),
+        ownCardText(node, 'td, li, tr, div', (value) => (PDF_PATTERN.test(value) ? value : null), 4_000) ??
+          node.text(),
       )
         .replace(/\s*\(?PDF\)?\s*$/i, '')
         .trim();

@@ -15,7 +15,7 @@ import {
   readableAnnouncementText,
   readableText,
 } from '../../lib/html';
-import { cleanTitle, extractReferenceNumbers, parseListingDate } from '../listing-utils';
+import { cleanTitle, extractReferenceNumbers, ownCardText, parseListingDate } from '../listing-utils';
 import { PROVINCES } from '../../domain';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { assertSafeUrl, describeFetchFailure, FetchError, type FetchResponse } from '../fetcher';
@@ -237,13 +237,20 @@ export class IlanGovTrAdapter implements SourceAdapter {
       );
 
     const detailCoverageNotes: string[] = [];
-    if (failedDetailFetches > 0) detailCoverageNotes.push(`${failedDetailFetches} detay isteği başarısız oldu.`);
+    if (failedDetailFetches > 0)
+      detailCoverageNotes.push(`${failedDetailFetches} detay isteği başarısız oldu.`);
     if (detailsWithoutUsableText > 0)
-      detailCoverageNotes.push(`${detailsWithoutUsableText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`);
+      detailCoverageNotes.push(
+        `${detailsWithoutUsableText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`,
+      );
     if (deferredDetails > 0)
-      detailCoverageNotes.push(`${deferredDetails} iç ilan detayı bütçe nedeniyle sonraki taramaya ertelendi.`);
+      detailCoverageNotes.push(
+        `${deferredDetails} iç ilan detayı bütçe nedeniyle sonraki taramaya ertelendi.`,
+      );
     if (deferredExternalRows > 0)
-      detailCoverageNotes.push(`${deferredExternalRows} dış bağlantılı ilan kayıt sınırı nedeniyle sonraki taramaya ertelendi.`);
+      detailCoverageNotes.push(
+        `${deferredExternalRows} dış bağlantılı ilan kayıt sınırı nedeniyle sonraki taramaya ertelendi.`,
+      );
 
     const finalCoverageStatus = detailCoverageNotes.length > 0 ? 'partial' : coverageStatus;
     const finalCoverageNote = [
@@ -416,8 +423,14 @@ function parseListing(html: string, baseUrl: string, allowedHosts: readonly stri
     // Blok sınırları korunarak okunur: kurum / il / tarih kartın ayrı
     // bloklarında durur ve ancak satır satır ayrıştırılabilir.
     const anchorText = blockElementText($(element), 400);
+    // Kart paylaşılmış kapsayıcıysa (birden çok ilan) komşu ilanın il/tarih/unvanı karışmaz.
     const containerText =
-      blockElementText($(element).closest('article, li, .card, .ad-list-item, div'), 900) || anchorText;
+      ownCardText(
+        $(element),
+        'article, li, .card, .ad-list-item, div',
+        (value) => ITEM_ID_PATTERN.exec(value)?.[1] ?? null,
+        900,
+      ) || anchorText;
     const lines = containerText
       .split(/\s{2,}|\n/)
       .map((line) => line.trim())
