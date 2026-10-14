@@ -83,6 +83,72 @@ interface ParsedRow {
 
 const HTML_TAG = /<[^>]+>/g;
 
+/**
+ * Sayfa kabuğundan (menü, erişilebilirlik araç çubuğu, oturum düğmeleri) gelen
+ * kesin arayüz ifadeleri. Bunlar ilan metni değildir; başlığa ya da gövdeye
+ * karışırsa "Daha yüksek erişilebilirlik modunu aç" gibi başlıklar ve sahte kurum/birim
+ * alanları üretir. Yalnızca açık arayüz ifadeleri listelenir (ilan içeriği silinmez).
+ */
+const PAGE_CHROME_PHRASES: readonly string[] = [
+  'Ana içeriğe atla',
+  'Daha yüksek erişilebilirlik modunu aç',
+  'Erişilebilirlik modunu aç',
+  'Oturum Aç',
+  'SharePoint',
+  'Takip Et',
+  'Sıkça Sorulan Sorular',
+  'Kurumsal Kimlik',
+  'Bilgi Güvenliği Politikası',
+  'Teşkilat Şeması',
+];
+const PAGE_CHROME_PATTERN = new RegExp(
+  PAGE_CHROME_PHRASES.map((phrase) => phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+  'gi',
+);
+
+/** Sayfa kabuğu ifadelerini çıkarır ve boşlukları toparlar. */
+export function stripPageChrome(text: string): string {
+  return collapseWhitespace(text.replace(PAGE_CHROME_PATTERN, ' '));
+}
+
+/** Gövde metni kullanılabilir uzunlukta mı? (İlan gövdesi için alt sınır.) */
+const MIN_USABLE_BODY = 120;
+/** Aynı taramada bu kadar ilanda geçen uzun ifade şablon (kurum kabuğu) sayılır. */
+const BOILERPLATE_MIN_DOCS = 5;
+/** Şablon tespitinde kayan pencere uzunluğu (kelime). */
+const BOILERPLATE_WINDOW = 10;
+
+/**
+ * Aynı taramadaki ilanlarda sık tekrarlanan kelime pencerelerini (ör. her YÖK ilanındaki
+ * "BİRİMLER Genel Sekreterlik … Bilgi İşlem Daire Başkanlığı" kurum kabuğu) gövdelerden çıkarır.
+ * Tekrar eden bir ifade bir ilanın özgün içeriği değil, sitenin ortak kabuğudur. En az
+ * BOILERPLATE_MIN_DOCS ilanda geçmeyen ifadelere dokunulmaz (özgün koşullar korunur).
+ */
+export function stripRepeatedBoilerplate(bodies: readonly string[]): string[] {
+  if (bodies.length < BOILERPLATE_MIN_DOCS) return [...bodies];
+  const tokenized = bodies.map((body) => body.split(' ').filter((token) => token.length > 0));
+  const keyOf = (tokens: string[], start: number): string =>
+    normalizeTr(tokens.slice(start, start + BOILERPLATE_WINDOW).join(' '));
+
+  const docsPerWindow = new Map<string, number>();
+  for (const tokens of tokenized) {
+    const seen = new Set<string>();
+    for (let start = 0; start + BOILERPLATE_WINDOW <= tokens.length; start += 1) {
+      seen.add(keyOf(tokens, start));
+    }
+    for (const key of seen) docsPerWindow.set(key, (docsPerWindow.get(key) ?? 0) + 1);
+  }
+
+  return tokenized.map((tokens) => {
+    const covered = new Array<boolean>(tokens.length).fill(false);
+    for (let start = 0; start + BOILERPLATE_WINDOW <= tokens.length; start += 1) {
+      if ((docsPerWindow.get(keyOf(tokens, start)) ?? 0) < BOILERPLATE_MIN_DOCS) continue;
+      for (let index = start; index < start + BOILERPLATE_WINDOW; index += 1) covered[index] = true;
+    }
+    return tokens.filter((_, index) => !covered[index]).join(' ');
+  });
+}
+
 /** JSON'daki TÜM metin değerlerini topla (şemadan bağımsız detay okuma). */
 export function collectApiText(value: unknown, depth = 0): string {
   if (depth > 8) return '';
@@ -122,7 +188,7 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
   const adNo = ad.adNo !== null && ad.adNo !== undefined ? String(ad.adNo).trim() : '';
   const itemId = adNo.length > 0 ? adNo : id.length > 0 ? id : null;
   const detailId = id.length > 0 ? id : adNo;
-  const title = collapseWhitespace(String(ad.title ?? ''));
+  const title = stripPageChrome(String(ad.title ?? ''));
   if (!itemId || !detailId || title.length < 8) return null;
 
   const rawHref = String(ad.urlStr ?? '').trim();
@@ -148,7 +214,7 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
     detailId,
     url: url ?? listingUrl,
     title: title.slice(0, 300),
-    institution: collapseWhitespace(String(ad.advertiserName ?? '')) || null,
+    institution: stripPageChrome(String(ad.advertiserName ?? '')) || null,
     city: collapseWhitespace(String(ad.addressCityName ?? '')) || null,
     publishedAt,
     applicationEndAt: deadlineFromAdFilters(ad.adTypeFilters),
@@ -271,8 +337,8 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
         requestCount += 1;
         httpStatuses.push(detailResponse.status);
         const detailPayload = this.parseJson(detailResponse);
-        const fullText = collectApiText(detailPayload);
-        if (fullText.length > 120) {
+        const fullText = stripPageChrome(collectApiText(detailPayload));
+        if (fullText.length > MIN_USABLE_BODY) {
           bodyTextTruncated = fullText.length > 100_000;
           bodyText = fullText.slice(0, 100_000);
         } else {
@@ -303,6 +369,26 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
         extractionConfidence: bodyText ? 0.8 : 0.5,
       });
     }
+
+    // Aynı taramada tekrarlanan kurum kabuğunu gövdelerden çıkar (ör. birim/kurum bloğu).
+    const bodyIndexes = items.map((item, index) => (item.bodyText ? index : -1)).filter((index) => index >= 0);
+    const cleanedBodies = stripRepeatedBoilerplate(bodyIndexes.map((index) => items[index]?.bodyText ?? ''));
+    bodyIndexes.forEach((itemIndex, position) => {
+      const item = items[itemIndex];
+      if (!item) return;
+      const cleaned = cleanedBodies[position] ?? '';
+      if (cleaned.length > MIN_USABLE_BODY) {
+        item.bodyText = cleaned;
+        item.rawExcerpt = cleaned.slice(0, 400);
+      } else {
+        // Kabuk çıkarıldıktan sonra kalan metin yetersiz: gövde yok sayılır, ilan başlıkla kalır.
+        delete item.bodyText;
+        delete item.rawExcerpt;
+        delete item.bodyTextSource;
+        delete item.bodyTextTruncated;
+        item.extractionConfidence = 0.5;
+      }
+    });
 
     const deferred = Math.max(0, workRows.length - selectedRows.length);
     notes.push(

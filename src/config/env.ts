@@ -110,9 +110,9 @@ const envSchema = z.object({
   /**
    * TÜM etkin kaynaklar için tarama aralığı (dakika).
    *
-   * Test aşamasında 1'e çekilir: veriler dakikada bir toplanır. Üretimde kaynak
-   * temsiline saygı için 30–360 aralığına dönün; kaynakların kendi aralıkları
-   * (src/config/sources.ts) bu değer 0 bırakıldığında kullanılır.
+   * 0: her kaynak kendi aralığıyla taranır (src/config/sources.ts) — önerilen değer.
+   * 15'ten küçük değerler 15'e yükseltilir (kaynakları yıpratmamak için taban).
+   * Kaynak başına aralık yerine tüm kaynakları aynı aralıkla taramak için kullanılır.
    */
   SCAN_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(1_440).default(0),
   WORKER_NAMESPACE: z.string().default('kamuilan'),
@@ -361,10 +361,10 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
       'ALLOW_PUBLIC_REGISTRATION açık: dışarıdan kayıt alınıyor. Kamuİlan politikası gereği üretimde kapalı olmalıdır.',
     );
   }
-  if (env.SCAN_INTERVAL_MINUTES > 0 && env.SCAN_INTERVAL_MINUTES < 5) {
+  if (env.SCAN_INTERVAL_MINUTES > 0 && env.SCAN_INTERVAL_MINUTES < 15) {
     warnings.push(
-      `SCAN_INTERVAL_MINUTES=${env.SCAN_INTERVAL_MINUTES}: test aşaması için dakikalık tarama açık. ` +
-        'Üretimde kaynak temsiline saygı için 30–360 dakika önerilir.',
+      `SCAN_INTERVAL_MINUTES=${env.SCAN_INTERVAL_MINUTES}: 15 dakikanın altı kaynakları yıpratır; ` +
+        'tarama aralığı 15 dakikaya yükseltilir. Kaynak başına aralık için 0 bırakın.',
     );
   }
   if (env.APP_SECRET.length < 32) {

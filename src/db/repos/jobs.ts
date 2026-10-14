@@ -3,7 +3,13 @@
  */
 import { createId } from '../../domain/ids';
 import { escapeRegExp, normalizeTr } from '../../domain/text';
-import { toIstanbulDateOnly } from '../../domain/dates';
+import {
+  addDaysDateOnly,
+  isStalePublication,
+  sanePublishedDate,
+  STALE_PUBLICATION_DAYS,
+  toIstanbulDateOnly,
+} from '../../domain/dates';
 import type { JobStatus } from '../../domain';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
@@ -370,6 +376,32 @@ export class JobRepo {
       { status: { $in: ['active', 'upcoming'] }, applicationEndDate: { $lt: todayDateOnly } },
       { status: 'closed', statusReason: 'Başvuru süresi doldu.', updatedAt: now },
     );
+  }
+
+  /**
+   * Son başvuru tarihi hiç olmayan ve yayımından çok geçmiş ilanları kapatır.
+   * Eski kayıtlar (ör. 2008/2018 yayımlı) yeniden işlenmeden de bu bakımda düzelir.
+   */
+  async closeStalePublications(todayDateOnly: string, maxAgeDays = STALE_PUBLICATION_DAYS): Promise<number> {
+    const cutoff = addDaysDateOnly(todayDateOnly, -maxAgeDays);
+    const candidates = await this.store.find(
+      'jobs',
+      { status: { $in: ['active', 'upcoming', 'unknown'] }, publishedAt: { $lt: cutoff } },
+      { limit: 5_000 },
+    );
+    const now = this.clock.now().toISOString();
+    let closed = 0;
+    for (const job of candidates) {
+      if (job.applicationEndDate || job.applicationEndAt) continue;
+      if (!isStalePublication(sanePublishedDate(job.publishedAt, todayDateOnly), todayDateOnly, maxAgeDays)) continue;
+      await this.store.updateOne(
+        'jobs',
+        { id: job.id },
+        { status: 'closed', statusReason: 'Yayımından uzun süre geçti ve son başvuru tarihi belirtilmemiş.', updatedAt: now },
+      );
+      closed += 1;
+    }
+    return closed;
   }
 
   /** Başvurusu bugün başlayan ilanları "aktif" durumuna alır. */

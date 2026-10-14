@@ -141,9 +141,9 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | E-posta | **Resend** (`EMAIL_PROVIDER=resend`) | `RESEND_API_KEY` sunucu tarafında; taşıyıcı HTTPS API'dir, SDK bağımlılığı yoktur |
 | Alternatifler | MongoDB (eski kurulum), SMTP, Docker Compose | Kod tabanı üç depo sürücüsünü ve dört e-posta taşıyıcısını destekler |
 
-**Test aşaması:** `SCAN_INTERVAL_MINUTES=1` (her dakika tarama) ile gelinir; bu
-ayar yalnızca test içindir, üretimde kaynak temsiline saygı için 30–360 dakika
-önerilir (`SCAN_INTERVAL_MINUTES=0` → kaynak başına `intervalMinutes` kullanılır).
+**Tarama aralığı:** `SCAN_INTERVAL_MINUTES=0` (önerilen) her kaynağı kendi aralığıyla
+tarar (60–120 dakika). Pozitif değer tüm kaynaklara aynı aralığı uygular; en küçük değer
+15 dakikadır.
 
 ## Arayüz tasarımı
 

@@ -352,9 +352,10 @@ export class WorkerRuntime {
       case 'deadline-refresh': {
         // Tarihler Türkiye saatine göre karşılaştırılır (gün sınırı Europe/Istanbul).
         const today = toIstanbulDateOnly(now);
-        const closed = await this.repos.jobs.closeExpiredJobs(today);
+        const closedExpired = await this.repos.jobs.closeExpiredJobs(today);
+        const closedStale = await this.repos.jobs.closeStalePublications(today);
         const activated = await this.repos.jobs.activateStartedJobs(today);
-        return { ran: kind, closedJobs: closed, activatedJobs: activated, purged: 0 };
+        return { ran: kind, closedJobs: closedExpired + closedStale, activatedJobs: activated, purged: 0 };
       }
       case 'maintenance': {
         const purgedLocks = await this.repos.locks.purgeExpired();

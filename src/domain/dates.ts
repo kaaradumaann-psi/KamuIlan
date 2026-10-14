@@ -83,6 +83,34 @@ export function diffInDays(fromDateOnly: string, toDateOnlyValue: string): numbe
   return Math.round((to - from) / 86_400_000);
 }
 
+/** Yayımından bu kadar gün sonra, son başvuru tarihi yoksa ilan "kapalı" sayılır. */
+export const STALE_PUBLICATION_DAYS = 60;
+
+/** Yayım tarihini (YYYY-MM-DD ya da ISO) güvenli biçime indirir; gelecek tarih ya da bozuk değer null. */
+export function sanePublishedDate(value: string | null | undefined, todayDateOnly: string): string | null {
+  if (!value) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  if (!match?.[1]) return null;
+  const dateOnly = match[1];
+  if (!isValidDateParts(Number(dateOnly.slice(0, 4)), Number(dateOnly.slice(5, 7)), Number(dateOnly.slice(8, 10)))) {
+    return null;
+  }
+  // Bugünden sonraki yayım tarihi bir veri hatasıdır (ör. 12 Kasım, bugün 14 Ekim).
+  if (dateOnly > todayDateOnly) return null;
+  return dateOnly;
+}
+
+/** Yayımından maxAgeDays günden fazla geçmiş mi? Yayım tarihi yoksa bilinmez → false. */
+export function isStalePublication(
+  publishedDate: string | null | undefined,
+  todayDateOnly: string,
+  maxAgeDays = STALE_PUBLICATION_DAYS,
+): boolean {
+  if (!publishedDate) return false;
+  const age = diffInDays(publishedDate, todayDateOnly);
+  return Number.isFinite(age) && age > maxAgeDays;
+}
+
 export type DeadlineState = 'open' | 'closing-soon' | 'closed' | 'unknown';
 
 /** Son başvuru tarihine göre durum (3 gün ve altı "kapanıyor"). */
