@@ -39,9 +39,15 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
 5. **Değişiklikleri izler** — son başvuru tarihi, şartlar, kontenjan, kapanış,
    başvuru bağlantısı, geri çekilme; sürüm ve değişen alan geçmişi tutulur.
 6. **Bildirir** — tercihlerinize uyan yeni ilanlar için Türkçe HTML + düz metin
-   e-posta; benzersiz olay kaydı (idempotent), outbox, yeniden deneme, ölü mektup
-   yönetimi ve teslim kaydı ("sağlayıcı kabul etti" — "teslim edildi" değil).
-7. **Yönetim sağlar** — kaynak CRUD, tarama geçmişi, hata ayrıntıları,
+   e-posta **ve Telegram** (isteğe bağlı bot: `/durum`, `/dur`, `/basla`, `/cik`);
+   benzersiz olay kaydı (idempotent), outbox, yeniden deneme, ölü mektup yönetimi
+   ve teslim kaydı ("sağlayıcı kabul etti" — "teslim edildi" değil).
+7. **Önerir (isteğe bağlı, açık rızayla)** — Panelim'deki "Bana uygun ilanlar"
+   kartı, profilinizi ve açık ilanları karşılaştırarak başvurmaya değer ilanları
+   önerir. Önce aday ilanlar kural tabanlı olarak seçilir; yapay zekâ yalnızca bu
+   adaylar arasından sıralar ve gerekçe yazar. Rıza olmadan veri gönderilmez,
+   model yanıtı doğrulanır, sağlayıcı kullanılamazsa profil eşleştirmesi gösterilir.
+8. **Yönetim sağlar** — kaynak CRUD, tarama geçmişi, hata ayrıntıları,
    sınıflandırma/tekilleştirme inceleme kuyruğu, e-posta kuyruğu, kapsam raporu,
    denetim kaydı (RBAC korumalı). Kapsam şu an **27 kayıtlı kaynak**tır: merkezî
    kaynaklara ek olarak bakanlıklar, başkanlıklar ve düzenleyici kurumlar genel
@@ -109,6 +115,7 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | `npm run seed:demo` | Örnek veri (`provenance: 'sample'`) |
 | `npm run fixtures:pdf` / `fixtures:capture` | Test fixture üretimi / canlı yakalama |
 | `npm run env:check` | Ortam değişkeni doğrulaması (eksik/tehlikeli ayar uyarıları) |
+| `npm run telegram:webhook -- info\|set\|delete` | Telegram webhook durumu / kurulumu / kaldırılması (https zorunlu) |
 
 ## Mimari ve belgeler
 
@@ -117,7 +124,7 @@ Docker ile: `cd infra/docker && docker compose up --build`
 - [Arşiv: uçtan uca denetim — 13 Ekim 2026](./docs/denetim-raporu-2026-10-13.md)
 - [Arşiv: doğrulama kaydı — 13 Ekim 2026](./docs/dogrulama-2026-10-13.md)
 - [Mimari](./docs/architecture.md) — katmanlar, uçtan uca akış, kararlar
-- [Kurulum ayrıntıları](./docs/setup.md) — Supabase/Cloudflare/Resend anahtarları, davet akışı
+- [Kurulum ayrıntıları](./docs/setup.md) — Supabase/Cloudflare/Resend anahtarları, davet akışı, Telegram botu, yapay zekâ sağlayıcısı
 - [Kaynaklar ve kapsam](./docs/sources.md) — hangi kaynak doğrulandı, hangisi bekliyor
 - [Yeni kaynak ekleme](./docs/source-onboarding.md)
 - [Veri modeli](./docs/data-model.md)

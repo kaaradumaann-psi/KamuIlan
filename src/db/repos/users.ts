@@ -126,6 +126,8 @@ export class UserRepo {
         enabled: false,
         paused: true,
         profilePersonalizationEnabled: false,
+        // Yapay zekâ rızası geri alınır: silinmiş hesabın verisi artık hiçbir hizmete gitmez.
+        aiConsentAt: null,
         candidateProfile: {
           profession: '',
           educationLevel: null,

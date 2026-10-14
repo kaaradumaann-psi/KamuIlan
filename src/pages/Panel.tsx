@@ -20,6 +20,7 @@ import type {
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { TelegramCard } from '../components/TelegramCard';
+import { AiSuggestionsCard } from '../components/AiSuggestionsCard';
 
 const EMPTY_FILTERS: PreferenceFilters = {
   keywords: [],
@@ -565,6 +566,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       )}
 
       {view === 'preferences' && <TelegramCard />}
+      {view === 'preferences' && <AiSuggestionsCard />}
 
       {view === 'history' && (
         <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">

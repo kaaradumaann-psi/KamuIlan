@@ -89,3 +89,17 @@ gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
 - Taranmış PDF'ler için OCR hattı (bilinçli olarak eklenmedi; maliyet/doğruluk
   dengesi tartışılmalı).
 - Çoklu dil (şimdilik yalnızca Türkçe).
+
+## Telegram ve yapay zekâ önerileri
+
+- **Telegram**: Bildirim metni düz HTML olarak gönderilir; bot yalnızca özel sohbeti kabul eder ve grup
+  bildirimi yoktur. Telegram teslimi "sağlayıcı kabul etti" kaydıdır; kullanıcının okuduğu garanti edilmez.
+- **Yapay zekâ önerileri**: Aday kümesi kural tabanlıdır (en çok 150 yeni açık ilan taranır, 12 aday
+  gönderilir). Ilanı dışarıda kalan iyi bir eşleşme önerilmez. Model sıralaması ve gerekçeleri öneri
+  niteliğindedir; başvuru koşullarının yerine geçmez ve kullanıcı resmî ilanı kontrol etmelidir.
+- **Önbellek ve kota**: Öneri önbelleği süreç belleğindedir (20 dakika); birden fazla API sürecinde
+  paylaşılmaz ve yeniden başlatmada sıfırlanır. Günlük kota da aynı kovada tutulur; yoğun dağıtımda
+  yeniden başlatma sayacı düşürebilir.
+- **Model kalitesi**: Sağlayıcı ve model değiştirilebilir; Türkçe kamu ilanı üzerindeki kalitesi
+  kurulum öncesinde örnek ilanlarla ölçülmelidir. Uydurma ilan kimlikleri doğrulamada atılır, ancak
+  metin içindeki yanlış gerekçeler doğrulanamaz.

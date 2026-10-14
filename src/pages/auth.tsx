@@ -628,6 +628,17 @@ export function PrivacyPage(): ReactNode {
                     uygun ilanları bildirmek.
                   </>,
                   <>
+                    <strong>Telegram bağlantısı (isteğe bağlı):</strong> Telegram sohbet kimliğiniz ve varsa
+                    Telegram kullanıcı adınız. Amaç: bildirimleri Telegram üzerinden iletmek. Bağlantıyı
+                    botta /cik yazarak veya panelden kaldırabilirsiniz.
+                  </>,
+                  <>
+                    <strong>Yapay zekâ önerileri (isteğe bağlı, açık rızayla):</strong> profilinizdeki meslek,
+                    eğitim düzeyi, bölüm, beceri ve deneyim yılı ile en fazla 12 aday açık ilanın başlık, kurum,
+                    şehir, çalışma biçimi, son başvuru tarihi, kontenjan ve eğitim/bölüm/KPSS koşulları. Ad, e-posta, parola ve kimlik bilgileriniz gönderilmez.
+                    Amaç: size uygun ilanları önermek.
+                  </>,
+                  <>
                     <strong>Kayıt/denetim verileri:</strong> oturum açma zamanı, bildirim gönderim kayıtları,
                     yönetici işlem kayıtları. Amaç: güvenlik ve hesap verebilirlik.
                   </>,
@@ -644,7 +655,9 @@ export function PrivacyPage(): ReactNode {
             title: 'Hukuki dayanak',
             body: (
               <p>
-                Bildirim hizmeti için işleme, açık rızanıza ve hizmetin ifasına dayanır; hesap oluşturan kişi
+                Bildirim hizmeti için işleme, açık rızanıza ve hizmetin ifasına dayanır. Yapay zekâ destekli
+                öneriler yalnızca açık rızanızla çalışır (KVKK m.5/1); rızanızı panelden istediğiniz zaman geri
+                çekebilirsiniz. Hesap oluşturan kişi
                 parola belirleyerek bu koşulları kabul etmiş sayılır. Güvenlik kayıtları, KVKK m.5/2-f
                 kapsamında meşru menfaatle tutulur.
               </p>
@@ -669,6 +682,16 @@ export function PrivacyPage(): ReactNode {
                       <strong>Resend:</strong> e-posta gönderimi (doğrulama, davet, bildirim). E-postanızın
                       size ulaşması için adresiniz bu hizmetle paylaşılır.
                     </>,
+                    <>
+                      <strong>Telegram (Telegram Messenger):</strong> Telegram bağlıysa bildirim metinleri
+                      Telegram Bot API üzerinden iletilir. Telegram'ın kendi gizlilik koşulları geçerlidir.
+                    </>,
+                    <>
+                      <strong>Yapay zekâ sağlayıcısı:</strong> yalnızca açık rızanız varsa ve yalnızca yukarıda
+                      listelenen alanlar gönderilir. Sağlayıcının adı ve konumu, işletici tarafından yapılandırılan
+                      kurulumda panelde belirtilir; sağlayıcı kendi saklama politikasını uygular. Kamuİlan gönderilen
+                      içeriği kalıcı olarak saklamaz.
+                    </>,
                   ]}
                 />
               </>
@@ -682,6 +705,8 @@ export function PrivacyPage(): ReactNode {
                 items={[
                   'Hesap verileri: hesap silinene kadar.',
                   'Bildirim tercihleri: hesap silinene kadar.',
+                  'Telegram bağlantısı: kaldırılana veya hesap silinene kadar.',
+                  'Yapay zekâ önerileri: sunucu belleğinde en fazla 20 dakika; sağlayıcıya gönderilen içerik saklanmaz, yalnızca sayısal denetim kaydı tutulur.',
                   'Bildirim gönderim kayıtları: en fazla 12 ay.',
                   'Oturum kayıtları: oturum geçerlilik süresi ve en fazla 90 gün.',
                   'Denetim kayıtları (yönetici işlemleri): en fazla 24 ay.',
@@ -804,7 +829,9 @@ export function TermsPage(): ReactNode {
             body: (
               <p>
                 Bildirim göndermek için e-posta adresinin doğrulanmış olması gerekir. Bildirimleri panelden
-                duraklatabilir, her e-postanın altındaki bağlantıyla tümüyle durdurabilirsiniz. Gönderim
+                duraklatabilir, her e-postanın altındaki bağlantıyla tümüyle durdurabilirsiniz. Telegram
+                bildirimlerini botta /dur ile geçici olarak durdurabilir, /cik ile bağlantıyı tamamen
+                kaldırabilirsiniz. Gönderim
                 kaydı, bir e-postanın sağlayıcı tarafından kabul edildiğini gösterir; teslim garantisi vermez.
               </p>
             ),

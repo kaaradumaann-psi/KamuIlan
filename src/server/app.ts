@@ -36,6 +36,7 @@ import { registerHealthRoutes } from './routes/health';
 import { registerJobRoutes } from './routes/jobs';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerTelegramRoutes, TELEGRAM_WEBHOOK_PATH } from './routes/telegram';
+import { registerAiRoutes } from './routes/ai';
 import { registerSourceRoutes } from './routes/sources';
 
 export interface BuildAppOptions {
@@ -235,6 +236,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerAuthRoutes(app, repos);
   registerNotificationRoutes(app, repos);
   registerTelegramRoutes(app, repos);
+  registerAiRoutes(app, repos);
   registerAdminRoutes(app, repos);
 
   if (options.serveStatic && env.NODE_ENV === 'production') {

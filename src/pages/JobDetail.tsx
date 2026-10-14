@@ -225,7 +225,7 @@ export function JobDetailPage(): ReactNode {
               </div>
             )}
             <p className="text-muted-sm">
-              Karşılaştırma bu tarayıcıda yapılır; profiliniz haricî bir AI hizmetine gönderilmez. İlanın
+              Karşılaştırma bu tarayıcıda yapılır; bu karşılaştırma için profiliniz hiçbir hizmete gönderilmez. İlanın
               resmî metnini ve tüm kadro koşullarını başvuru öncesi kontrol edin.
             </p>
             <Link to="/panel">Profil ve gizlilik ayarlarını düzenle</Link>

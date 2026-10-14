@@ -170,3 +170,18 @@ faaliyetlerini durdurmak için worker sürecini durdurun.
 - Günlükler pino ile JSON yazılır; e-posta adresleri maskelenir (`t***@ornek.test`).
 - Sırlar loglanmaz; `describeEnv()` yalnızca maskeli özet verir.
 - Yönetici işlemleri `auditLogs` koleksiyonuna yazılır (kim, ne zaman, ne yaptı).
+
+## 9. Telegram ve yapay zekâ hattı
+
+- **Telegram teslimi**: Bildirimler e-postayla aynı outbox üzerinden gider. 429 yanıtında `retry_after`
+  beklenir; 403 ve bazı 400 yanıtlarında bağlantı `blocked` olur ve bir daha denenmez. Ağ, 5xx,
+  401/404/409 hatalarında yeniden denenir. Durum izleme: Panelde Telegram kartı ve `npm run telegram:webhook -- info`.
+- **Webhook sırrı döndürme**: Yeni sırrı `.env`'e yazın, API'yi yeniden başlatın, ardından
+  `npm run telegram:webhook -- set` çalıştırın. Sıra ters olursa Telegram eski sırla istek atar ve 401 döner.
+- **Yapay zekâ maliyeti**: `AI_DAILY_LIMIT_PER_USER` ile kullanıcı başına günlük çağrı sınırlanır. Sayaç
+  `ai-daily:<kullanıcı>` kovasında tutulur. Sağlayıcı zaman aşımı `LLM_TIMEOUT_MS` ile sınırlıdır.
+- **Yapay zekâ hata ayıklama**: Denetim kaydında yalnızca `ai.suggestions` olayları vardır (`mode`, `candidateCount`,
+  `suggestionCount`, `modelCalled`). Model içeriği ve profil verisi loglanmaz; hata metinlerinde API anahtarı maskelenir.
+- **Acil kapatma**: `AI_ASSISTANT_ENABLED=0` ile API yeniden başlatıldığında uçlar 503 döner ve Panelim'deki
+  "Bana uygun ilanlar" kartı gizlenir (`/api/ai/status` → `enabled: false`). Telegram için `TELEGRAM_BOT_TOKEN`
+  boşaltılıp API yeniden başlatılırsa kanal kapanır; bağlantı kayıtları silinmez ve token geri konduğunda devam eder.

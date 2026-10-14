@@ -520,3 +520,37 @@ export interface TelegramLinkCodeResponse {
   manualCommand: string;
   message: string;
 }
+
+export interface AiStatusResponse {
+  enabled: boolean;
+  providerLabel: string;
+  consent: { given: boolean; at: string | null };
+  profileReady: boolean;
+  dailyLimit: number;
+  remainingToday: number;
+}
+
+export interface AiSuggestionItem {
+  jobId: string;
+  title: string;
+  institution: string;
+  city: string | null;
+  employmentTypeLabel: string;
+  applicationEndDate: string | null;
+  status: string;
+  fit: 'strong' | 'possible' | 'weak';
+  reasons: string[];
+  caveats: string[];
+}
+
+export interface AiSuggestionsResponse {
+  mode: 'ai' | 'profile-fallback' | 'none';
+  generatedAt: string;
+  candidateCount: number;
+  suggestions: AiSuggestionItem[];
+  notice: string | null;
+  cached: boolean;
+  providerLabel: string;
+  remainingToday: number;
+  dailyLimit: number;
+}

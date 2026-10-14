@@ -243,3 +243,31 @@ Ayrıntılar: [deployment.md](./deployment.md).
 | `Veritabanına erişilemiyor` (Supabase)                    | `POSTGRES_URL` havuz (pooler) adresi mi, `POSTGRES_SSL=true` mı, Supabase'de IP kısıtı var mı kontrol edin.                                                                                                                                                                                                                                                                  |
 | E-posta gönderilmiyor (üretim)                            | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar.                                                                                                                                                                                                                                                                   |
 | Davet e-postası gelmiyor                                  | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır.                                                                                                                                                                                                                                                                                  |
+
+## 8. Telegram bildirimleri (isteğe bağlı)
+
+Telegram kanalı, e-posta bildirimlerine ek olarak çalışır; tanımsızken tamamen kapalıdır.
+
+1. Telegram'da **@BotFather** ile `/newbot` komutunu verin; bot **kullanıcı adını** (`…bot` ile biter) ve **token**'ı alın.
+2. `.env` dosyasına yazın (token ve sır asla istemciye gitmez):
+   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` (`@` olmadan)
+   - `TELEGRAM_WEBHOOK_SECRET` — `openssl rand -hex 32` ile üretin. Token tanımlıyken üretimde zorunludur.
+3. `APP_BASE_URL` herkese açık bir **https** adres olmalıdır. Ardından:
+   ```bash
+   npm run telegram:webhook -- info    # bot kimliği ve webhook durumu
+   npm run telegram:webhook -- set     # APP_BASE_URL/api/telegram/webhook adresini kurar
+   ```
+4. Kullanıcı Panelim'deki **Telegram bildirimleri** kartında "Telegram'a bağla" düğmesine basar. Açılan bağlantıdan botu başlatabilir ya da gösterilen kodu botta `/start <kod>` olarak gönderebilir; kart bağlantı kurulana kadar durumu kendiliğinden kontrol eder. Bot komutları: `/durum`, `/dur`, `/basla`, `/cik`, `/yardim`.
+
+Sorun giderme: webhook isteği 401 dönüyorsa `TELEGRAM_WEBHOOK_SECRET` değeri ile webhook'a kurulan sır aynı değildir; 404 dönüyorsa sır hiç tanımlı değildir. Bot engellenmişse (403) bağlantı otomatik `blocked` durumuna geçer ve kullanıcı panelde bilgilendirilir.
+
+## 9. Yapay zekâ önerileri (isteğe bağlı, açık rızayla)
+
+Varsayılan **kapalıdır** (`AI_ASSISTANT_ENABLED=0`). Açmak için:
+
+- `AI_ASSISTANT_ENABLED=1`, `LLM_BASE_URL` (OpenAI uyumlu, `https://`), `LLM_API_KEY`, `LLM_MODEL` tanımlanmalıdır. Eksikse uygulama başlamaz (`npm run env:check` nedenini söyler).
+- `AI_PROVIDER_LABEL` kullanıcının rıza ekranında gördüğü sağlayıcı adıdır; gerçek sağlayıcıyı doğru yazın.
+- `AI_DAILY_LIMIT_PER_USER` (öntanımlı 5) kullanıcı başına günlük model çağrısını sınırlar; sınır dolunca profil eşleştirmesi gösterilir ve hata oluşmaz.
+- Açmadan önce gizlilik sayfasındaki (`/gizlilik`) KVKK metnini ve sağlayıcının veri işleme koşullarını gözden geçirin. Gönderilen alanlar `docs/security-kvkk.md` içinde listelidir.
+
+Akış: kullanıcı profilini doldurur → Panelim'de rızasını verir → kart, kural tabanlı aday ilanları (en çok 12) ve sağlayıcı yanıtını gösterir. Rıza geri çekildiğinde veya hesap silindiğinde önbellek temizlenir.

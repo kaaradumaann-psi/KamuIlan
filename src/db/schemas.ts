@@ -333,7 +333,7 @@ export const notificationPreferenceSchema = z.object({
   notifyOnChanges: z.boolean(),
   includeWorkerJobs: z.boolean(),
   includeAcademicJobs: z.boolean(),
-  /** Profile matching is opt-in; profile text is never sent to a third-party model. */
+  /** İlan sayfasında profil eşleştirmesi (kural tabanlı, dış hizmet yok). Yapay zekâ bundan bağımsızdır. */
   profilePersonalizationEnabled: z.boolean().default(false),
   /**
    * Yapay zekâ destekli öneriler için AÇIK RIZA zamanı (ISO). Null = rıza yok.
