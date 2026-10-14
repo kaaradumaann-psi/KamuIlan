@@ -189,8 +189,9 @@ export function extract(input: ExtractionInput): ExtractedJob {
 
   // --- İl / ilçe -----------------------------------------------------------
   const cityFromListing = cleanText(listing.city);
-  const cityCandidates = extractCityCandidates(haystack);
-  const cityFromText = cityCandidates[0] ?? null;
+  const textCity = chooseCityFromText(title, body);
+  const cityCandidates = textCity.candidates;
+  const cityFromText = textCity.city;
   const city = cityFromListing ?? cityFromText;
   if (city) {
     setField('city', cityFromListing ? 'listing' : sourceForEvidence(input, city), city);
@@ -203,9 +204,9 @@ export function extract(input: ExtractionInput): ExtractedJob {
     setField('city', 'unstated', null);
     uncertainties.push('İl bilgisi belirtilmemiş.');
   }
-  if (!cityFromListing && cityCandidates.length > 1) {
+  if (!cityFromListing && cityCandidates.length > 1 && !cityFromText) {
     uncertainties.push(
-      `İlan metninde birden çok il geçiyor (${cityCandidates.slice(0, 4).join(', ')}); ilk geçen il kaydedildi, elle doğrulanmalı.`,
+      `İlan metninde birden çok il geçiyor (${cityCandidates.slice(0, 4).join(', ')}) ve görev yeri belirtilmemiş; il atanmadı, elle doğrulanmalı.`,
     );
   }
 
@@ -520,6 +521,29 @@ export function extractCityCandidates(text: string): string[] {
     if (name && !found.includes(name)) found.push(name);
   }
   return found;
+}
+
+/** Görev yeri ipucu: "görev yeri: Ankara", "çalışma yeri - İzmir" gibi açık ifadeler. */
+const CITY_CUE_PATTERN =
+  /(?:gorev\s*yeri|calisma\s*yeri|calisilacak\s*(?:il|yer)|atama\s*(?:yeri|ili)|\bil\s*:)\s*[:\-]?\s*(.{0,40})/g;
+
+/**
+ * Metinden kadronun ili. Öncelik: açık görev yeri ipucu; yoksa metinde TEK bir il.
+ * Birden çok il geçiyor ve ipucu yoksa il null döner (ilk geçen ilin seçilmesi kadronun
+ * yanlış ile atanmasına yol açardı: bkz. kurum merkezi, nav menüsü ve başka birimler).
+ */
+export function chooseCityFromText(
+  title: string,
+  body: string,
+): { city: string | null; candidates: string[]; byCue: boolean } {
+  const text = `${title}\n${body}`;
+  const candidates = extractCityCandidates(text);
+  for (const match of normalizeTr(text).matchAll(CITY_CUE_PATTERN)) {
+    const city = extractCityCandidates(match[1] ?? '')[0];
+    if (city) return { city, candidates, byCue: true };
+  }
+  if (candidates.length === 1) return { city: candidates[0] ?? null, candidates, byCue: false };
+  return { city: null, candidates, byCue: false };
 }
 
 /** İlan metninden il: ilk geçen il adı. Birden çok il geçiyorsa engine uyarı ekler. */
