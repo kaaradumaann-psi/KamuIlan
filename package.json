@@ -24,6 +24,7 @@
     "test:e2e": "playwright test",
     "test:e2e:local": "playwright test e2e/smoke.spec.ts --project=chromium",
     "test:live": "tsx scripts/live-check.ts",
+    "audit:drain": "tsx scripts/audit-list-drain.ts",
     "start": "tsx src/server/main.ts",
     "start:worker": "tsx src/worker/main.ts",
     "env:check": "tsx scripts/check-env.ts",

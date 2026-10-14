@@ -15,6 +15,7 @@ const collections = [
   'sources',
   'jobs',
   'jobSources',
+  'sourceItemDecisions',
   'jobRevisions',
   'users',
   'sessions',

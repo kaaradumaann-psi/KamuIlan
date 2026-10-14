@@ -610,6 +610,15 @@ function itemIdOf(url: string): string | null {
     // yolun sonu her ilanda aynıysa sorgudaki sayısal kimliği ekle.
     const queryId = [...parsed.searchParams.values()].find((value) => /^\d{3,}$/.test(value)) ?? null;
     if (queryId && tail && !tail.endsWith(queryId)) return `${tail}-${queryId}`;
+    // Yol sonu jenerikse (ör. /TR-120694/duyuru-detay) kimlik önceki sayısal
+    // segmenttedir: yalnız "duyuru-detay" kullanılırsa listedeki TÜM ilanlar
+    // aynı kimliği alır ve yalnız ilki işlenir, kalanları kaybolur.
+    if (tail && !/\d/.test(tail)) {
+      const segments = pathname.split('/').filter(Boolean);
+      segments.pop();
+      const prior = [...segments].reverse().find((segment) => /\d{3,}/.test(segment));
+      if (prior) return `${prior}-${tail}`;
+    }
     return tail ?? queryId;
   } catch {
     return null;
