@@ -66,7 +66,7 @@ function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
       if (source.verified)
         return (
           <Tag tone="info" icon="check">
-            yöntemi doğrulandı
+            tarihsel doğrulama
           </Tag>
         );
       if (source.built)
