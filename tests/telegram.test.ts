@@ -317,6 +317,18 @@ describe('Bot API istemcisi', () => {
     });
   });
 
+  it('bağlantı önizlemesi Bot API 7+ alanıyla kapatılır (eski disable_web_page_preview yok)', async () => {
+    const fake = fakeTelegram();
+    const client = new TelegramBotClient({
+      token: CONFIG.token,
+      apiBaseUrl: CONFIG.apiBaseUrl,
+      fetchImpl: fake.fetch,
+    });
+    await client.sendMessage({ chatId: CHAT_ID, text: 'x' });
+    expect(fake.calls[0]?.body['link_preview_options']).toEqual({ is_disabled: true });
+    expect(fake.calls[0]?.body['disable_web_page_preview']).toBeUndefined();
+  });
+
   it('hata sınıflandırması: engel, yeniden deneme, kalıcı', () => {
     const fail = (errorCode: number | null, description: string, kind: 'api' | 'network' = 'api') => ({
       ok: false as const,

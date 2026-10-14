@@ -132,7 +132,8 @@ export class TelegramBotClient {
       chat_id: input.chatId,
       text: input.text,
       parse_mode: 'HTML',
-      disable_web_page_preview: true,
+      // Bot API 7.0+: disable_web_page_preview yerine link_preview_options (önizleme kapalı).
+      link_preview_options: { is_disabled: true },
       ...(input.buttons && input.buttons.length > 0
         ? {
             reply_markup: {
