@@ -102,7 +102,9 @@ export class FileStore implements StoragePort {
     if (this.closed) return;
     this.closed = true;
     await this.writeQueue;
-    this.flush();
+    // Her mutasyon kendi flush'ını yapar (mutate). Burada yeniden yazmak gereksizdir: salt okuyan
+    // bir işlem (ör. dry-run) dosyayı değiştirmemeli. Yarım kalmış bir mutasyonun belleğini de
+    // diske taşımamak için flush burada yapılmaz.
   }
 
   /**
