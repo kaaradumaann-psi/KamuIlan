@@ -16,6 +16,7 @@
  * başlıklarında uygulanır.
  */
 import type { EmploymentType } from '../domain';
+import { SITE_CHROME_TITLE_PATTERN } from '../domain/text';
 
 export interface KeywordRule {
   id: string;
@@ -269,6 +270,32 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
     weight: 0,
   },
   {
+    // Sayfa kabuğu: menü, erişilebilirlik, çerez metni. Kaynak adaptörü bunları
+    // bağlantı olarak almışsa (örn. İçişleri "Sizlere daha iyi hizmet…") kayıt olmamalı.
+    id: 'ret-baslik.sayfa-arayuzu',
+    reason: 'Başlık sayfa menüsü, erişilebilirlik ya da çerez metni — ilan değil',
+    pattern: SITE_CHROME_TITLE_PATTERN,
+    weight: 0,
+  },
+  {
+    // Kategori/liste sayfası: "Kamu Memur Alım İlanları", "Kurumdışı Kamu İşçi Alım ..."
+    // (normalizasyon noktaları boşluğa çevirir, bu yüzden `...` kısaltması da düşer).
+    id: 'ret-baslik.kategori-sayfasi',
+    reason: 'Başlık ilan kategorisi/liste sayfası — tek bir ilan değil',
+    pattern:
+      /\b(?:kamu|kurumdisi)\s+(?:memur|isci|personel)\s+alim\w*(?:\s+ilanlari)?$|\balim\w*\s+ilanlari$/,
+    weight: 0,
+  },
+  {
+    // Yalnızca birim/daire adı: "PERSONEL DAİRESİ BAŞKANLIĞI", "… ETÜT VE PROJELENDİRME DAİRESİ BAŞKANLIĞI".
+    // Kurum dizinindeki birim bağlantısıdır; alım/sınav/ilan kelimesi taşımayan başlık ilan sayılmaz.
+    id: 'ret-baslik.sadece-birim-adi',
+    reason: 'Başlık yalnızca bir birim/daire adı — ilan başlığı değil',
+    pattern:
+      /^(?!.*\b(?:alim|sinav|ilan|duyur|basvuru|sozlesmeli|giris|kadro|uzman|memur|isci|kura|sonuc|istihdam|kontenjan|tercih|yeterlik|gorevde)\w*)(?:.*\s)?(?:daire\s+baskanligi|genel\s+mudurlugu|baskanligi|mudurlugu)$/,
+    weight: 0,
+  },
+  {
     id: 'ret-baslik.proje-cagri',
     reason: 'Başlık proje/hibe çağrısı ya da destek programı — iş ilanı değil',
     pattern: /\b(?:proje\s+cagri\w*|cagrisi\s+acildi|cagri\s+acildi|hibe\s+programi\w*|destek\s+programi\w*)/,
@@ -373,7 +400,7 @@ export const PROCESS_TITLE_CONTEXT_PATTERN =
   /\b(?:personel\w*|alim\w*|isci\w*|memur\w*|sozlesmeli\w*|kadro\w*|istihdam\w*|uzman\s+yardimci\w*)\b/;
 
 export const PROCESS_TITLE_SIGNAL_PATTERN =
-  /\b(?:kura\w*|cagrilacak\s+adaylar|sinav\s+(?:yeri|tarih|metin|sonuc|takvim|kilavuz)\w*|sozlu\s+sinav\w*|uygulamali\s+sinav\w*|mulakat\w*|sonuc\w*|kazanan\w*|yedek\s+liste\w*|asil\s+ve\s+yedek\w*|nihai\s+liste\w*)/;
+  /\b(?:kura\w*|cagrilacak\s+adaylar|sinav\s+(?:yeri|tarih|metin|sonuc|takvim|kilavuz)\w*|sozlu\s+sinav\w*|uygulamali\s+sinav\w*|mulakat\w*|sonuc\w*|kazanan\w*|yedek\s+liste\w*|asil\s+ve\s+yedek\w*|yedek\s+aday\w*|nihai\s+liste\w*)/;
 
 /** Bu ifadelerden biri varsa başlık süreç duyurusu sayılmaz (kurum içi, eğitim, yer değiştirme vb.). */
 export const PROCESS_TITLE_EXCLUDE_PATTERN =

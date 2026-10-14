@@ -19,7 +19,7 @@ import {
   readableText,
   stripPageChrome,
 } from '../../lib/html';
-import { collapseWhitespace, makeExcerpt, normalizeTr } from '../../domain/text';
+import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from '../../domain/text';
 import { cleanTitle, parseListingDate } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
@@ -77,11 +77,8 @@ function listingDocumentIdentity(value: string): string | null {
 }
 
 function isChromeLikeTitle(value: string): boolean {
-  const normalized = normalizeTr(value);
-  if (normalized.length > 180) return true;
-  return /(?:sharepoint|oturum ac|erisilebilirlik|ana icerige atla|sayfa haritasi|^anasayfa$|^duyurular$|^haberler$|^iletisim$)/.test(
-    normalized,
-  );
+  if (normalizeTr(value).length > 180) return true;
+  return isSiteChromeTitle(value);
 }
 
 function isClearlyEmptyListingPage(html: string): boolean {
@@ -428,17 +425,19 @@ export class AnchorListAdapter implements SourceAdapter {
     const candidatesByItemId = new Map<string, ListEntry>();
     for (const entry of entries) {
       const itemId = itemIdOf(entry.url);
-      if (!itemId || entry.title.length < this.config.minTitleLength || candidatesByItemId.has(itemId)) continue;
+      if (!itemId || entry.title.length < this.config.minTitleLength || candidatesByItemId.has(itemId))
+        continue;
       candidatesByItemId.set(itemId, entry);
     }
     if (candidatesByItemId.size < entries.length) {
-      notes.push(`${entries.length - candidatesByItemId.size} yinelenen/geçersiz bağlantı tekilleştirildi veya atlandı.`);
+      notes.push(
+        `${entries.length - candidatesByItemId.size} yinelenen/geçersiz bağlantı tekilleştirildi veya atlandı.`,
+      );
     }
     const eligible = [...candidatesByItemId.entries()]
       .map(([itemId, entry]) => ({ entry, itemId }))
       .filter(
-        (candidate) =>
-          !seen.has(candidate.itemId) || (fetchDetail && !knownWithDetail.has(candidate.itemId)),
+        (candidate) => !seen.has(candidate.itemId) || (fetchDetail && !knownWithDetail.has(candidate.itemId)),
       );
     const fresh = eligible.filter((candidate) => !seen.has(candidate.itemId));
     const pendingDetail = eligible.filter((candidate) => seen.has(candidate.itemId));
@@ -500,15 +499,16 @@ export class AnchorListAdapter implements SourceAdapter {
     const detailCoverageNotes: string[] = [];
     if (failedDetailReads > 0) detailCoverageNotes.push(`${failedDetailReads} detay isteği başarısız oldu.`);
     if (detailPagesWithoutText > 0)
-      detailCoverageNotes.push(`${detailPagesWithoutText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`);
+      detailCoverageNotes.push(
+        `${detailPagesWithoutText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`,
+      );
     if (deferred > 0)
       detailCoverageNotes.push(`${deferred} yeni/eksik detay bütçe nedeniyle sonraki taramaya ertelendi.`);
     const finalCoverage = {
       status: detailCoverageNotes.length > 0 ? ('partial' as const) : coverage.status,
       note: [coverage.note, ...detailCoverageNotes].join(' '),
     };
-    if (detailCoverageNotes.length > 0)
-      notes.push(`Detay kapsamı kısmi — ${detailCoverageNotes.join(' ')}`);
+    if (detailCoverageNotes.length > 0) notes.push(`Detay kapsamı kısmi — ${detailCoverageNotes.join(' ')}`);
 
     return {
       items,

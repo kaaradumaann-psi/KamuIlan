@@ -57,6 +57,19 @@ export function normalizeTr(value: string): string {
   );
 }
 
+/**
+ * Kurum sitelerinin menü, erişilebilirlik ve çerez metinleri. Başlık olarak
+ * geçtiğinde kayıt bir ilan değil sayfa kabuğudur. Normalize edilmiş metinde
+ * (küçük harf, Türkçe harf sadeleşmiş) aranır.
+ */
+export const SITE_CHROME_TITLE_PATTERN =
+  /\b(?:daha yuksek erisilebilirlik|erisilebilirlik (?:menusu|ayar\w*|modu\w*)|erisilebilirlik$|ana icerige atla|serit komutlar\w*|sayfa haritasi|sharepoint|oturum ac\b|sizlere daha iyi hizmet|cerez\w*|cookie\w*|kabul ediyorum|hizlierisim|anasayfa\s*\/|ana sayfa\b|tarih araligi|sikca sorulan|teskilat semasi|bakanimiz hakkimizda|bilgi guvenligi politikas\w*|bakanlik bakanlik|secili alan okuyucu|okuma kilavuzu)\b|^(?:anasayfa|duyurular|haberler|iletisim)$/;
+
+/** Başlık site kabuğu (menü/çerez/erişilebilirlik) metni mi? */
+export function isSiteChromeTitle(value: string): boolean {
+  return SITE_CHROME_TITLE_PATTERN.test(normalizeTr(value));
+}
+
 export function collapseWhitespace(value: string): string {
   return value.replace(/[\s\u00A0\u2028\u2029]+/g, ' ').trim();
 }

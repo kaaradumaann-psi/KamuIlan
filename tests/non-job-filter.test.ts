@@ -107,7 +107,6 @@ describe('gerçek personel ilanları kabul edilir', () => {
       'Savunma Sanayii Uzman Yardımcılığı Giriş Sınavı',
       'Uzman yardımcısı olarak istihdam edilmek üzere aday alınacaktır.',
     ],
-    ['Kamu Memur Alım İlanları', 'Kamu kurumlarında memur alım ilanları listelenmektedir.'],
     ['TMSF Personel Alım İlanı 2026', 'TMSF bünyesinde personel alımı yapılacaktır.'],
   ];
   for (const [title, body] of JOB_TITLES) {

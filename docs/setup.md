@@ -31,7 +31,7 @@ yedeği Playwright'ın kendi kimliğini kullanır; tarayıcı kimliği taklit ed
 kapatılmaz. Yedeğin canlı kaynakta çalışıp çalışmadığını ayrı görmek için:
 
 ```bash
-npm run probe:resmigazete   # HTTP ve Chromium sonuçlarını ayrı ayrı yazar (veritabanına yazmaz)
+npm run probe:resmigazete   # adaptörün gerçek bölüm sayfasını (HTTP ve Chromium) ayrı ayrı dener; yapı teşhisi yazar (veritabanına yazmaz)
 ```
 
 E2E testleri için tarayıcı gerekir:
