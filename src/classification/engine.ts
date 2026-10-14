@@ -13,6 +13,7 @@
  *  - Puan < 1.5 → `reject` (gerekçe kayda geçer) — hiçbir kayıt sessizce atılmaz,
  *    karar ve gerekçe scrapeRuns/inceleme kuyruğunda tutulur.
  */
+import { contentTypeOf } from './content-type';
 import { makeExcerpt, normalizeTr } from '../domain/text';
 import type { ClassificationResult, EmploymentType } from '../domain';
 import { CLASSIFICATION_VERSION } from '../config/app';
@@ -84,7 +85,7 @@ export function detectEmploymentType(title: string, body: string): { type: Emplo
  * Ana sınıflandırma fonksiyonu. Saf fonksiyondur: aynı girdi her zaman aynı
  * sonucu verir (test edilebilirlik).
  */
-export function classify(input: ClassificationInput): ClassificationResult {
+function classifyCore(input: ClassificationInput): ClassificationResult {
   const titleText = normalizeForClassification(input.title ?? '');
   const bodyText = normalizeForClassification(input.body ?? '');
   const categoryText = normalizeForClassification(input.sourceCategory ?? '');
@@ -322,6 +323,21 @@ export function classify(input: ClassificationInput): ClassificationResult {
     negativeSignals: negatives.map((rule) => rule.reason),
     version: CLASSIFICATION_VERSION,
   };
+}
+
+/**
+ * Ana sınıflandırma: karar + kind + kurallar, ardından deterministik içerik türü.
+ * Saf fonksiyondur.
+ */
+export function classify(input: ClassificationInput): ClassificationResult {
+  const result = classifyCore(input);
+  const contentType = contentTypeOf({
+    decision: result.decision,
+    kind: result.kind,
+    rules: result.rules,
+    normalizedTitle: normalizeForClassification(input.title ?? ''),
+  });
+  return { ...result, contentType };
 }
 
 /**

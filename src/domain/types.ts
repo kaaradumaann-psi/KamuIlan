@@ -180,6 +180,20 @@ export interface RawAnnouncement {
 export const CLASSIFICATION_KINDS = ['job', 'process'] as const;
 export type ClassificationKind = (typeof CLASSIFICATION_KINDS)[number];
 
+/** İçerik türü: sınıflandırmanın nedeni olarak içeriğin ne olduğu (bkz. classification/content-type.ts). */
+export const CONTENT_TYPES = [
+  'personnel_recruitment',
+  'personnel_process_announcement',
+  'student_admission',
+  'education_program',
+  'news',
+  'event',
+  'report_or_publication',
+  'other',
+  'uncertain',
+] as const;
+export type ContentType = (typeof CONTENT_TYPES)[number];
+
 export interface ClassificationResult {
   decision: ClassificationDecision;
   kind: ClassificationKind;
@@ -189,6 +203,8 @@ export interface ClassificationResult {
   rules: string[];
   negativeSignals: string[];
   version: string;
+  /** Deterministik içerik türü (eski kayıtlarda yoktur). */
+  contentType?: ContentType;
 }
 
 export interface JobClassification extends ClassificationResult {
