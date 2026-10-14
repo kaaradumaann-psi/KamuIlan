@@ -419,6 +419,26 @@ export const PROCESS_BYPASS_RULE_IDS: ReadonlySet<string> = new Set([
   'ret-baslik.ogrenci-kabul-tercih',
 ]);
 
+/**
+ * Kurum içi görevde yükselme sınavı ve tercih duyuruları (mevcut personel). Yeni personel
+ * alımı değildir; süreç duyurusu olarak akışta kalır, bildirim üretmez. Yalnızca "görevde
+ * yükselme" ifadesi ile sınav/tercih sinyali birlikte geçen başlıklar bu kapsamdadır; yer
+ * değiştirme, öğrenci, basın vb. dışlamalar aynen geçerlidir.
+ */
+export const INTERNAL_PROMOTION_CONTEXT_PATTERN = /\bgorevde\s+yukselme\w*/;
+export const INTERNAL_PROMOTION_SIGNAL_PATTERN = /\b(?:sinav\w*|tercih\w*)\b/;
+export const INTERNAL_PROMOTION_EXCLUDE_PATTERN =
+  /\b(?:yer\s+degistirme\w*|satis\w*|ihale\w*|basin\w*|konferans\w*|ogrenci\w*|yks\b|ek\s+yerlestirme|dikey\s+gecis|rektor\w*|cerez\w*|kira\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|arastirma\s+programlari|proje\s+cagri\w*)/;
+
+/**
+ * Gövdede gerçek başvuru sonuçlarının duyurulduğunu gösteren dar kanıt: sayfa başlığında
+ * "Başvuru Sonuçları" ve sonuç listesine işaret eden "sınava katılma" ifadesi birlikte
+ * geçmeli. Genel bir "sonuç" kelimesi süreç sayılmaz.
+ */
+export const RESULTS_HEADING_PATTERN = /\bbasvuru\s+sonuclari\b/;
+export const RESULTS_LIST_CUE_PATTERN = /\bsinava\s+katilma\w*/;
+export const RESULTS_HEADING_WINDOW = 500;
+
 export const RECRUITMENT_CATEGORY_PATTERN =
   /\b(?:kamu\s*-?\s*akademik\s+personel|personel\s+alim|alim\s+ve\s+sinav|akademik\s+personel\s+alim|kamu\s+personel)/;
 

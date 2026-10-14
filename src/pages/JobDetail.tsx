@@ -124,20 +124,27 @@ export function JobDetailPage(): ReactNode {
           ) : (
             <Tag tone="accent">{employmentTypeLabel(job.employmentType)}</Tag>
           )}
-          <Tag tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
-            {jobStatusLabel(job.status)}
-          </Tag>
-          <Tag
-            tone={
-              job.deadline.state === 'closing-soon'
-                ? 'warning'
-                : job.deadline.state === 'closed'
-                  ? 'neutral'
-                  : 'info'
-            }
-          >
-            {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
-          </Tag>
+          {/* Süreç duyurusunda başvuru durumu ve son başvuru etiketi gösterilmez: "açık" yanılgısı yaratır. */}
+          {job.kind !== 'process' && (
+            <>
+              <Tag
+                tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}
+              >
+                {jobStatusLabel(job.status)}
+              </Tag>
+              <Tag
+                tone={
+                  job.deadline.state === 'closing-soon'
+                    ? 'warning'
+                    : job.deadline.state === 'closed'
+                      ? 'neutral'
+                      : 'info'
+                }
+              >
+                {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
+              </Tag>
+            </>
+          )}
           {job.provenance === 'sample' && <Tag tone="warning">örnek veri (gerçek ilan değil)</Tag>}
         </div>
 
@@ -168,7 +175,7 @@ export function JobDetailPage(): ReactNode {
             </span>
           )}
           <SaveJobButton jobId={job.id} />
-          {job.applicationEndDate && (
+          {job.applicationEndDate && job.kind !== 'process' && (
             <button
               type="button"
               className="btn-secondary"

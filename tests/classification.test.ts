@@ -161,14 +161,16 @@ describe('sınıflandırma: reddedilmesi gerekenler', () => {
     expect(clean.decision).toBe('accept');
   });
 
-  it('Hazine muhasebe uzmanlığı yeterlik sınavını yeni boş kadro sanmaz', () => {
+  it('Hazine muhasebe uzmanlığı yeterlik sınavını yeni boş kadro sanmaz; kurum içi süreç olarak akışta kalır', () => {
     const result = classify({
       title: 'Hazine ve Maliye Bakanlığı Muhasebe Uzmanlığı Yeterlik Sınavı Duyurusu',
       body: 'Sınav, Bakanlıkta Muhasebe Uzman Yardımcısı olarak görev yapan personel için yapılacaktır.',
       sourceCategory: 'Yeterlik Sınavı İlanları',
     });
-    expect(result.decision).toBe('reject');
-    expect(result.reasons.join(' ')).toContain('mevcut görevli personele');
+    expect(result.kind).toBe('process');
+    expect(result.decision).toBe('accept');
+    expect(result.reasons.join(' ')).toContain('Kurum içi yeterlik sınavı');
+    expect(result.rules).toContain('süreç.kurum-ici-yeterlik');
   });
 
   it.each(['Bank Mellat Basın Duyurusu', 'Param Şirketleri Basın Duyurusu'])(
@@ -179,12 +181,13 @@ describe('sınıflandırma: reddedilmesi gerekenler', () => {
     },
   );
 
-  it('görevde yükselme duyurusunu yeni kamu alımı saymaz', () => {
+  it('görevde yükselme sınav duyurusunu yeni kamu alımı saymaz; süreç duyurusu olarak tutar', () => {
     const result = classify({
       title: 'Kurum İçi Görevde Yükselme Sınavı Duyurusu',
       body: 'Mevcut personel için unvan değişikliği yapılacaktır.',
     });
-    expect(result.decision).toBe('reject');
+    expect(result.kind).toBe('process');
+    expect(result.decision).toBe('accept');
   });
 
   it('mevcut personelin yer değiştirme duyurusunu reddeder', () => {

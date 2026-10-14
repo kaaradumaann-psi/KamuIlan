@@ -71,6 +71,9 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   unknown: 'Durum belirsiz',
 };
 
+/** Süreç duyurusunun (kura, sınav, sonuç) gösterilecek durum etiketi. Başvuru durumu değildir. */
+export const PROCESS_STATUS_LABEL = 'Süreç duyurusu';
+
 export const CLASSIFICATION_DECISIONS = ['accept', 'reject', 'review'] as const;
 export type ClassificationDecision = (typeof CLASSIFICATION_DECISIONS)[number];
 

@@ -138,7 +138,8 @@ export function computeStatus(params: {
   // bu tür kayıtlar yalnızca eski bir duyurunun arşiv kopyasıdır.
   const hasNoDeadline = !deadline.applicationEndDate && !endAt;
   if (hasNoDeadline && isStalePublication(sanePublishedDate(params.publishedAt, today), today)) return 'closed';
-  if (hasNoDeadline && !params.applicationStartAt) return 'unknown';
+  // Son başvuru tarihi bilinmiyorsa "başvuru açık" denmez: başlangıç geçmiş olsa bile durum belirsizdir.
+  if (hasNoDeadline) return 'unknown';
   return 'active';
 }
 

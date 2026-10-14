@@ -70,6 +70,10 @@ const PROCESS_TITLES: Array<[string, string]> = [
     'Sözleşmeli sağlık personeli alımı yerleştirme sonuçları ilan edilmiştir.',
   ],
   [
+    'Kurum İçi Görevde Yükselme Sınavı Sonuçları Açıklandı',
+    'Görevde yükselme sınavı sonuçları mevcut personel için ilan edilmiştir.',
+  ],
+  [
     '2026 Yılı Sözleşmeli Personel Alımı Sonuçları Açıklandı',
     'Sözleşmeli personel alımı için başvuru yapan adayların sonuçları ilan edilmiştir.',
   ],
@@ -84,7 +88,6 @@ for (const [title, body] of PROCESS_TITLES) {
 
 const PROCESS_EXCLUDED_TITLES = [
   'Kamu Personeli Yer Değiştirme Sonuçları',
-  'Görevde Yükselme Sınavı Sonuçları Açıklandı',
   'Personel Unvan Değişikliği Sınav Sonuçları',
   'Personel Alımı Basın Duyurusu Sonuçları',
 ];

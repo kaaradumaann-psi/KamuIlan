@@ -22,10 +22,16 @@ import {
   POSITIVE_RULES,
   RECRUITMENT_CATEGORY_PATTERN,
   RECRUITMENT_EVIDENCE_PATTERN,
+  INTERNAL_PROMOTION_CONTEXT_PATTERN,
+  INTERNAL_PROMOTION_EXCLUDE_PATTERN,
+  INTERNAL_PROMOTION_SIGNAL_PATTERN,
   PROCESS_BYPASS_RULE_IDS,
   PROCESS_TITLE_CONTEXT_PATTERN,
   PROCESS_TITLE_EXCLUDE_PATTERN,
   PROCESS_TITLE_SIGNAL_PATTERN,
+  RESULTS_HEADING_PATTERN,
+  RESULTS_HEADING_WINDOW,
+  RESULTS_LIST_CUE_PATTERN,
   SOFT_NEGATIVE_RULES,
   TITLE_REJECT_RULES,
   type KeywordRule,
@@ -88,7 +94,7 @@ export function classify(input: ClassificationInput): ClassificationResult {
       titleText,
     );
   const incumbentExamContext =
-    /\b(?:halihazirda|gorevde\s+bulunan|gorev\s+yapmakta\s+olan|mevcut\s+personel|uzman\s+yardimcisi\s+olarak\s+gorev)/.test(
+    /\b(?:halihazirda|gorevde\s+bulunan|gorev\s+yapmakta\s+olan|mevcut\s+personel|uzman\s+yardimcisi\s+olarak\s+gorev|kadrosunda\s+bulunan\w*|fiili\s+hizmet\s+suresi)/.test(
       bodyText,
     );
   const bodyHasRecruitmentCue =
@@ -101,11 +107,24 @@ export function classify(input: ClassificationInput): ClassificationResult {
     /\bbasin\s+(?:duyurusu|aciklamasi)\b/.test(titleText) &&
     !titleHasRecruitmentCue &&
     !bodyHasRecruitmentCue;
-  if (inServiceQualificationExam || nonRecruitmentPressRelease) {
-    const reason = inServiceQualificationExam
-      ? 'Yeterlik sınavı mevcut görevli personele yönelik görünüyor; yeni işe alım ilanı değil'
-      : 'Basın duyurusu/haber başlığı; personel alımı ilanı olduğuna dair başlık kanıtı yok';
-    const rule = inServiceQualificationExam ? 'ret-baslik.hizmet-ici-yeterlik' : 'ret-baslik.basin-duyurusu';
+  // Kurum içi (mevcut personele yönelik) yeterlik sınavı: yeni dış alım değildir; süreç duyurusu.
+  if (inServiceQualificationExam) {
+    const reason =
+      'Kurum içi yeterlik sınavı (mevcut personele yönelik); yeni dış personel alımı değil, süreç duyurusu olarak akışta kalır';
+    return {
+      decision: 'accept',
+      kind: 'process',
+      employmentType: detectEmploymentType(titleText, bodyText).type,
+      confidence: 0.8,
+      reasons: [reason, 'Kural: süreç.kurum-ici-yeterlik'],
+      rules: ['süreç.kurum-ici-yeterlik'],
+      negativeSignals: [],
+      version: CLASSIFICATION_VERSION,
+    };
+  }
+  if (nonRecruitmentPressRelease) {
+    const reason = 'Basın duyurusu/haber başlığı; personel alımı ilanı olduğuna dair başlık kanıtı yok';
+    const rule = 'ret-baslik.basin-duyurusu';
     return {
       decision: 'reject',
       kind: 'job',
@@ -114,6 +133,26 @@ export function classify(input: ClassificationInput): ClassificationResult {
       reasons: [reason, `Kural: ${rule}`],
       rules: [rule],
       negativeSignals: [reason],
+      version: CLASSIFICATION_VERSION,
+    };
+  }
+
+  // Kurum içi görevde yükselme sınavı / tercih duyurusu: yeni alım değil, süreç duyurusu.
+  const internalPromotionProcess =
+    INTERNAL_PROMOTION_CONTEXT_PATTERN.test(titleText) &&
+    INTERNAL_PROMOTION_SIGNAL_PATTERN.test(titleText) &&
+    !INTERNAL_PROMOTION_EXCLUDE_PATTERN.test(titleText);
+  if (internalPromotionProcess) {
+    const reason =
+      'Kurum içi görevde yükselme sınavı veya tercih duyurusu; yeni personel alımı değil, süreç duyurusu olarak akışta kalır';
+    return {
+      decision: 'accept',
+      kind: 'process',
+      employmentType: 'belirsiz',
+      confidence: 0.8,
+      reasons: [reason, 'Kural: süreç.gorevde-yukselme-sinavi'],
+      rules: ['süreç.gorevde-yukselme-sinavi'],
+      negativeSignals: [],
       version: CLASSIFICATION_VERSION,
     };
   }
@@ -169,6 +208,32 @@ export function classify(input: ClassificationInput): ClassificationResult {
       confidence: 0.8,
       reasons: [reason, 'Kural: süreç.personel-alimi'],
       rules: ['süreç.personel-alimi'],
+      negativeSignals: [],
+      version: CLASSIFICATION_VERSION,
+    };
+  }
+
+  // 2c) Gövdede gerçek başvuru sonuçları (dar kanıt: başlıkta "Başvuru Sonuçları" ve "sınava katılma"
+  //     listesi; başlıkta personel alımı ifadesi zorunlu). Genel "sonuç" kelimesi süreç sayılmaz.
+  const resultsHeadingHead = bodyText.slice(0, RESULTS_HEADING_WINDOW);
+  // Çekimli biçimler ("Alımı") için ayrı kontrol: ortak kalıptaki \b sınırı "alim" + ek biçimini yakalamaz.
+  const titleHasPersonelAlim = /\b(?:personel|memur|isci)\s+alim\w*|\bsozlesmeli\s+personel\b/.test(
+    titleText,
+  );
+  if (
+    titleHasPersonelAlim &&
+    RESULTS_HEADING_PATTERN.test(resultsHeadingHead) &&
+    RESULTS_LIST_CUE_PATTERN.test(bodyText)
+  ) {
+    const reason =
+      'Gerçek personel alımının başvuru sonuçları (sözlü sınava katılmaya hak kazananlar); yeni iş ilanı değil, süreç duyurusu';
+    return {
+      decision: 'accept',
+      kind: 'process',
+      employmentType: detectEmploymentType(titleText, bodyText).type,
+      confidence: 0.75,
+      reasons: [reason, 'Kural: süreç.basvuru-sonuclari-govde'],
+      rules: ['süreç.basvuru-sonuclari-govde'],
       negativeSignals: [],
       version: CLASSIFICATION_VERSION,
     };

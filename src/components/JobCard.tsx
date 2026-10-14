@@ -45,7 +45,9 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
         )}
         {city && <Tag icon="mapPin">{city}</Tag>}
         {job.quota !== null && <Tag icon="user">{`${job.quota} kişi`}</Tag>}
-        <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
+        {job.kind !== 'process' && (
+          <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
+        )}
         {job.provenance === 'sample' && <Tag tone="warning">Örnek veri</Tag>}
         {job.criticalMissingFields && job.criticalMissingFields.length > 0 && (
           <Tag tone="warning">Bazı bilgiler eksik</Tag>

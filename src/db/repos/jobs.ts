@@ -256,7 +256,11 @@ export class JobRepo {
   buildFilter(filters: JobSearchFilters, includeNonAccepted = false): Query {
     const clauses: Query[] = [];
     if (!includeNonAccepted) clauses.push({ 'classification.decision': 'accept' });
-    if (filters.status && filters.status.length > 0) clauses.push({ status: { $in: filters.status } });
+    if (filters.status && filters.status.length > 0) {
+      // Süreç duyurusunun başvuru durumu yoktur: durum filtresi yalnızca iş ilanlarına uygulanır.
+      clauses.push({ status: { $in: filters.status } });
+      clauses.push({ 'classification.kind': { $ne: 'process' } });
+    }
     if (filters.employmentTypes && filters.employmentTypes.length > 0) {
       clauses.push({ employmentType: { $in: filters.employmentTypes } });
     }
@@ -331,7 +335,8 @@ export class JobRepo {
     byEmploymentType: { key: string; count: number }[];
     lastSuccessfulScanAt: string | null;
   }> {
-    const base: Query = { 'classification.decision': 'accept' };
+    // İstatistikler iş ilanlarını sayar; süreç duyuruları "açık ilan" olarak sayılmaz.
+    const base: Query = { 'classification.decision': 'accept', 'classification.kind': { $ne: 'process' } };
     const today = toIstanbulDateOnly(now);
     const soon = toIstanbulDateOnly(new Date(now.getTime() + 7 * 86_400_000));
 

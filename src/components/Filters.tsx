@@ -199,7 +199,13 @@ export function FilterForm({
             id="filter-kind"
             className="filter-select"
             value={filters.kind}
-            onChange={(event) => update({ kind: event.target.value })}
+            onChange={(event) =>
+              update(
+                event.target.value === 'process'
+                  ? { kind: event.target.value, status: '' }
+                  : { kind: event.target.value },
+              )
+            }
           >
             <option value="">Tümü</option>
             <option value="job">İş ilanları</option>
@@ -212,6 +218,8 @@ export function FilterForm({
             id="filter-status"
             className="filter-select"
             value={filters.status}
+            disabled={filters.kind === 'process'}
+            title={filters.kind === 'process' ? 'Süreç duyurularında başvuru durumu yoktur' : undefined}
             onChange={(event) => update({ status: event.target.value })}
           >
             <option value="">Tümü</option>

@@ -55,11 +55,17 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
   });
   // Karar politikası: yalnızca AÇIK ret sinyali (başlık/gövde ret kuralı ya da
   // personel alım kanıtının yokluğu) kararı "reject" yapar. Kayıtta kaynak kategorisi
-  // saklanmadığı için yeniden sınıflandırma kabul/inceleme kararını yükseltmez veya
-  // düşürmez; reddedilmiş kayıt da geri açılmaz (yeniden tarama yeni kayıt getirir).
+  // saklanmadığı için yeniden sınıflandırma kabul/inceleme kararını genel olarak
+  // yükseltmez veya düşürmez. Tek istisna: güncel kurallar kaydı AÇIK bir süreç duyurusu
+  // (kura, sınav, sonuç, kurum içi görevde yükselme) olarak tanıyorsa, reddedilmiş kayıt
+  // süreç olarak akışa geri alınır. Süreç kayıtları iş ilanı bildirimi üretmez.
   const decisionFrom = job.classification.decision;
   const decisionTo: JobDoc['classification']['decision'] =
-    classification.decision === 'reject' ? 'reject' : decisionFrom;
+    classification.decision === 'reject'
+      ? 'reject'
+      : classification.kind === 'process' && classification.decision === 'accept'
+        ? 'accept'
+        : decisionFrom;
   // Tür (job/process): kabul edilmiş kayıtlar dahil her zaman güncel kurala göre güncellenir.
   const kindFrom: ClassificationKind = job.classification.kind ?? 'job';
   const kindTo: ClassificationKind = classification.kind;
