@@ -87,6 +87,7 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 | `POSTGRES_URL`                       | Supabase → Project Settings → Database → Connection string | Sunucu tarafı; havuz bağlantısı önerilir (port 6543)             |
 | `DATABASE_URL`                       | alternatif ad                                              | Bazı sağlayıcılar bu adı verir; ikisinden biri yeterlidir        |
 | `POSTGRES_SSL=true`                  | —                                                          | Supabase TLS ister; `false` yalnızca yerel test için             |
+| `POSTGRES_SSL_CA_FILE`               | —                                                          | Supabase CA PEM yolu. Tanımlanınca sunucu sertifikası doğrulanır; boşsa doğrulama kapalıdır ve uyarı verilir |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API                                             | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır      |
 | `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → API                                             | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz   |
 | `APP_DOMAIN`                         | —                                                          | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı)      |

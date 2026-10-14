@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 /**
  * Depo (storage) seçimi ve tek örnek yönetimi.
  *
@@ -61,6 +62,7 @@ export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE):
       connectionString: postgresUrl(env),
       maxConnections: env.POSTGRES_MAX_CONNECTIONS,
       ssl: env.POSTGRES_SSL,
+      caCertificate: env.POSTGRES_SSL_CA_FILE ? readFileSync(env.POSTGRES_SSL_CA_FILE, 'utf8') : undefined,
     });
   }
   if (driver === 'mongodb') {

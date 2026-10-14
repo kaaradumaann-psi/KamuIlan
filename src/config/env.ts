@@ -93,6 +93,11 @@ const envSchema = z.object({
     .string()
     .default('1')
     .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
+  /**
+   * Veritabanı TLS sertifika zinciri (PEM dosyasının yolu). Tanımlanırsa sunucu sertifikası bu
+   * CA ile DOĞRULANIR. Tanımlı değilse mevcut davranış sürer (doğrulama kapalı) ve uyarı verilir.
+   */
+  POSTGRES_SSL_CA_FILE: z.string().default(''),
   POSTGRES_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(100).default(10),
   /** Supabase proje bilgileri (migration/edge işleri ve panel bağlantıları için). */
   SUPABASE_URL: z.string().default(''),
@@ -325,6 +330,12 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
     if (env.AI_ASSISTANT_ENABLED && env.LLM_BASE_URL && !env.LLM_BASE_URL.startsWith('https://')) {
       problems.push('Üretimde LLM_BASE_URL https:// ile başlamalıdır (kişisel profil verisi taşınır).');
     }
+  }
+  if (hasPostgresConfig(env) && env.POSTGRES_SSL && !env.POSTGRES_SSL_CA_FILE) {
+    warnings.push(
+      'Veritabanı bağlantısında sunucu sertifikası doğrulanmıyor (POSTGRES_SSL_CA_FILE tanımlı değil). ' +
+        'Supabase CA sertifikasının yolunu POSTGRES_SSL_CA_FILE ile belirtin.',
+    );
   }
   if (env.TELEGRAM_BOT_TOKEN) {
     if (!env.TELEGRAM_BOT_USERNAME) {
