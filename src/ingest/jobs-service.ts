@@ -8,7 +8,7 @@
 import { createId, sha256Hex } from '../domain/ids';
 import { jobContentFingerprint } from '../domain/job-content-fingerprint';
 import { collapseWhitespace, escapeRegExp, makeExcerpt, normalizeTr, redactContactDetails } from '../domain/text';
-import { isStalePublication, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
+import { isStalePublication, plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
 import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
@@ -115,7 +115,13 @@ export function computeStatus(params: {
   now: Date;
 }): JobStatus {
   const today = toIstanbulDateOnly(params.now);
-  if (params.applicationEndDate && params.applicationEndDate < today) return 'closed';
+  // Yanlış çıkarılmış son başvuru (1991, yayından önce) "kapandı" yapmasın; mevcut satırlar için de geçerli.
+  const deadline = plausibleApplicationEnd({
+    endAt: params.applicationEndAt,
+    endDate: params.applicationEndDate,
+    publishedAt: params.publishedAt,
+  });
+  if (deadline.applicationEndDate && deadline.applicationEndDate < today) return 'closed';
   if (params.applicationStartAt && new Date(params.applicationStartAt).getTime() > params.now.getTime())
     return 'upcoming';
   // Saat YALNIZCA metinde gerçekten yazılıysa kesin kabul edilir. Çıkarım
@@ -123,18 +129,14 @@ export function computeStatus(params: {
   // kesin sanmak, son başvuru günü BUGÜN olan ilanı gece yarısından sonra
   // "Kapandı" yapıyordu (kullanıcı "son gün" diyor, sistem "kapandı" diyordu).
   // Son başvuru günü, gün bitene kadar açıktır.
-  const endAtHasExplicitTime =
-    params.applicationEndAt !== null && !params.applicationEndAt.includes('T00:00:00');
-  if (
-    endAtHasExplicitTime &&
-    params.applicationEndAt &&
-    new Date(params.applicationEndAt).getTime() < params.now.getTime()
-  ) {
+  const endAt = deadline.applicationEndAt;
+  const endAtHasExplicitTime = endAt !== null && !endAt.includes('T00:00:00');
+  if (endAtHasExplicitTime && endAt && new Date(endAt).getTime() < params.now.getTime()) {
     return 'closed';
   }
   // Son başvuru tarihi hiç yoksa ve ilan çok eskiyse (ör. 2008/2018 yayımlı), açık sayılmaz:
   // bu tür kayıtlar yalnızca eski bir duyurunun arşiv kopyasıdır.
-  const hasNoDeadline = !params.applicationEndDate && !params.applicationEndAt;
+  const hasNoDeadline = !deadline.applicationEndDate && !endAt;
   if (hasNoDeadline && isStalePublication(sanePublishedDate(params.publishedAt, today), today)) return 'closed';
   if (hasNoDeadline && !params.applicationStartAt) return 'unknown';
   return 'active';

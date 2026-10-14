@@ -346,3 +346,21 @@ export function formatDateTr(dateOnly: string | null, withTime?: string | null):
   }).format(date);
   return withTime ? `${formatted} ${withTime}` : formatted;
 }
+
+/**
+ * Son başvuru tarihi, metinden yanlış bir tarih (ör. 1991, ya da yayın tarihinden önce)
+ * yakalandığında kayda girmez: bu durumda kayıt "kapalı" görünürdü. Yayın tarihi bilinmiyorsa
+ * yalnızca makul bir alt sınır (2000) uygulanır.
+ */
+export function plausibleApplicationEnd(input: {
+  endAt: string | null;
+  endDate: string | null;
+  publishedAt: string | null | undefined;
+}): { applicationEndAt: string | null; applicationEndDate: string | null } {
+  const publishedMatch = input.publishedAt ? /^(\d{4}-\d{2}-\d{2})/.exec(input.publishedAt) : null;
+  const published = publishedMatch?.[1] ?? null;
+  const implausible =
+    input.endDate !== null && (input.endDate < '2000-01-01' || (published !== null && input.endDate < published));
+  if (implausible) return { applicationEndAt: null, applicationEndDate: null };
+  return { applicationEndAt: input.endAt, applicationEndDate: input.endDate };
+}

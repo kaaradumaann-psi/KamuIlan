@@ -16,6 +16,7 @@ import {
   formatDateTr,
   parseTurkishDate,
   parseTurkishDateRange,
+  plausibleApplicationEnd,
   toIstanbulDateOnly,
   type ParsedTurkishDate,
 } from '../domain/dates';
@@ -367,8 +368,11 @@ export function extract(input: ExtractionInput): ExtractedJob {
     district,
     quota: quota?.value ?? null,
     applicationStartAt: windowResult.start?.iso ?? cleanText(listing.applicationStartAt),
-    applicationEndAt: windowResult.end?.iso ?? cleanText(listing.applicationEndAt),
-    applicationEndDate: windowResult.end?.dateOnly ?? dateOnlyOf(listing.applicationEndAt),
+    ...plausibleApplicationEnd({
+      endAt: windowResult.end?.iso ?? cleanText(listing.applicationEndAt),
+      endDate: windowResult.end?.dateOnly ?? dateOnlyOf(listing.applicationEndAt),
+      publishedAt,
+    }),
     publishedAt,
     applicationUrl,
     applicationMethod,

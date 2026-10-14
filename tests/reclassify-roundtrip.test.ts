@@ -99,6 +99,8 @@ async function seedWorld(): Promise<JobDoc[]> {
         'accept',
       );
       job.status = 'active';
+      // Son başvuru (2026-10-01) yayım tarihinden sonra olmalı; aksi halde veri hatası sayılır.
+      job.publishedAt = '2026-09-15';
       job.applicationEndDate = '2026-10-01';
       delete (job as { statusReason?: string }).statusReason;
       return job;

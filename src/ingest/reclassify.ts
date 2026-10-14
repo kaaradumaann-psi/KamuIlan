@@ -1,7 +1,7 @@
 import type { JobDoc } from '../db/schemas';
 import type { ClassificationKind, ClassificationResult } from '../domain/types';
 import { classify } from '../classification/engine';
-import { sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
+import { plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeTr, stripUiChrome } from '../domain/text';
 import { computeStatus, statusReasonFor } from './jobs-service';
 
@@ -88,21 +88,31 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
   // 3) Durum ve yayım tarihi (bozuk yayım tarihleri ve eski ilanlar yeniden değerlendirilir).
   const publishedAt = sanePublishedDate(job.publishedAt, today);
   if (publishedAt !== job.publishedAt) patch.publishedAt = publishedAt;
+  // Yanlış çıkarılmış son başvuru (yayından önce ya da 2000 öncesi) kayıttan da temizlenir.
+  const deadline = plausibleApplicationEnd({
+    endAt: job.applicationEndAt,
+    endDate: job.applicationEndDate,
+    publishedAt,
+  });
+  if (deadline.applicationEndDate !== job.applicationEndDate) {
+    patch.applicationEndDate = deadline.applicationEndDate;
+  }
+  if (deadline.applicationEndAt !== job.applicationEndAt) patch.applicationEndAt = deadline.applicationEndAt;
   const statusFrom = job.status;
   let statusTo = statusFrom;
   if (statusFrom !== 'cancelled') {
     statusTo = computeStatus({
       applicationStartAt: job.applicationStartAt,
-      applicationEndAt: job.applicationEndAt,
-      applicationEndDate: job.applicationEndDate,
+      applicationEndAt: deadline.applicationEndAt,
+      applicationEndDate: deadline.applicationEndDate,
       publishedAt,
       now,
     });
     if (statusTo !== statusFrom) {
       patch.status = statusTo;
       patch.statusReason = statusReasonFor(statusTo, {
-        applicationEndDate: job.applicationEndDate,
-        applicationEndAt: job.applicationEndAt,
+        applicationEndDate: deadline.applicationEndDate,
+        applicationEndAt: deadline.applicationEndAt,
         publishedAt,
         now,
       });
