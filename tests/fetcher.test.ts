@@ -60,6 +60,80 @@ describe('HttpClient ağ davranışı', () => {
     expect(response.decoded?.text).toContain('İLAN');
   });
 
+  it('POST jsonBody isteğini JSON gövdesi ve content-type ile gönderir', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    const payload = { keys: { q: ['personel alımı'] }, skipCount: 0, maxResultCount: 100 };
+    mock
+      .get(ORIGIN)
+      .intercept({
+        path: '/api/api/services/app/Ad/AdsByFilter',
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+      .reply(200, '{"result":{"numFound":0,"ads":[]}}', {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
+    const client = makeClient(mock);
+    const response = await client.fetchText(`${ORIGIN}/api/api/services/app/Ad/AdsByFilter`, {
+      allowedHosts: ALLOWED,
+      retries: 0,
+      method: 'POST',
+      jsonBody: payload,
+      expectedContentTypes: ['application/json'],
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.decoded?.text ?? '')).toEqual({ result: { numFound: 0, ads: [] } });
+  });
+
+  it('303 yönlendirmesi POST isteğini gövdesiz GET’e çevirir', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/api/basla', method: 'POST' })
+      .reply(303, '', { headers: { location: '/api/hedef' } });
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/api/hedef', method: 'GET' })
+      .reply(200, '{"ok":true}', { headers: { 'content-type': 'application/json' } });
+    const client = makeClient(mock);
+    const response = await client.fetchText(`${ORIGIN}/api/basla`, {
+      allowedHosts: ALLOWED,
+      retries: 0,
+      method: 'POST',
+      jsonBody: { a: 1 },
+      expectedContentTypes: ['application/json'],
+    });
+    expect(response.status).toBe(200);
+    expect(response.decoded?.text).toBe('{"ok":true}');
+  });
+
+  it('307 yönlendirmesi POST yöntemini ve gövdeyi korur', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    const payload = { q: ['memur alımı'] };
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/api/basla', method: 'POST' })
+      .reply(307, '', { headers: { location: '/api/yeni-hedef' } });
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/api/yeni-hedef', method: 'POST', body: JSON.stringify(payload) })
+      .reply(200, '{"ok":1}', { headers: { 'content-type': 'application/json' } });
+    const client = makeClient(mock);
+    const response = await client.fetchText(`${ORIGIN}/api/basla`, {
+      allowedHosts: ALLOWED,
+      retries: 0,
+      method: 'POST',
+      jsonBody: payload,
+      expectedContentTypes: ['application/json'],
+    });
+    expect(response.status).toBe(200);
+    expect(response.decoded?.text).toBe('{"ok":1}');
+  });
+
   it('iptal edilmiş tarama sinyali HTTP isteğini ve yeniden denemeleri durdurur', async () => {
     const mock = new MockAgent();
     mock.disableNetConnect();
@@ -99,11 +173,9 @@ describe('HttpClient ağ davranışı', () => {
             reject(signal.reason ?? new Error('aborted'));
             return;
           }
-          signal?.addEventListener(
-            'abort',
-            () => reject(signal.reason ?? new Error('aborted')),
-            { once: true },
-          );
+          signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), {
+            once: true,
+          });
         });
       },
       dispatcher: mock,

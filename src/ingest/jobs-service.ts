@@ -246,6 +246,7 @@ export function toStoredRequirements(extraction: ExtractedJob): JobDoc['requirem
     kpssScoreTypes: extraction.kpssScoreTypes,
     kpssMinScore: extraction.kpssMinScore,
     kpssYear: extraction.kpssYear,
+    qualificationCodes: extraction.qualificationCodes,
     minAge: extraction.minAge,
     maxAge: extraction.maxAge,
     certificates: extraction.certificates,
@@ -661,10 +662,12 @@ async function mergeIntoExistingJob(
     requirements:
       document.requirements.departments.length +
         document.requirements.educationLevels.length +
-        document.requirements.kpssScoreTypes.length >
+        document.requirements.kpssScoreTypes.length +
+        document.requirements.qualificationCodes.length >
       previous.requirements.departments.length +
         previous.requirements.educationLevels.length +
-        previous.requirements.kpssScoreTypes.length
+        previous.requirements.kpssScoreTypes.length +
+        previous.requirements.qualificationCodes.length
         ? document.requirements
         : previous.requirements,
     attachments: dedupeAttachments([

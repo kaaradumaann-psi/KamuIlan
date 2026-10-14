@@ -129,6 +129,7 @@ export const jobSchema = z.object({
     kpssScoreTypes: z.array(z.enum(KPSS_SCORE_TYPES)),
     kpssMinScore: z.number().min(0).max(100).nullable(),
     kpssYear: z.number().int().min(2000).max(2100).nullable(),
+    qualificationCodes: z.array(z.string()).default([]),
     minAge: z.number().int().min(15).max(80).nullable(),
     maxAge: z.number().int().min(15).max(80).nullable(),
     certificates: z.array(z.string()),

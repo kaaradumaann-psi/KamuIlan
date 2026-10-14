@@ -10,6 +10,7 @@ import {
   extractCity,
   extractEducationLevels,
   extractKpss,
+  extractQualificationCodes,
   extractQuota,
   uniqueAttachments,
 } from '../src/extraction/engine';
@@ -233,6 +234,40 @@ describe('kurum, unvan ve şartlar', () => {
     const age = extractAge('18 yaşını tamamlamış, 35 yaşını doldurmamış olmak');
     expect(age.minAge).toBe(18);
     expect(age.maxAge).toBe(35);
+  });
+
+  it('ÖSYM nitelik kodlarını "nitelik kodu" bağlamından çıkarır', () => {
+    const codes = extractQualificationCodes(
+      'Başvuru genel ve özel şartları: Nitelik Kodu: 4001 ve 6225 olan adaylar başvurabilir.',
+    );
+    expect(codes.codes).toContain('4001');
+    expect(codes.codes).toContain('6225');
+    expect(codes.snippet).toBeTruthy();
+  });
+
+  it('bilinen nitelik kodunu nitelik/mezun yakınlığıyla tanır, yalnız sayıyı kod sanmaz', () => {
+    const hit = extractQualificationCodes(
+      'Müracaatlar 4539 nitelik kodu ve 6225 nolu niteliği taşıyan adaylar arasından yapılacaktır.',
+    );
+    expect(hit.codes).toEqual(expect.arrayContaining(['4539', '6225']));
+
+    // Nitelik bağlamı olmayan 4 haneli sayılar (yıl, dosya no, tutar) kod değildir.
+    const miss = extractQualificationCodes(
+      'Dosya No: 2026/4821, bütçe 4500 TL, 3 adet kadro ihdas edilmiştir.',
+    );
+    expect(miss.codes).toEqual([]);
+  });
+
+  it('nitelik kodları ilan dokümanına requirements alanı olarak yazılır', () => {
+    const result = extract({
+      title: 'Sözleşmeli Bilişim Personeli Alım İlanı',
+      body:
+        'ÖSYM KPSS nitelik kodları tablosundan 4001 (lisans) ve 4539 kodlarından birine sahip olmak. ' +
+        'Adayların 2026 KPSS P3 puan türünden en az 70 puan almış olmak.',
+    });
+    expect(result.qualificationCodes).toEqual(expect.arrayContaining(['4001', '4539']));
+    expect(result.fieldSources.qualificationCodes?.kind).toBeTruthy();
+    expect(result.evidence['qualificationCodes']).toContain('4001');
   });
 
   it('bölüm, sertifika, deneyim ve dil şartlarını çıkarır', () => {

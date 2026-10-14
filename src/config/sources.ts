@@ -76,7 +76,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Günlük nüshadaki "Çeşitli İlânlar" bölümü HTML olarak okunur; ilan metni PDF içinde olduğundan PDF metni çıkarılır. ' +
-      'HTTP başlık zaman aşımına uğrarsa bölüm ve PDF\'ler tarayıcı oturumundan okunur; belge indirme bütçesi dolarsa kalan ilanlar sonraki taramaya kalır.',
+      "HTTP başlık zaman aşımına uğrarsa bölüm ve PDF'ler tarayıcı oturumundan okunur; belge indirme bütçesi dolarsa kalan ilanlar sonraki taramaya kalır.",
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
       `${VERIFIED_AT} canlı doğrulama: /fihrist?tarih=2026-10-12 sayfası açıldı; ` +
@@ -121,6 +121,39 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['ilan.gov.tr', 'www.ilan.gov.tr', 'medya.ilan.gov.tr'],
     tags: ['cekirdek', 'toplayici', 'html'],
+  },
+  {
+    key: 'ilan-gov-tr-api-personel',
+    name: 'ilan.gov.tr — Personel alımı havuzu (JSON API)',
+    group: 'ulusal',
+    sourceType: 'official-portal',
+    institution: 'Basın İlan Kurumu',
+    listingUrl: 'https://www.ilan.gov.tr/ilan/tum-ilanlar/personel-alimi?ats=5',
+    homepageUrl: 'https://www.ilan.gov.tr/',
+    adapterKey: 'ilan-gov-tr-api',
+    method: 'json-api',
+    status: 'scraper-built',
+    statusNote:
+      '14.10.2026 ekosistem araştırmasıyla API sözleşmesi keşfedildi (github.com/Ruchanbas/rg-ilan-botu ' +
+      'canlı doğrulaması: AdsByFilter + GetAdDetail GitHub Actions runner’larından 200 döner). ' +
+      'Fixture testleriyle doğrulandı; bu ortamdan canlı çalıştırma henüz yapılmadı. İlk canlı taramada ' +
+      'HTTP durum kodları ve tarama notları kontrol edilmeli.',
+    lastVerifiedAt: null,
+    verificationEvidence:
+      'github.com/Ruchanbas/rg-ilan-botu/src/rgbot/ilanapi.py (canlı doğrulanmış API sözleşmesi: ' +
+      'POST /api/api/services/app/Ad/AdsByFilter {"keys":{"q":[terim]}} + GET AdDetail/GetAdDetail); ' +
+      'tests/ilan-gov-tr-api.test.ts sözleşmenin fixture doğrulaması. HTML liste adaptörünün ' +
+      'doğrulaması docs/envanter-dogrulama-2026-10-11.md §3.',
+    coverageNote:
+      'HTML liste adaptörünün tamamlayıcısı: metin aramasıyla geniş havuz (5 terim × offset sayfaları, ' +
+      'skipCount), yapılandırılmış alanlar (kurum, il, resmî ilan no, "Son Başvuru" filtresi). Alakasız ' +
+      'kayıtlar sınıflandırma hattının ret belleğiyle elenir; ihale/sonuç ilanları kapsam dışıdır.',
+    enabled: true,
+    intervalMinutes: 90,
+    minRequestIntervalMs: 2500,
+    maxConcurrency: 1,
+    allowedHosts: ['ilan.gov.tr', 'www.ilan.gov.tr', 'medya.ilan.gov.tr'],
+    tags: ['toplayici', 'json-api'],
   },
   {
     key: 'osym-duyurular',
@@ -212,11 +245,11 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       'rağmen satır gelmedi (alınan sayfanın başlığı tanı için notlara yazılıyor), tarayıcı yolu (Playwright + ' +
       'Chromium) listenin tamamını okur — 5. koşumda 27 satırın tümü, dış "İlana Git" başvuruları dahil. ' +
       'Detayda kararlı öğe kimliklerinden ilan numarası (ILN...), tür, başvuru tarihleri, kontenjan ve ' +
-      'e-Devlet başvuru adresi okunur (13.10.2026, gerçek sayfa HTML\'i ile doğrulandı). Detay bütçesi ' +
+      "e-Devlet başvuru adresi okunur (13.10.2026, gerçek sayfa HTML'i ile doğrulandı). Detay bütçesi " +
       'önce daha önce görülmemiş ilanlara harcanır.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
-      '13.10.2026: liste ve detay sayfalarının gerçek HTML\'i kullanıcıdan alındı; satır/detay yapısı ' +
+      "13.10.2026: liste ve detay sayfalarının gerçek HTML'i kullanıcıdan alındı; satır/detay yapısı " +
       'birim testlerine fikstür olarak işlendi (tests/sources.test.ts). Canlı koşumda henüz kayıt üretilmedi ' +
       '(3. koşum: ok, 0 kayıt — eski tablo varsayımı); yeniden yazım sonrası koşum bekleniyor. ' +
       '4. koşum (13.10.2026, yeniden yazım öncesi kod): tarayıcı ile 23 kayıt üretildi; gönderilen sayfa ' +
@@ -796,7 +829,8 @@ export const PLANNED_SOURCES: readonly PlannedSource[] = [
     id: 'universite-hastaneleri',
     name: 'Üniversite hastaneleri — sözleşmeli sağlık personeli',
     institution: 'Üniversite hastaneleri',
-    indirectCoverage: 'İlanlar ilan.gov.tr ve Resmî Gazete üzerinden kısmen gelir; Sağlık Bakanlığı kaynağı hastane dışı alımları kapsar.',
+    indirectCoverage:
+      'İlanlar ilan.gov.tr ve Resmî Gazete üzerinden kısmen gelir; Sağlık Bakanlığı kaynağı hastane dışı alımları kapsar.',
     candidateUrl: null,
     note: 'Bazı hastaneler yalnızca kendi sitesinde ilan yayımlar; tekil hastane kaynakları isteğe bağlı eklenir.',
   },

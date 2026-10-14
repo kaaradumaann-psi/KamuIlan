@@ -133,6 +133,33 @@ describe('sınıflandırma: reddedilmesi gerekenler', () => {
     expect(result.decision).toBe('reject');
   });
 
+  it('genel başvuru/özgeçmiş havuzu duyurusunu hayalet ilan sayıp reddeder', () => {
+    const result = classify({
+      title: 'Genel Başvuru Duyurusu',
+      body:
+        'Kurumumuza ileride açılacak pozisyonlar için özgeçmiş havuzu oluşturulacaktır. ' +
+        'Başvurular genel başvuru olarak değerlendirilecektir.',
+    });
+    expect(result.decision).toBe('reject');
+    expect(result.rules).toContain('ret-baslik.genel-basvuru');
+  });
+
+  it('başlıkta havuz sinyali yoksa gövde sinyali puan kırar ama tek başına karar vermez', () => {
+    const withPool = classify({
+      title: 'Sözleşmeli Sağlık Personeli Alım İlanı',
+      body:
+        'Kurumumuza 20 sözleşmeli sağlık personeli alınacaktır. ' +
+        'İleride açılacak pozisyonlar için ayrıca genel başvuru alınacaktır.',
+    });
+    expect(withPool.negativeSignals.join(' ')).toContain('ileride açılacak pozisyon');
+
+    const clean = classify({
+      title: 'Sözleşmeli Sağlık Personeli Alım İlanı',
+      body: 'Kurumumuza 20 sözleşmeli sağlık personeli alınacaktır. Başvurular e-Devlet üzerinden yapılacaktır.',
+    });
+    expect(clean.decision).toBe('accept');
+  });
+
   it('Hazine muhasebe uzmanlığı yeterlik sınavını yeni boş kadro sanmaz', () => {
     const result = classify({
       title: 'Hazine ve Maliye Bakanlığı Muhasebe Uzmanlığı Yeterlik Sınavı Duyurusu',

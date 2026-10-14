@@ -59,7 +59,8 @@ export function JobDetailPage(): ReactNode {
   });
   const query = useQuery({
     queryKey: ['job', id],
-    queryFn: ({ signal }) => api.get<PublicJobDetail>(`/api/jobs/${encodeURIComponent(id)}`, undefined, signal),
+    queryFn: ({ signal }) =>
+      api.get<PublicJobDetail>(`/api/jobs/${encodeURIComponent(id)}`, undefined, signal),
     enabled: id.length > 0,
     retry: 0,
   });
@@ -360,6 +361,14 @@ export function JobDetailPage(): ReactNode {
                   : 'belirtilmemiş',
             },
             {
+              term: 'ÖSYM nitelik kodu',
+              value:
+                (requirements.qualificationCodes ?? []).length > 0
+                  ? requirements.qualificationCodes.join(', ')
+                  : 'belirtilmemiş',
+              hint: evidenceHint(job, 'qualificationCodes'),
+            },
+            {
               term: 'Yaş aralığı',
               value:
                 requirements.minAge !== null || requirements.maxAge !== null
@@ -453,7 +462,8 @@ export function JobDetailPage(): ReactNode {
           </p>
         ) : (
           <InfoNote tone="warning" title="Kaynak metni yakalanamadı">
-            Bu taramada ilan detay metni okunamadı. Çıkarılan koşulları ve güncel tam metni resmî ilan bağlantısından doğrulayın.
+            Bu taramada ilan detay metni okunamadı. Çıkarılan koşulları ve güncel tam metni resmî ilan
+            bağlantısından doğrulayın.
           </InfoNote>
         )}
       </Card>
@@ -466,7 +476,8 @@ export function JobDetailPage(): ReactNode {
           <p className="job-excerpt">{job.textExcerpt}</p>
         ) : (
           <InfoNote tone="info" title="Kısa metin burada gösterilmiyor">
-            Kısa duyurunun tam içeriğini yeniden yayımlamamak için alıntı gösterilmez. Tam ve güncel metin resmî ilan bağlantısındadır.
+            Kısa duyurunun tam içeriğini yeniden yayımlamamak için alıntı gösterilmez. Tam ve güncel metin
+            resmî ilan bağlantısındadır.
           </InfoNote>
         )}
       </Card>

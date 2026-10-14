@@ -126,6 +126,8 @@ export interface JobRequirements {
   kpssScoreTypes: KpssScoreType[];
   kpssMinScore?: number;
   kpssYear?: number;
+  /** ÖSYM başvuru nitelik kodları ("Nitelik Kodu" sütunu). */
+  qualificationCodes: string[];
   minAge?: number;
   maxAge?: number;
   certificates: string[];
