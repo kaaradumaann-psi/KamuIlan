@@ -30,6 +30,14 @@ export interface SourceHealthUpdate {
    * artırmaz, "üst üste başarısız" uyarısını tetiklemez; ayrı sayılır.
    */
   skipped?: boolean;
+  /** Son HTTP durumu (bilinmiyorsa null/atlanır). */
+  httpStatus?: number | null;
+  /** Hata türü; başarılı taramada null. */
+  errorType?: 'unavailable' | 'structure' | 'fetch' | 'item' | 'other' | null;
+  /** Bu taramada ham kayıt çıkarılıp işlendi mi? */
+  extracted?: boolean;
+  rejectedCount?: number;
+  reviewCount?: number;
 }
 
 export interface SourceCoverageEntry {
@@ -155,6 +163,12 @@ export class SourceRepo {
           lastModified: null,
           lastContentHash: null,
           emptyStreak: 0,
+          lastHttpStatus: null,
+          lastErrorType: null,
+          lastExtractionAt: null,
+          lastRejectedCount: 0,
+          lastReviewCount: 0,
+          unexpectedZero: false,
           consecutiveSkips: 0,
           lastWarningAt: null,
         },
@@ -266,6 +280,17 @@ export class SourceRepo {
         : update.discoveredCount === 0 && update.success
           ? health.emptyStreak + 1
           : 0,
+      'health.lastHttpStatus':
+        update.httpStatus !== undefined ? update.httpStatus : (health.lastHttpStatus ?? null),
+      'health.lastErrorType': update.success ? (update.errorType ?? null) : (update.errorType ?? 'other'),
+      'health.lastExtractionAt': update.extracted ? update.lastRunAt : (health.lastExtractionAt ?? null),
+      'health.lastRejectedCount': update.rejectedCount ?? 0,
+      'health.lastReviewCount': update.reviewCount ?? 0,
+      'health.unexpectedZero':
+        !update.contentUnchanged &&
+        update.success &&
+        update.discoveredCount === 0 &&
+        (health.lastDiscoveredCount > 0 || health.emptyStreak + 1 >= 3),
       updatedAt: now,
     };
 

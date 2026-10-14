@@ -79,6 +79,20 @@ export const sourceSchema = z.object({
     lastModified: z.string().nullable(),
     lastContentHash: z.string().nullable(),
     emptyStreak: z.number().int().min(0),
+    /** Son taramanın HTTP durumu (bilinmiyorsa null). */
+    lastHttpStatus: z.number().int().nullable().default(null),
+    /** Son hata türü: unavailable | structure | fetch | item | other; hata yoksa null. */
+    lastErrorType: z.enum(['unavailable', 'structure', 'fetch', 'item', 'other']).nullable().default(null),
+    /** Son başarılı içerik çıkarma zamanı: ham kayıt bulunup işlendiği son tarama. */
+    lastExtractionAt: z.string().nullable().default(null),
+    /** Son taramada reddedilen ve incelemeye giden kayıt sayıları. */
+    lastRejectedCount: z.number().int().min(0).default(0),
+    lastReviewCount: z.number().int().min(0).default(0),
+    /**
+     * Beklenmeyen sıfır: başarılı erişime rağmen 0 ham kayıt; önceki tarama
+     * kayıt döndürmüşse ya da üst üste 3+ sıfır ise işaretlenir (yapı değişimi olabilir).
+     */
+    unexpectedZero: z.boolean().default(false),
   }),
   createdAt: isoString(),
   updatedAt: isoString(),

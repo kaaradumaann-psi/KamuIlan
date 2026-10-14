@@ -10,6 +10,7 @@
  * kaydında hata olarak görünsün (HTML değişikliği sessizce veri kaybına
  * dönüşmesin).
  */
+import { AdapterStructureError } from '../errors';
 import type { AnyNode } from 'domhandler';
 import {
   elementText,
@@ -345,7 +346,8 @@ export class AnchorListAdapter implements SourceAdapter {
         });
       }
       const pageText = readableText(loadHtml(html), 'body', 300);
-      throw new Error(
+      throw new AdapterStructureError(
+        source.key,
         `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${String(this.config.pathPattern)} bulunamadı. ` +
           `Sayfa özeti: "${makeExcerpt(pageText, 160)}" — adaptör seçicileri güncellenmeli.`,
       );
@@ -405,7 +407,8 @@ export class AnchorListAdapter implements SourceAdapter {
         notes.push(coverage.note);
         return this.buildItems(ctx, [], notes, httpStatuses, requestCount, listing, coverage);
       }
-      throw new Error(
+      throw new AdapterStructureError(
+        source.key,
         `Liste yapısı tanınmadı (${source.key}): RSS beslemesinde kayıt bulunamadı. ` +
           `Sayfa özeti: "${makeExcerpt(collapseWhitespace(xml.replace(/<[^>]+>/g, ' ')), 160)}" — besleme biçimi değişmiş olabilir.`,
       );

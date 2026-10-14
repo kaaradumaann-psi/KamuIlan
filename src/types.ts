@@ -203,6 +203,13 @@ export interface SourceCoverageEntry {
     lastError: string | null;
     itemsFound: number;
     emptyStreak: number;
+    lastSuccessfulExtractionAt: string | null;
+    lastHttpStatus: number | null;
+    lastErrorType: 'unavailable' | 'structure' | 'fetch' | 'item' | 'other' | null;
+    lastRejectedCount: number;
+    lastReviewCount: number;
+    /** Beklenmeyen sıfır: yapı değişimi ya da kaynak bozulması olabilir; yönetici incelemeli. */
+    unexpectedZero: boolean;
   };
   lastRun: {
     startedAt: string;

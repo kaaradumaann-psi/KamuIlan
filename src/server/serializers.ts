@@ -353,6 +353,12 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
       lastError: entry.health.lastErrorMessage,
       itemsFound: entry.health.lastDiscoveredCount,
       emptyStreak: entry.health.emptyStreak,
+      lastSuccessfulExtractionAt: entry.health.lastExtractionAt,
+      lastHttpStatus: entry.health.lastHttpStatus,
+      lastErrorType: entry.health.lastErrorType,
+      lastRejectedCount: entry.health.lastRejectedCount,
+      lastReviewCount: entry.health.lastReviewCount,
+      unexpectedZero: entry.health.unexpectedZero,
     },
     lastRun: entry.lastRun,
   };
