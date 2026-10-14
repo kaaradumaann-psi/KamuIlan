@@ -12,7 +12,7 @@
  *   #lbl_BasDate / #lbl_BitDate, #lbl_anailanmetni (tam metin),
  *   #href_BasvuruLinki (e-Devlet başvuru adresi), kontenjan bilgisi.
  */
-import { collapseWhitespace, normalizeTr } from '../../domain/text';
+import { collapseWhitespace, makeExcerpt, normalizeTr } from '../../domain/text';
 import { firstDateOnlyIn, toIstanbulIso } from '../../domain/dates';
 import { sha256Hex } from '../../domain/ids';
 import { absoluteUrl, anchors, blockElementText, loadHtml, readableAnnouncementText } from '../../lib/html';
@@ -104,7 +104,7 @@ function safePublicExternalUrl(rawUrl: string): string | null {
  */
 function pageTitleNote(html: string): string {
   const title = /<title[^>]*>([^<]{1,120})<\/title>/i.exec(html)?.[1]?.trim();
-  return title ? ` (sayfa başlığı: "${title}")` : '';
+  return title ? ` (sayfa başlığı: "${makeExcerpt(title, 120)}")` : '';
 }
 
 const KARIYER_MAX_LIST_PAGES = 10;

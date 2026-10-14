@@ -3,25 +3,36 @@
 ## Komutlar
 
 ```bash
-npm test             # birim + entegrasyon (vitest, ağ erişimi YOK)
+npm test             # birim + entegrasyon (vitest, gerçek kaynaklara çıkmaz)
 npm run test:watch   # geliştirme sırasında izleme
 npm run test:coverage
-npm run test:e2e     # Playwright (tarayıcı kurulu olmalı)
-npm run test:e2e:local  # yalnızca duman testleri (kurulumu hızlı doğrular)
-SOURCE_LIVE_FETCH=1 npm run test:live   # gerçek kaynaklara canlı doğrulama
+npm run test:e2e     # Playwright; izole API/DB ve yönetici hesabı gerekir
+npm run test:e2e:local  # smoke.spec.ts; aynı izole API/DB ve yönetici hesabı gerekir
+SOURCE_LIVE_FETCH=1 npm run test:live   # yalnız açık yetki/uygun koşullarda canlı kaynak doğrulama
 ```
 
-Testler ağ erişimi kullanmaz: sahte adaptör/fetcher, fixture HTML/PDF ve süreç
-içi SMTP sunucusu kullanılır. Bu sayede CI'da ve çevrimdışı ortamda kararlı koşarlar.
+Vitest testleri sahte adaptör/fetcher, fixture HTML/PDF ve süreç içi SMTP
+sunucusu kullanır; gerçek resmi kaynaklara istek atmaz. E2E Playwright testi
+ise çalışan API ve Vite arayüzü, test için ayrılmış veritabanı ve yönetici hesabı
+ister. `loginAsAdmin` sabit/sample kimlik bilgisi içermez: `E2E_ADMIN_EMAIL` /
+`E2E_ADMIN_PASSWORD` veya `ADMIN_EMAIL` / `ADMIN_PASSWORD` verilmezse açıkça
+başarısız olur. Varsayılan Playwright webServer yalnızca Vite'ı başlatır; API
+ayrıca başlatılmalıdır. Üretim veritabanı veya gerçek hesap kullanmayın. GitHub
+Actions her iş için rastgele test sırrı ve E2E hesabı üretir.
 
-**165 test / 15 dosya** (12 Ekim 2026). Hiçbiri dış ağa çıkmaz; dosya
-değişiklikleri geçici dizinlerde yapılır.
+14 Ekim 2026 denetiminde **40 test dosyası / 390 Vitest testi** ve **12 Playwright
+E2E testi** geçti. Test sayısı değişebileceğinden güncel sonuç için komutları
+çalıştırın. Dosya deposu kullanan test verileri geçici dizinlerde tutulur.
 
 ### Tasarım sözleşmesi testi
 
 `tests/design-system.test.ts`, bu deponun yerel tasarım sözleşmesini otomatik
-olarak denetler. 14.10.2026 karşılaştırmasında dokuz katman `psikolog/main`
-ile eşleşti; MMPI-566 `Repo123/main` içinde altı dosya farklıydı. Test dış
+olarak denetler. 14.10.2026 tarihli noktasal GitHub blob-hash karşılaştırmasında
+`kaaradumaann-psi/psikolog` `main` commit'i
+`9ec1d9f393f3470ff8ea0d42372a62d0e3e0c135` ile dokuz ortak CSS katmanının 9/9'u;
+MMPI-566 `kaaradumaann-psi/Repo123` `main` commit'i
+`4b28579f93d3e76bb54be963f4427fef66782dd1` ile 3/9'u eşleşti. Bu sınırlı
+commit/hash karşılaştırması tam depo veya sürekli parity iddiası değildir. Test
 GitHub depolarını çağırmadığı için gelecekteki çapraz-depo eşitliğini kanıtlamaz:
 
 1. `src/main.tsx` içindeki yerel stil sırası ve `responsive.css`'in sonda olması

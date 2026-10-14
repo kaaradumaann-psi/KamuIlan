@@ -10,9 +10,10 @@
  *  1. SQL yalnızca bir ÖN FİLTRE (superset) uygular: eşitlik ve `$in` koşulları
  *     JSONB kapsama (`@>`) ile daraltılır; bilinmeyen koşullarda ön filtre
  *     tamamen atlanır.
- *  2. Nihai karar, dosya/Mongo sürücüleriyle AYNI kod yolundan gelir
- *     (`matchesQuery` + `sortDocuments`). Böylece üç sürücü birebir aynı
- *     semantiği uygular; hızlı ama yanlış bir SQL çevirisi riski yoktur.
+ *  2. Nihai filtre kararı `matchesQuery` ile verilir; sıralama varsayılan olarak
+ *     `sortDocuments` üzerinden yapılır. Tek istisna, boş filtre + yalnızca `id`
+ *     sıralaması + limit içeren tam tablo sayfalarıdır: bu durumda SQL, kararlı
+ *     ID sayfalamasını doğrudan uygular (göçler için gerekli).
  *  3. Ön filtre bir üst sınırı aşarsa (`MAX_SCAN_ROWS`) sessizce kırpmak yerine
  *     açık hata verilir.
  *
@@ -448,9 +449,36 @@ export class PostgresStore implements StoragePort {
     filter?: Query,
     options?: FindOptions,
   ): Promise<DocumentOf<K>[]> {
+    const sort = options?.sort;
+    const isUnfiltered = !filter || Object.keys(filter).length === 0;
+    const idSort = sort?.length === 1 && sort[0]?.[0] === 'id' ? sort[0][1] : undefined;
+    const limit = options?.limit;
+    const skip = options?.skip ?? 0;
+
+    // Migrations and other bounded full scans read deterministic ID pages.
+    // Apply pagination in SQL for this exact case; otherwise selectMatching's
+    // MAX_SCAN_ROWS guard would reject collections over 20,000 rows before the
+    // caller could fetch page two. C collation keeps page order deterministic
+    // regardless of the database's locale; application-generated IDs are ASCII.
+    if (
+      isUnfiltered &&
+      (idSort === 1 || idSort === -1) &&
+      limit !== undefined &&
+      Number.isSafeInteger(limit) &&
+      limit >= 0 &&
+      Number.isSafeInteger(skip) &&
+      skip >= 0
+    ) {
+      const direction = idSort === 1 ? 'ASC' : 'DESC';
+      const result = await this.pool.query<{ data: unknown }>(
+        `SELECT data FROM ${this.table(collection)} ORDER BY id COLLATE "C" ${direction} LIMIT $1 OFFSET $2`,
+        [limit, skip],
+      );
+      return result.rows.map((row) => row.data as DocumentOf<K>);
+    }
+
     const docs = await this.selectMatching(collection, filter);
     const sorted = sortDocuments(docs, options?.sort);
-    const skip = options?.skip ?? 0;
     const limited =
       options?.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
     return limited;

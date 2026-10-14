@@ -23,6 +23,7 @@ import { SOURCE_DEFINITIONS } from '../src/config/sources';
 import { getEnv } from '../src/config/env';
 import { migrateCapturedTextMetadata } from '../src/db/migrations/captured-text-metadata';
 import { migrateJobTextMinimization } from '../src/db/migrations/job-text-minimization';
+import { safeErrorFields } from '../src/lib/safe-error';
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -73,10 +74,9 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-  // Yalnızca `error.message` basmak yetersiz: Postgres hatasının hangi adımda
-  // ve hangi çağrı zincirinden geldiği (örn. "bind message supplies …"
-  // hatasında hangi sorgu) stack olmadan anlaşılamıyor. Tam hatayı bas.
-  console.error('Bakım başarısız:', error);
+  // DB hatalarının `detail` alanı, örneğin benzersiz indeks çakışmasında e-posta
+  // gibi kayıt değerlerini içerebilir. Ham hata nesnesi/mesajı/stack'i yazma.
+  console.error('Bakım başarısız:', safeErrorFields(error));
   process.exitCode = 1;
   await closeStore().catch(() => undefined);
 });

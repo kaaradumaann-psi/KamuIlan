@@ -84,6 +84,13 @@ function isChromeLikeTitle(value: string): boolean {
   );
 }
 
+function isClearlyEmptyListingPage(html: string): boolean {
+  const text = normalizeTr(readableText(loadHtml(html), 'body'));
+  return /(?:duyuru|haber|ilan|kayit|sonuc)\s+bulunmamakt|(?:duyuru|haber|ilan|kayit|sonuc)\s+bulunamadi|aktif\s+(?:duyuru|haber|ilan)\s+yok|sonuc\s+yok/.test(
+    text,
+  );
+}
+
 function parseAnchorListPage(
   html: string,
   pageUrl: string,
@@ -320,6 +327,15 @@ export class AnchorListAdapter implements SourceAdapter {
 
     const entries = [...entriesByUrl.values()];
     if (entries.length === 0) {
+      if (isClearlyEmptyListingPage(html)) {
+        coverageStatus = 'unknown';
+        coverageNote = 'Liste açıkça boş sonuç bildirdi; kaynak arşivinin tamamı bu çalışmada doğrulanmadı.';
+        notes.push(coverageNote);
+        return this.buildItems(ctx, [], notes, httpStatuses, requestCount, listing, {
+          status: coverageStatus,
+          note: coverageNote,
+        });
+      }
       const pageText = readableText(loadHtml(html), 'body', 300);
       throw new Error(
         `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${String(this.config.pathPattern)} bulunamadı. ` +
@@ -373,6 +389,14 @@ export class AnchorListAdapter implements SourceAdapter {
     });
 
     if (entries.length === 0) {
+      if ($('rss > channel').length > 0) {
+        const coverage = {
+          status: 'unknown' as const,
+          note: 'Yapısal olarak geçerli RSS beslemesi bu çalışmada öğe döndürmedi; geçmiş/arşiv kapsamı doğrulanmadı.',
+        };
+        notes.push(coverage.note);
+        return this.buildItems(ctx, [], notes, httpStatuses, requestCount, listing, coverage);
+      }
       throw new Error(
         `Liste yapısı tanınmadı (${source.key}): RSS beslemesinde kayıt bulunamadı. ` +
           `Sayfa özeti: "${makeExcerpt(collapseWhitespace(xml.replace(/<[^>]+>/g, ' ')), 160)}" — besleme biçimi değişmiş olabilir.`,

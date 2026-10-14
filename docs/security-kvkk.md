@@ -141,6 +141,12 @@
 - **Saklama süreleri**: Oturumlar TTL ile, doğrulama/sıfırlama jetonları 1–24 saat,
   abonelik jetonları 1 yıl; süresi geçenler periyodik olarak temizlenir.
 - **Günlük maskeleme**: E-posta adresleri ve jetonlar günlüklerde maskelenir.
+  Kariyer Kapısı'nın satırsız HTTP listesi için yazılan sayfa başlığı da `makeExcerpt`
+  üzerinden geçirilir; bu yardımcı yaygın e-posta ve Türkiye telefonu kalıplarını
+  maskeler. Bu örnek, her kaynak metnindeki her kişisel verinin yakalandığı
+  anlamına gelmez.
+- **Bakım hataları**: `db:migrate` başarısızlığında ham hata nesnesi, mesajı ve
+  stack'i yazılmaz; yalnızca biçimi/sınırı doğrulanmış hata türü ve kodu tutulur.
 - **Yedek/gizlilik**: Yedekler kişisel veri içerir; erişim kısıtlı tutulmalı ve
   saklama süresi belirlenmelidir.
 

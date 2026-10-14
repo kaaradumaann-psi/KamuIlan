@@ -488,6 +488,29 @@ describe('genel kurum duyuru adaptörü', () => {
     await expect(adapter.run(contextFor(kurumSource, http, true))).rejects.toThrow(/Liste yapısı tanınmadı/);
   });
 
+  it('script içindeki boş-sonuç ifadesini görünür sayfa sinyali saymaz', async () => {
+    if (!kurumSource) throw new Error('Kurum duyuru kaynağı envanterde yok');
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const pageWithScriptOnly =
+      '<html><body><main><script>const notice = "aktif ilan yok";</script><p>Portal yenilendi</p></main></body></html>';
+    const { http } = fakeHttp((url) => (url === kurumSource.listingUrl ? pageWithScriptOnly : undefined));
+
+    await expect(adapter.run(contextFor(kurumSource, http, true))).rejects.toThrow(/Liste yapısı tanınmadı/);
+  });
+
+  it('açık boş liste mesajını hata yerine bilinmeyen kapsamla bildirir', async () => {
+    if (!kurumSource) throw new Error('Kurum duyuru kaynağı envanterde yok');
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const emptyPage = '<html><body><main><p>Şu an aktif ilan bulunmamaktadır.</p></main></body></html>';
+    const { http } = fakeHttp((url) => (url === kurumSource.listingUrl ? emptyPage : undefined));
+
+    const result = await adapter.run(contextFor(kurumSource, http, true));
+
+    expect(result.items).toEqual([]);
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('açıkça boş sonuç bildirdi');
+  });
+
   it('envanterdeki tüm kurum kaynakları kayıtlı adaptörü kullanır', () => {
     const kurumSources = SOURCE_DEFINITIONS.filter((source) => source.adapterKey === 'kurum-duyuru-listesi');
     expect(kurumSources.length).toBeGreaterThanOrEqual(18);
@@ -985,6 +1008,20 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
 });
 
 describe('MEB RSS beslemesi', () => {
+  it('yapısal olarak geçerli ama boş RSS beslemesini unknown kapsamla bildirir', async () => {
+    const rss = '<?xml version="1.0"?><rss version="2.0"><channel><title>Personel duyuruları</title></channel></rss>';
+    const { http, calls } = fakeHttp((url) => (url.includes('rss_duyurular.xml') ? rss : undefined));
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
+    if (!source) throw new Error('MEB Personel kaynağı envanterde yok');
+
+    const result = await requireAdapter('meb-duyuru-listesi').run(contextFor(source, http, true));
+
+    expect(calls).toHaveLength(1);
+    expect(result.items).toEqual([]);
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('geçerli RSS beslemesi');
+  });
+
   it('beslemedeki kayıtlar detaylarıyla birlikte kayda dönüşür', async () => {
     const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -1388,6 +1425,26 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     ).toBe(true);
     expect(result.notes.some((note) => note.includes('Liste tarayıcı ile okundu: 3 ilan satırı'))).toBe(true);
     expect(result.items[0]?.referenceNo).toBe('ILN00000109');
+  });
+
+  it('HTTP sayfa başlığındaki e-posta ve telefonu tanı notunda redakte eder', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    const source = kariyerSource();
+    if (!source) throw new Error('Kariyer Kapısı kaynağı envanterde yok');
+    const email = 'private.notice@example.test';
+    const phone = '+90 (312) 555-98-76';
+    const shell = `<html><head><title>${email} ${phone}</title></head><body><div id="pnlIlanlar"></div></body></html>`;
+    const { http } = fakeHttp((url) => (url === source.listingUrl ? shell : undefined));
+    const render = async (urls: string[]): Promise<Map<string, string>> =>
+      new Map(urls.map((url) => [url, shell]));
+
+    const result = await new KariyerKapisiAdapter(render).run(contextFor(source, http, true));
+    const titleNote = result.notes.find((note) => note.includes('sayfa başlığı')) ?? '';
+
+    expect(titleNote).toContain('[e-posta gizlendi]');
+    expect(titleNote).toContain('[telefon gizlendi]');
+    expect(titleNote).not.toContain(email);
+    expect(titleNote).not.toContain(phone);
   });
 
   it('HTTP 403 listede ve detayda Chromium fallback başlatmaz; detay kaybını kısmi bildirir', async () => {

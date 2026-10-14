@@ -12,7 +12,6 @@ jobs:
       # CI'da hiçbir gerçek kaynağa istek atılmaz; testler sahte adaptör/fetcher kullanır.
       SOURCE_LIVE_FETCH: '0'
       NODE_ENV: test
-      APP_SECRET: ci-icin-gecici-anahtar-en-az-32-karakter
       DATA_DIR: ./.ci-data
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +20,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - name: İzole test imza anahtarı üret
+        run: |
+          app_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$app_secret"
+          echo "APP_SECRET=$app_secret" >> "$GITHUB_ENV"
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
@@ -33,12 +37,30 @@ jobs:
         run: npm run sources:report -- --json > coverage-report.json
 
       # --- Uçtan uca (tarayıcı) testler -------------------------------------
-      # Site giriş kapılıdır: e2e, seed:admin ile açılan yöneticiyle girer.
+      # Sabit/sample kimlik bilgisi kullanma; her iş için tek kullanımlık giriş üret.
+      - name: İzole E2E yönetici kimlik bilgileri üret
+        run: |
+          admin_email="e2e-$(openssl rand -hex 8)@kamuilan.test"
+          admin_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$admin_password"
+          {
+            echo "ADMIN_EMAIL=$admin_email"
+            echo "ADMIN_PASSWORD=$admin_password"
+          } >> "$GITHUB_ENV"
+
+      # Hesap yalnızca bu işin geçici DATA_DIR'inde yaşar.
       - name: E2E yönetici hesabı
-        run: ADMIN_EMAIL=e2e@kamuilan.test ADMIN_PASSWORD=$(printf 'E2e-Giris-%s' '2026!') npm run seed:admin
+        run: npm run seed:admin
 
       # API + derlenmiş arayüz başlatılır; Playwright bu adrese karşı koşar.
       - name: API ve arayüzü başlat
+        env:
+          SCHEDULER_ENABLED: '0'
+          EMAIL_PROVIDER: file
+          EMAIL_DEV_FILE_TRANSPORT: '1'
+          # E2E navigates many proxied endpoints from one runner IP.
+          RATE_LIMIT_MAX_REQUESTS: '1000'
+          AUTH_RATE_LIMIT_MAX_REQUESTS: '1000'
         run: |
           npm run start > api.log 2>&1 &
           npm run preview > web.log 2>&1 &
@@ -60,7 +82,6 @@ jobs:
         run: npm run test:e2e -- --project=chromium
         env:
           E2E_BASE_URL: http://localhost:4173
-          ADMIN_EMAIL: e2e@kamuilan.test
 
       - name: Playwright raporu (başarısız olsa da yüklenir)
         if: always()

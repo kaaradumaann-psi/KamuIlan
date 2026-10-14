@@ -12,7 +12,10 @@ test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page);
 });
 
-test('doğrulama özeti ile en son başarılı tarama etiketleri birbirinden ayrıdır', async ({ page, request }) => {
+test('doğrulama özeti ile en son başarılı tarama etiketleri birbirinden ayrıdır', async ({
+  page,
+  request,
+}) => {
   const response = await request.get('/api/sources');
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as {
@@ -36,12 +39,14 @@ test('doğrulama özeti ile en son başarılı tarama etiketleri birbirinden ayr
   const successfulRunBadges = await page.getByText('son tarama başarılı', { exact: true }).count();
   expect(successfulRunBadges).toBe(successfulRuns);
 
-  // Hiç başarılı taraması olmayan kaynakta doğrulama geçmişi "tarandı" iddiasına dönüşmez.
+  // Geçmiş doğrulama, gerçek tarama/başarı gibi sunulmamalı. Hiç deneme yoksa
+  // bunu, başarısız denemeyi "henüz başarı yok" olarak ayrı ayrı göster.
   const neverSucceeded = body.sources.find((source) => source.health.lastSuccessAt === null);
   if (neverSucceeded) {
     const table = page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ });
     const row = table.getByRole('row').filter({ hasText: neverSucceeded.name }).first();
-    await expect(row.getByText('Henüz başarılı tarama yok')).toBeVisible();
+    const expectedLabel = neverSucceeded.lastRun ? 'Henüz başarılı tarama yok' : 'Henüz tarama yapılmadı';
+    await expect(row.getByText(expectedLabel, { exact: true })).toBeVisible();
   }
 
   await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();

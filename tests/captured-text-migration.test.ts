@@ -2,10 +2,13 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
 import { createId, sha256Hex } from '../src/domain/ids';
 import { jobContentFingerprint } from '../src/domain/job-content-fingerprint';
-import { normalizeTr } from '../src/domain/text';
+import { makeExcerpt, normalizeTr } from '../src/domain/text';
 import { FileStore } from '../src/db/file-store';
+import { PostgresStore, type PostgresPoolLike, type PostgresQueryable } from '../src/db/postgres-store';
+import { INDEXES } from '../src/db/indexes';
 import { createRepos } from '../src/db/repos';
 import type { JobSourceDoc } from '../src/db/schemas';
 import { fixedClock } from '../src/lib/clock';
@@ -13,6 +16,27 @@ import { applyRawAnnouncement } from '../src/ingest/jobs-service';
 import { migrateCapturedTextMetadata } from '../src/db/migrations/captured-text-metadata';
 import { migrateJobTextMinimization } from '../src/db/migrations/job-text-minimization';
 import { sozlesmeliPersonelIlani } from './fixtures/announcements';
+
+function pglitePool(db: PGlite): PostgresPoolLike {
+  const query = async <R extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: R[]; rowCount: number | null }> => {
+    const result = await db.query(text, values ?? []);
+    return {
+      rows: result.rows as R[],
+      rowCount: typeof result.affectedRows === 'number' ? result.affectedRows : null,
+    };
+  };
+  const queryable: PostgresQueryable = { query };
+  return {
+    query: queryable.query,
+    connect: async () => ({ query, release: () => undefined }),
+    end: async () => {
+      await db.close();
+    },
+  };
+}
 
 describe('kaynak metni minimizasyonu göçü', () => {
   it('eski gövdeleri temizler, karakter sayısı/durumu korur ve yinelenince değişiklik yapmaz', async () => {
@@ -182,5 +206,85 @@ describe('kaynak metni minimizasyonu göçü', () => {
     expect(secondRun.reviewExcerptsSanitized).toBe(0);
     expect(secondRun.revisionSnapshotsSanitized).toBe(0);
     await store.close();
+  });
+
+  it('Postgres JSONB deposunda alıntı/gövde yamalarını uygular ve güvenle tekrar çalışır', async () => {
+    const database = new PGlite();
+    const store = new PostgresStore({
+      connectionString: 'postgres://isolated-migration-test',
+      tablePrefix: 'kamuilan_migration_test',
+      pool: pglitePool(database),
+    });
+
+    try {
+      await store.init();
+      await store.ensureIndexes(INDEXES);
+      const privateEmail = 'pglite.notice@example.test';
+      const privatePhone = '+90 (312) 555-98-76';
+      const body = `Eski içerik ${privateEmail}; iletişim ${privatePhone}. ${'Ayrıntı '.repeat(450)}`;
+      const jobId = createId('job');
+      const linkId = createId('jsrc');
+      const reviewId = createId('rev');
+      const revisionId = createId('rev');
+
+      await store.insertOne('jobSources', {
+        id: linkId,
+        jobId,
+        sourceKey: 'pglite-test',
+        sourceItemId: 'historic-1',
+        capturedText: body,
+        rawExcerpt: body,
+        rawContentHash: sha256Hex(body),
+        capturedTextStatus: 'captured',
+        capturedTextCharacterCount: 0,
+      } as unknown as JobSourceDoc);
+      await store.insertOne('jobs', {
+        id: jobId,
+        title: 'Örnek personel alım ilanı',
+        applicationEndAt: null,
+        quota: null,
+        textExcerpt: body,
+        textNormalized: normalizeTr(body),
+        evidence: { contact: body },
+        fieldSources: { contact: { kind: 'detail', snippet: body } },
+        contentHash: 'legacy-body-hash',
+      } as never);
+      await store.insertOne('reviewQueue', {
+        id: reviewId,
+        payload: { sourceItemId: 'historic-1', excerpt: body },
+      } as never);
+      await store.insertOne('jobRevisions', {
+        id: revisionId,
+        jobId,
+        previous: { textExcerpt: body, evidence: { contact: body } },
+        current: { textExcerpt: body, fieldSources: { contact: { snippet: body } } },
+      } as never);
+
+      const captureResult = await migrateCapturedTextMetadata(store);
+      const jobResult = await migrateJobTextMinimization(store);
+      expect(captureResult).toMatchObject({ scanned: 1, updated: 1, countsBackfilled: 1 });
+      expect(jobResult).toMatchObject({ jobsScanned: 1, jobsUpdated: 1, reviewExcerptsSanitized: 1 });
+
+      const safeLink = await store.findOne('jobSources', { id: linkId });
+      expect((safeLink as unknown as Record<string, unknown>)['capturedText']).toBe('');
+      expect((safeLink as unknown as Record<string, unknown>)['rawExcerpt']).toBe('');
+      expect(safeLink?.capturedTextCharacterCount).toBe(makeExcerpt(body, 100_000).length);
+
+      const safeJob = await store.findOne('jobs', { id: jobId });
+      expect(safeJob?.textExcerpt).not.toContain(privateEmail);
+      expect(safeJob?.textExcerpt).not.toContain(privatePhone);
+      expect(safeJob?.textNormalized).toBe(normalizeTr(safeJob?.textExcerpt ?? ''));
+
+      const safeReview = await store.findOne('reviewQueue', { id: reviewId });
+      expect(JSON.stringify(safeReview?.payload)).not.toContain(privateEmail);
+      const safeRevision = await store.findOne('jobRevisions', { id: revisionId });
+      expect(JSON.stringify(safeRevision?.previous)).not.toContain(privatePhone);
+      expect(JSON.stringify(safeRevision?.current)).not.toContain(privateEmail);
+
+      expect((await migrateCapturedTextMetadata(store)).updated).toBe(0);
+      expect((await migrateJobTextMinimization(store)).jobsUpdated).toBe(0);
+    } finally {
+      await store.close();
+    }
   });
 });
