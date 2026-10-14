@@ -74,6 +74,7 @@ export function stripHtmlTags(html: string): string {
   const withoutMarkup = html
     .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(td|th)>/gi, ' | ')
     .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
@@ -142,9 +143,21 @@ function tokenizeShingles(value: string): string[] {
   return tokenize(value, 3);
 }
 
-/** Extracts a Turkish phone/e-mail-free readable excerpt of at most `max` chars. */
+const EMAIL_ADDRESS =
+  /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+[\p{L}]{2,}(?![\p{L}\p{N}-])/giu;
+const TURKISH_PHONE_NUMBER =
+  /(?<![\p{L}\p{N}])(?:(?:(?:\+|00)\s*90|90)[\s().-]*)?(?:0[\s().-]*)?(?:(?:\((?:[2-5]\d{2}|850)\)|(?:[2-5]\d{2}|850))[\s().-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|444[\s.-]*\d[\s.-]*\d{3})(?![\p{L}\p{N}])/gu;
+
+/** Replaces common email addresses and Turkish phone-number formats in text. */
+export function redactContactDetails(value: string): string {
+  return value
+    .replace(EMAIL_ADDRESS, '[e-posta gizlendi]')
+    .replace(TURKISH_PHONE_NUMBER, '[telefon gizlendi]');
+}
+
+/** Extracts a readable, contact-redacted excerpt of at most `max` chars. */
 export function makeExcerpt(value: string, max = 1200): string {
-  const clean = collapseWhitespace(value);
+  const clean = collapseWhitespace(redactContactDetails(value));
   if (clean.length <= max) return clean;
   return `${clean.slice(0, max - 1).trimEnd()}…`;
 }

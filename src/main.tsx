@@ -20,6 +20,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { ApiTimeoutError } from './lib/api';
 import { SessionProvider } from './lib/session';
 
 import './styles/screen.css';
@@ -40,7 +41,9 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       refetchOnWindowFocus: false,
-      retry: 1,
+      // Zaman aşımında ikinci uzun bekleme kullanıcıya süresiz spinner gibi görünür.
+      // Diğer geçici hatalarda tek, sınırlı yeniden deneme korunur.
+      retry: (failureCount, error) => !(error instanceof ApiTimeoutError) && failureCount < 1,
     },
   },
 });

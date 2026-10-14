@@ -11,7 +11,7 @@ import { createLogger } from '../src/lib/logger';
 
 async function main(): Promise<void> {
   const logger = createLogger('db-indexes', { level: 'info' });
-  const store = await initStore();
+  const store = await initStore(undefined, { ensureIndexes: false });
   const results = await store.ensureIndexes();
   for (const result of results) {
     logger.info(
@@ -20,10 +20,16 @@ async function main(): Promise<void> {
     );
   }
   logger.info(
-    { driver: store.driver, total: results.length, created: results.filter((result) => result.created).length },
+    {
+      driver: store.driver,
+      total: results.length,
+      created: results.filter((result) => result.created).length,
+    },
     'indeksler hazır',
   );
-  console.log(`Tanımlı indeks sayısı: ${INDEXES.length} (benzersiz: ${INDEXES.filter((index) => index.unique).length})`);
+  console.log(
+    `Tanımlı indeks sayısı: ${INDEXES.length} (benzersiz: ${INDEXES.filter((index) => index.unique).length})`,
+  );
   await closeStore();
 }
 

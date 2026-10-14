@@ -370,10 +370,11 @@ describe('kaynak adresi güvenliği (SSRF)', () => {
     expect(() => assertSafeUrl(url, [])).toThrow(FetchError);
   });
 
-  it('beyaz listedeki alan adı kabul edilir', () => {
-    expect(assertSafeUrl('https://www.ilan.gov.tr/ilanlar', ['ilan.gov.tr']).hostname).toBe(
+  it('tam eşleşen beyaz listedeki alan adı kabul edilir ve kök izin alt alan adı izni sayılmaz', () => {
+    expect(assertSafeUrl('https://www.ilan.gov.tr/ilanlar', ['www.ilan.gov.tr']).hostname).toBe(
       'www.ilan.gov.tr',
     );
+    expect(() => assertSafeUrl('https://www.ilan.gov.tr/ilanlar', ['ilan.gov.tr'])).toThrow(FetchError);
   });
 });
 
@@ -603,4 +604,3 @@ describe('Yönetim inceleme kuyruğu ve revizyon geçmişi', () => {
     await store.close();
   });
 });
-

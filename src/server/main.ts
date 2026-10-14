@@ -26,8 +26,7 @@ async function main(): Promise<void> {
 
   const store = await initStore();
   const repos = createRepos(store);
-  const indexes = await store.ensureIndexes();
-  logger.info({ created: indexes.filter((index) => index.created).length }, 'indeksler hazır');
+  logger.info({ driver: store.driver }, 'veritabanı ve indeksler hazır');
 
   const app = await buildApp({ repos, serveStatic: true });
   const port = env.PORT;
@@ -50,7 +49,12 @@ async function main(): Promise<void> {
 
   await app.listen({ port, host });
   logger.info(
-    { url: `http://${host}:${port}`, docs: `http://${host}:${port}/api/docs`, version: APP_VERSION, app: BRANDING.name },
+    {
+      url: `http://${host}:${port}`,
+      docs: `http://${host}:${port}/api/docs`,
+      version: APP_VERSION,
+      app: BRANDING.name,
+    },
     'API hazır',
   );
 }

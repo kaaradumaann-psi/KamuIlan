@@ -16,9 +16,11 @@ gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
    oturumu gerektirir. Otomatik çekim yalnızca tarayıcı (Playwright) kuruluysa ve
    sayfa genel erişime açıksa mümkündür; aksi halde kaynak "yoğun/erişim kısıtlı"
    olarak işaretlenir. **Sahte ilan üretilmez.**
-4. **SBB Kamu İlan (kamuilan.sbb.gov.tr)** bu geliştirme ortamından HTTP 403
-   "Geographic Restriction" (WAF) ile engellendi. Engel AŞILMAYA ÇALIŞILMADI;
-   Türkiye'den çalışan bir kurulumda açılabilir.
+4. **SBB Kamu İlan (kamuilan.sbb.gov.tr)** için ortamlar arası tarihsel kanıt
+   farklıdır: 12.10.2026'da bir sandbox isteği HTTP 403 "Geographic Restriction"
+   döndürdü; 13.10.2026'da kullanıcı ağındaki koşum 4 ham kayıt bildirdi. Bu
+   denetimde 14.10.2026'da canlı istek yapılmadı; bugünkü erişim bilinmiyor.
+   Engel aşılmaya çalışılmaz.
 5. **İŞKUR e-şube arama ekranı** oturum/arama tabanlıdır; otomatik çekim kapalıdır,
    kaynak kaydı yalnızca kapsam raporunda görünür.
 
@@ -59,12 +61,24 @@ gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
 
 ## Güvenlik/hukuk
 
-1. Kaynakların kullanım koşullarına ve `robots.txt` kurallarına uyulur; CAPTCHA
-   veya oturum duvarı aşılmaz. Bu nedenle bazı kaynaklar kapsam dışında kalır.
-2. İlan içerikleri yeniden yayımlanmaz; yalnızca özet ve resmî bağlantı gösterilir.
-3. Kişisel veri minimizasyonu uygulanır (bkz. [security-kvkk.md](./security-kvkk.md));
-   yedekler kişisel veri içerdiği için erişim kısıtlanmalı ve saklama süresi
-   belirlenmelidir.
+1. Kaynakların kullanım koşulları ve `robots.txt` onboarding sırasında elle
+   incelenmeli; CAPTCHA veya oturum duvarı aşılmamalıdır. Bu sürüm `robots.txt`
+   uygunluğunu runtime'da otomatik zorlamaz; bu nedenle bu politika kod düzeyinde
+   bir erişim kontrolü değildir ve canlı yetki ayrıca doğrulanmalıdır.
+2. İlanın tam gövdesi kamu API'sinde yayımlanmaz. Gövde 500 karakterden uzunsa ilan ayrıntısında en çok 400 karakterlik metin alıntısı gösterilebilir; daha kısa duyurular tam kopyayı önlemek için gösterilmez. Alıntı ve kanıt parçalarında yaygın e-posta/Türkiye telefon biçimleri sezgisel olarak maskelenir. Bu desen tabanlı önlem tüm kişisel verileri yakaladığı garantisi değildir; özgün duyuruya bağlantı verilir, kaynak kullanım koşulları ayrıca değerlendirilmelidir.
+3. Kişisel veri minimizasyonu uygulanır (bkz. [security-kvkk.md](./security-kvkk.md)).
+   Kaynak bağı tam gövdeyi, kullanılmayan ham alıntıyı veya gövde hash'ini
+   saklamaz; yakalama durumu/sınırlı karakter sayısı korunur. Arama, eşleştirme
+   ve ilan ayrıntısı için ayrı, 2.500 karakterle sınırlı/redakte edilmiş ilan
+   alıntısı ve onun normalize edilmiş arama kopyası tutulur; inceleme alıntıları
+   1.500 karakterle sınırlıdır. `npm run db:migrate` eski kaynak bağı, ilan,
+   arama kopyası, review payload'ı ve sürüm snapshot'larını düzeltir ve eski
+   `contentHash` değerlerini yeniden üretir; çevrimiçi göçün her mevcut
+   veritabanında çalıştırıldığı ayrıca kanıtlanmalıdır. Eski yedekler bu göç
+   kapsamında değildir. Yaygın e-posta/telefon biçimleri alıntı ve kanıt
+   parçalarında sezgisel olarak maskelenir; adlar, alışılmadık biçimler ve başka
+   kişisel veriler için tam tespit garantisi yoktur. Yedekler yine de kişisel
+   veri içerebilir; erişim kısıtlanmalı ve saklama süresi belirlenmelidir.
 
 ## Henüz yapılmamışlar (yol haritası niteliğinde)
 

@@ -16,6 +16,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ErrorNotice } from './components/ui';
 import { StatusBanner } from './components/StatusBanner';
 import { MobileNav, type MobileNavItem } from './components/MobileNav';
 import { BrandMark } from './components/BrandMark';
@@ -23,6 +24,7 @@ import { Icon } from './components/Icon';
 import type { IconName } from './components/Icon';
 import { SiteFooter, INFO_ROUTES } from './components/SiteFooter';
 import { APP_VERSION } from './config/app';
+import { errorMessage } from './lib/api';
 import { useAuth } from './lib/session';
 import { APP_NAME, HONESTY_NOTE, SITE_LABEL, SITE_URL } from './site';
 import { AdminPage } from './pages/Admin';
@@ -278,7 +280,7 @@ function AppShell({ children }: { children: ReactNode }) {
  * dönecek şekilde giriş ekranına yönlendirilir.
  */
 function RequireAuthGate({ children }: { children: ReactNode }) {
-  const { user, loading, sessionFetching } = useAuth();
+  const { user, loading, sessionFetching, sessionError, retrySession } = useAuth();
   const location = useLocation();
   // Oturum yenilenirken (giriş sonrası tazeleme gibi) kapı karar vermez:
   // eski "oturum yok" bilgisiyle girişe geri atmak kullanıcıyı giriş
@@ -294,6 +296,30 @@ function RequireAuthGate({ children }: { children: ReactNode }) {
               <span className="spinner" aria-hidden="true" />
               <h4>Oturum doğrulanıyor…</h4>
               <p>Hesabınız kontrol ediliyor.</p>
+            </div>
+          </div>
+        </div>
+        <SiteFooter compact />
+      </div>
+    );
+  }
+  if (!user && sessionError) {
+    return (
+      <div className="auth-page">
+        <div className="auth-shell">
+          <div className="auth-card-wrapper">
+            <div className="auth-card">
+              <div className="auth-heading">
+                <p className="auth-eyebrow">Oturum</p>
+                <h1>Oturum doğrulanamadı</h1>
+                <p>Sunucudan yanıt alınamadı; yeniden deneyebilir veya bağlantınızı kontrol edebilirsiniz.</p>
+              </div>
+              <ErrorNotice
+                title="Oturum bilgisi alınamadı"
+                message={errorMessage(sessionError)}
+                onRetry={() => void retrySession()}
+                retryLabel="Yeniden dene"
+              />
             </div>
           </div>
         </div>

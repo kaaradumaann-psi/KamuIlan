@@ -36,6 +36,17 @@ const preferenceBody = z
     notifyOnChanges: z.boolean().optional(),
     includeWorkerJobs: z.boolean().optional(),
     includeAcademicJobs: z.boolean().optional(),
+    profilePersonalizationEnabled: z.boolean().optional(),
+    candidateProfile: z
+      .object({
+        profession: z.string().trim().max(100).optional(),
+        educationLevel: z.enum(EDUCATION_LEVELS).nullable().optional(),
+        departments: z.array(z.string().trim().min(2).max(80)).max(20).optional(),
+        skills: z.array(z.string().trim().min(2).max(80)).max(20).optional(),
+        experienceYears: z.number().int().min(0).max(50).nullable().optional(),
+      })
+      .strict()
+      .optional(),
     filters: filtersSchema.optional(),
   })
   .strict();
@@ -77,6 +88,10 @@ export function registerNotificationRoutes(app: FastifyInstance, repos: Repos): 
         ...(body.notifyOnChanges !== undefined ? { notifyOnChanges: body.notifyOnChanges } : {}),
         ...(body.includeWorkerJobs !== undefined ? { includeWorkerJobs: body.includeWorkerJobs } : {}),
         ...(body.includeAcademicJobs !== undefined ? { includeAcademicJobs: body.includeAcademicJobs } : {}),
+        ...(body.profilePersonalizationEnabled !== undefined
+          ? { profilePersonalizationEnabled: body.profilePersonalizationEnabled }
+          : {}),
+        ...(body.candidateProfile !== undefined ? { candidateProfile: body.candidateProfile } : {}),
         ...(body.filters !== undefined ? { filters: body.filters } : {}),
       });
       await audit(repos.audit, request, {

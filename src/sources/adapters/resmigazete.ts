@@ -14,23 +14,80 @@
 import { collapseWhitespace } from '../../domain/text';
 import { firstDateOnlyIn } from '../../domain/dates';
 import { addDaysDateOnly, toIstanbulDateOnly, toIstanbulIso } from '../../domain/dates';
+import { normalizeUrl } from '../../domain/urls';
 import type { JobAttachment, RawAnnouncement } from '../../domain';
 import { AdapterStructureError } from '../errors';
 import { cleanInstitution } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
-import type { FetchResponse } from '../fetcher';
+import { assertSafeUrl, FetchError, isTransientTransportFailure, type FetchResponse } from '../fetcher';
 import { launchChromium } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
+import { detectNextPage } from '../pagination';
 
 const RESMI_GAZETE_HOST = 'https://www.resmigazete.gov.tr';
 const SECTION_PATTERN = /-\d+\.htm$/i;
 const PDF_PATTERN = /\.pdf$/i;
+const MAX_SECTION_PAGES = 10;
+
+type CoverageStatus = 'complete' | 'partial' | 'unknown';
 
 interface SectionRow {
   index: number;
   pdfUrl: string;
   rowText: string;
+}
+
+/**
+ * A pager can only advance within the current dated "Çeşitli İlânlar"
+ * section. Do not let an HTML link turn pagination into an arbitrary fetch.
+ */
+function allowlistedSectionPageUrl(
+  candidate: string,
+  sectionUrl: string,
+  allowedHosts: readonly string[],
+): string | null {
+  if (candidate.length > 2_048) return null;
+  try {
+    const next = new URL(candidate);
+    const section = new URL(sectionUrl);
+    if (
+      next.username.length > 0 ||
+      next.password.length > 0 ||
+      next.protocol !== 'https:' ||
+      (next.port.length > 0 && next.port !== '443')
+    ) {
+      return null;
+    }
+
+    const sectionHost = section.hostname.toLowerCase();
+    const nextHost = next.hostname.toLowerCase();
+    const withoutWww = (host: string): string => host.replace(/^www\./, '');
+    const sectionHostAllowed = allowedHosts.some((host) => host.toLowerCase() === sectionHost);
+    if (nextHost !== sectionHost && withoutWww(nextHost) === withoutWww(sectionHost) && sectionHostAllowed) {
+      // detectNextPage normalizes away "www". Restore the listing origin so
+      // the browser fallback can still fetch same-origin PDFs on later pages.
+      next.hostname = sectionHost;
+    }
+    const hostAllowed = allowedHosts.some((host) => host.toLowerCase() === next.hostname.toLowerCase());
+    if (!hostAllowed) return null;
+
+    const directory = (pathname: string): string =>
+      pathname.slice(0, pathname.lastIndexOf('/')).toLowerCase();
+    if (directory(next.pathname) !== directory(section.pathname)) return null;
+
+    const sectionFilename = section.pathname.slice(section.pathname.lastIndexOf('/') + 1).toLowerCase();
+    const sectionStem = sectionFilename.replace(/\.html?$/i, '');
+    const pageFilename = next.pathname.slice(next.pathname.lastIndexOf('/') + 1).toLowerCase();
+    if (pageFilename !== `${sectionStem}.htm` && pageFilename !== `${sectionStem}.html`) {
+      const suffix = pageFilename.slice(sectionStem.length);
+      if (!/^-\d+\.html?$/i.test(suffix)) return null;
+    }
+
+    return next.toString();
+  } catch {
+    return null;
+  }
 }
 
 export interface SectionBrowserSession {
@@ -40,7 +97,7 @@ export interface SectionBrowserSession {
 }
 
 export interface SectionBrowser {
-  open(): Promise<SectionBrowserSession>;
+  open(allowedHosts: readonly string[], signal?: AbortSignal): Promise<SectionBrowserSession>;
 }
 
 /**
@@ -50,8 +107,8 @@ export interface SectionBrowser {
  * kimlik gizleme/kimlik sahteciliği yapılmaz.
  */
 class PlaywrightSectionBrowser implements SectionBrowser {
-  async open(): Promise<SectionBrowserSession> {
-    const session = await launchChromium();
+  async open(allowedHosts: readonly string[], signal?: AbortSignal): Promise<SectionBrowserSession> {
+    const session = await launchChromium({ allowedHosts, signal });
     const page = session.page;
     let navigated = false;
     return {
@@ -66,10 +123,38 @@ class PlaywrightSectionBrowser implements SectionBrowser {
           navigated = true;
         }
         const base64 = await page.evaluate(async (target: string) => {
+          const MAX_BYTES = 15_728_640;
           const response = await fetch(target);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const buffer = await response.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
+          if (!response.ok) {
+            await response.body?.cancel().catch(() => undefined);
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const contentLength = Number(response.headers.get('content-length') ?? 0);
+          if (Number.isFinite(contentLength) && contentLength > MAX_BYTES) {
+            await response.body?.cancel().catch(() => undefined);
+            throw new Error('PDF boyut sınırı aşıldı (tarayıcı yolu).');
+          }
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error('PDF yanıt gövdesi okunamadı (tarayıcı yolu).');
+          const chunks: Uint8Array[] = [];
+          let totalBytes = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            totalBytes += value.byteLength;
+            if (totalBytes > MAX_BYTES) {
+              await reader.cancel().catch(() => undefined);
+              throw new Error('PDF boyut sınırı aşıldı (tarayıcı yolu).');
+            }
+            chunks.push(value);
+          }
+          const bytes = new Uint8Array(totalBytes);
+          let offset = 0;
+          for (const chunk of chunks) {
+            bytes.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
           let binary = '';
           const CHUNK = 0x8000;
           for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -89,8 +174,11 @@ class PlaywrightSectionBrowser implements SectionBrowser {
 export class ResmiGazeteAdapter implements SourceAdapter {
   constructor(private readonly browser: SectionBrowser | null = null) {}
 
-  private async openBrowser(): Promise<SectionBrowserSession> {
-    return (this.browser ?? new PlaywrightSectionBrowser()).open();
+  private async openBrowser(
+    allowedHosts: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<SectionBrowserSession> {
+    return (this.browser ?? new PlaywrightSectionBrowser()).open(allowedHosts, signal);
   }
 
   readonly key = 'resmigazete-cestili';
@@ -98,6 +186,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
   readonly method = 'pdf-index';
   readonly notes =
     'Günlük nüshadaki Çeşitli İlânlar bölümü HTML olarak okunur, ilan metni PDF metin katmanından çıkarılır. ' +
+    'Günlük bölüm sayfalaması izinli alan adı içinde en fazla 10 sayfa izlenir; açık son-sayfa işareti yoksa tamlık bilinmiyor olarak bildirilir. ' +
     'HTTP istemcisi cevap alamazsa (sunucu tarayıcı-dışı istemciyi yavaşlatıyorsa) aynı sayfalar gerçek tarayıcıyla okunur. ' +
     'Yargı/ihale bölümleri kapsam dışıdır.';
 
@@ -109,154 +198,309 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     let lastModified: string | null = null;
     let notModified = false;
     let detailFetches = 0;
+    let failedPdfFetches = 0;
     let limitNoted = false;
+    const sectionDatesRead: string[] = [];
+    const sectionCoverages: { dateOnly: string; status: CoverageStatus; note: string }[] = [];
+    const seenItemIds = new Set<string>(ctx.knownItemIds ?? []);
 
     if (!ctx.liveFetch) {
-      notes.push('Canlı erişim kapalı (SOURCE_LIVE_FETCH=0): adaptör yalnızca yapılandırma doğrulaması yaptı.');
-      return { items, requestCount, notes, etag, lastModified, notModified };
+      notes.push(
+        'Canlı erişim kapalı (SOURCE_LIVE_FETCH=0): adaptör yalnızca yapılandırma doğrulaması yaptı.',
+      );
+      return {
+        items,
+        requestCount,
+        notes,
+        etag,
+        lastModified,
+        notModified,
+        coverage: {
+          status: 'unknown',
+          note: 'Canlı erişim kapalı olduğu için günlük nüsha ve liste kapsamı doğrulanmadı.',
+        },
+      };
     }
 
     const today = toIstanbulDateOnly(ctx.fetchedAt);
     const days = [0, 1]; // Bugün yayımlanmadıysa dünkü nüsha okunur.
-    let browserSession: SectionBrowserSession | null = null;
+    const browserSessionRef: { current: SectionBrowserSession | null } = { current: null };
+
+    const fetchSectionPage = async (
+      url: string,
+      dateOnly: string,
+    ): Promise<{ response: FetchResponse | null; html: string }> => {
+      try {
+        const response = await ctx.http.fetchText(url, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+          retries: 1,
+        });
+        requestCount += 1;
+        return { response, html: response.decoded?.text ?? response.body.toString('utf8') };
+      } catch (error) {
+        requestCount += 1;
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+        if (!isTransientTransportFailure(error)) throw error;
+        try {
+          const safeUrl = assertSafeUrl(url, ctx.source.allowedHosts).toString();
+          const browserSession = (browserSessionRef.current ??= await this.openBrowser(
+            ctx.source.allowedHosts,
+            ctx.signal,
+          ));
+          const html = await browserSession.fetchHtml(safeUrl);
+          notes.push(`${dateOnly} nüshası HTTP ile alınamadı; sayfa tarayıcı ile okundu.`);
+          return { response: null, html };
+        } catch (browserError) {
+          if (ctx.signal?.aborted) throw ctx.signal.reason ?? browserError;
+          // Preserve the HTTP failure as the primary cause, matching the
+          // existing browser-fallback behavior for the first section page.
+          throw error;
+        }
+      }
+    };
 
     try {
       for (const offset of days) {
         const dateOnly = addDaysDateOnly(today, -offset);
         const sectionUrl = this.sectionUrl(dateOnly);
-        // Bölüm sayfası o an çekilemezse önce tarayıcı yedeği denenir; o da
-        // olmazsa düne düşülür; iki gün de çekilemezse son hata yükseltilir.
-        let response: FetchResponse | null = null;
-        let html: string;
+        let firstPage: { response: FetchResponse | null; html: string };
         try {
-          response = await ctx.http.fetchText(sectionUrl, {
-            allowedHosts: ctx.source.allowedHosts,
-            minIntervalMs: ctx.source.minRequestIntervalMs,
-            retries: 1,
-          });
-          requestCount += 1;
-          html = response.decoded?.text ?? response.body.toString('utf8');
-          if (offset === 0) {
-            etag = response.etag;
-            lastModified = response.lastModified;
-          }
+          firstPage = await fetchSectionPage(sectionUrl, dateOnly);
         } catch (error) {
-          requestCount += 1;
-          try {
-            browserSession ??= await this.openBrowser();
-            html = await browserSession.fetchHtml(sectionUrl);
-            notes.push(`${dateOnly} nüshası HTTP ile alınamadı; tarayıcı ile okundu.`);
-          } catch {
-            if (offset < days.length - 1) {
-              notes.push(
-                `${dateOnly} nüshası çekilemedi (${error instanceof Error ? error.message : String(error)}); bir önceki gün denenecek.`,
-              );
-              continue;
-            }
-            throw error;
+          if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+          const currentIssueNotPublished =
+            offset < days.length - 1 && error instanceof FetchError && error.status === 404;
+          if (error instanceof FetchError && error.status !== null && !currentIssueNotPublished) throw error;
+          if (offset < days.length - 1) {
+            const note =
+              `Nüsha/bölüm sayfası alınamadı (${error instanceof Error ? error.message : String(error)}); ` +
+              'bir önceki gün denenecek; bu tarih için kapsam kısmi.';
+            sectionCoverages.push({ dateOnly, status: 'partial', note });
+            notes.push(`${dateOnly} ${note}`);
+            continue;
           }
+          throw error;
         }
 
-        if (response?.notModified && offset === 0) {
-          notModified = true;
+        if (offset === 0 && firstPage.response) {
+          etag = firstPage.response.etag;
+          lastModified = firstPage.response.lastModified;
+        }
+        if (firstPage.response?.notModified) {
+          sectionCoverages.push({
+            dateOnly,
+            status: 'unknown',
+            note: 'Bölüm 304 döndürdü; bu çalışmada içeriği ve sayfalama sonu yeniden doğrulanmadı.',
+          });
           notes.push(`${dateOnly} nüshası değişmemiş (304).`);
-          break;
-        }
-
-        const $ = loadHtml(html);
-        const rows = this.parseSectionRows($, sectionUrl);
-
-        const pageText = readableText($, 'body', 5_000).toLocaleLowerCase('tr');
-        const isAnnouncementPage = pageText.includes('ilân') || pageText.includes('ilan') || rows.length > 0;
-        if (!isAnnouncementPage) {
-          throw new AdapterStructureError(
-            this.key,
-            `Resmî Gazete Çeşitli İlânlar sayfası beklenen biçimde değil (${sectionUrl}).`,
-            'Sayfa yüklendi ancak ne ilan bağlantısı ne de ilan metni bulundu; HTML yapısı değişmiş olabilir.',
-          );
-        }
-
-        if (rows.length === 0) {
-          notes.push(`${dateOnly} nüshasında Çeşitli İlânlar bölümü boş görünüyor (yapı doğrulandı).`);
+          if (offset === 0) {
+            notModified = true;
+            break;
+          }
           continue;
         }
 
-        for (const row of rows) {
-          const sourceItemId = this.sourceItemId(row.pdfUrl);
-          const alreadyKnown = ctx.knownItemIds?.has(sourceItemId) ?? false;
-          if (alreadyKnown || detailFetches >= ctx.maxDetailFetches) {
-            // Sınır notu koşumda bir kez düşülür; atlanan her satır için tekrarlanmaz.
-            if (!alreadyKnown && !limitNoted) {
-              limitNoted = true;
-              notes.push(`Belge indirme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`);
+        sectionDatesRead.push(dateOnly);
+        let currentUrl = sectionUrl;
+        let currentHtml = firstPage.html;
+        const visitedPages = new Set<string>();
+        let sectionStatus: CoverageStatus = 'unknown';
+        let sectionNote = `${dateOnly} sayfa kapsamı son sayfa işaretiyle doğrulanmadı.`;
+
+        for (let pageNumber = 1; pageNumber <= MAX_SECTION_PAGES; pageNumber += 1) {
+          const normalizedPageUrl = normalizeUrl(currentUrl) || currentUrl;
+          if (visitedPages.has(normalizedPageUrl)) {
+            sectionStatus = 'partial';
+            sectionNote = `${dateOnly} sayfalaması daha önce gezilen URL’ye döndü; tekrar isteği engellendi.`;
+            notes.push(sectionNote);
+            break;
+          }
+          visitedPages.add(normalizedPageUrl);
+
+          const $ = loadHtml(currentHtml);
+          const rows = this.parseSectionRows($, currentUrl, ctx.source.allowedHosts);
+          const pageText = readableText($, 'body', 5_000).toLocaleLowerCase('tr');
+          const isAnnouncementPage =
+            pageText.includes('ilân') || pageText.includes('ilan') || rows.length > 0;
+          if (!isAnnouncementPage) {
+            const message = `Resmî Gazete Çeşitli İlânlar sayfası beklenen biçimde değil (${currentUrl}).`;
+            if (pageNumber === 1) {
+              throw new AdapterStructureError(
+                this.key,
+                message,
+                'Sayfa yüklendi ancak ne ilan bağlantısı ne de ilan metni bulundu; HTML yapısı değişmiş olabilir.',
+              );
             }
-            continue;
+            sectionStatus = 'partial';
+            sectionNote = `${dateOnly} ${pageNumber}. sayfa yapısı tanınmadı; önceki sayfalar korundu.`;
+            notes.push(sectionNote);
+            break;
           }
 
-          detailFetches += 1;
-          requestCount += 1;
-          // Tek yavaş/erişilemez PDF tüm nüshayı düşürmemeli: hata yalıtılır,
-          // ilan atlanır ve not düşülür (kayıt oluşmadığı için sonraki
-          // taramada kendiliğinden yeniden denenir).
-          let pdfBody: Buffer;
-          try {
-            if (browserSession) {
-              pdfBody = await browserSession.fetchBytes(row.pdfUrl);
+          const uniqueRows: SectionRow[] = [];
+          let duplicateCount = 0;
+          for (const row of rows) {
+            const sourceItemId = this.sourceItemId(row.pdfUrl);
+            if (seenItemIds.has(sourceItemId)) {
+              duplicateCount += 1;
+              continue;
+            }
+            seenItemIds.add(sourceItemId);
+            uniqueRows.push(row);
+          }
+          notes.push(
+            `${dateOnly} sayfa ${pageNumber}: ${rows.length} PDF ilanı bulundu, ${uniqueRows.length} yeni kayıt; ` +
+              `${duplicateCount} yinelenen kayıt atlandı.`,
+          );
+
+          for (const row of uniqueRows) {
+            if (detailFetches >= ctx.maxDetailFetches) {
+              if (!limitNoted) {
+                limitNoted = true;
+                notes.push(
+                  `Belge indirme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`,
+                );
+              }
+              continue;
+            }
+
+            detailFetches += 1;
+            requestCount += 1;
+            // Tek yavaş/erişilemez PDF tüm nüshayı düşürmemeli: hata yalıtılır,
+            // ilan atlanır ve not düşülür (kayıt oluşmadığı için sonraki
+            // taramada kendiliğinden yeniden denenir).
+            let pdfBody: Buffer;
+            try {
+              if (browserSessionRef.current) {
+                pdfBody = await browserSessionRef.current.fetchBytes(row.pdfUrl);
+              } else {
+                const pdfResponse = await ctx.http.fetchBinary(row.pdfUrl, {
+                  allowedHosts: ctx.source.allowedHosts,
+                  minIntervalMs: ctx.source.minRequestIntervalMs,
+                  maxBytes: 15_728_640,
+                  timeoutMs: 60_000,
+                  retries: 1,
+                });
+                pdfBody = pdfResponse.body;
+              }
+            } catch (error) {
+              if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+              failedPdfFetches += 1;
+              notes.push(
+                `PDF indirilemedi, ilan atlandı (sonraki taramada yeniden denenecek): ` +
+                  `${row.pdfUrl.split('/').pop() ?? row.pdfUrl} — ${error instanceof Error ? error.message : String(error)}`,
+              );
+              continue;
+            }
+
+            const pdf = await extractPdfText(new Uint8Array(pdfBody), { maxPages: 16, maxChars: 60_000 });
+            const itemNotes: string[] = [];
+            if (pdf.error) itemNotes.push(`PDF okunamadı: ${pdf.error}`);
+            if (pdf.noTextLayer && !pdf.error) {
+              itemNotes.push(
+                'PDF metin katmanı yok (taranmış görüntü olabilir); metin alanları boş bırakıldı, belge saklandı.',
+              );
+            }
+            if (pdf.truncated) {
+              itemNotes.push(
+                `PDF metin çıkarımı sınırı nedeniyle kısaltıldı (${pdf.pagesRead}/${pdf.pages} sayfa, ${pdf.text.length} karakter).`,
+              );
+            }
+
+            const rowInstitution = cleanInstitution(row.rowText);
+            const title = deriveTitle(pdf.text, row.rowText, rowInstitution, dateOnly);
+            const bodyText = pdf.text;
+            const publishedAt = toIstanbulIso(dateOnly, '00:00');
+
+            const attachment: JobAttachment = {
+              url: row.pdfUrl,
+              label: 'Resmî Gazete ilan belgesi (PDF)',
+              kind: 'pdf',
+              sizeBytes: pdfBody.byteLength,
+            };
+
+            items.push({
+              sourceKey: ctx.source.key,
+              sourceItemId: this.sourceItemId(row.pdfUrl),
+              url: row.pdfUrl,
+              title,
+              bodyText,
+              bodyTextSource: 'document',
+              ...(pdf.truncated ? { bodyTextTruncated: true } : {}),
+              ...(rowInstitution ? { institution: rowInstitution } : {}),
+              publishedAt,
+              attachments: [attachment],
+              sourceCategory: 'resmi-gazete-cesitli-ilanlar',
+              rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
+              extractionConfidence: pdf.noTextLayer ? 0.2 : pdf.error ? 0.1 : 0.6,
+              ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
+            });
+          }
+
+          const navigation = detectNextPage(currentHtml, currentUrl);
+          if (!navigation.nextUrl) {
+            if (navigation.endConfirmed) {
+              sectionStatus = 'complete';
+              sectionNote = `${dateOnly} bölümünde ${visitedPages.size} sayfa gezildi ve sayfalama denetimi son sayfayı açıkça doğruladı.`;
             } else {
-              const pdfResponse = await ctx.http.fetchBinary(row.pdfUrl, {
-                allowedHosts: ctx.source.allowedHosts,
-                minIntervalMs: ctx.source.minRequestIntervalMs,
-                maxBytes: 15_728_640,
-                timeoutMs: 60_000,
-                retries: 1,
-              });
-              pdfBody = pdfResponse.body;
+              sectionStatus = 'unknown';
+              sectionNote = `${dateOnly} bölümünün ${pageNumber}. sayfasında sonraki bağlantı yok ancak açık son-sayfa işareti de bulunmadı; tamlık bilinmiyor.`;
             }
+            break;
+          }
+
+          if (pageNumber >= MAX_SECTION_PAGES) {
+            sectionStatus = 'partial';
+            sectionNote = `${dateOnly} bölümü ${MAX_SECTION_PAGES} sayfalık üst sınıra ulaştı; algılanan sonraki sayfa taranmadı.`;
+            notes.push(sectionNote);
+            break;
+          }
+
+          const nextPageUrl = allowlistedSectionPageUrl(
+            navigation.nextUrl,
+            sectionUrl,
+            ctx.source.allowedHosts,
+          );
+          if (!nextPageUrl) {
+            sectionStatus = 'partial';
+            sectionNote = `${dateOnly} sonraki sayfa bağlantısı izin verilen Resmî Gazete bölümüyle eşleşmediği için izlenmedi.`;
+            notes.push(`${sectionNote} Bağlantı: ${navigation.nextUrl}`);
+            break;
+          }
+          const normalizedNextUrl = normalizeUrl(nextPageUrl) || nextPageUrl;
+          if (visitedPages.has(normalizedNextUrl)) {
+            sectionStatus = 'partial';
+            sectionNote = `${dateOnly} sonraki sayfa daha önce gezilen URL’ye döndü; döngü engellendi.`;
+            notes.push(sectionNote);
+            break;
+          }
+
+          try {
+            const nextPage = await fetchSectionPage(nextPageUrl, dateOnly);
+            if (nextPage.response?.notModified) {
+              sectionStatus = 'partial';
+              sectionNote = `${dateOnly} sonraki sayfa 304 döndürdü; sayfa içeriği doğrulanamadı.`;
+              notes.push(sectionNote);
+              break;
+            }
+            currentUrl = nextPageUrl;
+            currentHtml = nextPage.html;
           } catch (error) {
-            notes.push(
-              `PDF indirilemedi, ilan atlandı (sonraki taramada yeniden denenecek): ` +
-                `${row.pdfUrl.split('/').pop() ?? row.pdfUrl} — ${error instanceof Error ? error.message : String(error)}`,
-            );
-            continue;
+            if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+            sectionStatus = 'partial';
+            sectionNote =
+              `${dateOnly} sonraki sayfa alınamadı (${error instanceof Error ? error.message : String(error)}); ` +
+              'daha önce işlenen sayfalar korundu.';
+            notes.push(sectionNote);
+            break;
           }
-
-          const pdf = await extractPdfText(new Uint8Array(pdfBody), { maxPages: 16, maxChars: 60_000 });
-          const itemNotes: string[] = [];
-          if (pdf.error) itemNotes.push(`PDF okunamadı: ${pdf.error}`);
-          if (pdf.noTextLayer && !pdf.error) {
-            itemNotes.push('PDF metin katmanı yok (taranmış görüntü olabilir); metin alanları boş bırakıldı, belge saklandı.');
-          }
-
-          const rowInstitution = cleanInstitution(row.rowText);
-          const title = deriveTitle(pdf.text, row.rowText, rowInstitution, dateOnly);
-          const bodyText = pdf.text;
-          const publishedAt = toIstanbulIso(dateOnly, '00:00');
-
-          const attachment: JobAttachment = {
-            url: row.pdfUrl,
-            label: 'Resmî Gazete ilan belgesi (PDF)',
-            kind: 'pdf',
-            sizeBytes: pdfBody.byteLength,
-          };
-
-          items.push({
-            sourceKey: ctx.source.key,
-            sourceItemId,
-            url: row.pdfUrl,
-            title,
-            bodyText,
-            ...(rowInstitution ? { institution: rowInstitution } : {}),
-            publishedAt,
-            attachments: [attachment],
-            sourceCategory: 'resmi-gazete-cesitli-ilanlar',
-            rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
-            extractionConfidence: pdf.noTextLayer ? 0.2 : pdf.error ? 0.1 : 0.6,
-            ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
-          });
         }
+
+        sectionCoverages.push({ dateOnly, status: sectionStatus, note: sectionNote });
       }
     } finally {
-      await browserSession?.close().catch(() => undefined);
+      await browserSessionRef.current?.close().catch(() => undefined);
     }
 
     notes.push(
@@ -264,7 +508,49 @@ export class ResmiGazeteAdapter implements SourceAdapter {
         'Çeşitli İlânlar bölümünde yayımlanan her ilan ayrı bir PDF’tir; metin katmanı olmayan belgeler insan incelemesine düşer.',
     );
 
-    return { items, requestCount, notes, etag, lastModified, notModified };
+    const incompleteSections = sectionCoverages.filter((section) => section.status !== 'complete');
+    const hasKnownOmissions =
+      limitNoted ||
+      failedPdfFetches > 0 ||
+      sectionCoverages.some((section) => section.status === 'partial') ||
+      sectionCoverages.length < days.length;
+    const allSectionsComplete =
+      sectionCoverages.length === days.length && sectionCoverages.every((section) => section.status === 'complete');
+    const coverageStatus: CoverageStatus = notModified
+      ? 'unknown'
+      : hasKnownOmissions
+        ? 'partial'
+        : allSectionsComplete
+          ? 'complete'
+          : 'unknown';
+    const coverageNote = notModified
+      ? 'Günlük nüsha 304 döndürdü; bu çalışmada ilan listesi ve sayfalama yeniden doğrulanmadı.'
+      : coverageStatus === 'complete'
+        ? `${sectionDatesRead.join(', ')} günlük bölümlerinin tüm sayfaları açık son-sayfa göstergesiyle gezildi; daha eski arşiv nüshaları bu çalışmanın tarih aralığına dahil değildir.`
+        : [
+            ...incompleteSections.map((section) => section.note),
+            ...(limitNoted
+              ? [
+                  `PDF indirme bütçesi (${ctx.maxDetailFetches}) nedeniyle listedeki tüm yeni belgeler işlenemedi.`,
+                ]
+              : []),
+            ...(failedPdfFetches > 0
+              ? [`${failedPdfFetches} PDF alınamadı; ilgili ilanlar oluşturulamadı.`]
+              : []),
+          ].join(' ') || 'Tüm günlük bölüm sayfaları ve PDF kayıtları bu çalışmada doğrulanamadı.';
+    notes.push(
+      `Liste kapsamı: ${coverageStatus === 'complete' ? 'tam' : coverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${coverageNote}`,
+    );
+
+    return {
+      items,
+      requestCount,
+      notes,
+      etag,
+      lastModified,
+      notModified,
+      coverage: { status: coverageStatus, note: coverageNote },
+    };
   }
 
   private sectionUrl(dateOnly: string): string {
@@ -278,7 +564,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
   }
 
   /** Bölüm sayfasındaki ilan satırlarını (kurum → PDF) çıkarır. */
-  parseSectionRows($: ReturnType<typeof loadHtml>, pageUrl: string): SectionRow[] {
+  parseSectionRows(
+    $: ReturnType<typeof loadHtml>,
+    pageUrl: string,
+    allowedHosts: readonly string[] = [new URL(pageUrl).hostname],
+  ): SectionRow[] {
     const rows: SectionRow[] = [];
     const seen = new Set<string>();
 
@@ -286,9 +576,16 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       const node = $(element);
       const href = absoluteUrl(node.attr('href'), pageUrl, $);
       if (!href || !PDF_PATTERN.test(href)) return;
-      if (!SECTION_PATTERN.test(new URL(href).pathname.replace(PDF_PATTERN, '.htm'))) {
+      let parsed: URL;
+      try {
+        parsed = assertSafeUrl(href, allowedHosts);
+      } catch {
+        return;
+      }
+      if (parsed.protocol !== 'https:' || (parsed.port.length > 0 && parsed.port !== '443')) return;
+      if (!SECTION_PATTERN.test(parsed.pathname.replace(PDF_PATTERN, '.htm'))) {
         // Belge adı "-4-N.pdf" biçiminde olmalı.
-        if (!/-\d+-\d+\.pdf$/i.test(new URL(href).pathname)) return;
+        if (!/-\d+-\d+\.pdf$/i.test(parsed.pathname)) return;
       }
       if (seen.has(href)) return;
       seen.add(href);
@@ -302,7 +599,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
 
       rows.push({
         index: rows.length,
-        pdfUrl: href,
+        pdfUrl: parsed.toString(),
         rowText: rowText.length >= 4 ? rowText : (node.text() ?? '').trim(),
       });
     });
@@ -323,11 +620,16 @@ function deriveTitle(pdfText: string, rowText: string, institution: string | nul
       .split('\n')
       .map((line) => collapseWhitespace(line))
       .filter((line) => line.length >= 12);
-    const heading = lines.find((line) =>
-      /\b(?:ilan[ıi]?|al[ıi]m[ıi]?|alım|duyuru|sınav|kadro|personel|ba[şs]vuru)\b/iu.test(line) && !/^\d/.test(line),
+    const heading = lines.find(
+      (line) =>
+        /\b(?:ilan[ıi]?|al[ıi]m[ıi]?|alım|duyuru|sınav|kadro|personel|ba[şs]vuru)\b/iu.test(line) &&
+        !/^\d/.test(line),
     );
     if (heading) {
-      const cleaned = heading.replace(/\s{2,}/g, ' ').replace(/[:;]$/, '').trim();
+      const cleaned = heading
+        .replace(/\s{2,}/g, ' ')
+        .replace(/[:;]$/, '')
+        .trim();
       if (cleaned.length >= 12) return cleaned.slice(0, 300);
     }
   }

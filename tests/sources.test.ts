@@ -10,8 +10,9 @@
  *  - Envanterdeki her `adapterKey` gerçekten kayıtlı bir adaptöre karşılık gelir.
  *  - Canlı erişim kapalıyken (`SOURCE_LIVE_FETCH=0`) hiçbir adaptör ağ
  *    isteği yapmaz ve ilan uydurmaz; gerekçe notu döner.
- *  - Fixture HTML ile çalışan adaptör beklenen alanları çıkarır; sayfa yapısı
- *    bozulunca (ilan satırı yok) hata değil BOŞ liste döner.
+ *  - Fixture HTML ile çalışan adaptör beklenen alanları çıkarır; satır
+ *    bulunmaması sessizce tam/başarılı kapsam sayılmaz, açık hata veya
+ *    `unknown` kapsamı üretir.
  */
 import { describe, expect, it } from 'vitest';
 import { PLANNED_SOURCES, SOURCE_DEFINITIONS, type SourceDefinition } from '../src/config/sources';
@@ -20,6 +21,8 @@ import { createLogger } from '../src/lib/logger';
 import { extractReferenceNumbers } from '../src/sources/listing-utils';
 import { IlanGovTrAdapter } from '../src/sources/adapters/ilan-gov-tr';
 import { ResmiGazeteAdapter } from '../src/sources/adapters/resmigazete';
+import { OsymAdapter } from '../src/sources/adapters/osym';
+import { SbbKamuIlanAdapter } from '../src/sources/adapters/sbb-kamuilan';
 import { FetchError } from '../src/sources/fetcher';
 import type { FetchResponse, HttpClient } from '../src/sources/fetcher';
 import { getAdapter, listAdapters, requireAdapter } from '../src/sources/registry';
@@ -86,7 +89,8 @@ const ilanGovSource = SOURCE_DEFINITIONS.find((source) => source.adapterKey === 
  */
 function ilanRoutes(listingHtml: string): (url: string) => string | undefined {
   return (url: string) => {
-    if (url.includes('currentPage=2')) return '<html><body><ul class="ad-list"></ul></body></html>';
+    if (url.includes('currentPage=2'))
+      return '<html><body><ul class="ad-list"><li class="no-results">Sonuç bulunamadı</li></ul></body></html>';
     if (url.includes('ilan.gov.tr/ilanlar') || url.includes('personel-alimi')) return listingHtml;
     return undefined;
   };
@@ -178,6 +182,125 @@ describe('liste yardımcıları', () => {
   });
 });
 
+describe('Kamu İlan (SBB) sayfalama kapsamı', () => {
+  it('ilan ayrıntısı gibi görünen başka host bağlantılarını listeye almaz', () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'sbb-kamuilan');
+    if (!source) throw new Error('SBB kaynağı envanterde yok');
+    const html = `<main><a href="https://attacker.example/ilan/123456/kamu-personel-alim-ilani">Kamu kurumunda personel alımı için ilan metni</a></main>`;
+    const rows = new SbbKamuIlanAdapter().parseListing(
+      loadHtml(html),
+      source.listingUrl,
+      source.allowedHosts,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it('sayfa bağlantılarını takip eder ve son sayfayı doğrular', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'sbb-kamuilan');
+    if (!source) throw new Error('SBB kaynağı envanterde yok');
+    const row = (id: string, title: string): string => `<article><a href="/ilan/${id}">
+      <div><span>ANKARA ÜNİVERSİTESİ REKTÖRLÜĞÜ</span><h3>${title}</h3><p>İl: Ankara 12.10.2026</p></div>
+    </a></article>`;
+    const pageOne = `<html><body><main>${row('bir', 'Ankara Üniversitesi sözleşmeli personel alım ilanı')}
+      <nav class="pagination"><a rel="next" href="?page=2">Sonraki</a></nav></main></body></html>`;
+    const pageTwo = `<html><body><main>${row('iki', 'Ankara Üniversitesi sağlık personeli alım ilanı')}
+      <nav class="pagination"><a href="?page=2" aria-current="page">2</a>
+      <a rel="next" href="?page=3" aria-disabled="true" class="disabled">Sonraki</a></nav></main></body></html>`;
+    const { http, calls } = fakeHttp((url) => {
+      if (url.includes('page=2')) return pageTwo;
+      if (url === source.listingUrl) return pageOne;
+      return undefined;
+    });
+    const result = await new SbbKamuIlanAdapter().run(contextFor(source, http, true));
+    expect(calls.some((url) => url.includes('page=2'))).toBe(true);
+    expect(result.items).toHaveLength(2);
+    expect(result.coverage?.status).toBe('complete');
+  });
+});
+
+describe('ÖSYM liste sayfalama kapsamı', () => {
+  it('sonraki bağlantıyı izler ve yalnız son sayfa işaretiyle kapsamı tam sayar', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'osym-duyuru');
+    if (!source) throw new Error('ÖSYM kaynağı envanterde yok');
+    const listingPage = (slug: string, title: string, date: string, page: number): string => `
+      <html><body><main><article><a href="/${slug}">${title}</a><time>${date}</time></article>
+      <nav class="pagination">
+        <a href="?page=1">1</a>
+        <a href="?page=2" class="${page === 2 ? 'active' : ''}" ${page === 2 ? 'aria-current="page"' : ''}>2</a>
+        ${
+          page === 1
+            ? '<a rel="next" href="?page=2">Sonraki</a>'
+            : '<a rel="next" href="?page=3" aria-disabled="true" class="disabled">Sonraki</a>'
+        }
+      </nav></main></body></html>`;
+    const detail = `<html><body><main><p>${'ÖSYM duyuru metni, başvuru koşulları ve takvim bilgisi. '.repeat(5)}</p></main></body></html>`;
+    const { http, calls } = fakeHttp((url) => {
+      if (url.includes('personel-duyurusu-bir')) return detail;
+      if (url.includes('personel-duyurusu-iki')) return detail;
+      if (url.includes('page=2'))
+        return listingPage(
+          'personel-duyurusu-iki',
+          'ÖSYM personel alım duyurusu ikinci kayıt',
+          '13.10.2026',
+          2,
+        );
+      if (url === source.listingUrl)
+        return listingPage('personel-duyurusu-bir', 'ÖSYM personel alım duyurusu ilk kayıt', '12.10.2026', 1);
+      return undefined;
+    });
+    const result = await new OsymAdapter().run(contextFor(source, http, true));
+    expect(calls.some((url) => url.includes('page=2'))).toBe(true);
+    expect(result.items.map((item) => item.sourceItemId)).toEqual([
+      'personel-duyurusu-bir',
+      'personel-duyurusu-iki',
+    ]);
+    expect(result.coverage?.status).toBe('complete');
+    expect(result.coverage?.note).toContain('son sayfayı doğruladı');
+  });
+
+  it('başarısız detay isteğini HTTP durumuyla kaydeder ve kapsamı kısmi bildirir', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'osym-duyuru');
+    if (!source) throw new Error('ÖSYM kaynağı envanterde yok');
+    const listingHtml = `<html><body><main><article>
+      <a href="/kamu-personel-alim-duyurusu-2026">ÖSYM kamu personel alım duyurusu</a>
+      <time>12.10.2026</time>
+    </article><nav class="pagination">
+      <a rel="next" aria-disabled="true" class="disabled" href="?page=2">Sonraki</a>
+    </nav></main></body></html>`;
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url === source.listingUrl) return htmlResponse(url, listingHtml);
+        throw new FetchError(url, 'Erişim reddedildi (HTTP 403).', 403, false);
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('binary request not expected');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new OsymAdapter().run(contextFor(source, http, true));
+
+    expect(result.items).toHaveLength(1);
+    expect(result.httpStatuses).toContain(403);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('1 detay isteği başarısız oldu');
+  });
+
+  it('başka hosttaki duyuru ve sayfalama bağlantılarını izlemez', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'osym-duyuru');
+    if (!source) throw new Error('ÖSYM kaynağı envanterde yok');
+    const html = `<main><a href="https://attacker.example/2026-kamu-personel-alim-duyurusu">ÖSYM personel alım başvuru duyurusu</a>
+      <nav class="pagination"><a rel="next" href="https://attacker.example/?page=2">Sonraki</a></nav></main>`;
+    const { http, calls } = fakeHttp((url) => (url === source.listingUrl ? html : undefined));
+    const result = await new OsymAdapter().run(contextFor(source, http, true));
+    expect(result.items).toEqual([]);
+    expect(calls).toEqual([source.listingUrl]);
+    expect(result.coverage?.status).toBe('unknown');
+  });
+});
+
 describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
   const LISTING_URL = ilanGovSource?.listingUrl ?? 'https://ilan.gov.tr/ilanlar?ats=5';
 
@@ -211,12 +334,19 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
   it('liste sayfasından ilanları, kurumu, ili ve tarihi çıkarır', async () => {
     const adapter = new IlanGovTrAdapter();
     if (!ilanGovSource) throw new Error('ilan.gov.tr kaynağı envanterde yok');
-    const { http, calls } = fakeHttp(ilanRoutes(FIXTURE));
+    const detailText = 'Başvuru koşulları ve ilan takvimi. '.repeat(5);
+    const { http, calls } = fakeHttp((url) => {
+      if (url === LISTING_URL) return FIXTURE;
+      if (url.includes('/ilan/482311') || url.includes('/ilan/482312'))
+        return `<html><body><main><p>${detailText}</p></main></body></html>`;
+      return ilanRoutes(FIXTURE)(url);
+    });
 
     const result = await adapter.run(contextFor(ilanGovSource, http, true));
 
     expect(calls[0]).toBe(LISTING_URL);
     expect(result.items.length).toBe(2);
+    expect(result.coverage?.status).toBe('complete');
 
     const first = result.items[0];
     expect(first?.sourceKey).toBe(ilanGovSource.key);
@@ -233,15 +363,62 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
     expect(second?.publishedAt).toBe('2026-10-11');
   });
 
-  it('sayfa yapısı bozulunca hata değil boş liste döner (gürültü yapmaz)', async () => {
+  it('boş liste kapsayıcısı tek başına son sayfanın kanıtı değildir', async () => {
     const adapter = new IlanGovTrAdapter();
+    if (!ilanGovSource) throw new Error('ilan.gov.tr kaynağı envanterde yok');
+    const { http } = fakeHttp((url) => {
+      if (url.includes('currentPage=2')) return '<html><body><ul class="ad-list"></ul></body></html>';
+      return url === LISTING_URL ? FIXTURE : undefined;
+    });
+
+    const result = await adapter.run(contextFor(ilanGovSource, http, true));
+
+    expect(result.items).toHaveLength(2);
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('boş liste durumu doğrulanamadı');
+  });
+
+  it('ilk liste sayfası okunamayan boş şablon döndürürse kapsamı bilinmiyor bırakır', async () => {
+    const adapter = new IlanGovTrAdapter(async () => '<html><body><p>Bakım çalışması</p></body></html>');
     if (!ilanGovSource) throw new Error('ilan.gov.tr kaynağı envanterde yok');
     const { http } = fakeHttp(ilanRoutes('<html><body><p>Bakım çalışması</p></body></html>'));
 
     const result = await adapter.run(contextFor(ilanGovSource, http, true));
 
     expect(result.items).toEqual([]);
+    expect(result.coverage?.status).toBe('unknown');
     expect(result.notes.join(' ')).toMatch(/0 ilan satırı/);
+  });
+
+  it('sonraki liste sayfası hata verirse önceki kayıtları korur ve kapsamı kısmi bildirir', async () => {
+    const adapter = new IlanGovTrAdapter();
+    if (!ilanGovSource) throw new Error('ilan.gov.tr kaynağı envanterde yok');
+    const { http, calls } = fakeHttp((url) => {
+      if (url === LISTING_URL) return FIXTURE;
+      if (url.includes('currentPage=2')) throw new Error('geçici sayfa hatası');
+      return undefined;
+    });
+
+    const result = await adapter.run(contextFor(ilanGovSource, http, true));
+
+    expect(calls).toEqual([LISTING_URL, expect.stringContaining('currentPage=2')]);
+    expect(result.items).toHaveLength(2);
+    expect(result.requestCount).toBe(2);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('Sayfa 2 alınamadı');
+  });
+
+  it('başka hosttaki ilan benzeri bağlantıyı işleme veya ayrıntı için kullanmaz', async () => {
+    if (!ilanGovSource) throw new Error('ilan.gov.tr kaynağı envanterde yok');
+    const external = `<ul class="ad-list"><li><a href="https://attacker.example/ilan/123456">
+      <h3>Örnek kurum için kamu personel alımı duyurusu</h3></a><div>12.10.2026</div></li></ul>`;
+    const { http, calls } = fakeHttp((url) => (url === LISTING_URL ? external : undefined));
+    const result = await new IlanGovTrAdapter(async () => external).run(
+      contextFor(ilanGovSource, http, true),
+    );
+    expect(result.items).toEqual([]);
+    expect(calls).toEqual([LISTING_URL]);
+    expect(result.coverage?.status).toBe('unknown');
   });
 
   it('daha önce görülen ilanları yinelenmez (idempotent tarama)', async () => {
@@ -250,7 +427,11 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
     const { http } = fakeHttp(ilanRoutes(FIXTURE));
     const base = contextFor(ilanGovSource, http, true);
 
-    const result = await adapter.run({ ...base, knownItemIds: new Set(['482311', '482312']) });
+    const result = await adapter.run({
+      ...base,
+      knownItemIds: new Set(['482311', '482312']),
+      knownItemIdsWithDetail: new Set(['482311', '482312']),
+    });
 
     expect(result.items).toEqual([]);
     expect(result.notes.join(' ')).toMatch(/Yeni ilan yok/);
@@ -259,15 +440,25 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
   it('detay sayfası erişilemezse liste bilgisiyle devam eder', async () => {
     const adapter = new IlanGovTrAdapter();
     if (!ilanGovSource) throw new Error('ilan.gov.tr kaynağı envanterde yok');
-    const { http } = fakeHttp(ilanRoutes(FIXTURE));
+    const detailFixture = FIXTURE.replace(
+      'href="/ilan/482311"',
+      'href="/ilan/482311/IlanDetay?i=11111111-1111-4111-8111-111111111111"',
+    ).replace(
+      'href="/ilan/482312"',
+      'href="/ilan/482312/IlanDetay?i=22222222-2222-4222-8222-222222222222"',
+    );
+    const { http } = fakeHttp(ilanRoutes(detailFixture));
 
-    // Detay isteği sahte istemcide tanımlı değil → hata fırlatır; adaptör bunu
-    // yutup ilanı liste alanlarıyla kaydetmelidir.
+    // Detay isteği sahte istemcide tanımlı değil → ilan liste alanlarıyla kalır,
+    // ancak başarısız ayrıntı isteği kapsam/sağlık notunda görünür olmalıdır.
     const result = await adapter.run(contextFor(ilanGovSource, http, true));
 
     expect(result.items.length).toBe(2);
     expect(result.items[0]?.bodyText).toBeUndefined();
     expect(result.items[0]?.attachments).toEqual([]);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('2 detay isteği başarısız oldu');
+    expect(result.notes.some((note) => note.includes('Detay isteği başarısız'))).toBe(true);
   });
 });
 
@@ -295,6 +486,29 @@ describe('genel kurum duyuru adaptörü', () => {
     const adapter = requireAdapter('kurum-duyuru-listesi');
     const { http } = fakeHttp(() => '<html><body><p>Portal yenilendi</p></body></html>');
     await expect(adapter.run(contextFor(kurumSource, http, true))).rejects.toThrow(/Liste yapısı tanınmadı/);
+  });
+
+  it('script içindeki boş-sonuç ifadesini görünür sayfa sinyali saymaz', async () => {
+    if (!kurumSource) throw new Error('Kurum duyuru kaynağı envanterde yok');
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const pageWithScriptOnly =
+      '<html><body><main><script>const notice = "aktif ilan yok";</script><p>Portal yenilendi</p></main></body></html>';
+    const { http } = fakeHttp((url) => (url === kurumSource.listingUrl ? pageWithScriptOnly : undefined));
+
+    await expect(adapter.run(contextFor(kurumSource, http, true))).rejects.toThrow(/Liste yapısı tanınmadı/);
+  });
+
+  it('açık boş liste mesajını hata yerine bilinmeyen kapsamla bildirir', async () => {
+    if (!kurumSource) throw new Error('Kurum duyuru kaynağı envanterde yok');
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const emptyPage = '<html><body><main><p>Şu an aktif ilan bulunmamaktadır.</p></main></body></html>';
+    const { http } = fakeHttp((url) => (url === kurumSource.listingUrl ? emptyPage : undefined));
+
+    const result = await adapter.run(contextFor(kurumSource, http, true));
+
+    expect(result.items).toEqual([]);
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('açıkça boş sonuç bildirdi');
   });
 
   it('envanterdeki tüm kurum kaynakları kayıtlı adaptörü kullanır', () => {
@@ -377,7 +591,316 @@ describe('genel kurum adaptörü — doğrulanmış sayfa biçimleri', () => {
   });
 });
 
+describe('ortak bağlantı listesi detay kapsamı', () => {
+  it('farklı URL ile yinelenen ilan kimlikleri varsa kapsamı bilinmiyor olarak bırakır', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'iskur-kamu-memur-alim');
+    expect(source).toBeDefined();
+    const firstRow =
+      '<li><a href="/ilanlar/2026/123456?tracking=first">Ankara Üniversitesi sözleşmeli personel alım ilanı</a></li>';
+    const secondRow =
+      '<li><a href="/ilanlar/2026/123456?tracking=second">Ankara Üniversitesi sözleşmeli personel alım ilanı</a></li>';
+    const firstPage = `<html><body><main><ul>${firstRow}</ul><nav class="pagination"><a rel="next" href="?page=2">Sonraki</a></nav></main></body></html>`;
+    const secondPage = `<html><body><main><ul>${secondRow}</ul><nav class="pagination"><a rel="next" aria-disabled="true" class="disabled" href="?page=3">Sonraki</a></nav></main></body></html>`;
+    const { http } = fakeHttp((url) =>
+      url.includes('page=2') ? secondPage : url === source?.listingUrl ? firstPage : undefined,
+    );
+    const { createIskurAdapter } = await import('../src/sources/adapters/anchor-list');
+
+    const result = await createIskurAdapter().run({
+      ...contextFor(source!, http, true),
+      knownItemIds: new Set(['123456']),
+      knownItemIdsWithDetail: new Set(['123456']),
+    });
+
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('önceki sayfalardaki aynı ilan kimliklerini tekrarladı');
+    expect(result.items).toEqual([]);
+  });
+
+  it('başarısız detay isteğini görünür kılar ve kapsamı tam saymaz', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'iskur-kamu-memur-alim');
+    expect(source).toBeDefined();
+    const html = `<html><body><main><ul><li>
+      <a href="/ilanlar/2026/123456">Ankara Üniversitesi sözleşmeli personel alım ilanı</a>
+      <time>12.10.2026</time>
+    </li></ul><nav class="pagination">
+      <a rel="next" aria-disabled="true" class="disabled" href="?page=2">Sonraki</a>
+    </nav></main></body></html>`;
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url === source!.listingUrl) return htmlResponse(url, html);
+        throw new FetchError(url, 'Erişim reddedildi (HTTP 403).', 403, false);
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('binary request not expected');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+    const { createIskurAdapter } = await import('../src/sources/adapters/anchor-list');
+
+    const result = await createIskurAdapter().run(contextFor(source!, http, true));
+
+    expect(result.items).toHaveLength(1);
+    expect(result.httpStatuses).toContain(403);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('1 detay isteği başarısız oldu');
+    expect(result.notes.some((note) => note.includes('Detay isteği başarısız'))).toBe(true);
+  });
+});
+
 describe('Resmî Gazete adaptörü dayanıklılığı', () => {
+  it('PDF olarak görünen başka-host bağlantısını indirme kuyruğuna almaz', () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    if (!source) throw new Error('Resmî Gazete kaynağı envanterde yok');
+    const pageUrl = 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4.htm';
+    const html = `<table><tr><td>ÖRNEK ÜNİVERSİTESİ
+      <a href="https://attacker.example/ilanlar/eskiilanlar/2026/10/20261012-4-1.pdf">PDF</a>
+      <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-2.pdf">PDF</a>
+    </td></tr></table>`;
+    const rows = new ResmiGazeteAdapter().parseSectionRows(loadHtml(html), pageUrl, source.allowedHosts);
+    expect(rows.map((row) => row.pdfUrl)).toEqual([
+      'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-2.pdf',
+    ]);
+  });
+
+  it('sayfaları izler, yinelenen ilanları tekilleştirir ve açık son-sayfa işaretini doğrular', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const sectionUrl = 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4.htm';
+    const pageOne = `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1>
+      <div class="pagination"><a rel="next" href="?page=2">Sonraki</a></div>
+      <table><tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-1.pdf">(PDF)</a></td></tr></table>
+    </body></html>`;
+    const pageTwo = `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1>
+      <div class="pagination"><a rel="next" class="disabled" aria-disabled="true" href="?page=3">Sonraki</a></div>
+      <table>
+        <tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-1.pdf">(PDF)</a></td></tr>
+        <tr><td>ÖRNEK BELEDİYESİ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-2.pdf">(PDF)</a></td></tr>
+      </table>
+    </body></html>`;
+    const emptyFinalPage = `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1>
+      <div class="pagination"><a rel="next" class="disabled" aria-disabled="true" href="?page=2">Sonraki</a></div>
+    </body></html>`;
+    const textCalls: string[] = [];
+    const binaryCalls: string[] = [];
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        textCalls.push(url);
+        if (url === sectionUrl) return htmlResponse(url, pageOne);
+        if (new URL(url).searchParams.get('page') === '2' && url.includes('20261012-4.htm'))
+          return htmlResponse(url, pageTwo);
+        if (url.includes('20261011-4.htm')) return htmlResponse(url, emptyFinalPage);
+        throw new Error(`Beklenmeyen sayfa isteği: ${url}`);
+      },
+      async fetchBinary(url: string): Promise<FetchResponse> {
+        binaryCalls.push(url);
+        const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
+        return {
+          ...htmlResponse(url, ''),
+          body,
+          bytes: body.byteLength,
+          contentType: 'application/pdf',
+          decoded: undefined,
+        };
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(textCalls[0]).toBe(sectionUrl);
+    expect(textCalls[1]).toBe(`${sectionUrl}?page=2`);
+    expect(textCalls[2]).toContain('20261011-4.htm');
+    expect(result.items.map((item) => item.sourceItemId)).toEqual([
+      'resmigazete:20261012-4-1.pdf',
+      'resmigazete:20261012-4-2.pdf',
+    ]);
+    expect(binaryCalls).toHaveLength(2);
+    expect(result.coverage?.status).toBe('complete');
+    expect(result.coverage?.note).toContain('açık son-sayfa göstergesiyle');
+    expect(result.notes.some((note) => note.includes('yinelenen kayıt atlandı'))).toBe(true);
+  });
+
+  it('son sayfa işareti yoksa kapsamı bilinmiyor olarak bildirir', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        return htmlResponse(url, '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1></body></html>');
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('PDF isteği beklenmiyordu');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('tamlık bilinmiyor');
+  });
+
+  it('bir günün son sayfa işareti eksikse diğer gün doğrulansa bile birleşik kapsam bilinmiyor kalır', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url.includes('20261012-4.htm')) {
+          return htmlResponse(url, '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1></body></html>');
+        }
+        return htmlResponse(
+          url,
+          '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><div class="pagination"><a rel="next" class="disabled" aria-disabled="true" href="?page=2">Sonraki</a></div></body></html>',
+        );
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('PDF isteği beklenmiyordu');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('tamlık bilinmiyor');
+    expect(result.coverage?.note).not.toContain('tüm sayfaları');
+  });
+
+  it('sayfa üst sınırında durur ve kapsamı kısmi bildirir', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const textCalls: string[] = [];
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        textCalls.push(url);
+        if (url.includes('20261011-4.htm')) {
+          return htmlResponse(
+            url,
+            '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><div class="pagination"><a rel="next" class="disabled" aria-disabled="true" href="?page=2">Sonraki</a></div></body></html>',
+          );
+        }
+        const page = Number(new URL(url).searchParams.get('page') ?? 1);
+        return htmlResponse(
+          url,
+          `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><div class="pagination"><a rel="next" href="?page=${page + 1}">Sonraki</a></div></body></html>`,
+        );
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('PDF isteği beklenmiyordu');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    const todayPages = textCalls.filter((url) => url.includes('20261012-4.htm'));
+    expect(todayPages).toHaveLength(10);
+    expect(todayPages.some((url) => new URL(url).searchParams.get('page') === '11')).toBe(false);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('10 sayfalık üst sınıra ulaştı');
+  });
+
+  it('sonraki sayfa alınamazsa önceki kayıtları korur ve kapsamı kısmi bildirir', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const sectionUrl = 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4.htm';
+    const pageOne = `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1>
+      <div class="pagination"><a rel="next" href="?page=2">Sonraki</a></div>
+      <table><tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-1.pdf">(PDF)</a></td></tr></table>
+    </body></html>`;
+    const emptyFinalPage =
+      '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><div class="pagination"><a rel="next" class="disabled" aria-disabled="true" href="?page=2">Sonraki</a></div></body></html>';
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url === sectionUrl) return htmlResponse(url, pageOne);
+        if (url.includes('20261011-4.htm')) return htmlResponse(url, emptyFinalPage);
+        throw new FetchError(url, 'fixture: transient second-page network failure', null, true);
+      },
+      async fetchBinary(url: string): Promise<FetchResponse> {
+        const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
+        return {
+          ...htmlResponse(url, ''),
+          body,
+          bytes: body.byteLength,
+          contentType: 'application/pdf',
+          decoded: undefined,
+        };
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+    let browserClosed = false;
+    const browser = {
+      async open() {
+        return {
+          async fetchHtml(): Promise<string> {
+            throw new Error('fixture: browser fallback failed');
+          },
+          async fetchBytes(): Promise<Buffer> {
+            throw new Error('PDF should use the HTTP client');
+          },
+          async close(): Promise<void> {
+            browserClosed = true;
+          },
+        };
+      },
+    };
+
+    const result = await new ResmiGazeteAdapter(browser).run(contextFor(source!, http, true));
+    expect(result.items.map((item) => item.sourceItemId)).toEqual(['resmigazete:20261012-4-1.pdf']);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('sonraki sayfa alınamadı');
+    expect(result.notes.some((note) => note.includes('daha önce işlenen sayfalar korundu'))).toBe(true);
+    expect(browserClosed).toBe(true);
+  });
+
+  it('kimlik bilgisi içeren sayfalama URL’sini izlemez', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const sectionUrl = 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4.htm';
+    const textCalls: string[] = [];
+    const maliciousNext =
+      'https://attacker@www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-2.htm';
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        textCalls.push(url);
+        if (url.includes('20261011-4.htm')) {
+          return htmlResponse(
+            url,
+            '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><div class="pagination"><a rel="next" class="disabled" aria-disabled="true" href="?page=2">Sonraki</a></div></body></html>',
+          );
+        }
+        return htmlResponse(
+          url,
+          `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><div class="pagination"><a rel="next" href="${maliciousNext}">Sonraki</a></div></body></html>`,
+        );
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('PDF isteği beklenmiyordu');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(textCalls).toHaveLength(2);
+    expect(textCalls.some((url) => url.includes('attacker@'))).toBe(false);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.notes.some((note) => note.includes('izin verilen Resmî Gazete bölümüyle eşleşmedi'))).toBe(
+      true,
+    );
+    expect(result.notes.some((note) => note.includes('Bağlantı:'))).toBe(true);
+    expect(textCalls[0]).toBe(sectionUrl);
+  });
+
   it('tek PDF indirilemezse diğer ilanlar yine de gelir, hata not düşülür', async () => {
     const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
     expect(source).toBeDefined();
@@ -396,7 +919,13 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
           throw new FetchError(url, 'UND_ERR_HEADERS_TIMEOUT: Headers Timeout Error', null, true);
         }
         const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
-        return { ...htmlResponse(url, ''), body, bytes: body.byteLength, contentType: 'application/pdf', decoded: undefined };
+        return {
+          ...htmlResponse(url, ''),
+          body,
+          bytes: body.byteLength,
+          contentType: 'application/pdf',
+          decoded: undefined,
+        };
       },
       async close(): Promise<void> {
         /* ağ yok */
@@ -408,6 +937,40 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
     expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261012-4-1.pdf');
     expect(result.requestCount).toBe(4);
     expect(result.notes.some((note) => note.includes('PDF indirilemedi'))).toBe(true);
+  });
+
+  it('bugünün nüshası 404 ise dünküne düşer ve bugünkü kapsamı kısmi sayar', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+    const sectionHtml = `<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1><table>
+      <tr><td>ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ <a href="https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261011-4-1.pdf">(PDF)</a></td></tr>
+    </table></body></html>`;
+    const http = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url.includes('20261012-4.htm')) throw new FetchError(url, 'HTTP 404', 404, false);
+        return htmlResponse(url, sectionHtml);
+      },
+      async fetchBinary(url: string): Promise<FetchResponse> {
+        const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
+        return {
+          ...htmlResponse(url, ''),
+          body,
+          bytes: body.byteLength,
+          contentType: 'application/pdf',
+          decoded: undefined,
+        };
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    const result = await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261011-4-1.pdf');
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.notes.some((note) => note.includes('önceki gün denenecek'))).toBe(true);
   });
 
   it('bugünün nüshası çekilemezse dünküne düşer, not düşer', async () => {
@@ -424,7 +987,13 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
       },
       async fetchBinary(url: string): Promise<FetchResponse> {
         const body = Buffer.from('%PDF-1.4 sahte-icerik', 'utf8');
-        return { ...htmlResponse(url, ''), body, bytes: body.byteLength, contentType: 'application/pdf', decoded: undefined };
+        return {
+          ...htmlResponse(url, ''),
+          body,
+          bytes: body.byteLength,
+          contentType: 'application/pdf',
+          decoded: undefined,
+        };
       },
       async close(): Promise<void> {
         /* ağ yok */
@@ -439,6 +1008,20 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
 });
 
 describe('MEB RSS beslemesi', () => {
+  it('yapısal olarak geçerli ama boş RSS beslemesini unknown kapsamla bildirir', async () => {
+    const rss = '<?xml version="1.0"?><rss version="2.0"><channel><title>Personel duyuruları</title></channel></rss>';
+    const { http, calls } = fakeHttp((url) => (url.includes('rss_duyurular.xml') ? rss : undefined));
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
+    if (!source) throw new Error('MEB Personel kaynağı envanterde yok');
+
+    const result = await requireAdapter('meb-duyuru-listesi').run(contextFor(source, http, true));
+
+    expect(calls).toHaveLength(1);
+    expect(result.items).toEqual([]);
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('geçerli RSS beslemesi');
+  });
+
   it('beslemedeki kayıtlar detaylarıyla birlikte kayda dönüşür', async () => {
     const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -448,7 +1031,8 @@ describe('MEB RSS beslemesi', () => {
 </channel></rss>`;
     const { http } = fakeHttp((url) => {
       if (url.includes('rss_duyurular.xml')) return rss;
-      if (url.includes('/icerik/')) return `<html><body><main><p>${'Detay metni burada yer alır. '.repeat(12)}</p></main></body></html>`;
+      if (url.includes('/icerik/'))
+        return `<html><body><main><p>${'Detay metni burada yer alır. '.repeat(12)}</p></main></body></html>`;
       return undefined;
     });
     const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
@@ -458,6 +1042,24 @@ describe('MEB RSS beslemesi', () => {
     expect(result.items[0]?.publishedAt).toContain('2026-09-22');
     expect(result.items[0]?.bodyText).toContain('Detay metni');
     expect(result.notes.some((note) => note.includes('RSS beslemesinde 2 kayıt'))).toBe(true);
+  });
+
+  it('RSS öğe kimliğini tekilleştirip aynı detay sayfasını iki kez çekmez', async () => {
+    const rss = `<rss version="2.0"><channel>
+      <item><title>Sözleşmeli Bilişim Personeli Alımı</title><link>https://personel.meb.gov.tr/www/alım/icerik/1773</link></item>
+      <item><title>Aynı ilanın yinelenen RSS kopyası</title><link>https://personel.meb.gov.tr/www/alım/icerik/1773</link></item>
+    </channel></rss>`;
+    const { http, calls } = fakeHttp((url) => {
+      if (url.includes('rss_duyurular.xml')) return rss;
+      if (url.includes('/icerik/1773')) return `<html><body><main><p>${'Detay metni burada yer alır. '.repeat(8)}</p></main></body></html>`;
+      return undefined;
+    });
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
+    const result = await requireAdapter('meb-duyuru-listesi').run(contextFor(source!, http, true));
+
+    expect(result.items).toHaveLength(1);
+    expect(calls.filter((url) => url.includes('/icerik/1773'))).toHaveLength(1);
+    expect(result.notes.some((note) => note.includes('yinelenen/geçersiz bağlantı tekilleştirildi'))).toBe(true);
   });
 });
 
@@ -513,7 +1115,9 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(rows[0]?.title).toContain('MUHASEBE UZMANLIĞI');
     expect(rows[0]?.institution).toContain('MALİYE');
     expect(rows[0]?.applicationEndAt).toContain('2026-10-14');
-    expect(rows[1]?.url).toBe('https://kariyerkapisi.gov.tr/IlanDetay?i=bbed829a-5960-4a8a-b8a3-8c84226efb36');
+    expect(rows[1]?.url).toBe(
+      'https://kariyerkapisi.gov.tr/IlanDetay?i=bbed829a-5960-4a8a-b8a3-8c84226efb36',
+    );
     expect(rows[1]?.applicationEndAt).toContain('2026-10-16');
   });
 
@@ -560,7 +1164,9 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     const rows = parseKariyerRows(html, 'https://kariyerkapisi.gov.tr/isealim');
     expect(rows.length).toBe(3);
     expect(rows[0]?.sourceItemId).toBe('9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
-    expect(rows[0]?.url).toBe('https://kariyerkapisi.gov.tr/IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390');
+    expect(rows[0]?.url).toBe(
+      'https://kariyerkapisi.gov.tr/IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390',
+    );
     expect(rows[0]?.institution).toContain('MALİYE');
     expect(rows[0]?.applicationEndAt).toContain('2026-10-14');
     expect(rows[0]?.applicationUrl).toBeUndefined();
@@ -571,6 +1177,15 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(rows[2]?.sourceItemId).toMatch(/^kk-[0-9a-f]{16}$/);
     expect(rows[2]?.applicationUrl).toBe('https://personeltemin.jandarma.gov.tr/');
     expect(rows[2]?.institution).toContain('JANDARMA');
+  });
+
+  it('başka hostta görünen IlanDetay bağlantısını ilan detayı olarak kabul etmez', async () => {
+    const { parseKariyerRows } = await import('../src/sources/adapters/kariyerkapisi');
+    const html = `<div id="pnlIlanlar"><div class="row">
+      <div>ÖRNEK KURUM</div><div>ÖRNEK KURUM İÇİN PERSONEL ALIM İLANI</div><div>21 Ekim 2026</div>
+      <a href="https://attacker.example/IlanDetay?i=9b93b57a-1ca8-408d-9b71-1d3dc14ff390">Başvur</a>
+    </div></div>`;
+    expect(parseKariyerRows(html, 'https://kariyerkapisi.gov.tr/isealim')).toEqual([]);
   });
 
   it('kullanıcının gönderdiği birebir sayfa yapısı: tuzak bağlantılar satır sayılmaz', async () => {
@@ -688,7 +1303,9 @@ describe('Kariyer Kapısı tablo/detay ayrıştırması (13.10.2026 ekran görü
     expect(detail.applicationStartAt).toContain('2026-10-05');
     expect(detail.applicationEndAt).toContain('2026-10-14');
     expect(detail.category).toBe('Yeterlik Sınavı İlanları');
-    expect(detail.applicationUrl).toBe('https://www.turkiye.gov.tr/hazine-ve-maliye-kariyer-kapisi-kamu-ise-alim');
+    expect(detail.applicationUrl).toBe(
+      'https://www.turkiye.gov.tr/hazine-ve-maliye-kariyer-kapisi-kamu-ise-alim',
+    );
     expect(detail.quota).toBe(120);
     expect(detail.bodyText).toContain('Muhasebe Uzman Yardımcısı');
   });
@@ -729,7 +1346,8 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     <a id="href_BasvuruLinki" href="https://www.turkiye.gov.tr/ornek-kariyer-kapisi-kamu-ise-alim">BAŞVUR</a>
   </body></html>`;
 
-  const kariyerSource = () => SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'kariyer-kapisi-isealim');
+  const kariyerSource = () =>
+    SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'kariyer-kapisi-isealim');
 
   it('HTTP listesi doluysa detayları birleştirir; dış satır detay beklemez', async () => {
     const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
@@ -742,10 +1360,30 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     expect(result.items.length).toBe(3);
     expect(result.notes.some((note) => note.includes('Liste HTTP ile okundu: 3 ilan satırı'))).toBe(true);
     expect(result.items[0]?.referenceNo).toBe('ILN00000101');
-    expect(result.items[0]?.applicationUrl).toBe('https://www.turkiye.gov.tr/ornek-kariyer-kapisi-kamu-ise-alim');
+    expect(result.items[0]?.applicationUrl).toBe(
+      'https://www.turkiye.gov.tr/ornek-kariyer-kapisi-kamu-ise-alim',
+    );
     expect(result.items[0]?.quota).toBe(5);
     expect(result.items[2]?.applicationUrl).toContain('personeltemin.msb.gov.tr');
     expect(result.items[2]?.referenceNo).toBeUndefined();
+  });
+
+  it('boş liste kapsayıcısı tek başına son sayfanın kanıtı değildir', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const firstPage = `<html><body><table>
+      <tr><td>ÖRNEK BAKANLIK</td><td>ÖRNEK BAKANLIK PERSONEL ALIM İLANI</td><td>14 Ekim 2026</td><td><a href="/IlanDetay?i=${id}">Başvur</a></td></tr>
+    </table><nav class="pagination"><a rel="next" href="?page=2">Sonraki</a></nav></body></html>`;
+    const secondPage = '<html><body><div id="pnlIlanlar"></div><nav class="pagination"><a rel="next" aria-disabled="true" class="disabled" href="?page=3">Sonraki</a></nav></body></html>';
+    const { http } = fakeHttp((url) => (url.includes('page=2') ? secondPage : url.includes('/isealim') ? firstPage : undefined));
+    const result = await new KariyerKapisiAdapter().run({
+      ...contextFor(kariyerSource()!, http, true),
+      knownItemIds: new Set([id]),
+      knownItemIdsWithDetail: new Set([id]),
+    });
+
+    expect(result.coverage?.status).toBe('unknown');
+    expect(result.coverage?.note).toContain('boş ilan listesi doğrulanamadı');
   });
 
   it('detay bütçesi önce yeni ilanlara harcanır (bilinenler arkaya)', async () => {
@@ -762,9 +1400,10 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
       maxDetailFetches: 1,
     };
     const result = await new KariyerKapisiAdapter().run(ctx);
-    expect(result.items[0]?.referenceNo).toBeUndefined();
-    expect(result.items[1]?.referenceNo).toBe('ILN00000102');
-    expect(result.notes.some((note) => note.includes('Detay çekme sınırı (1) doldu'))).toBe(true);
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]?.sourceItemId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(result.items[0]?.referenceNo).toBe('ILN00000102');
+    expect(result.notes.some((note) => note.includes('detay bütçesi 1'))).toBe(true);
   });
 
   it('HTTP listesi satırsızsa başlığı not düşüp tarayıcıdan okur', async () => {
@@ -780,10 +1419,76 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     const result = await new KariyerKapisiAdapter(render).run(contextFor(kariyerSource()!, http, true));
     expect(result.items.length).toBe(3);
     expect(
-      result.notes.some((note) => note.includes('satır ayrıştırılamadı (sayfa başlığı: "Lütfen Bekleyiniz")')),
+      result.notes.some((note) =>
+        note.includes('satır ayrıştırılamadı (sayfa başlığı: "Lütfen Bekleyiniz")'),
+      ),
     ).toBe(true);
     expect(result.notes.some((note) => note.includes('Liste tarayıcı ile okundu: 3 ilan satırı'))).toBe(true);
     expect(result.items[0]?.referenceNo).toBe('ILN00000109');
+  });
+
+  it('HTTP sayfa başlığındaki e-posta ve telefonu tanı notunda redakte eder', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    const source = kariyerSource();
+    if (!source) throw new Error('Kariyer Kapısı kaynağı envanterde yok');
+    const email = 'private.notice@example.test';
+    const phone = '+90 (312) 555-98-76';
+    const shell = `<html><head><title>${email} ${phone}</title></head><body><div id="pnlIlanlar"></div></body></html>`;
+    const { http } = fakeHttp((url) => (url === source.listingUrl ? shell : undefined));
+    const render = async (urls: string[]): Promise<Map<string, string>> =>
+      new Map(urls.map((url) => [url, shell]));
+
+    const result = await new KariyerKapisiAdapter(render).run(contextFor(source, http, true));
+    const titleNote = result.notes.find((note) => note.includes('sayfa başlığı')) ?? '';
+
+    expect(titleNote).toContain('[e-posta gizlendi]');
+    expect(titleNote).toContain('[telefon gizlendi]');
+    expect(titleNote).not.toContain(email);
+    expect(titleNote).not.toContain(phone);
+  });
+
+  it('HTTP 403 listede ve detayda Chromium fallback başlatmaz; detay kaybını kısmi bildirir', async () => {
+    const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
+    let browserCalls = 0;
+    const render = async (urls: string[]): Promise<Map<string, string>> => {
+      browserCalls += 1;
+      return new Map(urls.map((url) => [url, url.includes('/isealim') ? LIST_HTML : detailHtml('ILN00000109')]));
+    };
+    const listDenied = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        throw new FetchError(url, 'HTTP 403', 403, false);
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('binary request not expected');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+    await expect(
+      new KariyerKapisiAdapter(render).run(contextFor(kariyerSource()!, listDenied, true)),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(browserCalls).toBe(0);
+
+    const detailDenied = {
+      async fetchText(url: string): Promise<FetchResponse> {
+        if (url.includes('/isealim')) return htmlResponse(url, LIST_HTML);
+        throw new FetchError(url, 'HTTP 403', 403, false);
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('binary request not expected');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+    const result = await new KariyerKapisiAdapter(render).run(
+      contextFor(kariyerSource()!, detailDenied, true),
+    );
+    expect(browserCalls).toBe(0);
+    expect(result.httpStatuses).toContain(403);
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('detay isteği başarısız oldu');
   });
 });
 
@@ -816,15 +1521,27 @@ describe('ilan.gov.tr tarayıcı yedeği', () => {
     });
     const render = async (url: string): Promise<string> => {
       if (url.includes('currentPage=2')) {
-        return cardFor(2254673, 'ANKARA ÜNİVERSİTESİ REKTÖRLÜĞÜ', 'Ankara Üniversitesi Öğretim Görevlisi Alım İlanı', 'YOK853486', 'ANKARA');
+        return cardFor(
+          2254673,
+          'ANKARA ÜNİVERSİTESİ REKTÖRLÜĞÜ',
+          'Ankara Üniversitesi Öğretim Görevlisi Alım İlanı',
+          'YOK853486',
+          'ANKARA',
+        );
       }
       if (url.includes('currentPage=')) return '<html><body></body></html>';
-      return cardFor(2254672, 'NECMETTİN ERBAKAN ÜNİVERSİTESİ REKTÖRLÜĞÜ', 'Necmettin Erbakan Üniversitesi Öğretim Görevlisi Alım İlanı', 'YOK853485', 'KONYA');
+      return cardFor(
+        2254672,
+        'NECMETTİN ERBAKAN ÜNİVERSİTESİ REKTÖRLÜĞÜ',
+        'Necmettin Erbakan Üniversitesi Öğretim Görevlisi Alım İlanı',
+        'YOK853485',
+        'KONYA',
+      );
     };
     const result = await new IlanGovTrAdapter(render).run(contextFor(source!, http, true));
     expect(result.items.map((item) => item.sourceItemId)).toEqual(['2254672', '2254673']);
     expect(result.notes.some((note) => note.includes('Sayfa 2: 1 ilan satırı (tarayıcı)'))).toBe(true);
-    expect(result.notes.some((note) => note.includes('Listede 2 ilan'))).toBe(true);
+    expect(result.notes.some((note) => note.includes('Listede 2 benzersiz ilan'))).toBe(true);
   });
 });
 
@@ -865,5 +1582,39 @@ describe('Resmî Gazete tarayıcı yedeği', () => {
     expect(result.items.length).toBe(1);
     expect(result.items[0]?.sourceItemId).toBe('resmigazete:20261012-4-1.pdf');
     expect(result.notes.some((note) => note.includes('tarayıcı ile okundu'))).toBe(true);
+  });
+
+  it('HTTP 403/429 durumunda tarayıcı yedeği veya önceki tarih isteği yapmaz', async () => {
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    expect(source).toBeDefined();
+
+    for (const status of [403, 429]) {
+      const httpUrls: string[] = [];
+      let browserOpens = 0;
+      const http = {
+        async fetchText(url: string): Promise<FetchResponse> {
+          httpUrls.push(url);
+          throw new FetchError(url, `HTTP ${status}`, status, status === 429);
+        },
+        async fetchBinary(): Promise<FetchResponse> {
+          throw new Error('PDF isteği beklenmiyordu');
+        },
+        async close(): Promise<void> {
+          /* ağ yok */
+        },
+      } as unknown as HttpClient;
+      const browser = {
+        async open() {
+          browserOpens += 1;
+          throw new Error('HTTP denial should not launch Chromium');
+        },
+      };
+
+      await expect(new ResmiGazeteAdapter(browser).run(contextFor(source!, http, true))).rejects.toMatchObject({
+        status,
+      });
+      expect(httpUrls).toHaveLength(1);
+      expect(browserOpens).toBe(0);
+    }
   });
 });

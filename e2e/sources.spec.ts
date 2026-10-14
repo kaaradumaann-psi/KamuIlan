@@ -1,10 +1,9 @@
 /**
  * Kaynak kapsamı testleri.
  *
- * Buradaki en önemli kontrol "dürüstlük" kontrolüdür: arayüzün gösterdiği
- * "çalıştığı kanıtlanan" sayısı, tabloda gerçekten "ilanları düzenli
- * okunuyor" işaretli kaynak sayısına eşit olmalıdır. Hazırlanan ama
- * çalıştığı kanıtlanmamış kaynaklar "çalışıyor" gibi gösterilemez.
+ * Canlı doğrulama geçmişi ile en son tarama sonucu birbirinden ayrıdır:
+ * doğrulanmış bir yöntem, worker'ın şu anda çalıştığı anlamına gelmez.
+ * Hazırlanan ama doğrulanmamış kaynaklar da doğrulanmış sayısına eklenemez.
  */
 import { expect, test } from '@playwright/test';
 import { loginAsAdmin } from './support/api';
@@ -13,36 +12,58 @@ test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page);
 });
 
-test('kapsam özeti ile tablodaki doğrulama işaretleri tutarlıdır', async ({ page }) => {
-  await page.goto('/kaynaklar');
+test('doğrulama özeti ile en son başarılı tarama etiketleri birbirinden ayrıdır', async ({
+  page,
+  request,
+}) => {
+  const response = await request.get('/api/sources');
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as {
+    summary: { verified: number };
+    sources: {
+      name: string;
+      verified: boolean;
+      health: { lastSuccessAt: string | null };
+      lastRun: { status: string } | null;
+    }[];
+  };
 
+  await page.goto('/kaynaklar');
   const statCard = page.locator('.stat-item', { hasText: 'Gerçek veriyle doğrulanan' }).first();
   await expect(statCard).toBeVisible();
   const summaryValue = await statCard.locator('.stat-val').innerText();
   const summaryCount = Number(/(\d+)/.exec(summaryValue)?.[1] ?? 'NaN');
-  expect(Number.isFinite(summaryCount)).toBe(true);
+  expect(summaryCount).toBe(body.summary.verified);
 
-  const verifiedBadges = await page.getByText('ilanları düzenli okunuyor', { exact: true }).count();
-  expect(verifiedBadges).toBe(summaryCount);
+  const successfulRuns = body.sources.filter((source) => source.lastRun?.status === 'success').length;
+  const successfulRunBadges = await page.getByText('son tarama başarılı', { exact: true }).count();
+  expect(successfulRunBadges).toBe(successfulRuns);
 
-  // Kapsamın sınırlı olduğu açıkça yazılır.
+  // Geçmiş doğrulama, gerçek tarama/başarı gibi sunulmamalı. Hiç deneme yoksa
+  // bunu, başarısız denemeyi "henüz başarı yok" olarak ayrı ayrı göster.
+  const neverSucceeded = body.sources.find((source) => source.health.lastSuccessAt === null);
+  if (neverSucceeded) {
+    const table = page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ });
+    const row = table.getByRole('row').filter({ hasText: neverSucceeded.name }).first();
+    const expectedLabel = neverSucceeded.lastRun ? 'Henüz başarılı tarama yok' : 'Henüz tarama yapılmadı';
+    await expect(row.getByText(expectedLabel, { exact: true })).toBeVisible();
+  }
+
   await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: /Henüz başlamadığımız kurumlar/ })).toBeVisible();
 });
 
-test('her kaynak satırı ne sıklıkla bakıldığı ve son kontrol bilgisini taşır', async ({ page }) => {
+test('her kaynak satırı planlanan aralığı ve son tarama bilgisini taşır', async ({ page }) => {
   await page.goto('/kaynaklar');
 
-  const table = page.getByRole('table', { name: /Kaynak listesi ve durumu/ });
+  const table = page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ });
   await expect(table).toBeVisible();
 
   const rows = table.locator('tbody tr');
   await expect(rows.first()).toBeVisible();
   expect(await rows.count()).toBeGreaterThan(0);
 
-  // "Ne sıklıkla bakılıyor" sütunu dakika cinsinden gerçek bir değer gösterir.
   await expect(rows.first().getByText(/\d+ dakikada bir/)).toBeVisible();
-  // Durum sütunu her satırda bir etiket taşır.
   await expect(rows.first().locator('.tag').first()).toBeVisible();
 });
 
@@ -51,13 +72,11 @@ test('API kapsam özeti ile arayüz özeti aynı kaynaktan gelir', async ({ page
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as {
     summary: { verified: number; built: number; total: number; enabled: number; planned: number };
-    sources: { key: string; verified: boolean }[];
+    sources: { key: string; verified: boolean; built: boolean }[];
   };
 
-  // Sunucu tarafı tutarlılık: verified sayısı, verified işaretli kayıt sayısına eşit.
   expect(body.sources.filter((source) => source.verified)).toHaveLength(body.summary.verified);
-  // Hazırlanan (built) kaynaklar, çalıştığı kanıtlananlardan az olamaz.
-  expect(body.summary.built).toBeGreaterThanOrEqual(body.summary.verified);
+  expect(body.sources.filter((source) => source.built && !source.verified)).toHaveLength(body.summary.built);
 
   await page.goto('/kaynaklar');
   const statCard = page.locator('.stat-item', { hasText: 'Toplam kaynak' }).first();

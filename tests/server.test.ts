@@ -27,6 +27,7 @@ import { createLogger } from '../src/lib/logger';
 import { resetEnvCache } from '../src/config/env';
 import { hashPassword } from '../src/server/passwords';
 import { buildApp } from '../src/server/app';
+import { toPublicJobDetail, toRevision } from '../src/server/serializers';
 import { applyRawAnnouncement } from '../src/ingest/jobs-service';
 import { ihaleIlani, sozlesmeliPersonelIlani } from './fixtures/announcements';
 
@@ -59,7 +60,7 @@ async function createUser(
     ...(input.role ? { role: input.role } : {}),
     emailVerified: input.verified ?? true,
   });
-  await repos.notifications.upsertPreference(result.user.id, { filters: {} });
+  await repos.notifications.upsertPreference(result.user.id, { enabled: false, filters: {} });
   return result.user.id;
 }
 
@@ -155,6 +156,7 @@ describe('sağlık ve güvenlik başlıkları', () => {
       status: string;
       database: { healthy: boolean; driver: string };
       scans: { totalRuns: number };
+      workers: { running: number };
       sources: { total: number };
       warnings: string[];
     };
@@ -163,11 +165,51 @@ describe('sağlık ve güvenlik başlıkları', () => {
     expect(body.database.driver).toBe('file');
     expect(body.scans.totalRuns).toBeGreaterThanOrEqual(0);
     expect(body.sources.total).toBeGreaterThan(0);
+    expect(body.workers.running).toBe(0);
+    expect(body.warnings).toContain('Aktif worker kalp atışı yok; zamanlanmış taramalar şu an yürütülmüyor.');
     expect(Array.isArray(body.warnings)).toBe(true);
 
     expect(response.headers['x-content-type-options']).toBe('nosniff');
     expect(String(response.headers['content-security-policy'])).toContain("default-src 'self'");
     expect(response.headers['x-frame-options']).toBeTruthy();
+  });
+
+  it('hafif worker readiness ucu başlangıç ve çalışan heartbeat durumlarını ayırır', async () => {
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-starting-test',
+      role: 'worker',
+      version: 'test',
+      status: 'starting',
+      processedJobs: 0,
+    });
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-running-test',
+      role: 'worker',
+      version: 'test',
+      status: 'running',
+      processedJobs: 2,
+    });
+
+    const response = await world.app.inject({ method: 'GET', url: '/api/health/worker' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      workers: { total: 2, starting: 1, running: 1, stale: 0 },
+    });
+
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-starting-test',
+      role: 'worker',
+      version: 'test',
+      status: 'stopped',
+      processedJobs: 0,
+    });
+    await world.repos.heartbeats.beat({
+      workerId: 'worker-running-test',
+      role: 'worker',
+      version: 'test',
+      status: 'stopped',
+      processedJobs: 2,
+    });
   });
 
   it('bilinmeyen uç standart hata gövdesi döner', async () => {
@@ -222,6 +264,8 @@ describe('ilan uçları', () => {
       uncertainties: string[];
       criticalMissingFields: string[];
       applicationEndDate: string | null;
+      textExcerpt: string;
+      capturedNotice: { characterCount: number; status: string } | null;
     };
     expect(body.provenance).toBe('sample');
     expect(body.sources.length).toBeGreaterThan(0);
@@ -229,6 +273,137 @@ describe('ilan uçları', () => {
     expect(Object.keys(body.fieldSources).length).toBeGreaterThan(0);
     expect(Array.isArray(body.uncertainties)).toBe(true);
     expect(body.applicationEndDate).toBe('2026-10-30');
+    expect(body.textExcerpt.length).toBeLessThanOrEqual(400);
+    expect(body.capturedNotice).not.toHaveProperty('text');
+
+    const storedJob = await world.repos.jobs.findById(job!.id);
+    const sourceLinks = await world.repos.jobs.listSourceLinks(job!.id);
+    expect(storedJob).toBeTruthy();
+    const metadataOnlySource = {
+      ...sourceLinks[0]!,
+      capturedTextCharacterCount: 321,
+      capturedTextStatus: 'captured' as const,
+    };
+    const metadataOnlyDetail = toPublicJobDetail(storedJob!, {
+      sources: [metadataOnlySource],
+      now: NOW,
+    });
+    expect(metadataOnlyDetail.capturedNotice).toMatchObject({
+      characterCount: 321,
+      status: 'captured',
+    });
+    expect(metadataOnlyDetail.capturedNotice).not.toHaveProperty('text');
+
+    const shortBodyMarker = 'SHORT_BODY_PRIVATE_MARKER_7f8e9d';
+    const shortNoticeDetail = toPublicJobDetail(
+      {
+        ...storedJob!,
+        textExcerpt: `A short source announcement. ${shortBodyMarker}`,
+        fieldSources: {
+          ...storedJob!.fieldSources,
+          privateTestMarker: { kind: 'detail', snippet: shortBodyMarker },
+        },
+        evidence: { ...storedJob!.evidence, privateTestMarker: shortBodyMarker },
+      },
+      { sources: sourceLinks, now: NOW },
+    );
+    expect(shortNoticeDetail.textExcerpt).toBe('');
+    expect(shortNoticeDetail.fieldSources.privateTestMarker?.snippet).toBeNull();
+    expect(shortNoticeDetail.evidence).not.toHaveProperty('privateTestMarker');
+    expect(JSON.stringify(shortNoticeDetail)).not.toContain(shortBodyMarker);
+    expect(shortNoticeDetail.capturedNotice).not.toHaveProperty('text');
+
+    const lateBodyMarker = 'LATE_BODY_PRIVATE_MARKER_3a4b5c';
+    const longBody = `${'Public excerpt text. '.repeat(80)}${lateBodyMarker}`;
+    const longBodyDetail = toPublicJobDetail(
+      {
+        ...storedJob!,
+        textExcerpt: longBody,
+        fieldSources: {
+          ...storedJob!.fieldSources,
+          lateBodyMarker: { kind: 'detail', snippet: lateBodyMarker },
+        },
+        evidence: { ...storedJob!.evidence, lateBodyMarker },
+      },
+      { sources: sourceLinks, now: NOW },
+    );
+    expect(longBodyDetail.textExcerpt.length).toBeLessThanOrEqual(400);
+    expect(longBodyDetail.textExcerpt).not.toContain(lateBodyMarker);
+    expect(JSON.stringify(longBodyDetail)).not.toContain(lateBodyMarker);
+
+    // Protect legacy records that were stored before makeExcerpt redacted contacts.
+    const privateEmail = 'privacy-audit@example.gov.tr';
+    const privatePhone = '+90 (312) 555-12-34';
+    const contactSnippet = `İletişim ${privateEmail} ${privatePhone}`;
+    const legacyContactDetail = toPublicJobDetail(
+      {
+        ...storedJob!,
+        textExcerpt: `${contactSnippet} ${'Güvenli ilan metni. '.repeat(60)}`,
+        fieldSources: {
+          ...storedJob!.fieldSources,
+          privateContactTest: { kind: 'detail', snippet: contactSnippet },
+        },
+        evidence: { ...storedJob!.evidence, privateContactTest: contactSnippet },
+      },
+      { sources: sourceLinks, now: NOW },
+    );
+    const serializedContactDetail = JSON.stringify(legacyContactDetail);
+    expect(legacyContactDetail.textExcerpt).toContain('[e-posta gizlendi]');
+    expect(legacyContactDetail.textExcerpt).toContain('[telefon gizlendi]');
+    expect(legacyContactDetail.fieldSources.privateContactTest?.snippet).toBe(
+      'İletişim [e-posta gizlendi] [telefon gizlendi]',
+    );
+    expect(legacyContactDetail.evidence.privateContactTest).toBe(
+      'İletişim [e-posta gizlendi] [telefon gizlendi]',
+    );
+    expect(serializedContactDetail).not.toContain(privateEmail);
+    expect(serializedContactDetail).not.toContain(privatePhone);
+
+    const shortHistory = toRevision({
+      id: 'revision_test',
+      jobId: job!.id,
+      version: 2,
+      changeTypes: ['content'],
+      changedFields: ['textExcerpt'],
+      previous: { textExcerpt: 'A short source announcement.' },
+      current: { textExcerpt: 'A newer source announcement.' },
+      summary: 'İlan metni güncellendi',
+      sourceKey: SOURCE_KEY,
+      createdAt: NOW.toISOString(),
+    });
+    expect((shortHistory.previous as { textExcerpt: string }).textExcerpt).toBe('');
+
+    const longHistory = toRevision({
+      id: 'revision_test_long',
+      jobId: job!.id,
+      version: 3,
+      changeTypes: ['content'],
+      changedFields: ['textExcerpt'],
+      previous: { textExcerpt: 'Uzun metin. '.repeat(100) },
+      current: { textExcerpt: 'Yeni metin' },
+      summary: 'İlan metni güncellendi',
+      sourceKey: SOURCE_KEY,
+      createdAt: NOW.toISOString(),
+    });
+    expect((longHistory.previous as { textExcerpt: string }).textExcerpt.length).toBeLessThanOrEqual(400);
+
+    const contactHistory = toRevision({
+      id: 'revision_contact',
+      jobId: job!.id,
+      version: 4,
+      changeTypes: ['content'],
+      changedFields: ['textExcerpt'],
+      previous: { textExcerpt: `${contactSnippet} ${'Geçmiş ilan metni. '.repeat(60)}` },
+      current: { textExcerpt: 'Yeni ilan metni' },
+      summary: 'İlan metni güncellendi',
+      sourceKey: SOURCE_KEY,
+      createdAt: NOW.toISOString(),
+    });
+    const publicRevisionText = (contactHistory.previous as { textExcerpt: string }).textExcerpt;
+    expect(publicRevisionText).not.toContain(privateEmail);
+    expect(publicRevisionText).not.toContain(privatePhone);
+    expect(publicRevisionText).toContain('[e-posta gizlendi]');
+    expect(publicRevisionText).toContain('[telefon gizlendi]');
 
     const missing = await world.app.inject({ method: 'GET', url: '/api/jobs/job_yok123' });
     expect(missing.statusCode).toBe(404);
@@ -236,19 +411,56 @@ describe('ilan uçları', () => {
 });
 
 describe('kaynak şeffaflığı', () => {
-  it('kapsam listesi doğrulanan ve planlanan kaynakları birlikte gösterir', async () => {
+  it('kapsam listesi doğrulamayı, planlanan kaynakları ve eşlenmiş sağlık sayaçlarını gösterir', async () => {
+    const source = (await world.repos.sources.list())[0];
+    expect(source).toBeDefined();
+    await world.repos.sources.recordHealth(source!.key, {
+      lastRunAt: NOW.toISOString(),
+      success: true,
+      durationMs: 120,
+      discoveredCount: 2,
+      acceptedCount: 1,
+    });
+    await world.repos.sources.recordHealth(source!.key, {
+      lastRunAt: NOW.toISOString(),
+      success: false,
+      durationMs: 180,
+      discoveredCount: 0,
+      acceptedCount: 0,
+      errorMessage: 'Regresyon testi hatası.',
+    });
+
     const response = await world.app.inject({ method: 'GET', url: '/api/sources' });
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
-      sources: { key: string; enabled: boolean; verified: boolean }[];
+      sources: {
+        key: string;
+        enabled: boolean;
+        verified: boolean;
+        health: {
+          totalRuns: number;
+          successRuns: number;
+          failureRuns: number;
+          lastError: string | null;
+          itemsFound: number;
+        };
+      }[];
       planned: { id: string }[];
       summary: { total: number; verified: number; planned: number };
       disclaimer: string;
     };
+    const coveredSource = body.sources.find((entry) => entry.key === source!.key);
     expect(body.sources.length).toBeGreaterThan(0);
     expect(body.planned.length).toBeGreaterThan(0);
     expect(body.summary.planned).toBe(body.planned.length);
     expect(body.disclaimer).toContain('eksiksiz değildir');
+    expect(coveredSource?.health).toMatchObject({
+      totalRuns: 2,
+      successRuns: 1,
+      failureRuns: 1,
+      lastError: 'Regresyon testi hatası.',
+      itemsFound: 0,
+    });
   });
 });
 
@@ -274,9 +486,17 @@ describe('kimlik akışı', () => {
     const token = 'dogrulama-jetonu-0123456789abcdef';
     await world.repos.users.createToken({ userId, type: 'email-verify', token, ttlMinutes: 60 });
 
-    const verified = await world.app.inject({ method: 'POST', url: '/api/auth/verify-email', payload: { token } });
+    const verified = await world.app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token },
+    });
     expect(verified.statusCode).toBe(200);
-    const reused = await world.app.inject({ method: 'POST', url: '/api/auth/verify-email', payload: { token } });
+    const reused = await world.app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token },
+    });
     expect(reused.statusCode).toBe(400);
 
     const user = await world.repos.users.findById(userId);
@@ -286,7 +506,11 @@ describe('kimlik akışı', () => {
   });
 
   it('yönetici daveti hesabı açar; kullanıcı tek kullanımlık bağlantıyla kendi parolasını belirler', async () => {
-    await createUser(world.repos, { email: 'davetci-admin@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    await createUser(world.repos, {
+      email: 'davetci-admin@ornek.test',
+      password: 'Guclu-Parola-2026',
+      role: 'admin',
+    });
     const admin = await login(world.app, 'davetci-admin@ornek.test', 'Guclu-Parola-2026');
 
     const invited = await world.app.inject({
@@ -294,12 +518,19 @@ describe('kimlik akışı', () => {
       url: '/api/admin/users',
       cookies: { kamuilan_session: admin.session, kamuilan_csrf: admin.csrf },
       headers: { 'x-csrf-token': admin.csrf },
-      payload: { email: 'davetli@ornek.test', displayName: 'Davetli Kullanıcı', role: 'user', note: 'test daveti' },
+      payload: {
+        email: 'davetli@ornek.test',
+        displayName: 'Davetli Kullanıcı',
+        role: 'user',
+        note: 'test daveti',
+      },
     });
     expect(invited.statusCode).toBe(201);
 
     const outbox = await world.repos.outbox.list({ status: 'pending' }, 50);
-    const invite = outbox.find((item) => item.kind === 'account-invite' && item.toEmail === 'davetli@ornek.test');
+    const invite = outbox.find(
+      (item) => item.kind === 'account-invite' && item.toEmail === 'davetli@ornek.test',
+    );
     expect(invite).toBeTruthy();
     // Davet e-postası düz metin parola içermez; yalnızca tek kullanımlık bağlantı taşır.
     expect(JSON.stringify(invite?.payload)).not.toContain('password');
@@ -352,7 +583,18 @@ describe('kimlik akışı', () => {
     const withCsrf = await world.app.inject({
       method: 'PUT',
       url: '/api/notifications/preferences',
-      payload: { enabled: true, filters: { cities: ['Ankara'] } },
+      payload: {
+        enabled: true,
+        filters: { cities: ['Ankara'] },
+        profilePersonalizationEnabled: true,
+        candidateProfile: {
+          profession: 'mühendis',
+          educationLevel: 'lisans',
+          departments: ['İnşaat Mühendisliği'],
+          skills: ['AutoCAD'],
+          experienceYears: 3,
+        },
+      },
       cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
       headers: { 'x-csrf-token': session.csrf },
     });
@@ -360,10 +602,99 @@ describe('kimlik akışı', () => {
     const preference = await world.repos.notifications.getPreference(session.userId);
     expect(preference?.enabled).toBe(true);
     expect(preference?.filters.cities).toContain('Ankara');
+    expect(preference?.profilePersonalizationEnabled).toBe(true);
+    expect(preference?.candidateProfile.profession).toBe('mühendis');
+    expect(preference?.candidateProfile.departments).toContain('İnşaat Mühendisliği');
+  });
+
+  it('profil kişiselleştirme tercihi e-posta bildirim aboneliğini açmaz', async () => {
+    const password = 'Guclu-Parola-2026';
+    const { hash, salt } = await hashPassword(password);
+    const created = await world.repos.users.create({
+      email: 'profil-ayri@ornek.test',
+      passwordHash: hash,
+      passwordSalt: salt,
+      displayName: 'profil-ayri',
+      emailVerified: true,
+    });
+    const userId = created.user.id;
+    const session = await login(world.app, 'profil-ayri@ornek.test', password);
+    const response = await world.app.inject({
+      method: 'PUT',
+      url: '/api/notifications/preferences',
+      payload: {
+        profilePersonalizationEnabled: true,
+        candidateProfile: {
+          profession: 'mimar',
+          educationLevel: null,
+          departments: [],
+          skills: [],
+          experienceYears: null,
+        },
+      },
+      cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
+      headers: { 'x-csrf-token': session.csrf },
+    });
+    expect(response.statusCode).toBe(200);
+    const preference = await world.repos.notifications.getPreference(userId);
+    expect(preference?.profilePersonalizationEnabled).toBe(true);
+    expect(preference?.candidateProfile.profession).toBe('mimar');
+    expect(preference?.enabled).toBe(false);
+  });
+
+  it('hesap silme adayı profili temizler ve kişiselleştirmeyi kapatır', async () => {
+    const password = 'Guclu-Parola-2026';
+    const userId = await createUser(world.repos, { email: 'profil-sil@ornek.test', password });
+    const session = await login(world.app, 'profil-sil@ornek.test', password);
+
+    const saved = await world.app.inject({
+      method: 'PUT',
+      url: '/api/notifications/preferences',
+      payload: {
+        profilePersonalizationEnabled: true,
+        candidateProfile: {
+          profession: 'öğretmen',
+          educationLevel: 'lisans',
+          departments: ['Türk Dili ve Edebiyatı'],
+          skills: ['pedagojik formasyon'],
+          experienceYears: 5,
+        },
+      },
+      cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
+      headers: { 'x-csrf-token': session.csrf },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const erased = await world.app.inject({
+      method: 'POST',
+      url: '/api/auth/delete-account',
+      payload: { confirm: 'SIL', password },
+      cookies: { kamuilan_session: session.session, kamuilan_csrf: session.csrf },
+      headers: { 'x-csrf-token': session.csrf },
+    });
+    expect(erased.statusCode).toBe(200);
+    const preference = await world.repos.notifications.getPreference(userId);
+    expect(preference).toMatchObject({
+      enabled: false,
+      paused: true,
+      profilePersonalizationEnabled: false,
+      candidateProfile: {
+        profession: '',
+        educationLevel: null,
+        departments: [],
+        skills: [],
+        experienceYears: null,
+      },
+    });
+    expect((await world.repos.users.findById(userId))?.status).toBe('deleted');
   });
 
   it('doğrulanmamış kullanıcı bildirim açamaz ve test e-postası gönderemez', async () => {
-    const userId = await createUser(world.repos, { email: 'dogrulanmamis@ornek.test', password: 'Guclu-Parola-2026', verified: false });
+    const userId = await createUser(world.repos, {
+      email: 'dogrulanmamis@ornek.test',
+      password: 'Guclu-Parola-2026',
+      verified: false,
+    });
     const session = await login(world.app, 'dogrulanmamis@ornek.test', 'Guclu-Parola-2026');
     const preferences = await world.app.inject({
       method: 'GET',
@@ -392,7 +723,13 @@ describe('yetkilendirme ve izolasyon', () => {
     const bobId = await createUser(world.repos, { email: 'bob@ornek.test', password: 'Guclu-Parola-2026' });
     const job = await world.repos.jobs.search({}, { pageSize: 1 });
     const jobId = job.items[0]?.id as string;
-    await world.repos.notifications.recordEvent({ userId: bobId, jobId, kind: 'new-job', jobVersion: 1, matchedOn: ['şehir: Ankara'] });
+    await world.repos.notifications.recordEvent({
+      userId: bobId,
+      jobId,
+      kind: 'new-job',
+      jobVersion: 1,
+      matchedOn: ['şehir: Ankara'],
+    });
 
     const alice = await login(world.app, 'alice@ornek.test', 'Guclu-Parola-2026');
     const aliceHistory = await world.app.inject({
@@ -425,7 +762,11 @@ describe('yetkilendirme ve izolasyon', () => {
     });
     expect(forbidden.statusCode).toBe(403);
 
-    await createUser(world.repos, { email: 'yonetici@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    await createUser(world.repos, {
+      email: 'yonetici@ornek.test',
+      password: 'Guclu-Parola-2026',
+      role: 'admin',
+    });
     const admin = await login(world.app, 'yonetici@ornek.test', 'Guclu-Parola-2026');
     const overview = await world.app.inject({
       method: 'GET',
@@ -433,16 +774,25 @@ describe('yetkilendirme ve izolasyon', () => {
       cookies: { kamuilan_session: admin.session },
     });
     expect(overview.statusCode).toBe(200);
-    const body = overview.json() as { jobs: { total: number }; workers: unknown[]; workerWarning: string | null; auditEntries: number };
+    const body = overview.json() as {
+      jobs: { total: number };
+      workers: unknown[];
+      workerWarning: string | null;
+      auditEntries: number;
+    };
     expect(body.jobs.total).toBeGreaterThan(0);
     expect(Array.isArray(body.workers)).toBe(true);
-    expect(body.workerWarning).toContain('Worker');
+    expect(body.workerWarning).toMatch(/worker/i);
   });
 });
 
 describe('inceleme kuyruğu kararı', () => {
   it('tekilleştirme birleştirmesi yalnızca yönetici kararıyla ve kaynaklar korunarak yapılır', async () => {
-    await createUser(world.repos, { email: 'yonetici2@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    await createUser(world.repos, {
+      email: 'yonetici2@ornek.test',
+      password: 'Guclu-Parola-2026',
+      role: 'admin',
+    });
     const admin = await login(world.app, 'yonetici2@ornek.test', 'Guclu-Parola-2026');
 
     const queue = await world.app.inject({

@@ -2,23 +2,27 @@
  * HTTP istemcisi (undici).
  *
  * Güvenlik ve nezaket kuralları:
- *  - SSRF savunması: yalnızca http/https, host allowlist (kaynak kaydındaki
- *    allowedHosts), özel/ayrılmış IP ve bulut metadata adresleri reddedilir.
+ *  - SSRF savunması: yalnızca http/https, tam host allowlist, sayısal IP ve
+ *    özel/ayrılmış IP aralıkları reddedilir; her DNS cevabı bağlantıdan önce doğrulanır.
  *  - Yönlendirmeler elle izlenir ve her adım yeniden allowlist'ten geçirilir.
  *  - Host başına asgari istek aralığı (rate limit) uygulanır.
  *  - 429/503 için Retry-After'a saygı duyulur; üstel geri çekilme + jitter.
  *  - Gövde boyutu sınırlanır; HTML/PDF dışındaki türler kabul edilmez.
+ *  - TLS doğrulaması açık kalır; sertifika AIA içeriği güven deposuna eklenmez.
  *  - CAPTCHA/erişim kontrolü AŞILMAZ; engellenirse hata kaydedilir.
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { request, Agent, type Dispatcher } from 'undici';
-import { getCACertificates, connect as tlsConnect } from 'node:tls';
-import { X509Certificate } from 'node:crypto';
+import { getCACertificates } from 'node:tls';
+import { isIP } from 'node:net';
 import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
 import { createLogger, type Logger } from '../lib/logger';
+import { createPublicOnlyLookup } from './network-safety';
 
 export interface FetchOptions {
+  /** Üst katman iptal/zaman aşımı sinyali. */
+  signal?: AbortSignal;
   /** Ek başlıklar (ör. Referer). */
   headers?: Record<string, string>;
   /** İzin verilen host'lar. Boşsa yalnızca genel SSRF kontrolü yapılır. */
@@ -63,7 +67,8 @@ export function describeFetchFailure(error: unknown): string {
   for (let depth = 0; depth < 4 && current !== null && current !== undefined; depth += 1) {
     if (current instanceof Error) {
       const code = (current as Error & { code?: unknown }).code;
-      const label = typeof code === 'string' && code.length > 0 ? `${code}: ${current.message}` : current.message;
+      const label =
+        typeof code === 'string' && code.length > 0 ? `${code}: ${current.message}` : current.message;
       if (label && !parts.includes(label)) parts.push(label);
       current = (current as Error & { cause?: unknown }).cause;
     } else {
@@ -78,14 +83,31 @@ export class FetchError extends Error {
   readonly url: string;
   readonly status: number | null;
   readonly retryable: boolean;
+  readonly retryAfterMs: number | null;
 
-  constructor(url: string, message: string, status: number | null, retryable: boolean) {
+  constructor(
+    url: string,
+    message: string,
+    status: number | null,
+    retryable: boolean,
+    retryAfterMs: number | null = null,
+  ) {
     super(message);
     this.name = 'FetchError';
     this.url = url;
     this.status = status;
     this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/**
+ * Browser retrieval is only a fallback for transport failures, never a way to
+ * retry an HTTP denial, rate limit, or other explicit response through another
+ * client identity.
+ */
+export function isTransientTransportFailure(error: unknown): error is FetchError {
+  return error instanceof FetchError && error.status === null && error.retryable;
 }
 
 const PRIVATE_HOST_PATTERNS: readonly RegExp[] = [
@@ -123,12 +145,25 @@ export function assertSafeUrl(rawUrl: string, allowedHosts: readonly string[] = 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new FetchError(rawUrl, `Desteklenmeyen protokol: ${url.protocol}`, null, false);
   }
+  if (
+    (url.protocol === 'https:' && url.port && url.port !== '443') ||
+    (url.protocol === 'http:' && url.port && url.port !== '80')
+  ) {
+    throw new FetchError(rawUrl, `Desteklenmeyen URL portu: ${url.port}`, null, false);
+  }
   const host = url.hostname.toLowerCase();
-  if (PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
-    throw new FetchError(rawUrl, `Özel/ayrılmış adresler engellendi: ${host}`, null, false);
+  const bareHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  if (url.username || url.password) {
+    throw new FetchError(rawUrl, 'URL içinde kimlik bilgisi kullanılamaz.', null, false);
+  }
+  if (isIP(bareHost) !== 0 || PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
+    throw new FetchError(rawUrl, `Özel, sayısal veya ayrılmış adresler engellendi: ${host}`, null, false);
   }
   if (allowedHosts.length > 0) {
-    const permitted = allowedHosts.some((allowed) => host === allowed.toLowerCase() || host.endsWith(`.${allowed.toLowerCase()}`));
+    const normalizedHost = bareHost.replace(/\.$/, '');
+    const permitted = allowedHosts.some(
+      (allowed) => normalizedHost === allowed.toLowerCase().replace(/\.$/, ''),
+    );
     if (!permitted) {
       throw new FetchError(rawUrl, `Host beyaz listede değil: ${host}`, null, false);
     }
@@ -138,17 +173,36 @@ export function assertSafeUrl(rawUrl: string, allowedHosts: readonly string[] = 
 
 export class HostRateLimiter {
   private readonly lastRequestAt = new Map<string, number>();
+  private readonly nextRequestAt = new Map<string, number>();
 
-  /** Host için sıradaki uygun zamanı bekler (asenkron, global kilidi bloke etmez). */
-  async wait(host: string, minIntervalMs: number): Promise<void> {
+  /**
+   * Host için sıradaki uygun zamanı atomik olarak rezerve eder. Tek process'teki
+   * ayrı tarama istemcileri de aynı limiter'ı paylaşabilir; böylece paralel
+   * worker işleri aynı resmî host'a istekleri yığmaz.
+   */
+  async wait(host: string, minIntervalMs: number, signal?: AbortSignal): Promise<void> {
     if (minIntervalMs <= 0) return;
-    const last = this.lastRequestAt.get(host) ?? 0;
-    const elapsed = Date.now() - last;
-    const remaining = minIntervalMs - elapsed;
-    if (remaining > 0) {
-      await new Promise((resolve) => setTimeout(resolve, remaining));
-    }
-    this.lastRequestAt.set(host, Date.now());
+    if (signal?.aborted) throw signal.reason ?? new Error('İstek hız sınırı beklerken iptal edildi.');
+
+    const now = Date.now();
+    const scheduledAt = Math.max(now, this.nextRequestAt.get(host) ?? now);
+    this.nextRequestAt.set(host, scheduledAt + minIntervalMs);
+    this.lastRequestAt.set(host, scheduledAt);
+    const delay = scheduledAt - now;
+    if (delay <= 0) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal?.reason ?? new Error('İstek hız sınırı beklerken iptal edildi.'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, delay);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
   }
 
   snapshot(): Record<string, number> {
@@ -156,17 +210,49 @@ export class HostRateLimiter {
   }
 }
 
+const PROCESS_HOST_RATE_LIMITER = new HostRateLimiter();
+
 const HTML_TYPES = ['text/html', 'application/xhtml+xml', 'text/plain', 'application/xml', 'text/xml'];
 const PDF_TYPES = ['application/pdf'];
 const JSON_TYPES = ['application/json', 'text/json'];
 
 export interface HttpClientOptions {
   logger?: Logger;
-  /** Testlerde sahte saat/bekleme. */
-  sleep?: (ms: number) => Promise<void>;
+  /** Tek bir tarama zaman aşımında istemci isteklerini birlikte iptal eder. */
+  signal?: AbortSignal;
+  /** Testlerde sahte bekleme; AbortSignal verilir ki retry iptali sınanabilsin. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   userAgent?: string;
   /** Testlerde MockAgent enjeksiyonu; üretimde verilmez. */
   dispatcher?: Dispatcher;
+  /** Tarama istemcileri arasında host hız sınırını paylaşmak için. */
+  rateLimiter?: HostRateLimiter;
+}
+
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('İstek yeniden deneme beklerken iptal edildi.'));
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(signal?.reason ?? new Error('İstek yeniden deneme beklerken iptal edildi.'));
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
 }
 
 /**
@@ -187,66 +273,23 @@ export function loadTrustBundle(): string[] | undefined {
   }
 }
 
-/** Ara sertifika eksikliğini gösteren TLS hata kodları (kovalanabilir). */
-const TLS_CHAIN_CODES = new Set(['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_GET_ISSUER_CERT']);
-
-/** Hata (veya cause zinciri) eksik ara sertifikadan mı kaynaklanıyor? Kodunu döndürür. */
-export function tlsChainErrorCode(error: unknown): string | null {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
-    if (current instanceof Error) {
-      const code = (current as Error & { code?: unknown }).code;
-      if (typeof code === 'string' && TLS_CHAIN_CODES.has(code)) return code;
-      current = (current as Error & { cause?: unknown }).cause;
-    } else break;
-  }
-  return null;
-}
-
-/** Sertifikanın AIA uzantısından CA Issuers (ara sertifika indirme) adreslerini çıkarır. */
-export function extractCaIssuerUrls(infoAccess: unknown): string[] {
-  const urls = new Set<string>();
-  const collect = (value: unknown): void => {
-    if (typeof value === 'string') {
-      for (const match of value.matchAll(/https?:\/\/[^\s;,']+/g)) urls.add(match[0]);
-    } else if (Array.isArray(value)) {
-      for (const entry of value) collect(entry);
-    } else if (value !== null && typeof value === 'object') {
-      // Yalnızca CA Issuers girdileri ara sertifika adresidir (OCSP vb. değil).
-      for (const [key, entry] of Object.entries(value)) {
-        if (/ca issuers|1\.3\.6\.1\.5\.5\.7\.1\.2/i.test(key)) collect(entry);
-      }
-    }
-  };
-  collect(infoAccess);
-  return [...urls];
-}
-
-/** DER sertifikayı PEM metnine çevirir. */
-export function derToPem(der: Buffer): string {
-  const base64 = der.toString('base64');
-  const lines = base64.match(/.{1,64}/g) ?? [];
-  return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----`;
-}
-
 export class HttpClient {
   private readonly agent: Dispatcher;
-  /** Ara sertifikası AIA ile tamamlanmış host'lara özel agent'lar. */
-  private readonly hostAgents = new Map<string, Agent>();
-  /** AIA kovalaması host başına bir kez denenir. */
-  private readonly chasedHosts = new Set<string>();
-  private readonly limiter = new HostRateLimiter();
+  private readonly limiter: HostRateLimiter;
   private readonly logger: Logger;
   private readonly userAgent: string;
-  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  private readonly signal: AbortSignal | undefined;
 
   constructor(options: HttpClientOptions = {}) {
     this.ownsAgent = options.dispatcher === undefined;
+    this.limiter = options.rateLimiter ?? PROCESS_HOST_RATE_LIMITER;
     this.logger = options.logger ?? createLogger('fetch');
+    this.signal = options.signal;
     this.userAgent =
       toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) ||
       'Mozilla/5.0 (compatible; KamuIlanBot/1.0; +https://kamuilan.halilkaraduman.com.tr)';
-    this.sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep = options.sleep ?? abortableSleep;
     this.agent = options.dispatcher ?? this.createAgent(loadTrustBundle());
   }
 
@@ -265,143 +308,28 @@ export class HttpClient {
         // zaman aşımına düşmemek için adres ailesi otomatik seçilir.
         autoSelectFamily: true,
         timeout: 15_000,
+        lookup: createPublicOnlyLookup(),
         ...(ca && ca.length > 0 ? { ca: [...ca] } : {}),
       },
     });
   }
 
-  private dispatcherFor(url: URL): Dispatcher {
-    return this.hostAgents.get(url.hostname) ?? this.agent;
-  }
-
-  /**
-   * Bazı resmî sunucular (ilan.gov.tr, BDDK, TMSF) sertifika zincirindeki ara
-   * sertifikayı göndermez; tarayıcılar eksik halkayı sertifikanın AIA
-   * (CA Issuers) adresinden indirir, Node indirmez ve zincir doğrulanamaz.
-   * Burada aynısı yapılır: ara sertifikalar AIA adreslerinden alınır ve
-   * doğrulama AÇIKken yeniden denenir. İndirilen sertifikaya körü körüne
-   * güvenilmez — zincir, güven paketi (sistem + Mozilla) ile OpenSSL
-   * doğrulamasından geçmek zorundadır; geçemezse özgün hata yükselir.
-   * Host başına bir kez denenir, sonuç istemci ömrü boyunca saklanır.
-   */
-  private async tryChaseIntermediates(rawUrl: string): Promise<boolean> {
-    if (!this.ownsAgent) return false;
-    let url: URL;
-    try {
-      url = new URL(rawUrl);
-    } catch {
-      return false;
-    }
-    if (url.protocol !== 'https:' || this.chasedHosts.has(url.hostname)) return false;
-    this.chasedHosts.add(url.hostname);
-    const trustBundle = loadTrustBundle();
-    // Güven paketinin varsayılan kökleri sayısallaştırılamıyorsa ara sertifika
-    // eklemek varsayılanları ezip başka zincirleri bozabilir; o platformda
-    // kovalamak yerine özgün hatanın görünmesi daha güvenlidir.
-    if (!trustBundle) return false;
-    const intermediates = await this.collectIntermediates(url.hostname, Number(url.port || 443)).catch(() => []);
-    if (intermediates.length === 0) return false;
-    this.hostAgents.set(url.hostname, this.createAgent([...trustBundle, ...intermediates]));
-    this.logger.info(
-      { host: url.hostname, intermediates: intermediates.length },
-      'eksik ara sertifika AIA üzerinden tamamlandı; doğrulama açık olarak yeniden denenecek',
-    );
-    return true;
-  }
-
-  /** Leaf'ten başlayıp AIA adreslerini izleyerek ara sertifikaları toplar (≤3 halka). */
-  private async collectIntermediates(hostname: string, port: number): Promise<string[]> {
-    const collected: string[] = [];
-    let frontier = await this.peerCertificatePems(hostname, port);
-    for (let depth = 0; depth < 3 && frontier.length > 0; depth += 1) {
-      const next: string[] = [];
-      for (const pem of frontier) {
-        let infoAccess: unknown;
-        try {
-          infoAccess = new X509Certificate(pem).infoAccess;
-        } catch {
-          continue;
-        }
-        for (const issuerUrl of extractCaIssuerUrls(infoAccess)) {
-          const downloaded = await this.downloadCertificate(issuerUrl);
-          if (downloaded && !collected.includes(downloaded)) {
-            collected.push(downloaded);
-            next.push(downloaded);
-          }
-        }
-      }
-      frontier = next;
-    }
-    return collected;
-  }
-
-  /** Sunucunun sunduğu zinciri DOĞRULAMADAN yalnızca AIA keşfi için okur; güven bu adımda oluşmaz. */
-  private peerCertificatePems(hostname: string, port: number): Promise<string[]> {
-    return new Promise((resolve) => {
-      const socket = tlsConnect({ host: hostname, port, servername: hostname, rejectUnauthorized: false, timeout: 10_000 });
-      const done = (pems: string[]) => {
-        socket.destroy();
-        resolve(pems);
-      };
-      socket.once('secureConnect', () => {
-        try {
-          const pems: string[] = [];
-          let cert = socket.getPeerCertificate(true);
-          const seen = new Set<string>();
-          while (cert && cert.raw && !seen.has(cert.fingerprint)) {
-            seen.add(cert.fingerprint);
-            pems.push(derToPem(Buffer.from(cert.raw)));
-            if (!cert.issuerCertificate || cert.issuerCertificate === cert) break;
-            cert = cert.issuerCertificate;
-          }
-          done(pems);
-        } catch {
-          done([]);
-        }
-      });
-      socket.once('error', () => done([]));
-      socket.once('timeout', () => done([]));
-    });
-  }
-
-  /** AIA adresinden sertifika indirir (PEM ya da DER), ayrıştırılabiliyorsa PEM döndürür. */
-  private async downloadCertificate(url: string): Promise<string | null> {
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-      const response = await request(url, { method: 'GET', headersTimeout: 10_000, bodyTimeout: 10_000 });
-      if (response.statusCode !== 200) {
-        await response.body.dump();
-        return null;
-      }
-      const chunks: Buffer[] = [];
-      let total = 0;
-      for await (const chunk of response.body) {
-        total += (chunk as Buffer).byteLength;
-        if (total > 524_288) return null;
-        chunks.push(chunk as Buffer);
-      }
-      const body = Buffer.concat(chunks);
-      const text = body.toString('utf8');
-      const pem = text.includes('-----BEGIN CERTIFICATE-----') ? text.trim() : derToPem(body);
-      new X509Certificate(pem);
-      return pem;
-    } catch {
-      return null;
-    }
+  private dispatcherFor(_url: URL): Dispatcher {
+    return this.agent;
   }
 
   private readonly ownsAgent: boolean;
 
   async close(): Promise<void> {
-    for (const agent of this.hostAgents.values()) await agent.close().catch(() => undefined);
-    this.hostAgents.clear();
     if (this.ownsAgent) await this.agent.close();
   }
 
   /** Metin (HTML/XML/JSON) getirir. */
   async fetchText(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
-    const response = await this.fetch(url, { ...options, expectedContentTypes: options.expectedContentTypes ?? [...HTML_TYPES, ...JSON_TYPES] });
+    const response = await this.fetch(url, {
+      ...options,
+      expectedContentTypes: options.expectedContentTypes ?? [...HTML_TYPES, ...JSON_TYPES],
+    });
     if (!response.decoded) {
       response.decoded = decodeBody(response.body, response.contentType);
     }
@@ -423,15 +351,24 @@ export class HttpClient {
     const maxBytes = options.maxBytes ?? env.MAX_DOCUMENT_BYTES;
     const maxRetries = options.retries ?? env.SCRAPE_MAX_RETRIES;
     const minIntervalMs = options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS;
+    const signal = options.signal ?? this.signal;
+
+    if (signal?.aborted) {
+      throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
+    }
 
     let attempt = 0;
     let lastError: Error | null = null;
 
     while (attempt <= maxRetries) {
+      if (signal?.aborted) {
+        throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
+      }
       attempt += 1;
       try {
         const response = await this.performFetch(rawUrl, {
           ...options,
+          signal,
           allowedHosts,
           timeoutMs,
           maxBytes,
@@ -439,15 +376,17 @@ export class HttpClient {
         });
         return response;
       } catch (error) {
-        const fetchError =
-          error instanceof FetchError ? error : new FetchError(rawUrl, describeFetchFailure(error), null, true);
-        lastError = fetchError;
-        // Eksik ara sertifika: AIA ile tamamlanabiliyorsa yeni agent'la hemen yeniden dene.
-        if (attempt <= maxRetries && tlsChainErrorCode(error) !== null && (await this.tryChaseIntermediates(rawUrl))) {
-          continue;
+        if (signal?.aborted) {
+          throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
         }
+        const fetchError =
+          error instanceof FetchError
+            ? error
+            : new FetchError(rawUrl, describeFetchFailure(error), null, true);
+        lastError = fetchError;
         if (!fetchError.retryable || attempt > maxRetries) throw fetchError;
-        const backoff = Math.min(2 ** attempt * 500, 15_000) * (0.8 + Math.random() * 0.4);
+        const exponentialBackoff = Math.min(2 ** attempt * 500, 15_000) * (0.8 + Math.random() * 0.4);
+        const backoff = Math.max(exponentialBackoff, fetchError.retryAfterMs ?? 0);
         this.logger.warn(
           {
             url: rawUrl,
@@ -455,18 +394,32 @@ export class HttpClient {
             maxRetries,
             status: fetchError.status,
             error: fetchError.message,
+            retryAfterMs: fetchError.retryAfterMs,
             backoffMs: Math.round(backoff),
           },
           'istek başarısız, yeniden denenecek',
         );
-        await this.sleep(Math.round(backoff));
+        try {
+          await this.sleep(Math.round(backoff), signal);
+        } catch (sleepError) {
+          if (signal?.aborted) {
+            throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
+          }
+          throw sleepError;
+        }
+        if (signal?.aborted) {
+          throw new FetchError(rawUrl, 'İstek tarama zaman aşımı nedeniyle iptal edildi.', null, false);
+        }
       }
     }
 
     throw lastError ?? new FetchError(rawUrl, 'Bilinmeyen istek hatası.', null, false);
   }
 
-  private async performFetch(rawUrl: string, options: Required<Pick<FetchOptions, 'timeoutMs'>> & FetchOptions): Promise<FetchResponse> {
+  private async performFetch(
+    rawUrl: string,
+    options: Required<Pick<FetchOptions, 'timeoutMs'>> & FetchOptions,
+  ): Promise<FetchResponse> {
     const env = getEnv();
     const maxRedirects = env.MAX_REDIRECTS;
     let currentUrl = assertSafeUrl(rawUrl, options.allowedHosts ?? []).toString();
@@ -481,12 +434,17 @@ export class HttpClient {
 
     for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
       const url = new URL(currentUrl);
-      await this.limiter.wait(url.hostname, options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS);
+      await this.limiter.wait(
+        url.hostname,
+        options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS,
+        options.signal,
+      );
 
       const response = await request(currentUrl, {
         method: options.method ?? 'GET',
         headers: requestHeaders,
         dispatcher: this.dispatcherFor(url),
+        ...(options.signal ? { signal: options.signal } : {}),
         // Not: yönlendirmeler burada ELLE izlenir (her adımda SSRF allowlist doğrulaması
         // yapılır), bu yüzden undici'nin kendi yönlendirme takibi (varsayılan: kapalı)
         // kullanılmaz.
@@ -530,9 +488,10 @@ export class HttpClient {
         await response.body.dump();
         throw new FetchError(
           currentUrl,
-          `Kaynak geçici olarak hizmet vermiyor (HTTP ${status})${retryAfter ? `; Retry-After: ${retryAfter}s` : ''}.`,
+          `Kaynak geçici olarak hizmet vermiyor (HTTP ${status})${retryAfter !== null ? `; Retry-After: ${retryAfter}s` : ''}.`,
           status,
           true,
+          retryAfter === null ? null : retryAfter * 1_000,
         );
       }
 
@@ -557,7 +516,9 @@ export class HttpClient {
       }
 
       if (options.expectedContentTypes && options.expectedContentTypes.length > 0 && contentType) {
-        const isExpected = options.expectedContentTypes.some((expected) => contentType.toLowerCase().includes(expected));
+        const isExpected = options.expectedContentTypes.some((expected) =>
+          contentType.toLowerCase().includes(expected),
+        );
         if (!isExpected) {
           await response.body.dump();
           throw new FetchError(currentUrl, `Beklenmeyen içerik türü: ${contentType}`, status, false);

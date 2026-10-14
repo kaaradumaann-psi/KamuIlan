@@ -23,7 +23,7 @@ import { fixedClock, type Clock } from '../src/lib/clock';
 import { createLogger } from '../src/lib/logger';
 import { applyRawAnnouncement } from '../src/ingest/jobs-service';
 import { BuiltinQueueBackend, QUEUE_NAMES } from '../src/worker/queue';
-import { ensureScheduledTasks, schedulerTick } from '../src/worker/scheduler';
+import { ensureScheduledTasks, schedulerTick, syncTaskIntervals } from '../src/worker/scheduler';
 import { WorkerRuntime } from '../src/worker/runtime';
 import { AdapterUnavailableError } from '../src/sources/errors';
 import type { SourceAdapter } from '../src/sources/types';
@@ -36,7 +36,12 @@ import type { JobDoc } from '../src/db/schemas';
 import { sozlesmeliPersonelIlani } from './fixtures/announcements';
 
 const NOW = new Date('2026-10-12T09:00:00+03:00');
-const TEST_ENV = { ...getEnv(), LOG_LEVEL: 'silent' as const, SCHEDULER_ENABLED: false };
+const TEST_ENV = {
+  ...getEnv(),
+  LOG_LEVEL: 'silent' as const,
+  SCHEDULER_ENABLED: false,
+  WORKER_CONCURRENCY: 2,
+};
 const LOGGER = createLogger('test', { level: 'silent' });
 
 const OK_SOURCE_KEY = 'test-kaynak-ok';
@@ -149,10 +154,57 @@ function makeRuntime(
 }
 
 describe('zamanlayıcı', () => {
+  it('SCHEDULER_ENABLED=0 iken due görevleri kuyruğa almaz, worker heartbeatini sürdürür', async () => {
+    const world = await makeWorld();
+    await ensureScheduledTasks(world.repos, LOGGER);
+
+    const result = await makeRuntime(world).tick();
+    expect(result.scheduler).toEqual({ due: 0, enqueued: 0, duplicates: 0, misses: 0 });
+    expect((await world.repos.queue.stats()).pending).toBe(0);
+    expect((await world.repos.heartbeats.list()).some((heartbeat) => heartbeat.status === 'running')).toBe(true);
+  });
+
+  it('SCHEDULER_ENABLED=0 e-posta taşıyıcısını kapatmaz', async () => {
+    const world = await makeWorld();
+    const dataDir = mkdtempSync(join(tmpdir(), 'kamuilan-worker-mail-'));
+    await world.repos.outbox.enqueue(
+      {
+        eventId: null,
+        jobId: null,
+        userId: null,
+        kind: 'test',
+        toEmail: 'test@example.test',
+        subject: 'Worker taşıyıcı testi',
+        template: 'test',
+        payload: { provider: 'file' },
+        idempotencyKey: 'scheduler-disabled-mail-test',
+      },
+      3,
+    );
+    const runtime = new WorkerRuntime({
+      repos: world.repos,
+      queue: world.queue,
+      env: { ...TEST_ENV, EMAIL_PROVIDER: 'file', DATA_DIR: dataDir },
+      logger: LOGGER,
+      workerId: 'worker-mail-test',
+      liveFetch: false,
+      now: () => world.repos.clock.now(),
+      coverageWarnings: false,
+    });
+
+    const result = await runtime.tick();
+    expect(result.scheduler.enqueued).toBe(0);
+    expect(result.emails.sent).toBe(1);
+    expect(await world.repos.outbox.list({ status: 'accepted' }, 5)).toHaveLength(1);
+  });
+
   it('görevleri kurar ve aynı zamanlanmış çalışmayı iki kez kuyruğa almaz', async () => {
     const world = await makeWorld();
     const ensured = await ensureScheduledTasks(world.repos, LOGGER);
     expect(ensured.total).toBeGreaterThanOrEqual(2);
+    const idempotent = await ensureScheduledTasks(world.repos, LOGGER);
+    expect(idempotent.created).toBe(0);
+    expect(idempotent.updated).toBe(0);
 
     const first = await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
     expect(first.enqueued).toBeGreaterThanOrEqual(2);
@@ -178,13 +230,56 @@ describe('zamanlayıcı', () => {
     expect(stats.pending).toBe(first.enqueued);
   });
 
+  it('global tarama aralığını yeni ve mevcut görevlere uygular; 0 iken kaynak aralığına döner', async () => {
+    const world = await makeWorld();
+    await ensureScheduledTasks(world.repos, LOGGER);
+    await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
+
+    const existing = (await world.repos.scheduledTasks.listAll()).find(
+      (task) => task.sourceKey === OK_SOURCE_KEY,
+    );
+    expect(existing?.nextRunAt).toBe(new Date(NOW.getTime() + 60 * 60_000).toISOString());
+
+    await world.repos.sources.seed([definition('test-kaynak-yeni', 'Yeni Test Kaynağı', 'ornek3.test')]);
+    const overridden = await ensureScheduledTasks(world.repos, LOGGER, 1);
+    expect(overridden.updated).toBeGreaterThanOrEqual(2);
+    expect(overridden.created).toBeGreaterThanOrEqual(1);
+    await syncTaskIntervals(world.repos, 1);
+
+    let tasks = await world.repos.scheduledTasks.listAll();
+    const sourceTasks = tasks.filter((task) => task.kind === 'source-scrape');
+    expect(sourceTasks).toHaveLength(DEFINITIONS.length + 1);
+    expect(sourceTasks.every((task) => task.intervalMinutes === 1)).toBe(true);
+    const rescheduledExisting = sourceTasks.find((task) => task.sourceKey === OK_SOURCE_KEY);
+    expect(rescheduledExisting?.nextRunAt).toBe(new Date(NOW.getTime() + 60_000).toISOString());
+    const newlyScheduled = sourceTasks.find((task) => task.sourceKey === 'test-kaynak-yeni');
+    expect(newlyScheduled?.nextRunAt).toBe(NOW.toISOString());
+
+    await world.repos.sources.update(OK_SOURCE_KEY, { scrapeIntervalMinutes: 5 });
+    expect(await syncTaskIntervals(world.repos, 0)).toBe(DEFINITIONS.length + 1);
+    const changedTask = (await world.repos.scheduledTasks.listAll()).find(
+      (task) => task.sourceKey === OK_SOURCE_KEY,
+    );
+    expect(changedTask?.intervalMinutes).toBe(5);
+    expect(changedTask?.nextRunAt).toBe(new Date(NOW.getTime() + 5 * 60_000).toISOString());
+
+    await world.repos.sources.update(OK_SOURCE_KEY, { scrapeIntervalMinutes: 60 });
+    await syncTaskIntervals(world.repos, 0);
+    tasks = await world.repos.scheduledTasks.listAll();
+    const restoredTasks = tasks.filter((task) => task.kind === 'source-scrape');
+    expect(restoredTasks.map((task) => task.intervalMinutes).sort()).toEqual([60, 60, 60]);
+  });
+
   it('aralık dolunca yeni çalışma üretir ve bir sonraki zamanı ileri yazar', async () => {
     const world = await makeWorld();
     await ensureScheduledTasks(world.repos, LOGGER);
     await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
 
     world.clock.advance(60 * 60_000);
-    const second = await schedulerTick(world.repos, world.queue, { now: world.repos.clock.now(), logger: LOGGER });
+    const second = await schedulerTick(world.repos, world.queue, {
+      now: world.repos.clock.now(),
+      logger: LOGGER,
+    });
     expect(second.enqueued).toBeGreaterThanOrEqual(2);
 
     const tasks = await world.repos.scheduledTasks.listAll();
@@ -243,6 +338,33 @@ describe('worker çalışma zamanı', () => {
     const stats = await world.repos.queue.stats();
     expect(stats.pending).toBeLessThanOrEqual(1);
     expect(stats.active).toBe(0);
+  });
+
+  it('WORKER_CONCURRENCY sınırına kadar farklı kaynakları paralel işler', async () => {
+    const world = await makeWorld();
+    let active = 0;
+    let maxActive = 0;
+    const adapter: SourceAdapter = {
+      key: 'test-liste',
+      label: 'Paralel test listesi',
+      method: 'html-list',
+      notes: 'İki kaynağın aynı anda çalışmasını doğrulayan sahte adaptör.',
+      run: async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        active -= 1;
+        return { items: [], requestCount: 1, notes: [], etag: null, lastModified: null, notModified: false };
+      },
+    };
+    const runtime = makeRuntime(world, { adapter });
+    await ensureScheduledTasks(world.repos, LOGGER);
+    await schedulerTick(world.repos, world.queue, { now: NOW, logger: LOGGER });
+
+    const result = await runtime.tick();
+
+    expect(result.scrapes.processed).toBe(2);
+    expect(maxActive).toBe(2);
   });
 
   it('kaynak erişilemezse ilanlar korunur, kaynak sağlığı işaretlenir', async () => {
@@ -397,7 +519,7 @@ describe('worker çalışma zamanı', () => {
       passwordSalt: 'test-salt-value',
       emailVerified: true,
     });
-    await world.repos.notifications.upsertPreference(user.id, { filters: {} });
+    await world.repos.notifications.upsertPreference(user.id, { enabled: true, filters: {} });
 
     const outcome = await applyRawAnnouncement(sozlesmeliPersonelIlani({ sourceKey: OK_SOURCE_KEY }), {
       repos: world.repos,
@@ -417,7 +539,10 @@ describe('worker çalışma zamanı', () => {
         template: 'new-job',
         // Gerçek bildirim yüküyle aynı biçim (buildJobPayload) kullanılır.
         payload: {
-          ...buildJobPayload(job as JobDoc, { matchedOn: ['Test eşleşmesi'], baseUrl: 'http://localhost:5173' }),
+          ...buildJobPayload(job as JobDoc, {
+            matchedOn: ['Test eşleşmesi'],
+            baseUrl: 'http://localhost:5173',
+          }),
         },
         idempotencyKey: 'worker-test-kutu-1',
       },
@@ -548,7 +673,11 @@ describe('yönetici uyarıları', () => {
       processedJobs: 3,
     });
     const oldBeat = new Date(NOW.getTime() - 30 * 60_000).toISOString();
-    await world.repos.store.updateOne('workerHeartbeats', { workerId: 'eski-worker' }, { lastHeartbeatAt: oldBeat });
+    await world.repos.store.updateOne(
+      'workerHeartbeats',
+      { workerId: 'eski-worker' },
+      { lastHeartbeatAt: oldBeat },
+    );
 
     const stopped = await world.repos.heartbeats.markStaleAsStopped(
       new Date(NOW.getTime() - 2 * 60_000).toISOString(),

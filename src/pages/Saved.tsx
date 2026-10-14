@@ -17,7 +17,7 @@ import type { SavedJobsResponse } from '../types';
 export function SavedJobsPage(): ReactNode {
   const saved = useQuery({
     queryKey: ['saved-jobs'],
-    queryFn: () => api.get<SavedJobsResponse>('/api/me/saved-jobs'),
+    queryFn: ({ signal }) => api.get<SavedJobsResponse>('/api/me/saved-jobs', undefined, signal),
   });
 
   return (

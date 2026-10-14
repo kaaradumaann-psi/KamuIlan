@@ -11,7 +11,7 @@
  *  - Başvuru bağlantısı yalnızca resmî adreslerden (kariyerkapisi, e-Devlet,
  *    İŞKUR, ÖSYM) seçilir; uydurma link üretilmez.
  */
-import { collapseWhitespace, normalizeTr, uniquePreserve } from '../domain/text';
+import { collapseWhitespace, makeExcerpt, normalizeTr, uniquePreserve } from '../domain/text';
 import {
   formatDateTr,
   parseTurkishDate,
@@ -72,6 +72,16 @@ export interface ExtractionInput {
   noTextLayer?: boolean;
 }
 
+function sourceForEvidence(input: ExtractionInput, evidence: string | null | undefined): FieldSourceKind {
+  if (!evidence) return 'unstated';
+  const needle = normalizeTr(evidence);
+  const body = normalizeTr(input.body ?? '');
+  const title = normalizeTr(input.title);
+  if (body && needle && body.includes(needle)) return input.bodySource ?? 'detail';
+  if (title && needle && title.includes(needle)) return 'listing';
+  return body ? (input.bodySource ?? 'detail') : 'listing';
+}
+
 export interface SpecialConditionHit {
   /** Kanonik etiket (arayüzde ve filtrelerde kullanılır). */
   label: string;
@@ -121,17 +131,21 @@ const YEARLESS_MONTH_DATE =
   /\b\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)\b(?!\s*\d{4})/iu;
 
 export function extract(input: ExtractionInput): ExtractedJob {
-  const body = collapseWhitespace((input.body ?? '').slice(0, MAX_BODY));
+  const rawBody = (input.body ?? '').slice(0, MAX_BODY);
+  const body = collapseWhitespace(rawBody);
   const title = collapseWhitespace(input.title);
   const haystack = `${title}\n${body}`;
+  // Keep source line/sentence boundaries for contextual fields (education,
+  // departments, roles). Flattened text made an incidental word anywhere in a
+  // page look like a job requirement.
   const fieldSources: Record<string, FieldSource> = {};
   const evidence: Record<string, string> = {};
   const uncertainties: string[] = [];
   const listing = input.listing ?? {};
 
   const setField = (field: string, kind: FieldSourceKind, snippet: string | null) => {
-    fieldSources[field] = { kind, snippet: snippet ? snippet.slice(0, 240) : null };
-    if (snippet) evidence[field] = snippet.slice(0, 240);
+    fieldSources[field] = { kind, snippet: snippet ? makeExcerpt(snippet, 240) : null };
+    if (snippet) evidence[field] = makeExcerpt(snippet, 240);
   };
 
   // --- Kurum ---------------------------------------------------------------
@@ -142,7 +156,11 @@ export function extract(input: ExtractionInput): ExtractedJob {
   if (institution) {
     setField(
       'institution',
-      institutionFromListing ? 'listing' : institutionFromTitle ? 'detail' : 'detail',
+      institutionFromListing
+        ? 'listing'
+        : institutionFromTitle
+          ? 'listing'
+          : sourceForEvidence(input, institutionFromBody),
       institution,
     );
   } else {
@@ -152,11 +170,15 @@ export function extract(input: ExtractionInput): ExtractedJob {
 
   // --- Birim ---------------------------------------------------------------
   const unit = extractUnit(haystack);
-  setField('unit', unit ? 'detail' : 'unstated', unit);
+  setField('unit', sourceForEvidence(input, unit), unit);
 
   // --- Çalışma biçimi / kadro durumu --------------------------------------
   const { employmentType, cadreStatus } = extractEmploymentType(haystack, title);
-  setField('employmentType', employmentType === 'belirsiz' ? 'unstated' : 'detail', cadreStatus);
+  setField(
+    'employmentType',
+    employmentType === 'belirsiz' ? 'unstated' : sourceForEvidence(input, cadreStatus ?? employmentType),
+    cadreStatus,
+  );
   if (employmentType === 'belirsiz') {
     uncertainties.push('Çalışma biçimi (kadrolu/sözleşmeli/işçi) metinden anlaşılamadı.');
   }
@@ -167,7 +189,7 @@ export function extract(input: ExtractionInput): ExtractedJob {
   const cityFromText = cityCandidates[0] ?? null;
   const city = cityFromListing ?? cityFromText;
   if (city) {
-    setField('city', cityFromListing ? 'listing' : 'detail', city);
+    setField('city', cityFromListing ? 'listing' : sourceForEvidence(input, city), city);
     if (cityFromListing && cityFromText && normalizeTr(cityFromListing) !== normalizeTr(cityFromText)) {
       uncertainties.push(
         `Liste sayfası il bilgisini "${cityFromListing}", ilan metni "${cityFromText}" olarak veriyor; liste değeri kullanıldı.`,
@@ -186,21 +208,25 @@ export function extract(input: ExtractionInput): ExtractedJob {
   const districtFromListing = cleanText(listing.district);
   const districtFromText = extractDistrict(haystack);
   const district = districtFromListing ?? districtFromText;
-  setField('district', district ? (districtFromListing ? 'listing' : 'detail') : 'unstated', district);
+  setField('district', districtFromListing ? 'listing' : sourceForEvidence(input, district), district);
 
   // --- Kontenjan -----------------------------------------------------------
   const quota = extractQuota(haystack);
-  setField('quota', quota ? 'detail' : 'unstated', quota?.snippet ?? null);
+  setField('quota', sourceForEvidence(input, quota?.snippet), quota?.snippet ?? null);
   if (!quota) uncertainties.push('Kontenjan bilgisi ilanda sayı olarak belirtilmemiş.');
 
   // --- Başvuru penceresi ---------------------------------------------------
   const windowResult = extractApplicationWindow(title, body, listing);
   const endKind: FieldSourceKind = windowResult.endFromListing
     ? 'listing'
-    : windowResult.endSnippet
-      ? 'detail'
+    : sourceForEvidence(input, windowResult.endSnippet);
+  const startEvidence = windowResult.startSnippet ?? cleanText(listing.applicationStartAt);
+  const startKind = windowResult.startSnippet
+    ? sourceForEvidence(input, windowResult.startSnippet)
+    : listing.applicationStartAt
+      ? 'listing'
       : 'unstated';
-  setField('applicationStartAt', windowResult.startSnippet ? 'detail' : 'unstated', windowResult.startSnippet);
+  setField('applicationStartAt', startKind, startEvidence);
   setField('applicationEndAt', endKind, windowResult.endSnippet);
   setField('applicationEndDate', endKind, windowResult.endSnippet);
   if (!windowResult.start) {
@@ -218,59 +244,101 @@ export function extract(input: ExtractionInput): ExtractedJob {
 
   // --- Yayım tarihi --------------------------------------------------------
   const publishedAt = cleanText(listing.publishedAt) ?? extractPublishedAt(haystack);
-  setField('publishedAt', publishedAt ? (listing.publishedAt ? 'listing' : 'detail') : 'unstated', publishedAt);
+  setField(
+    'publishedAt',
+    listing.publishedAt ? 'listing' : sourceForEvidence(input, publishedAt),
+    publishedAt,
+  );
 
   // --- Başvuru bağlantısı ve yöntemi --------------------------------------
   const applicationUrl = extractApplicationUrl(input.links ?? [], title, body);
   setField('applicationUrl', applicationUrl ? 'link' : 'unstated', applicationUrl);
   if (!applicationUrl) {
-    uncertainties.push('İlanda resmî bir başvuru bağlantısı bulunamadı; yalnızca ilan bağlantısı gösterilir.');
+    uncertainties.push(
+      'İlanda resmî bir başvuru bağlantısı bulunamadı; yalnızca ilan bağlantısı gösterilir.',
+    );
   }
   const applicationMethod = extractApplicationMethod(haystack, Boolean(applicationUrl));
-  setField('applicationMethod', applicationMethod ? 'detail' : 'unstated', applicationMethod);
+  setField('applicationMethod', sourceForEvidence(input, applicationMethod), applicationMethod);
 
   // --- İlan numarası -------------------------------------------------------
-  const referenceNo = cleanText(input.referenceNo) ?? cleanText(listing.referenceNo) ?? extractReference(title, body);
-  setField('referenceNo', referenceNo ? (input.referenceNo || listing.referenceNo ? 'listing' : 'detail') : 'unstated', referenceNo);
+  const referenceNo =
+    cleanText(input.referenceNo) ?? cleanText(listing.referenceNo) ?? extractReference(title, body);
+  setField(
+    'referenceNo',
+    input.referenceNo || listing.referenceNo ? 'listing' : sourceForEvidence(input, referenceNo),
+    referenceNo,
+  );
 
   // --- Unvanlar, öğrenim, bölüm, KPSS, yaş, deneyim, belge, dil -----------
-  const titles = extractTitles(haystack);
-  setField('titles', titles.length > 0 ? 'detail' : 'unstated', titles.join(', ') || null);
+  const titles = extractTitles(rawBody, input.title);
+  const titleEvidence = evidenceForTerms(input.title, rawBody, titles, input.bodySource);
+  setField(
+    'titles',
+    titles.length > 0 ? (titleEvidence?.kind ?? 'unstated') : 'unstated',
+    titleEvidence?.snippet ?? null,
+  );
 
-  const educationLevels = extractEducationLevels(haystack);
-  setField('educationLevels', educationLevels.length > 0 ? 'detail' : 'unstated', educationLevels.join(', ') || null);
+  const educationLevels = extractEducationLevels(rawBody, input.title);
+  const educationEvidence = evidenceForTerms(
+    input.title,
+    rawBody,
+    educationLevels.map(educationEvidenceLabel),
+    input.bodySource,
+  );
+  setField(
+    'educationLevels',
+    educationLevels.length > 0 ? (educationEvidence?.kind ?? 'unstated') : 'unstated',
+    educationEvidence?.snippet ?? null,
+  );
   if (educationLevels.length === 0) uncertainties.push('Öğrenim düzeyi belirtilmemiş.');
 
-  const departments = extractDepartments(haystack);
-  setField('departments', departments.length > 0 ? 'detail' : 'unstated', departments.slice(0, 5).join(', ') || null);
+  const departments = extractDepartments(rawBody, input.title);
+  const departmentEvidence = evidenceForTerms(
+    input.title,
+    rawBody,
+    departments.slice(0, 5),
+    input.bodySource,
+  );
+  setField(
+    'departments',
+    departments.length > 0 ? (departmentEvidence?.kind ?? 'unstated') : 'unstated',
+    departmentEvidence?.snippet ?? null,
+  );
 
   const kpss = extractKpss(haystack);
-  setField('kpss', kpss.types.length > 0 || kpss.minScore !== null ? 'detail' : 'unstated', kpss.snippet);
+  setField('kpss', sourceForEvidence(input, kpss.snippet), kpss.snippet);
   if (kpss.types.length === 0 && kpss.minScore === null) uncertainties.push('KPSS puanı/türü belirtilmemiş.');
 
   const age = extractAge(haystack);
-  setField('age', age.snippet ? 'detail' : 'unstated', age.snippet);
+  setField('age', sourceForEvidence(input, age.snippet), age.snippet);
 
   const experience = extractExperience(haystack);
-  setField('experience', experience.years !== null ? 'detail' : 'unstated', experience.snippet);
+  setField('experience', sourceForEvidence(input, experience.snippet), experience.snippet);
 
   const certificates = extractCertificates(haystack);
-  setField('certificates', certificates.length > 0 ? 'detail' : 'unstated', certificates.join(', ') || null);
+  const certificateEvidence = certificates.join(', ') || null;
+  setField('certificates', sourceForEvidence(input, certificateEvidence), certificateEvidence);
 
   const foreignLanguages = extractForeignLanguages(haystack);
-  setField('foreignLanguages', foreignLanguages.length > 0 ? 'detail' : 'unstated', foreignLanguages.join(', ') || null);
+  const languageEvidence = foreignLanguages.join(', ') || null;
+  setField('foreignLanguages', sourceForEvidence(input, languageEvidence), languageEvidence);
 
   const specialHits = extractSpecialConditions(haystack);
   const specialConditions = specialHits.map((hit) => hit.label);
   setField(
     'specialConditions',
-    specialConditions.length > 0 ? 'detail' : 'unstated',
+    sourceForEvidence(input, specialHits.map((hit) => hit.snippet).join(' • ') || null),
     specialHits.map((hit) => hit.snippet).join(' • ') || null,
   );
 
   // --- Ekler ---------------------------------------------------------------
   const attachments = uniqueAttachments(input.attachments ?? []);
-  setField('attachments', attachments.length > 0 ? 'listing' : 'unstated', attachments.map((item) => item.url).join('\n') || null);
+  setField(
+    'attachments',
+    attachments.length > 0 ? 'link' : 'unstated',
+    attachments.map((item) => item.url).join('\n') || null,
+  );
 
   const confidence = computeConfidence({
     bodyLength: body.length,
@@ -347,7 +415,10 @@ export function extractInstitutionFromBody(body: string): string | null {
 }
 
 export function extractUnit(text: string): string | null {
-  const match = /([A-ZÇĞİÖŞÜ][\wçğıöşüÇĞİÖŞÜ\s-]{2,60}?(?:Daire Başkanlığı|Şube Müdürlüğü|Müdürlüğü|Fakültesi|Enstitüsü|Yüksekokulu|Meslek Yüksekokulu|Hastanesi|Hastane Başhekimliği|Başhekimliği|Birimi|Bölüm Başkanlığı|Koordinatörlüğü))/u.exec(text);
+  const match =
+    /([A-ZÇĞİÖŞÜ][\wçğıöşüÇĞİÖŞÜ\s-]{2,60}?(?:Daire Başkanlığı|Şube Müdürlüğü|Müdürlüğü|Fakültesi|Enstitüsü|Yüksekokulu|Meslek Yüksekokulu|Hastanesi|Hastane Başhekimliği|Başhekimliği|Birimi|Bölüm Başkanlığı|Koordinatörlüğü))/u.exec(
+      text,
+    );
   if (!match?.[1]) return null;
   const value = collapseWhitespace(match[1]);
   if (value.length < 8) return null;
@@ -356,10 +427,50 @@ export function extractUnit(text: string): string | null {
 
 /** Türkçe hâl ekleri: "Ankara'da", "Muş'ta", "Van ilinde" gibi kullanımlar için. */
 const CITY_SUFFIXES: readonly string[] = [
-  'daki', 'deki', 'taki', 'teki', 'lardaki', 'lerdeki', 'dan', 'den', 'tan', 'ten',
-  'dır', 'dir', 'dur', 'dür', 'tır', 'tir', 'tur', 'tür',
-  'da', 'de', 'ta', 'te', 'lar', 'ler', 'ya', 'ye', 'ın', 'in', 'un', 'ün',
-  'lık', 'lik', 'luk', 'lük', 'lı', 'li', 'lu', 'lü', 'a', 'e', 'ı', 'i', 'u', 'ü',
+  'daki',
+  'deki',
+  'taki',
+  'teki',
+  'lardaki',
+  'lerdeki',
+  'dan',
+  'den',
+  'tan',
+  'ten',
+  'dır',
+  'dir',
+  'dur',
+  'dür',
+  'tır',
+  'tir',
+  'tur',
+  'tür',
+  'da',
+  'de',
+  'ta',
+  'te',
+  'lar',
+  'ler',
+  'ya',
+  'ye',
+  'ın',
+  'in',
+  'un',
+  'ün',
+  'lık',
+  'lik',
+  'luk',
+  'lük',
+  'lı',
+  'li',
+  'lu',
+  'lü',
+  'a',
+  'e',
+  'ı',
+  'i',
+  'u',
+  'ü',
 ];
 
 let cityMatcherSource: { source: string; canonical: Map<string, string> } | null = null;
@@ -406,7 +517,9 @@ export function extractCity(text: string): string | null {
 }
 
 export function extractDistrict(text: string): string | null {
-  const match = /([A-ZÇĞİÖŞÜ][a-zçğıöşü]{2,25})\s+(?:İlçesi|ilçesi|İlçesinde|ilçesinde|İlçe|ilçe)/u.exec(text);
+  const match = /([A-ZÇĞİÖŞÜ][a-zçğıöşü]{2,25})\s+(?:İlçesi|ilçesi|İlçesinde|ilçesinde|İlçe|ilçe)/u.exec(
+    text,
+  );
   return match?.[1] ? collapseWhitespace(match[1]) : null;
 }
 
@@ -458,7 +571,9 @@ export function extractApplicationWindow(
   const isWindowSentence = (sentence: string): boolean =>
     /ba[şs]vuru/iu.test(sentence) &&
     /(?:tarih|son|ba[şs]lang[ıi]ç|kadar|aras[ıi]nda|ile)/iu.test(sentence) &&
-    /\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)/iu.test(sentence);
+    /\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)/iu.test(
+      sentence,
+    );
 
   const windowSentences = sentences.filter(isWindowSentence);
   for (const sentence of windowSentences) {
@@ -503,7 +618,10 @@ export function extractApplicationWindow(
   }
 
   // "Son başvuru tarihi …", "… tarihine kadar" kalıpları.
-  const explicitEnd = /(?:son\s+ba[şs]vuru(?:\s+tarihi)?|ba[şs]vurular[ıi]n\s+son\s+g[üu]n[üu]|en\s+son)[^.\n]{0,120}/iu.exec(text);
+  const explicitEnd =
+    /(?:son\s+ba[şs]vuru(?:\s+tarihi)?|ba[şs]vurular[ıi]n\s+son\s+g[üu]n[üu]|en\s+son)[^.\n]{0,120}/iu.exec(
+      text,
+    );
   if (explicitEnd) {
     const parsed = parseTurkishDate(explicitEnd[0]);
     if (parsed) {
@@ -520,7 +638,12 @@ export function extractApplicationWindow(
   if (until?.[0]) {
     const parsed = parseTurkishDate(until[0]);
     if (parsed) {
-      return { start: null, end: parsed, startSnippet: null, endSnippet: collapseWhitespace(until[0]).slice(0, 240) };
+      return {
+        start: null,
+        end: parsed,
+        startSnippet: null,
+        endSnippet: collapseWhitespace(until[0]).slice(0, 240),
+      };
     }
   }
 
@@ -600,8 +723,7 @@ export function extractApplicationMethod(text: string, hasApplicationUrl: boolea
   if (found.length === 0) return null;
   // Kapsanan ifadeleri at: "posta yoluyla" varken "posta" ayrıca yazılmasın.
   const unique = found.filter(
-    (method) =>
-      !found.some((other) => other !== method && normalizeTr(other).includes(normalizeTr(method))),
+    (method) => !found.some((other) => other !== method && normalizeTr(other).includes(normalizeTr(method))),
   );
   void hasApplicationUrl;
   return unique.slice(0, 3).join(', ');
@@ -612,40 +734,141 @@ export function extractReference(title: string, body: string): string | null {
   return match?.[1] && match[2] ? `${match[1].toUpperCase()}${match[2]}` : null;
 }
 
-export function extractTitles(text: string): string[] {
+const ROLE_CONTEXT =
+  /\b(?:pozisyon\w*|kadro\w*|unvan\w*|kontenjan\w*|al(?:im|in\p{L}*)|istihdam\w*|gorevlendir\p{L}*|calistiril\p{L}*|aranan\s+(?:unvan|pozisyon))\b/u;
+const EDUCATION_CONTEXT =
+  /\b(?:mezun\p{L}*|mezuniyet\w*|ogrenim\w*|egitim\s+(?:duzeyi|durumu|seviyesi)|diploma\w*|diplomali|ogretim\s+programi)\b/u;
+const DEPARTMENT_CONTEXT =
+  /\b(?:bolum\w*|program\w*|mezun\p{L}*|mezuniyet\w*|ogrenim\w*|egitim\w*|fakulte\w*|anabilim\s+dali|ana\s+bilim\s+dali|lisans\s+programi|diploma\w*)\b/u;
+
+/**
+ * A phrase is evidence only as a complete word/phrase, never as a substring of
+ * another word (e.g. "Ebe" inside "Muhasebe"). For body text, also require a
+ * nearby role/qualification cue; a dictionary mention in page chrome or prose
+ * is not enough to populate a user's structured job requirements.
+ */
+function hasBoundedPhrase(text: string, phrase: string): boolean {
   const normalized = normalizeTr(text);
+  const needle = normalizeTr(phrase)
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\s+/g, '\\s+');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${needle}(?![\\p{L}\\p{N}])`, 'u').test(normalized);
+}
+
+function hasContextualPhrase(text: string, phrase: string, context: RegExp): boolean {
+  const chunks = text
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=[.!?;])\s+/))
+    .map((part) => collapseWhitespace(part))
+    .filter(Boolean);
+  const needle = normalizeTr(phrase)
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\s+/g, '\\s+');
+  const phrasePattern = new RegExp(`(?<![\\p{L}\\p{N}])${needle}(?![\\p{L}\\p{N}])`, 'u');
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const current = chunks[index] ?? '';
+    if (!phrasePattern.test(normalizeTr(current))) continue;
+    const adjacent = [chunks[index - 1], current, chunks[index + 1]]
+      .filter((part) => part && part.length <= 180)
+      .join(' ');
+    const normalized = normalizeTr(adjacent);
+    const withoutPhrase = normalized.replace(phrasePattern, ' ');
+    const explicitlyNegated =
+      /\b(?:alinmayacak\w*|gorevlendirilmeyecek\w*|calistirilmayacak\w*|kadroda\s+yer\s+almayacak\w*)\b/u.test(
+        withoutPhrase,
+      );
+    const phraseItselfCarriesContext = context.test(normalizeTr(phrase));
+    if ((context.test(withoutPhrase) || phraseItselfCarriesContext) && !explicitlyNegated) return true;
+  }
+  return false;
+}
+
+function evidenceForTerms(
+  titleText: string,
+  bodyText: string,
+  terms: readonly string[],
+  bodySource: ExtractionInput['bodySource'],
+): { kind: FieldSourceKind; snippet: string } | null {
+  const titleChunks = titleText
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=[.!?;])\s+/))
+    .map((part) => collapseWhitespace(part))
+    .filter(Boolean);
+  const bodyChunks = bodyText
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=[.!?;])\s+/))
+    .map((part) => collapseWhitespace(part))
+    .filter(Boolean);
+  for (const term of terms) {
+    const bodyEvidence = bodyChunks.find((chunk) => hasBoundedPhrase(chunk, term));
+    if (bodyEvidence) return { kind: bodySource ?? 'detail', snippet: bodyEvidence.slice(0, 240) };
+    const titleEvidence = titleChunks.find((chunk) => hasBoundedPhrase(chunk, term));
+    if (titleEvidence) return { kind: 'listing', snippet: titleEvidence.slice(0, 240) };
+  }
+  return null;
+}
+
+function educationEvidenceLabel(level: EducationLevel): string {
+  const labels: Record<EducationLevel, string> = {
+    ilkogretim: 'ilköğretim',
+    ortaogretim: 'ortaöğretim',
+    onlisans: 'ön lisans',
+    lisans: 'lisans',
+    yukseklisans: 'yüksek lisans',
+    doktora: 'doktora',
+  };
+  return labels[level];
+}
+
+export function extractTitles(text: string, titleText = ''): string[] {
   const found: string[] = [];
   for (const title of JOB_TITLES) {
-    if (normalized.includes(normalizeTr(title))) found.push(title);
+    // A genuine role in the announcement heading is strong evidence. Body-only
+    // matches need local hiring context and strict word boundaries.
+    if (hasBoundedPhrase(titleText, title) || hasContextualPhrase(text, title, ROLE_CONTEXT))
+      found.push(title);
   }
   // Uzun (spesifik) unvanlar önce gelir.
   return found.sort((a, b) => b.length - a.length).slice(0, 12);
 }
 
-export function extractEducationLevels(text: string): EducationLevel[] {
-  const normalized = normalizeTr(text);
+export function extractEducationLevels(text: string, titleText = ''): EducationLevel[] {
   const levels: EducationLevel[] = [];
-  // "ön lisans" ifadesi "lisans" ile karışmasın: önce ön lisans aranır ve
-  // lisans kontrolünde "ön"/"yüksek" önekleri dışlanır.
-  const checks: readonly { level: EducationLevel; re: RegExp }[] = [
-    { level: 'doktora', re: /doktora|sanatta yeterlik/ },
-    { level: 'yukseklisans', re: /yuksek lisans|master/ },
-    { level: 'onlisans', re: /on lisans/ },
-    { level: 'lisans', re: /(?<!on )(?<!yuksek )lisans/ },
-    { level: 'ortaogretim', re: /ortaogretim|lise mezunu|lise ve dengi|meslek lisesi/ },
-    { level: 'ilkogretim', re: /ilkogretim/ },
+  const checks: readonly { level: EducationLevel; phrases: readonly string[] }[] = [
+    { level: 'doktora', phrases: ['doktora', 'sanatta yeterlik', 'sanatta yeterlilik'] },
+    { level: 'yukseklisans', phrases: ['yüksek lisans', 'master'] },
+    { level: 'onlisans', phrases: ['ön lisans', 'önlisans', 'iki yıllık yüksekokul'] },
+    { level: 'lisans', phrases: ['lisans', 'dört yıllık', 'fakülte mezunu'] },
+    { level: 'ortaogretim', phrases: ['ortaöğretim', 'lise mezunu', 'lise ve dengi', 'meslek lisesi'] },
+    { level: 'ilkogretim', phrases: ['ilköğretim', 'ilk öğretim'] },
   ];
   for (const check of checks) {
-    if (check.re.test(normalized)) levels.push(check.level);
+    const bodyForLevel =
+      check.level === 'lisans' ? normalizeTr(text).replace(/\b(?:on|yuksek)\s+lisans\b/g, ' ') : text;
+    const titleForLevel =
+      check.level === 'lisans'
+        ? normalizeTr(titleText).replace(/\b(?:on|yuksek)\s+lisans\b/g, ' ')
+        : titleText;
+    const matched = check.phrases.some(
+      (phrase) =>
+        hasContextualPhrase(titleForLevel, phrase, EDUCATION_CONTEXT) ||
+        hasContextualPhrase(bodyForLevel, phrase, EDUCATION_CONTEXT),
+    );
+    if (matched) levels.push(check.level);
   }
   return levels;
 }
 
-export function extractDepartments(text: string): string[] {
-  const normalized = normalizeTr(text);
+export function extractDepartments(text: string, titleText = ''): string[] {
   const found: string[] = [];
   for (const department of DEPARTMENTS) {
-    if (normalized.includes(normalizeTr(department))) found.push(department);
+    if (
+      hasContextualPhrase(titleText, department, DEPARTMENT_CONTEXT) ||
+      hasContextualPhrase(text, department, DEPARTMENT_CONTEXT)
+    ) {
+      found.push(department);
+    }
   }
   return found.slice(0, 15);
 }
@@ -669,7 +892,10 @@ export function extractKpss(text: string): {
     if (candidate && KPSS_TYPES.includes(candidate as KpssScoreType)) types.push(candidate as KpssScoreType);
   }
 
-  const scoreMatch = /(?:KPSS[^.\n]{0,60}?|taban puan[ıi]?[^.\n]{0,20}?)(\d{2,3})(?:[.,](\d{1,2}))?\s*(?:puan|ve üzeri|puan[ıi]|ve yukar[ıi]s[ıi])?/i.exec(normalizedText);
+  const scoreMatch =
+    /(?:KPSS[^.\n]{0,60}?|taban puan[ıi]?[^.\n]{0,20}?)(\d{2,3})(?:[.,](\d{1,2}))?\s*(?:puan|ve üzeri|puan[ıi]|ve yukar[ıi]s[ıi])?/i.exec(
+      normalizedText,
+    );
   let minScore: number | null = null;
   if (scoreMatch?.[1]) {
     const value = Number(scoreMatch[1]);
@@ -688,7 +914,11 @@ export function extractKpss(text: string): {
   };
 }
 
-export function extractAge(text: string): { minAge: number | null; maxAge: number | null; snippet: string | null } {
+export function extractAge(text: string): {
+  minAge: number | null;
+  maxAge: number | null;
+  snippet: string | null;
+} {
   // "18-35 yaş arası" gibi açık aralık.
   const range = /(\d{2})\s*[-–]\s*(\d{2})\s*ya[şs]/iu.exec(text);
   if (range?.[1] && range[2]) {
@@ -764,7 +994,8 @@ export function extractCertificates(text: string): string[] {
     if (normalized.includes(normalizeTr(certificate))) found.push(certificate);
   }
   const driving = /(B|C|D|E)\s*s[ıi]n[ıi]f[ıi]\s*s[üu]r[üu]c[üu]/iu.exec(text);
-  if (driving?.[1] && !found.includes('Sürücü Belgesi')) found.push(`${driving[1].toUpperCase()} sınıfı sürücü belgesi`);
+  if (driving?.[1] && !found.includes('Sürücü Belgesi'))
+    found.push(`${driving[1].toUpperCase()} sınıfı sürücü belgesi`);
   return uniquePreserve(found).slice(0, 10);
 }
 
@@ -839,7 +1070,14 @@ export function detectEmploymentType(text: string): EmploymentType {
   const second = sorted[1];
   if (second && second[1] === best[1] && best[0] !== 'sozlesmeli') {
     // Eşitlikte daha spesifik olan tercih edilir.
-    const priority: EmploymentType[] = ['akademik', 'kariyer-meslek', 'kuruma-ozel-sinav', 'kamu-isci', 'sozlesmeli', 'kadrolu'];
+    const priority: EmploymentType[] = [
+      'akademik',
+      'kariyer-meslek',
+      'kuruma-ozel-sinav',
+      'kamu-isci',
+      'sozlesmeli',
+      'kadrolu',
+    ];
     for (const candidate of priority) {
       if (scores.get(candidate) === best[1]) return candidate;
     }
@@ -908,7 +1146,12 @@ function safeHost(url: string): string | null {
 }
 
 /** İlan özeti: arayüzde ve panelde gösterilecek kısa metin. */
-export function summarizeAnnouncement(input: { title: string; institution: string | null; city: string | null; quota: number | null }): string {
+export function summarizeAnnouncement(input: {
+  title: string;
+  institution: string | null;
+  city: string | null;
+  quota: number | null;
+}): string {
   const parts = [input.institution ?? 'Kurum belirtilmemiş'];
   if (input.city) parts.push(input.city);
   if (input.quota !== null) parts.push(`${input.quota} kişi`);

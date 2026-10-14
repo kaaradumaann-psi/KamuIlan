@@ -1,6 +1,7 @@
 /**
  * Kaynak deposu: envanter kayıtları, sağlık bilgileri ve kapsam özeti.
  */
+import { isDeepStrictEqual } from 'node:util';
 import { createId } from '../../domain/ids';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
@@ -54,6 +55,8 @@ export interface SourceCoverageEntry {
     itemsFound: number;
     errorCount: number;
     result: string;
+    coverageStatus: 'complete' | 'partial' | 'unknown';
+    coverageNote: string;
   } | null;
 }
 
@@ -63,14 +66,17 @@ export class SourceRepo {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  /** Envanteri veritabanıyla eşitler (idempotent). */
+  /** Envanteri veritabanıyla eşitler (idempotent); mevcut kayıtları tek sorguda yükler. */
   async seed(definitions: readonly SourceDefinition[] = SOURCE_DEFINITIONS): Promise<{ created: number; updated: number }> {
     let created = 0;
     let updated = 0;
     const now = this.clock.now().toISOString();
+    const existingRows = definitions.length
+      ? await this.store.find('sources', { key: { $in: definitions.map((definition) => definition.key) } }, { limit: definitions.length })
+      : [];
+    const existingByKey = new Map(existingRows.map((source) => [source.key, source]));
 
     for (const definition of definitions) {
-      const existing = await this.store.findOne('sources', { key: definition.key });
       const shared = {
         name: definition.name,
         institution: definition.institution,
@@ -92,12 +98,29 @@ export class SourceRepo {
         coverageNotes: definition.coverageNote,
         allowHosts: definition.allowedHosts,
         tags: definition.tags,
-        updatedAt: now,
       };
+      const existing = existingByKey.get(definition.key);
 
       if (existing) {
-        await this.store.updateOne('sources', { key: definition.key }, shared);
-        updated += 1;
+        const current = {
+          name: existing.name,
+          institution: existing.institution,
+          homepageUrl: existing.homepageUrl,
+          listingUrl: existing.listingUrl,
+          sourceType: existing.sourceType,
+          method: existing.method,
+          adapterKey: existing.adapterKey,
+          status: existing.status,
+          statusNote: existing.statusNote,
+          verification: existing.verification,
+          coverageNotes: existing.coverageNotes,
+          allowHosts: existing.allowHosts,
+          tags: existing.tags,
+        };
+        if (!isDeepStrictEqual(current, shared)) {
+          await this.store.updateOne('sources', { key: definition.key }, { ...shared, updatedAt: now });
+          updated += 1;
+        }
         continue;
       }
 
@@ -105,6 +128,7 @@ export class SourceRepo {
         id: createId('src'),
         key: definition.key,
         ...shared,
+        updatedAt: now,
         enabled: definition.enabled,
         scrapeIntervalMinutes: definition.intervalMinutes,
         minRequestIntervalMs: definition.minRequestIntervalMs,
@@ -132,6 +156,7 @@ export class SourceRepo {
       } as SourceDoc;
       validateDocument('sources', doc);
       await this.store.insertOne('sources', doc);
+      existingByKey.set(definition.key, doc);
       created += 1;
     }
 
@@ -156,7 +181,11 @@ export class SourceRepo {
 
   async update(key: string, patch: Partial<SourceDoc>): Promise<SourceDoc | null> {
     const { id: _id, key: _key, createdAt: _createdAt, ...rest } = patch;
-    const updated = await this.store.updateOne('sources', { key }, { ...rest, updatedAt: this.clock.now().toISOString() });
+    const updated = await this.store.updateOne(
+      'sources',
+      { key },
+      { ...rest, updatedAt: this.clock.now().toISOString() },
+    );
     if (updated) validateDocument('sources', updated, 'skip');
     return updated;
   }
@@ -184,7 +213,11 @@ export class SourceRepo {
    * üretimi bu damgayla sınırlanır (bkz. pipeline SOURCE_WARNING_REPEAT_MS).
    */
   async recordWarning(key: string, at: string): Promise<SourceDoc | null> {
-    const updated = await this.store.updateOne('sources', { key }, { 'health.lastWarningAt': at, updatedAt: at });
+    const updated = await this.store.updateOne(
+      'sources',
+      { key },
+      { 'health.lastWarningAt': at, updatedAt: at },
+    );
     if (updated) validateDocument('sources', updated);
     return updated;
   }
@@ -214,11 +247,14 @@ export class SourceRepo {
       'health.consecutiveSkips': update.success ? 0 : update.skipped ? health.consecutiveSkips + 1 : 0,
       'health.lastSuccessAt': update.success ? update.lastRunAt : health.lastSuccessAt,
       'health.lastErrorAt': update.success ? health.lastErrorAt : now,
-      'health.lastErrorMessage': update.success ? null : (update.errorMessage ?? health.lastErrorMessage ?? 'Bilinmeyen hata'),
+      'health.lastErrorMessage': update.success
+        ? null
+        : (update.errorMessage ?? health.lastErrorMessage ?? 'Bilinmeyen hata'),
       'health.lastScheduleDelayMs': update.scheduleDelayMs ?? health.lastScheduleDelayMs,
       'health.etag': update.etag !== undefined ? update.etag : health.etag,
       'health.lastModified': update.lastModified !== undefined ? update.lastModified : health.lastModified,
-      'health.lastContentHash': update.contentHash !== undefined ? update.contentHash : health.lastContentHash,
+      'health.lastContentHash':
+        update.contentHash !== undefined ? update.contentHash : health.lastContentHash,
       'health.emptyStreak': update.contentUnchanged
         ? health.emptyStreak
         : update.discoveredCount === 0 && update.success
@@ -238,6 +274,7 @@ export class SourceRepo {
       total: number;
       enabled: number;
       verified: number;
+      /** Hazır adaptörü olan ama canlı doğrulaması olmayan kaynak sayısı. */
       built: number;
       failing: number;
       stale: number;
@@ -248,8 +285,10 @@ export class SourceRepo {
     // Demo/örnek veri kaydı gerçek bir tarama kaynağı değildir; kapsam sayılarına
     // girmez (seed:demo bunu coverageNote alanında taahhüt ediyor).
     const sources = allSources.filter((source) => !source.tags.includes('demo'));
+    const scheduledTasks = await this.store.find('scheduledTasks', { kind: 'source-scrape' }, { limit: 500 });
+    const scheduledIntervals = new Map(scheduledTasks.map((task) => [task.sourceKey, task.intervalMinutes]));
     const entries: SourceCoverageEntry[] = [];
-    const staleThreshold = Date.now() - 6 * 3_600_000;
+    const staleThreshold = this.clock.now().getTime() - 6 * 3_600_000;
     let failing = 0;
     let stale = 0;
 
@@ -260,7 +299,9 @@ export class SourceRepo {
         { limit: 1, sort: [['startedAt', -1]] },
       );
       const lastRun = lastRunRows[0] ?? null;
-      const isStale = !source.health.lastRunAt || Date.parse(source.health.lastRunAt) < staleThreshold;
+      // Son deneme değil, son gerçek başarı belirleyicidir: başarısız/atlanan
+      // deneme kaynağı "yakın zamanda tarandı" gibi gösteremez.
+      const isStale = !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
       if (source.health.consecutiveFailures > 0) failing += 1;
       if (source.enabled && isStale) stale += 1;
       entries.push({
@@ -276,7 +317,7 @@ export class SourceRepo {
         lastVerifiedAt: source.verification.verifiedAt,
         verificationEvidence: source.verification.evidence,
         coverageNote: source.coverageNotes,
-        intervalMinutes: source.scrapeIntervalMinutes,
+        intervalMinutes: scheduledIntervals.get(source.key) ?? source.scrapeIntervalMinutes,
         health: source.health,
         lastRun: lastRun
           ? {
@@ -285,6 +326,8 @@ export class SourceRepo {
               itemsFound: lastRun.itemsFound,
               errorCount: lastRun.errorCount,
               result: lastRun.result,
+              coverageStatus: lastRun.coverageStatus ?? 'unknown',
+              coverageNote: lastRun.coverageNote ?? 'Eski tarama kaydı; kapsam bilinmiyor.',
             }
           : null,
       });
@@ -297,7 +340,8 @@ export class SourceRepo {
         total: entries.length,
         enabled: entries.filter((entry) => entry.enabled).length,
         verified: entries.filter((entry) => entry.verified).length,
-        built: entries.filter((entry) => entry.built).length,
+        // "Hazırlanan": adaptörü var ama henüz canlı doğrulaması yapılmamış kaynak.
+        built: entries.filter((entry) => entry.built && !entry.verified).length,
         failing,
         stale,
         planned: PLANNED_SOURCES.length,

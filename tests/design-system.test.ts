@@ -1,16 +1,18 @@
 /**
  * Tasarım sistemi koruma testi.
  *
- * Kamuİlan'ın arayüzü psikolog ve MMPI çalışma alanlarıyla aynı tasarım
- * katmanlarını kullanır. Bu dosya o sözleşmeyi otomatik olarak denetler:
+ * Kamuİlan katmanlı CSS yaklaşımını kullanır. Bu test yalnızca yerel
+ * tasarım sözleşmesini denetler; 14.10.2026 karşılaştırmasında dokuz dosyanın
+ * `psikolog` deposuyla eşleştiği sabit bir karma tabanını korur. MMPI-566
+ * `Repo123` deposunda altı dosya farklıdır; test dış depolara bağlanmaz.
  *
- *  1. **Katman sırası** — `src/main.tsx` içindeki stil içe aktarma sırası
- *     referans uygulamalarla aynıdır (responsive.css her zaman en sonda).
- *  2. **Paylaşılan katmanlar** — `screen.css`, `site.css`, `coherence.css`,
+ *  1. **Katman sırası** — `src/main.tsx` içindeki beklenen içe aktarma sırası
+ *     ve `responsive.css`'in sonda olması denetlenir.
+ *  2. **Yerel karma tabanı** — `screen.css`, `site.css`, `coherence.css`,
  *     `theme.css`, `workspace.css`, `dashboard.css`, `mobile.css`,
- *     `responsive.css` ve `auth.css` psikolog reposuyla bayt bayt aynıdır.
- *     Karma değerler `tests/fixtures/design-parity.json` içinde tutulur;
- *     dosya değişirse test bilinçli bir güncelleme ister.
+ *     `responsive.css` ve `auth.css` için onaylı SHA-256 değerleri
+ *     `tests/fixtures/design-parity.json` içinde tutulur.
+ *  3. Dış depo ile sürekli eşzamanlılık veya aynı dosya içeriği garantilenmez.
  *  3. **Tanımsız sınıf yasak** — arayüzde kullanılan her sınıf
  *     `src/styles/*.css` içinde tanımlı olmalıdır (yazım hatasıyla sessizce
  *     biçimsiz kalan öğe bırakmaz).
@@ -29,7 +31,7 @@ const ROOT = resolve(__dirname, '..');
 const STYLES_DIR = join(ROOT, 'src/styles');
 const SRC_DIR = join(ROOT, 'src');
 
-/** Referans uygulamalarla bayt bayt paylaşılan katmanlar (sıra önemli değil). */
+/** Yerel hash tabanında izlenen dokuz ortak katman (sıra önemli değil). */
 const SHARED_LAYERS = [
   'screen.css',
   'site.css',
@@ -117,8 +119,8 @@ function usedClasses(): { token: string; file: string }[] {
 /**
  * Yardımcı sınıf kalıpları.
  *
- * Aile dili (psikolog/MMPI) bu kalıpların hiçbirini kullanmaz; Kamuİlan'da da
- * kullanılmamalıdır. Her eşleşme, anlamlı bir bileşen sınıfına çevrilmelidir.
+ * Bu depodaki tasarım sözleşmesi yaygın utility sınıf kalıplarını reddeder;
+ * her eşleşme anlamlı bir bileşen sınıfına çevrilmelidir.
  */
 const UTILITY_PATTERNS: { pattern: RegExp; hint: string }[] = [
   { pattern: /^(flex|grid|block|inline|inline-flex|inline-block|hidden)$/, hint: 'görünüm yardımcısı' },
@@ -156,7 +158,7 @@ function isKnownPrefix(token: string, defined: Set<string>): boolean {
 }
 
 describe('tasarım sistemi sözleşmesi', () => {
-  it('stil katmanları referans uygulamalarla aynı sıradadır', () => {
+  it('stil katmanları beklenen yerel sıradadır ve responsive en sondadır', () => {
     const main = readFileSync(join(SRC_DIR, 'main.tsx'), 'utf8');
     const imported = [...main.matchAll(/import\s+'.\/styles\/([\w.-]+\.css)';/g)].map(
       (match) => match[1] ?? '',
@@ -173,6 +175,31 @@ describe('tasarım sistemi sözleşmesi', () => {
       expect(expected, `design-parity.json içinde ${layer} için karma değer yok`).toBeTruthy();
       expect(sha256(readFileSync(join(STYLES_DIR, layer), 'utf8')), `${layer} değişmiş`).toBe(expected);
     }
+  });
+
+  it('arama ikonu alanı ve spinner sarmalayıcısı ortak CSS katmanını doğru ezer', () => {
+    const appCss = readFileSync(join(STYLES_DIR, 'kamuilan.css'), 'utf8');
+    const sharedInputSelector = ".form-group input:not([type='checkbox']):not([type='radio'])";
+    const iconInputSelector = ".form-group .search-input-wrap > input[type='search']";
+    const sharedInputIndex = appCss.indexOf(sharedInputSelector);
+    const iconInputIndex = appCss.indexOf(iconInputSelector);
+    expect(sharedInputIndex).toBeGreaterThanOrEqual(0);
+    expect(iconInputIndex).toBeGreaterThan(sharedInputIndex);
+    expect(appCss.slice(iconInputIndex, appCss.indexOf('}', iconInputIndex))).toContain('padding-left: 38px');
+
+    expect(appCss).toMatch(
+      /\.spinner-inline\s*\{[^}]*display:\s*inline-flex;[^}]*border:\s*0;[^}]*animation:\s*none;/s,
+    );
+    expect(appCss).toMatch(/\.spinner-inline \.spinner\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/s);
+  });
+
+  it('ilan akışı büyürken dikey scrollbar ve uzun metinler içeriği yatay kaydırmaz', () => {
+    const appCss = readFileSync(join(STYLES_DIR, 'kamuilan.css'), 'utf8');
+    expect(appCss).toMatch(/html\s*\{[^}]*scrollbar-gutter:\s*stable;/s);
+    expect(appCss).toMatch(/\.job-list\s*\{[^}]*min-width:\s*0;/s);
+    expect(appCss).toMatch(/\.job-card\s*\{[^}]*min-width:\s*0;/s);
+    expect(appCss).toMatch(/\.job-card-title\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
+    expect(appCss).toMatch(/\.job-card-institution\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
   });
 
   it('arayüzde tanımsız sınıf kullanılmaz', () => {

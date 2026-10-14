@@ -125,6 +125,17 @@ describe('.env dosyası yükleme', () => {
     expect(envFileSource()).toBe(join(dir, '.env.development'));
   });
 
+  it('.env.<NODE_ENV> dosyası gerçek ortam değerini ezmez', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, '.env'), `${KEY}=temel\n`);
+    writeFileSync(join(dir, '.env.development'), `${KEY}=gelistirme\n`);
+    process.env[KEY] = 'ortamdan';
+    process.env.NODE_ENV = 'development';
+
+    loadEnvFile(dir);
+    expect(process.env[KEY]).toBe('ortamdan');
+  });
+
   it('dosya yoksa sessizce devam eder', () => {
     const dir = tempDir();
     process.env.NODE_ENV = 'development';

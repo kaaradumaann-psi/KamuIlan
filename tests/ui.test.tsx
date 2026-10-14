@@ -33,6 +33,7 @@ vi.mock('../src/lib/api', () => ({
 
 const { default: App } = await import('../src/App');
 const { SessionProvider } = await import('../src/lib/session');
+const { api } = await import('../src/lib/api');
 
 function renderApp(path: string): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -49,6 +50,7 @@ function renderApp(path: string): void {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   responses.clear();
   responses.set('/api/auth/session', { authenticated: false, user: null, csrfToken: null });
   responses.set('/api/jobs/stats', {
@@ -81,6 +83,10 @@ beforeEach(() => {
     summary: { total: 9, enabled: 8, verified: 3, built: 5, failing: 0, stale: 8, planned: 18 },
     disclaimer: 'Kapsam eksiktir.',
     generatedAt: new Date().toISOString(),
+  });
+  responses.set('/api/health/worker', {
+    checkedAt: new Date().toISOString(),
+    workers: { total: 0, running: 0, starting: 0, stale: 0 },
   });
   responses.set('/api/health', {
     status: 'degraded',
@@ -139,7 +145,24 @@ describe('arayüz kabuğu', () => {
     expect(screen.getByLabelText('Arama terimi')).toBeTruthy();
     // Dürüstlük notu kabukta ve ana sayfada görünür.
     expect(screen.getAllByText(/Her ilanı bulamayabiliriz/).length).toBeGreaterThan(0);
-    await waitFor(() => expect(screen.getByText(/Sistem kısmen sorunlu|Sistem normal/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/Tarama worker’ı çalışmıyor|Sistem kısmen sorunlu|Sistem normal/)).toBeTruthy(),
+    );
+    expect(await screen.findByText(/Tarama worker’ı şu an çalışmıyor/)).toBeTruthy();
+    const healthRequests = vi.mocked(api.get).mock.calls.filter(([path]) => path === '/api/health');
+    expect(healthRequests).toHaveLength(1);
+  });
+
+  it('worker heartbeat hazırlık durumunu kapalı worker gibi göstermeden yeniler', async () => {
+    loginAsTestUser();
+    responses.set('/api/health/worker', {
+      checkedAt: new Date().toISOString(),
+      workers: { total: 1, running: 0, starting: 1, stale: 0 },
+    });
+    renderApp('/');
+
+    expect(await screen.findAllByText(/başlatılıyor/)).not.toHaveLength(0);
+    expect(screen.queryByText(/Tarama worker’ı şu an çalışmıyor/)).toBeNull();
   });
 
   it('ilan listesi filtre formunu ve paylaşılabilir adres notunu gösterir', async () => {
@@ -171,13 +194,53 @@ describe('arayüz kabuğu', () => {
     expect(screen.getByText(/Halka açık kayıt yoktur/)).toBeTruthy();
   });
 
-  it('kaynaklar sayfası kapsam özetini dürüst etiketlerle yazar', async () => {
+  it('kaynaklar sayfası doğrulanmış yöntemi canlı tarama gibi sunmaz', async () => {
     loginAsTestUser();
+    responses.set('/api/sources', {
+      sources: [
+        {
+          key: 'verified-kaynak',
+          name: 'Doğrulanmış Test Kaynağı',
+          institution: 'Test kurumu',
+          group: 'test',
+          status: 'verified',
+          statusNote: 'Test',
+          enabled: true,
+          verified: true,
+          built: true,
+          lastVerifiedAt: '2026-10-14',
+          verificationEvidence: 'Fixture',
+          coverageNote: 'Kapsam testi',
+          intervalMinutes: 60,
+          health: {
+            lastRunAt: null,
+            lastSuccessAt: null,
+            consecutiveFailures: 0,
+            totalRuns: 0,
+            successRuns: 0,
+            failureRuns: 0,
+            avgDurationMs: null,
+            lastError: null,
+            itemsFound: 0,
+            emptyStreak: 0,
+          },
+          lastRun: null,
+        },
+      ],
+      planned: [],
+      summary: { total: 1, enabled: 1, verified: 1, built: 0, failing: 0, stale: 1, planned: 0 },
+      disclaimer: 'Kapsam eksiktir.',
+      generatedAt: new Date().toISOString(),
+    });
     renderApp('/kaynaklar');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
-    expect(await screen.findByText('Gerçek veriyle doğrulanan')).toBeTruthy();
-    expect(screen.getByText('Hazırlanan')).toBeTruthy();
+    expect(await screen.findByText('yöntemi doğrulandı')).toBeTruthy();
+    expect(screen.queryByText('ilanları düzenli okunuyor')).toBeNull();
+    expect(screen.getByText('Gerçek veriyle doğrulanan')).toBeTruthy();
+    const preparedLabel = screen.getByText('Hazırlanan');
+    expect(preparedLabel.parentElement?.querySelector('.stat-val')?.textContent).toBe('0');
+    expect(screen.getByText('Henüz tarama yapılmadı')).toBeTruthy();
     expect(screen.getAllByText(/Kapsam eksiktir/).length).toBeGreaterThan(0);
   });
 });

@@ -106,13 +106,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'html-list',
     status: 'verified',
     statusNote:
-      'Sertifika zinciri AIA ile tamamlanıyor (13.10.2026 canlı koşumda sayfa 200 döndü). Liste JS ile dolduğu için önce tarayıcı yedeği çalışır; sayfalama da tarayıcı modunda izlenir (üst sınır 5 sayfa / 40 kayıt).',
+      '13.10.2026 canlı koşumunda ilan.gov.tr sayfası açıldı; bu tarihsel kanıt mevcut kodun güncel canlı sağlığını göstermez. Güncel HttpClient AIA sertifikası indirmez; TLS doğrulamasını açık tutup desteklenen Node sürümlerinde varsayılan + sistem CA depolarını kullanır. Güncel HTML liste ayrıştırması ve sayfalama için yeniden canlı doğrulama gerekir.',
     lastVerifiedAt: VERIFIED_AT,
     verificationEvidence:
-      `${VERIFIED_AT} canlı doğrulama: personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
+      `${VERIFIED_AT} tarihsel canlı doğrulama: personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
       'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü. ' +
-      '4. koşum (13.10.2026): düz HTTP listesi boş geldi, tarayıcı yedeği sayfa 1\'den 12 kart okudu ve 12 kayıt üretildi. ' +
-      '5. koşum (13.10.2026): tarayıcı sayfalama canlıda kanıtlandı — 5 sayfa × 12 kart, 60 satırdan kayıt üst sınırıyla 40 kayıt işlendi.',
+      '13.10.2026 tarihsel koşumlarda düz HTTP ve tarayıcı yolları incelendi; beş sayfada 60 satır görülüp 40 kayıt işlendi. ' +
+      'Bu gözlemler o tarihteki yapıya/koda aittir; güncel erişim, TLS yolu, parser ve tam kapsamı kanıtlamaz.',
     coverageNote:
       'Üniversite ve belediye ilanlarının büyük bölümü burada tek listede toplanır; yüzlerce kurum sayfasını ayrı ayrı taramamak için birincil toplayıcı.',
     enabled: true,
@@ -647,10 +647,10 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'html-list',
     status: 'verified',
     statusNote:
-      'Sertifika zinciri eksikliği AIA tamamlama ile aşıldı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
+      '13.10.2026 kullanıcı ağı canlı koşumu 25 ham kayıt bildirdi; o koşumdaki AIA yolu güncel fetcher kodunda yoktur. TLS doğrulaması açık; desteklenen Node sürümlerinde varsayılan + sistem CA depoları birleştirilir. Güncel canlı yeniden doğrulama gerekir.',
     lastVerifiedAt: '2026-10-13',
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumu (kullanıcı ağı): AIA ara sertifika tamamlaması sonrası 25 ham kayıt döndü.',
+      'Tarihsel iddia (13.10.2026): önceki kod yolunda 25 ham kayıt raporlandı. Bu çalıştırma yeniden üretilmedi; AIA indirme kodu artık mevcut değil ve güncel erişim kanıtı sayılmaz.',
     coverageNote: 'BDDK uzman yardımcısı ve kariyer meslek alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -747,10 +747,10 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'html-list',
     status: 'verified',
     statusNote:
-      'Sertifika zinciri eksikliği AIA tamamlama ile aşıldı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
+      '13.10.2026 kullanıcı ağı canlı koşumu 4 ham kayıt bildirdi; o koşumdaki AIA yolu güncel fetcher kodunda yoktur. TLS doğrulaması açık; desteklenen Node sürümlerinde varsayılan + sistem CA depoları birleştirilir. Güncel canlı yeniden doğrulama gerekir.',
     lastVerifiedAt: '2026-10-13',
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumu (kullanıcı ağı): AIA ara sertifika tamamlaması sonrası 4 ham kayıt döndü.',
+      'Tarihsel iddia (13.10.2026): önceki kod yolunda 4 ham kayıt raporlandı. Bu çalıştırma yeniden üretilmedi; AIA indirme kodu artık mevcut değil ve güncel erişim kanıtı sayılmaz.',
     coverageNote: 'TMSF fon uzman yardımcısı alımları.',
     enabled: true,
     intervalMinutes: 360,

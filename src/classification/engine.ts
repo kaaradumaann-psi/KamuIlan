@@ -78,6 +78,40 @@ export function classify(input: ClassificationInput): ClassificationResult {
   const bodyText = normalizeForClassification(input.body ?? '');
   const categoryText = normalizeForClassification(input.sourceCategory ?? '');
 
+  const titleHasRecruitmentCue =
+    /\b(?:personel\s+alim|memur\s+alim|isci\s+alim|akademik\s+personel\s+alim|uzman\s+yardimciligi|giris\s+sinav|kariyer\s+uzmani\s+alim|sozlesmeli\s+personel\s+alim)\b/.test(
+      titleText,
+    );
+  const incumbentExamContext =
+    /\b(?:halihazirda|gorevde\s+bulunan|gorev\s+yapmakta\s+olan|mevcut\s+personel|uzman\s+yardimcisi\s+olarak\s+gorev)/.test(
+      bodyText,
+    );
+  const bodyHasRecruitmentCue =
+    /\b(?:personel\s+alim|memur\s+alim|isci\s+alim|akademik\s+personel\s+alim|uzman\s+yardimciligi|giris\s+sinav|kariyer\s+uzmani\s+alim|sozlesmeli\s+personel\s+alim|atanmak\s+uzere|kadroya\s+alim)\b/.test(
+      bodyText,
+    );
+  const inServiceQualificationExam =
+    /\byeterlik\s+sinav\w*/.test(`${titleText} ${bodyText}`) && incumbentExamContext;
+  const nonRecruitmentPressRelease =
+    /\bbasin\s+(?:duyurusu|aciklamasi)\b/.test(titleText) &&
+    !titleHasRecruitmentCue &&
+    !bodyHasRecruitmentCue;
+  if (inServiceQualificationExam || nonRecruitmentPressRelease) {
+    const reason = inServiceQualificationExam
+      ? 'Yeterlik sınavı mevcut görevli personele yönelik görünüyor; yeni işe alım ilanı değil'
+      : 'Basın duyurusu/haber başlığı; personel alımı ilanı olduğuna dair başlık kanıtı yok';
+    const rule = inServiceQualificationExam ? 'ret-baslik.hizmet-ici-yeterlik' : 'ret-baslik.basin-duyurusu';
+    return {
+      decision: 'reject',
+      employmentType: 'belirsiz',
+      confidence: 0.95,
+      reasons: [reason, `Kural: ${rule}`],
+      rules: [rule],
+      negativeSignals: [reason],
+      version: CLASSIFICATION_VERSION,
+    };
+  }
+
   // 1) Başlık düzeyinde kesin ret
   const titleRejections = matchRules(titleText, TITLE_REJECT_RULES);
   if (titleRejections.length > 0) {
@@ -114,7 +148,13 @@ export function classify(input: ClassificationInput): ClassificationResult {
     (rule) => !titlePositives.some((titleRule) => titleRule.id === rule.id),
   );
   const categoryPositive = RECRUITMENT_CATEGORY_PATTERN.test(categoryText)
-    ? [{ id: 'pozitif.kaynak-kategorisi', reason: 'Kaynak kategorisi personel alımı olarak işaretli', weight: 1.5 }]
+    ? [
+        {
+          id: 'pozitif.kaynak-kategorisi',
+          reason: 'Kaynak kategorisi personel alımı olarak işaretli',
+          weight: 1.5,
+        },
+      ]
     : [];
   const negatives = matchRules(bodyText, SOFT_NEGATIVE_RULES);
 
@@ -173,7 +213,11 @@ export function classify(input: ClassificationInput): ClassificationResult {
  * Liste düzeyinde hızlı ön karar (detay indirilmeden önce).
  * `skip` dönerse adaptör detay sayfasını hiç indirmez (gereksiz indirme yok).
  */
-export function preFilterListingItem(input: { title: string; summary?: string | null; sourceCategory?: string | null }): {
+export function preFilterListingItem(input: {
+  title: string;
+  summary?: string | null;
+  sourceCategory?: string | null;
+}): {
   action: 'skip' | 'fetch-detail' | 'consider';
   decision: ClassificationResult;
 } {

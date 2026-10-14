@@ -3,31 +3,45 @@
 ## Komutlar
 
 ```bash
-npm test             # birim + entegrasyon (vitest, ağ erişimi YOK)
+npm test             # birim + entegrasyon (vitest, gerçek kaynaklara çıkmaz)
 npm run test:watch   # geliştirme sırasında izleme
 npm run test:coverage
-npm run test:e2e     # Playwright (tarayıcı kurulu olmalı)
-npm run test:e2e:local  # yalnızca duman testleri (kurulumu hızlı doğrular)
-SOURCE_LIVE_FETCH=1 npm run test:live   # gerçek kaynaklara canlı doğrulama
+npm run test:e2e     # Playwright; izole API/DB ve yönetici hesabı gerekir
+npm run test:e2e:local  # smoke.spec.ts; aynı izole API/DB ve yönetici hesabı gerekir
+SOURCE_LIVE_FETCH=1 npm run test:live   # yalnız açık yetki/uygun koşullarda canlı kaynak doğrulama
 ```
 
-Testler ağ erişimi kullanmaz: sahte adaptör/fetcher, fixture HTML/PDF ve süreç
-içi SMTP sunucusu kullanılır. Bu sayede CI'da ve çevrimdışı ortamda kararlı koşarlar.
+Vitest testleri sahte adaptör/fetcher, fixture HTML/PDF ve süreç içi SMTP
+sunucusu kullanır; gerçek resmi kaynaklara istek atmaz. E2E Playwright testi
+ise çalışan API ve Vite arayüzü, test için ayrılmış veritabanı ve yönetici hesabı
+ister. `loginAsAdmin` sabit/sample kimlik bilgisi içermez: `E2E_ADMIN_EMAIL` /
+`E2E_ADMIN_PASSWORD` veya `ADMIN_EMAIL` / `ADMIN_PASSWORD` verilmezse açıkça
+başarısız olur. Varsayılan Playwright webServer yalnızca Vite'ı başlatır; API
+ayrıca başlatılmalıdır. Üretim veritabanı veya gerçek hesap kullanmayın. GitHub
+Actions her iş için rastgele test sırrı ve E2E hesabı üretir.
 
-**165 test / 15 dosya** (12 Ekim 2026). Hiçbiri dış ağa çıkmaz; dosya
-değişiklikleri geçici dizinlerde yapılır.
+14 Ekim 2026 denetiminde **40 test dosyası / 390 Vitest testi** ve **12 Playwright
+E2E testi** geçti. Test sayısı değişebileceğinden güncel sonuç için komutları
+çalıştırın. Dosya deposu kullanan test verileri geçici dizinlerde tutulur.
 
 ### Tasarım sözleşmesi testi
 
-`tests/design-system.test.ts`, arayüzün psikolog/MMPI tasarım diliyle
-uyumunu **otomatik** denetler. Elle gözle denetim yerine bu test kullanılır:
+`tests/design-system.test.ts`, bu deponun yerel tasarım sözleşmesini otomatik
+olarak denetler. 14.10.2026 tarihli noktasal GitHub blob-hash karşılaştırmasında
+`kaaradumaann-psi/psikolog` `main` commit'i
+`9ec1d9f393f3470ff8ea0d42372a62d0e3e0c135` ile dokuz ortak CSS katmanının 9/9'u;
+MMPI-566 `kaaradumaann-psi/Repo123` `main` commit'i
+`4b28579f93d3e76bb54be963f4427fef66782dd1` ile 3/9'u eşleşti. Bu sınırlı
+commit/hash karşılaştırması tam depo veya sürekli parity iddiası değildir. Test
+GitHub depolarını çağırmadığı için gelecekteki çapraz-depo eşitliğini kanıtlamaz:
 
-1. `src/main.tsx` içindeki stil içe aktarma sırası referans depolarla aynıdır
-   (`screen → auth → dashboard → site → mobile → theme → coherence →
-workspace → kamuilan → responsive`).
-2. Paylaşılan 9 katman bayt bayt aynıdır; SHA-256 karma değerleri
-   `tests/fixtures/design-parity.json` içinde tutulur. Bir katman
-   değiştirilirse test bilinçli güncelleme ister.
+1. `src/main.tsx` içindeki yerel stil sırası ve `responsive.css`'in sonda olması
+   denetlenir (`screen → auth → dashboard → site → mobile → theme → coherence →
+   workspace → kamuilan → responsive`); dış depolarla sıra/uygulama parity'si
+   otomatik ölçülmez.
+2. Dokuz yerel katman, `tests/fixtures/design-parity.json` içindeki sabit
+   SHA-256 tabanıyla eşleştirilir. Bu taban psikolog deposuyla 14.10.2026
+   snapshot'ında eşleşiyordu; altı dosyanın Repo123'ten ayrışması bilinmektedir.
 3. Arayüzde `src/styles/*.css` içinde tanımlı olmayan sınıf kullanılamaz
    (yazım hatasıyla sessizce biçimsiz kalan öğe kalmaz).
 4. Yardımcı (utility) sınıf kullanılamaz: `flex`, `gap-2`, `text-sm`,

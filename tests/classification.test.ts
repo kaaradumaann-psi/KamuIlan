@@ -53,10 +53,25 @@ describe('sınıflandırma: kabul edilmesi gerekenler', () => {
 
   it('kuruma özgü giriş sınavı ilanını kabul eder', () => {
     const result = classify({
-      title: 'Tasarruf Mevduatı Sigorta Fonu Başkanlığından Fon Denetçi Yardımcısı, Fon Uzman Yardımcısı ve Fon Avukatı Alım İlanı',
+      title:
+        'Tasarruf Mevduatı Sigorta Fonu Başkanlığından Fon Denetçi Yardımcısı, Fon Uzman Yardımcısı ve Fon Avukatı Alım İlanı',
       body: 'Başvurular 20.10.2026 tarihine kadar yapılacaktır. Sözlü sınav ilanı ayrıca duyurulacaktır.',
     });
     expect(result.decision).toBe('accept');
+  });
+
+  it('kamuya açık kariyer giriş ve yeterlik sınavı duyurularını mevcut personel sınavı sanmaz', () => {
+    const entrance = classify({
+      title: 'Muhasebe Uzman Yardımcılığı Giriş Sınavı İlanı',
+      body: 'Kamu kurumunda uzman yardımcısı olarak istihdam edilmek üzere aday alımı yapılacaktır.',
+    });
+    const publicEntryQualification = classify({
+      title: 'Kamu Kurumu Uzmanlık Yeterlik Sınavı Duyurusu',
+      body: 'Dışarıdan uzman yardımcısı alınmak üzere tüm adayların başvurusuna açıktır; yeni personel alımı yapılacaktır.',
+      sourceCategory: 'Uzmanlık Sınavı',
+    });
+    expect(entrance.decision).toBe('accept');
+    expect(publicEntryQualification.decision).toBe('accept');
   });
 });
 
@@ -114,6 +129,32 @@ describe('sınıflandırma: reddedilmesi gerekenler', () => {
     const result = classify({
       title: 'Bireysel Danışmanlık Hizmeti Duyurusu',
       body: 'Kooperatifimiz bireysel danışmanlık hizmeti alacaktır.',
+    });
+    expect(result.decision).toBe('reject');
+  });
+
+  it('Hazine muhasebe uzmanlığı yeterlik sınavını yeni boş kadro sanmaz', () => {
+    const result = classify({
+      title: 'Hazine ve Maliye Bakanlığı Muhasebe Uzmanlığı Yeterlik Sınavı Duyurusu',
+      body: 'Sınav, Bakanlıkta Muhasebe Uzman Yardımcısı olarak görev yapan personel için yapılacaktır.',
+      sourceCategory: 'Yeterlik Sınavı İlanları',
+    });
+    expect(result.decision).toBe('reject');
+    expect(result.reasons.join(' ')).toContain('mevcut görevli personele');
+  });
+
+  it.each(['Bank Mellat Basın Duyurusu', 'Param Şirketleri Basın Duyurusu'])(
+    '%s personel ilanı sayılmaz',
+    (title) => {
+      const result = classify({ title, body: 'Kurum tarafından yapılan basın açıklaması.' });
+      expect(result.decision).toBe('reject');
+    },
+  );
+
+  it('görevde yükselme duyurusunu yeni kamu alımı saymaz', () => {
+    const result = classify({
+      title: 'Kurum İçi Görevde Yükselme Sınavı Duyurusu',
+      body: 'Mevcut personel için unvan değişikliği yapılacaktır.',
     });
     expect(result.decision).toBe('reject');
   });

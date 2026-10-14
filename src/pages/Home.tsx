@@ -13,14 +13,14 @@ import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
+import { HEALTH_QUERY_KEY, WORKER_HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
 import { APP_TAGLINE, HONESTY_NOTE } from '../site';
-import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary } from '../types';
+import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary, WorkerHealthResponse } from '../types';
 
 const STATS_KEY = ['home', 'stats'] as const;
 const LATEST_KEY = ['home', 'latest'] as const;
 const CLOSING_KEY = ['home', 'closing'] as const;
-const HEALTH_KEY = ['home', 'health'] as const;
 
 /** Sistem durumu şeridi: gerçek sağlık yanıtından türetilir. */
 function statusLabel(status: HealthResponse['status'] | undefined): {
@@ -35,10 +35,13 @@ function statusLabel(status: HealthResponse['status'] | undefined): {
 
 function SystemStrip() {
   const health = useQuery({
-    queryKey: HEALTH_KEY,
-    queryFn: () => api.get<HealthResponse>('/api/health'),
-    refetchInterval: 60_000,
-    retry: 1,
+    queryKey: HEALTH_QUERY_KEY,
+    queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
+  });
+  const worker = useQuery({
+    queryKey: WORKER_HEALTH_QUERY_KEY,
+    queryFn: ({ signal }) => api.get<WorkerHealthResponse>('/api/health/worker', undefined, signal),
+    refetchInterval: 10_000,
   });
 
   if (health.isLoading)
@@ -71,7 +74,19 @@ function SystemStrip() {
   }
 
   const data = health.data;
-  const state = statusLabel(data.status);
+  const workerRunning = worker.data?.workers.running ?? data.workers.running;
+  const workerStarting = worker.data?.workers.starting ?? 0;
+  const workerPending = worker.isLoading && !worker.data && workerRunning === 0;
+  const workerActive = workerRunning > 0;
+  const workerStartingNow = !workerActive && (workerStarting > 0 || workerPending);
+  const state =
+    data.status === 'down'
+      ? statusLabel(data.status)
+      : workerStartingNow
+        ? { label: 'Tarama worker’ı başlatılıyor', tone: 'warning' as const }
+        : !workerActive
+          ? { label: 'Tarama worker’ı çalışmıyor', tone: 'warning' as const }
+          : statusLabel(data.status);
   return (
     <aside className="desk-now" role="status">
       <div className="desk-now-top">
@@ -89,10 +104,11 @@ function SystemStrip() {
           <span className="desk-now-when">Otomatik tarama özeti</span>
           <span className="desk-now-name">
             İlanlar en son:{' '}
-            <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'henüz güncellenmedi'}</strong>
+            <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'henüz başarılı tarama yok'}</strong>
           </span>
           <span className="desk-now-detail">
-            İzlenen kaynak: <strong>{data.sources.enabled}</strong> · Gerçek veriyle doğrulanan:{' '}
+            Etkin kaynak: <strong>{data.sources.enabled}</strong> · Worker:{' '}
+            <strong>{workerActive ? 'çalışıyor' : workerStartingNow ? 'başlatılıyor' : 'çalışmıyor'}</strong> · Gerçek veriyle doğrulanan:{' '}
             <strong>{data.sources.verified}</strong>
           </span>
         </div>
@@ -117,21 +133,21 @@ export function HomePage() {
 
   const stats = useQuery({
     queryKey: STATS_KEY,
-    queryFn: () => api.get<DashboardStats>('/api/jobs/stats'),
+    queryFn: ({ signal }) => api.get<DashboardStats>('/api/jobs/stats', undefined, signal),
   });
   const latest = useQuery({
     queryKey: LATEST_KEY,
-    queryFn: () => api.get<JobListResponse>('/api/jobs', { sort: 'newest', pageSize: 6 }),
+    queryFn: ({ signal }) => api.get<JobListResponse>('/api/jobs', { sort: 'newest', pageSize: 6 }, signal),
   });
   const closing = useQuery({
     queryKey: CLOSING_KEY,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<{
         items: PublicJobSummary[];
         total: number;
         humanRange: string;
         range: { from: string; to: string; days: number };
-      }>('/api/jobs/deadlines/upcoming', { days: 14 }),
+      }>('/api/jobs/deadlines/upcoming', { days: 14 }, signal),
   });
 
   function submit(event: FormEvent) {
@@ -254,7 +270,10 @@ export function HomePage() {
           )}
         </Card>
 
-        <Card title="Yaklaşan son başvuru tarihleri" description="Başvurusu önümüzdeki 14 gün içinde bitenler.">
+        <Card
+          title="Yaklaşan son başvuru tarihleri"
+          description="Başvurusu önümüzdeki 14 gün içinde bitenler."
+        >
           {closing.isLoading && <LoadingCard title="Takvim yükleniyor…" />}
           {closing.isError && (
             <ErrorNotice message={errorMessage(closing.error)} onRetry={() => void closing.refetch()} />
@@ -320,18 +339,17 @@ export function HomePage() {
             ayıklarız. Emin olamadıklarımızı silmez, bir insanın gözden geçirmesine bırakırız.
           </li>
           <li>
-            <strong>Okuma:</strong> İlanın içinden tarih, kontenjan, şehir ve koşulları okuruz.
-            Okuyamadığımız yerde "belirtilmemiş" yazarız; hiçbir bilgiyi tahmin etmeyiz.
+            <strong>Okuma:</strong> İlanın içinden tarih, kontenjan, şehir ve koşulları okuruz. Okuyamadığımız
+            yerde "belirtilmemiş" yazarız; hiçbir bilgiyi tahmin etmeyiz.
           </li>
           <li>
-            <strong>Tek gösterme:</strong> Aynı ilan birden çok yerde çıkarsa size bir kez gösteririz;
-            çıktığı bütün adresleri ilanın altında sıralarız. Benzer başlıklı farklı ilanları
-            birleştirmeyiz.
+            <strong>Tek gösterme:</strong> Aynı ilan birden çok yerde çıkarsa size bir kez gösteririz; çıktığı
+            bütün adresleri ilanın altında sıralarız. Benzer başlıklı farklı ilanları birleştirmeyiz.
           </li>
           <li>
-            <strong>Haber verme:</strong> Tercihlerinize uyan yeni bir ilan bulursak ya da takip
-            ettiğiniz ilanda değişiklik olursa e-posta göndeririz. Gönderimin ulaşıp ulaşmadığını
-            da geçmiş ekranından görebilirsiniz.
+            <strong>Haber verme:</strong> Tercihlerinize uyan yeni bir ilan bulursak ya da takip ettiğiniz
+            ilanda değişiklik olursa e-posta göndeririz. Gönderimin ulaşıp ulaşmadığını da geçmiş ekranından
+            görebilirsiniz.
           </li>
         </ol>
         <InfoNote title="Bilmeniz gereken" tone="info">

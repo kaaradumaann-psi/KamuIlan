@@ -18,8 +18,7 @@ describe('tarih çıkarımı', () => {
   it('Türkçe tarih aralığını doğru ayrıştırır', () => {
     const result = extract({
       title: 'Sözleşmeli Personel Alım İlanı',
-      body:
-        'Başvurular 14/09/2026 (09:00) – 24/09/2026 (23:59) tarihleri arasında e-Devlet üzerinden yapılacaktır.',
+      body: 'Başvurular 14/09/2026 (09:00) – 24/09/2026 (23:59) tarihleri arasında e-Devlet üzerinden yapılacaktır.',
     });
     expect(result.applicationStartAt).toBe('2026-09-14T09:00:00+03:00');
     expect(result.applicationEndAt).toBe('2026-09-24T23:59:00+03:00');
@@ -87,7 +86,9 @@ describe('kontenjan ve şehir', () => {
   });
 
   it('metinden ili bulur', () => {
-    expect(extractCity('Görev yeri Ankara’dır. Ankara ve İstanbul için kontenjan ayrılmıştır.')).toBe('Ankara');
+    expect(extractCity('Görev yeri Ankara’dır. Ankara ve İstanbul için kontenjan ayrılmıştır.')).toBe(
+      'Ankara',
+    );
     expect(extractCity('İlan metninde şehir bilgisi yoktur.')).toBeNull();
   });
 
@@ -153,11 +154,72 @@ describe('kurum, unvan ve şartlar', () => {
     expect(titles).toContain('sosyal çalışmacı');
   });
 
-  it('öğrenim seviyelerini çıkarır', () => {
+  it('öğrenim seviyelerini yalnızca eğitim/mezuniyet bağlamında çıkarır', () => {
     expect(extractEducationLevels('En az lisans mezunu olmak')).toEqual(['lisans']);
     expect(extractEducationLevels('Ön lisans mezunları başvurabilir.')).toEqual(['onlisans']);
     expect(extractEducationLevels('Ortaöğretim (lise) mezunu olmak şarttır.')).toEqual(['ortaogretim']);
     expect(extractEducationLevels('Metinde öğrenim bilgisi yer almıyor.')).toEqual([]);
+    expect(extractEducationLevels('Lisans sayılı karar 12.10.2026 tarihinde yayımlandı.')).toEqual([]);
+  });
+
+  it('Mevlana tipi tek-unvan ilanında bölüm ve unvanı rastgele gövde sözlerinden doldurmaz', () => {
+    const result = extract({
+      title: 'Mevlana Kalkınma Ajansı — 1 Uzman Personel Alımı',
+      body: [
+        'Kontenjan: 1 Uzman Personel.',
+        'Başvuru tarihleri 13.11.2026 tarihine kadardır.',
+        'Elektronik ortamda başvuru yapılır; muhasebe işlemleri elektronik ortamda yürütülür.',
+        'Kurumsal faaliyetler tarih boyunca farklı mühendislik alanlarına dokunmuştur.',
+      ].join('\\n'),
+    });
+    expect(result.titles).not.toContain('Mühendis');
+    expect(result.titles).not.toContain('Ebe');
+    expect(result.departments).not.toContain('Elektronik');
+    expect(result.departments).not.toContain('Tarih');
+    expect(result.applicationEndDate).toBe('2026-11-13');
+  });
+
+  it('unvan ve bölüm eşleşmeleri kelime sınırı ve alım/nitelik bağlamı ister', () => {
+    const result = extract({
+      title: 'Sözleşmeli Personel Alım İlanı',
+      body: 'Muhasebe biriminde bir Ebe görevlendirilmeyecektir. Elektronik ortamda başvuru alınır.',
+    });
+    expect(result.titles).not.toContain('Ebe');
+    expect(result.departments).not.toContain('Muhasebe');
+    expect(result.departments).not.toContain('Elektronik');
+  });
+
+  it('unvan/eğitim/bölüm kanıtlarının kaynak türünü doğru raporlar', () => {
+    const listing = extract({
+      title: 'Lisans mezunu Psikoloji Bölümü Uzman Yardımcısı Alımı',
+      bodySource: 'listing',
+    });
+    expect(listing.fieldSources.titles?.kind).toBe('listing');
+    expect(listing.fieldSources.educationLevels?.kind).toBe('listing');
+    expect(listing.fieldSources.departments?.kind).toBe('listing');
+    expect(listing.fieldSources.educationLevels?.snippet).toContain('Lisans');
+
+    const document = extract({
+      title: 'Uzman Yardımcısı Alımı',
+      body: 'Kontenjan 1 uzman yardımcısı. Lisans mezunu olmak. Psikoloji bölümü mezunu olmak.',
+      bodySource: 'document',
+    });
+    expect(document.fieldSources.titles?.kind).toBe('document');
+    expect(document.fieldSources.educationLevels?.kind).toBe('document');
+    expect(document.fieldSources.departments?.kind).toBe('document');
+  });
+
+  it('liste sayfasından gelen başvuru başlangıç ve bitiş tarihlerini listing olarak işaretler', () => {
+    const result = extract({
+      title: 'Sözleşmeli Personel Alım İlanı',
+      bodySource: 'listing',
+      listing: {
+        applicationStartAt: '2026-10-12T00:00:00+03:00',
+        applicationEndAt: '2026-10-20T23:59:00+03:00',
+      },
+    });
+    expect(result.fieldSources.applicationStartAt?.kind).toBe('listing');
+    expect(result.fieldSources.applicationEndAt?.kind).toBe('listing');
   });
 
   it('KPSS puan türü, taban puan ve yılı çıkarır', () => {
@@ -253,8 +315,16 @@ describe('başvuru bağlantıları ve ekler', () => {
 
   it('ekleri tekilleştirir ve sırayı korur', () => {
     const attachments = uniqueAttachments([
-      { url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf', label: 'İlan Metni', kind: 'pdf' },
-      { url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf', label: 'İlan Metni (tekrar)', kind: 'pdf' },
+      {
+        url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf',
+        label: 'İlan Metni',
+        kind: 'pdf',
+      },
+      {
+        url: 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261012-4-5.pdf',
+        label: 'İlan Metni (tekrar)',
+        kind: 'pdf',
+      },
       { url: 'https://example.gov.tr/basvuru-formu.docx', label: 'Başvuru Formu', kind: 'doc' },
     ]);
     expect(attachments).toHaveLength(2);

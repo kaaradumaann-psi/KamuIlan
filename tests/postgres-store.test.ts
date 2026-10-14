@@ -172,6 +172,45 @@ describe('Postgres depo sürücüsü', () => {
     expect(await pg.count('jobs', { city: 'Ankara' })).toBe(await file.count('jobs', { city: 'Ankara' }));
     const limited = await pg.find('jobs', {}, { sort: [['id', -1]], limit: 2 });
     expect(limited.map((row) => row.id)).toEqual(['job_pg_4', 'job_pg_3']);
+
+    // Invalid pagination inputs keep the previous in-memory slice semantics;
+    // the SQL fast path is restricted to non-negative safe integer pages.
+    const negativeSkip = await pg.find('jobs', {}, { sort: [['id', 1]], skip: -1, limit: 1 });
+    const negativeSkipFile = await file.find('jobs', {}, { sort: [['id', 1]], skip: -1, limit: 1 });
+    expect(negativeSkip.map((row) => row.id)).toEqual(negativeSkipFile.map((row) => row.id));
+    const negativeLimit = await pg.find('jobs', {}, { sort: [['id', 1]], limit: -1 });
+    const negativeLimitFile = await file.find('jobs', {}, { sort: [['id', 1]], limit: -1 });
+    expect(negativeLimit.map((row) => row.id)).toEqual(negativeLimitFile.map((row) => row.id));
+  });
+
+  it('id sıralı tam tablo sayfaları 20.000 satırlık tarama sınırını aşabilir', async () => {
+    const insertedCount = 20_050;
+    try {
+      await pglite.query(
+        `INSERT INTO kamuilan_test_jobs (id, data)
+         SELECT 'z_migration_bulk_' || lpad(n::text, 5, '0'),
+                jsonb_build_object('id', 'z_migration_bulk_' || lpad(n::text, 5, '0'))
+         FROM generate_series(1, $1::int) AS series(n)`,
+        [insertedCount],
+      );
+
+      const countResult = await pglite.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM kamuilan_test_jobs',
+      );
+      const total = Number(countResult.rows[0]?.count ?? 0);
+      expect(total).toBeGreaterThan(20_000);
+
+      const options = { sort: [['id', 1] as const], skip: 20_000, limit: 500 };
+      const page = await pg.find('jobs', {}, options);
+      const expected = await pglite.query<{ id: string }>(
+        'SELECT id FROM kamuilan_test_jobs ORDER BY id COLLATE "C" ASC LIMIT $1 OFFSET $2',
+        [options.limit, options.skip],
+      );
+      expect(page.map((row) => row.id)).toEqual(expected.rows.map((row) => row.id));
+      expect(page.length).toBeGreaterThan(0);
+    } finally {
+      await pglite.query("DELETE FROM kamuilan_test_jobs WHERE id LIKE 'z_migration_bulk_%'");
+    }
   });
 
   it('insertIfAbsent benzersiz çakışmada çift kayıt oluşturmaz, mevcut kaydı döner', async () => {
@@ -216,10 +255,14 @@ describe('Postgres depo sürücüsü', () => {
   });
 
   it('updateOne nokta yollu yamayı uygular, eşleşmeyen koşulda null döner', async () => {
-    const updated = await pg.updateOne('jobs', { id: 'job_pg_1' }, {
-      status: 'closing-soon',
-      'conditions.minAge': 20,
-    });
+    const updated = await pg.updateOne(
+      'jobs',
+      { id: 'job_pg_1' },
+      {
+        status: 'closing-soon',
+        'conditions.minAge': 20,
+      },
+    );
     expect(updated?.status).toBe('closing-soon');
     expect((updated as unknown as { conditions: { minAge: number } }).conditions.minAge).toBe(20);
 
@@ -377,10 +420,11 @@ describe('Postgres depo sürücüsü', () => {
       filters: { cities: ['Ankara'], keywords: ['mühendis'] },
     });
     expect(preference.userId).toBe(created.user.id);
+    expect(preference.enabled).toBe(false);
     // Şema dışı değer kaydedilemez: zod doğrulaması repo katmanında, sürücüden
     // bağımsız olarak çalışır (Postgres'te de aynı kural geçerlidir).
-    await expect(
-      repos.users.update(created.user.id, { role: 'root' as never }),
-    ).rejects.toThrow(/belge şeması geçersiz/);
+    await expect(repos.users.update(created.user.id, { role: 'root' as never })).rejects.toThrow(
+      /belge şeması geçersiz/,
+    );
   });
 });

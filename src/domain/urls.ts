@@ -99,22 +99,55 @@ export function assertFetchableUrl(raw: string, opts: { allowHosts?: string[] } 
     throw new Error(`Desteklenmeyen protokol: ${url.protocol}`);
   }
   const host = url.hostname.toLowerCase();
+  const bareHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  if (
+    url.username ||
+    url.password ||
+    /^\d+(?:\.\d+){0,3}$/.test(bareHost) ||
+    /^0x[0-9a-f]+$/i.test(bareHost) ||
+    host.startsWith('[')
+  ) {
+    throw new Error(`Sayısal adres veya URL kimlik bilgileri kabul edilmez: ${host}`);
+  }
   if (PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
     throw new Error(`Özel/yerel ağ adreslerine istek engellendi: ${host}`);
   }
   if (!host.includes('.') && host !== 'localhost') {
     throw new Error(`Geçersiz ana bilgisayar adı: ${host}`);
   }
-  if (url.username || url.password) {
-    throw new Error('URL içinde kimlik bilgisi kullanılamaz.');
+  if (
+    (url.protocol === 'https:' && url.port && url.port !== '443') ||
+    (url.protocol === 'http:' && url.port && url.port !== '80')
+  ) {
+    throw new Error(`Desteklenmeyen URL portu: ${url.port}`);
   }
   if (opts.allowHosts && opts.allowHosts.length > 0) {
+    const normalizedHost = bareHost.replace(/\.$/, '');
     const allowed = opts.allowHosts.some(
-      (entry) => host === entry.toLowerCase() || host.endsWith(`.${entry.toLowerCase()}`),
+      (entry) => normalizedHost === entry.toLowerCase().replace(/\.$/, ''),
     );
     if (!allowed) throw new Error(`Alan adı izin listesinde değil: ${host}`);
   }
   return url;
+}
+
+const OFFICIAL_APPLICATION_DOMAINS = [
+  'kariyerkapisi.gov.tr',
+  'esube.iskur.gov.tr',
+  'turkiye.gov.tr',
+  'ais.osym.gov.tr',
+] as const;
+
+/** Match an application service by parsed hostname, never by a URL substring. */
+export function isOfficialApplicationUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return false;
+    const host = url.hostname.toLowerCase().replace(/\.$/, '');
+    return OFFICIAL_APPLICATION_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
 }
 
 export function isHttpUrl(raw: string): boolean {

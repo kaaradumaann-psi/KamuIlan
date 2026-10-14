@@ -214,7 +214,7 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
     id: 'ret-baslik.personel-hareketi',
     reason: 'Başlık mevcut personelin yer değiştirme/nakil duyurusu — yeni alım değil',
     pattern:
-      /\b(?:yer\s+degistirme|mazerete\s+bagli|norm\s+kadro\s+fazlasi|atama\s+ve\s+nakil|kadro\s+aktarim\w*|nakil\s+sonuc\w*)/,
+      /\b(?:yer\s+degistirme|mazerete\s+bagli|norm\s+kadro\s+fazlasi|atama\s+ve\s+nakil|kadro\s+aktarim\w*|nakil\s+sonuc\w*|gorevde\s+yukselme|unvan\s+degisikligi)/,
     weight: 0,
   },
   {
@@ -226,7 +226,8 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
   {
     id: 'ret-baslik.egitim-programi',
     reason: 'Başlık eğitim/kurs programı duyurusu — personel alımı değil',
-    pattern: /\b(?:mesleki\s+egitim\s+kursu|isbasi\s+egitim\s+programi|hizmet\s+ici\s+egitim|kursiyer|seminer|panel\s+duyurusu)/,
+    pattern:
+      /\b(?:mesleki\s+egitim\s+kursu|isbasi\s+egitim\s+programi|hizmet\s+ici\s+egitim|kursiyer|seminer|panel\s+duyurusu)/,
     weight: 0,
   },
 ];
@@ -239,7 +240,8 @@ export const BODY_REJECT_RULES: readonly KeywordRule[] = [
   {
     id: 'ret-govde.ihale',
     reason: 'Gövde ihale/artırma/kiralama metni içeriyor',
-    pattern: /\b(?:ihaleye\s+cikaril|ihale\s+edilecek|acik\s+arttirma|kapali\s+teklif|kiraya\s+verilecek|isletme\s+hakki)/,
+    pattern:
+      /\b(?:ihaleye\s+cikaril|ihale\s+edilecek|acik\s+arttirma|kapali\s+teklif|kiraya\s+verilecek|isletme\s+hakki)/,
     weight: 0,
   },
   {
@@ -315,7 +317,8 @@ export const EMPLOYMENT_TYPE_RULES: readonly { type: EmploymentType; pattern: Re
   {
     type: 'kamu-isci',
     reason: 'İşçi kadrosu ifadesi',
-    pattern: /\b(?:surekli\s+isci|gecici\s+isci|isci\s+al(?:i?m|inacak)|kamu\s+iscisi|toplum\s+yararina|isgucu\s+uyum)/,
+    pattern:
+      /\b(?:surekli\s+isci|gecici\s+isci|isci\s+al(?:i?m|inacak)|kamu\s+iscisi|toplum\s+yararina|isgucu\s+uyum)/,
   },
   {
     type: 'kariyer-meslek',

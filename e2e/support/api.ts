@@ -37,10 +37,14 @@ export function collectPageErrors(page: Page): string[] {
  * (ADMIN_EMAIL / ADMIN_PASSWORD ortam değişkenleri; bkz. .github/workflows/ci.yml).
  */
 export async function loginAsAdmin(page: Page): Promise<void> {
-  const email = process.env.E2E_ADMIN_EMAIL ?? process.env.ADMIN_EMAIL ?? 'e2e@kamuilan.test';
   const env = process.env as Record<string, string | undefined>;
-  const secret =
-    env['E2E_ADMIN_' + 'PASSWORD'] ?? env['ADMIN_' + 'PASSWORD'] ?? ['E2e', 'Giris', '2026!'].join('-');
+  const email = env['E2E_ADMIN_' + 'EMAIL'] ?? env['ADMIN_' + 'EMAIL'];
+  const secret = env['E2E_ADMIN_' + 'PASSWORD'] ?? env['ADMIN_' + 'PASSWORD'];
+  if (!email || !secret) {
+    throw new Error(
+      'E2E yönetici girişi için E2E_ADMIN_EMAIL/E2E_ADMIN_PASSWORD veya ADMIN_EMAIL/ADMIN_PASSWORD gerekir.',
+    );
+  }
   await page.goto('/giris');
   // Etiketler zorunlu-yıldızı ('E-posta *') içerir; exact eşleşme bu yüzden
   // kullanılmaz (yıldızlı erişilebilir ad exact aramayı bozar).

@@ -89,21 +89,64 @@
 
 ## KVKK / veri minimizasyonu
 
-- **Toplanan kişisel veri**: Yalnızca e-posta adresi, isteğe bağlı görünen ad,
-  parola özeti, bildirim tercihleri, oturum/jeton kayıtları ve bildirim geçmişi.
-  İlan sahibi kişilere ait veriler **toplanmaz**; yalnızca kurumsal ilan metni işlenir.
-- **Amaç sınırı**: Veriler yalnızca bildirim göndermek, oturum yönetmek ve
-  güvenliği sağlamak için kullanılır; üçüncü taraflara satılmaz/aktarılmaz.
+- **Toplanan kişisel veri**: E-posta adresi, isteğe bağlı görünen ad, parola
+  özeti, bildirim tercihleri, isteğe bağlı aday profili (meslek, eğitim, bölüm,
+  beceri ve deneyim), oturum/jeton kayıtları ve bildirim geçmişi. İlan sahibi
+  kişilere ait veri toplamamak hedeflenir; ancak kaynak metni kişilerden söz
+  edebilir ve yalnızca kurumsal içerik olduğu varsayılamaz.
+- **Metin minimizasyonu**: `makeExcerpt` yaygın e-posta adreslerini ve yaygın
+  Türkiye telefon numarası kalıplarını `[e-posta gizlendi]` / `[telefon gizlendi]`
+  ile değiştirir. `jobSources` artık tam yakalama gövdesini veya kullanılmayan
+  kaynak alıntısını yazmaz; gövdeye ilişkin alanlar `capturedTextStatus` ve
+  sınırlı yakalamanın karakter sayısıyla sınırlıdır (URL, başlık, kaynak kimliği
+  ve ek bilgileri kaynak bağı kaydında kalır). Arama/eşleştirme için kullanılan
+  ayrı `jobs.textExcerpt` alanı en çok 2.500 karakterdir ve aynı maskelemeden
+  geçer; bu kopya arama, eşleştirme, ilan karşılaştırması ve detay ekranı
+  tarafından gerçekten kullanıldığı için tutulur. `textNormalized`, yalnızca
+  bu güvenli alıntının arama kopyasıdır. `contentHash` artık tam kaynak gövdesi
+  yerine saklanan alıntı/başlık/tarih/kontenjan üzerinden hesaplanır ve kaynak
+  doğrulama kanıtı değildir. İnceleme kuyruğundaki en çok 1.500 karakterlik
+  alıntı yönetici kabul akışında tüketildiği için redakte edilerek tutulur.
+  `npm run db:migrate` eski kaynak-bağı `capturedText`, `rawExcerpt` ve
+  kullanılmayan `rawContentHash` değerlerini boşaltır; gövde varsa karakter
+  sayısını ve durumu korur/tamamlar. Aynı komut mevcut `jobs.textExcerpt` ve
+  `textNormalized` alanlarını yeniden sınırlar/redakte eder, alan kanıtlarını,
+  review alıntılarını ve revision snapshot'larını temizler ve eski `contentHash`
+  değerlerini yeniler. Bu göç her mevcut dağıtımın veritabanında ayrıca
+  çalıştırılmalıdır; bu kod denetimi herhangi bir canlı veritabanının göç
+  edildiğini kanıtlamaz. Kamu serializer'ı yalnızca kaynak yakalama durumu/sayısını
+  ve koşula bağlı en çok 400 karakterlik, 500 karakter eşiğini geçen bir ilan
+  alıntısını döndürür. Regex tabanlı maskeleme sezgiseldir: yazım varyantları,
+  adlar ve diğer kişisel veriler için tam tespit garantisi değildir. Eski
+  yedeklerde veya işlenmemiş dışa aktarımlarda bulunan içerik bu çevrimiçi göçle
+  silinmez.
+- **Profil kişiselleştirmesi**: Varsayılan olarak kapalıdır ve Panelim'de açıkça
+  etkinleştirilir. Mevcut sürüm ilan alanlarıyla profil bilgisini tarayıcıda
+  karşılaştırır; profili haricî bir AI/LLM hizmetine göndermez. Kullanıcı
+  kişiselleştirmeyi istediği an kapatabilir (profil saklı kalır ama kullanılmaz)
+  veya Panelim'deki profil silme işlemiyle alanları ayrıca boşaltabilir; hesap
+  silme de profil alanlarını temizler.
+- **Amaç sınırı**: Hesap verileri bildirim, oturum ve güvenlik için; isteğe bağlı
+  aday profili yalnızca ilan metniyle yerel eşleşme ipuçları üretmek için kullanılır.
+  Profil eşleşmesi bildirim aboneliğinden bağımsızdır; veriler satılmaz veya
+  haricî AI/LLM hizmetine aktarılmaz.
 - **Bildirim izni**: Davetle açılan hesap bildirim aboneliği **başlatmaz**;
   kullanıcı tercihlerini açıkça kaydeder. Kullanıcı bildirimleri duraklatabilir
   veya tek tıkla abonelikten çıkabilir (jetonlu bağlantı).
 - **Haklar**: Arayüzde "Hesabımı ve kişisel verilerimi sil" işlemi vardır
   (`confirm: 'SIL'` + parola doğrulaması). İşlem: kişisel alanlar (ad, e-posta,
-  parola özeti) anonimleştirilir, tüm oturum ve jetonlar iptal edilir, tercihler
-  silinir; ilan/istatistik kayıtları kişisel veri içermediği için kalır.
+  parola özeti) anonimleştirilir, aday profili boşaltılır, profil kişiselleştirmesi
+  ve bildirimler kapatılır, tüm oturum ve jetonlar iptal edilir; ilan/istatistik
+  kayıtları kişisel veri içermediği için kalır.
 - **Saklama süreleri**: Oturumlar TTL ile, doğrulama/sıfırlama jetonları 1–24 saat,
   abonelik jetonları 1 yıl; süresi geçenler periyodik olarak temizlenir.
 - **Günlük maskeleme**: E-posta adresleri ve jetonlar günlüklerde maskelenir.
+  Kariyer Kapısı'nın satırsız HTTP listesi için yazılan sayfa başlığı da `makeExcerpt`
+  üzerinden geçirilir; bu yardımcı yaygın e-posta ve Türkiye telefonu kalıplarını
+  maskeler. Bu örnek, her kaynak metnindeki her kişisel verinin yakalandığı
+  anlamına gelmez.
+- **Bakım hataları**: `db:migrate` başarısızlığında ham hata nesnesi, mesajı ve
+  stack'i yazılmaz; yalnızca biçimi/sınırı doğrulanmış hata türü ve kodu tutulur.
 - **Yedek/gizlilik**: Yedekler kişisel veri içerir; erişim kısıtlı tutulmalı ve
   saklama süresi belirlenmelidir.
 
@@ -119,9 +162,13 @@
 
 ## Yasal/etik notlar
 
-- Kaynakların kullanım koşullarına, `robots.txt` kurallarına ve hız sınırlarına
-  uyulur. CAPTCHA/oturum duvarı gibi korumalar AŞILMAZ; kaynak
-  `access-restricted`/`needs-manual-method` olarak işaretlenir.
-- Her ilan kaydı kaynağına bağlantı verir; içerik yeniden yayımlanmaz, yalnızca
-  yönlendirme ve özet bilgi gösterilir.
+- Kaynağın kullanım koşulları, `robots.txt` ve hız sınırları onboarding sırasında
+  elle incelenmelidir; CAPTCHA/oturum duvarı gibi korumalar aşılmaz ve erişim
+  engelleri kapsam dışı bırakılır. Önemli sınırlama: bu sürüm her istekte
+  `robots.txt` dosyasını otomatik indirip değerlendirmez; davranış çalışma
+  zamanında bir politika kapısı değildir. Canlı yetki/izin ve uygunluk ayrıca
+  doğrulanmalıdır.
+- Her ilan kaydı kaynağına bağlantı verir. Kamu API'si tam yakalanmış gövdeyi
+  yayımlamaz; gövde uzunsa sınırlı alıntı gösterilebilir (ayrıntı ve sınırlar
+  için [limitations.md](./limitations.md)).
 - Kapsamın eksik olduğu her yerde açıkça yazılır ("tüm ilanlar" iddiası yoktur).

@@ -6,11 +6,27 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { APP_VERSION, BRANDING, CLASSIFICATION_VERSION, DEDUPE_VERSION, EXTRACTION_VERSION } from '../../config/app';
+import {
+  APP_VERSION,
+  BRANDING,
+  CLASSIFICATION_VERSION,
+  DEDUPE_VERSION,
+  EXTRACTION_VERSION,
+} from '../../config/app';
 import { describeEnv, getEnv } from '../../config/env';
 import type { Repos } from '../../db/repos';
 import { maskEmail } from '../../domain/text';
 import { HEARTBEAT_STALE_MS } from '../../worker/scheduler';
+
+const workerHealthResponse = z.object({
+  checkedAt: z.string(),
+  workers: z.object({
+    total: z.number(),
+    running: z.number(),
+    starting: z.number(),
+    stale: z.number(),
+  }),
+});
 
 const healthResponse = z.object({
   status: z.enum(['ok', 'degraded', 'down']),
@@ -67,6 +83,36 @@ const healthResponse = z.object({
 });
 
 export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
+  // Hafif readiness ucu: dev başlatıcısı bunu kullanır; tam /api/health
+  // kaynak başına tarama istatistikleri topladığından Supabase'ta ağır olabilir.
+  app.get(
+    '/api/health/worker',
+    {
+      schema: {
+        tags: ['health'],
+        summary: 'Worker başlangıç/heartbeat durumu',
+        response: { 200: workerHealthResponse },
+      },
+    },
+    async () => {
+      const now = repos.clock.now();
+      const staleThreshold = new Date(now.getTime() - HEARTBEAT_STALE_MS).toISOString();
+      const heartbeats = (await repos.heartbeats.list()).filter((beat) => beat.role === 'worker');
+      const recent = heartbeats.filter((beat) => beat.lastHeartbeatAt >= staleThreshold);
+      return {
+        checkedAt: now.toISOString(),
+        workers: {
+          total: heartbeats.length,
+          running: recent.filter((beat) => beat.status === 'running').length,
+          starting: recent.filter((beat) => beat.status === 'starting').length,
+          stale: heartbeats.filter(
+            (beat) => beat.status !== 'stopped' && beat.lastHeartbeatAt < staleThreshold,
+          ).length,
+        },
+      };
+    },
+  );
+
   app.get(
     '/api/health',
     {
@@ -94,14 +140,18 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
       const staleWorkers = heartbeats.filter(
         (beat) => beat.status !== 'stopped' && beat.lastHeartbeatAt < staleThreshold,
       );
+      const runningWorkers = heartbeats.filter(
+        (beat) => beat.status === 'running' && beat.lastHeartbeatAt >= staleThreshold,
+      ).length;
       const warnings: string[] = [];
       if (!health.ok) warnings.push('Veritabanına erişilemiyor.');
-      if (coverage.summary.failing > 0) warnings.push(`${coverage.summary.failing} kaynak üst üste başarısız.`);
+      if (coverage.summary.failing > 0)
+        warnings.push(`${coverage.summary.failing} kaynak üst üste başarısız.`);
       if (coverage.summary.stale > 0) {
         warnings.push(`${coverage.summary.stale} kaynağın uzun süredir başarılı taraması yok.`);
       }
       if ((queueStats.dead ?? 0) > 0) warnings.push(`${queueStats.dead} iş ölü mektup kuyruğunda.`);
-      if (heartbeats.length === 0) warnings.push('Kayıtlı worker kalp atışı yok; zamanlanmış tarama çalışmıyor olabilir.');
+      if (runningWorkers === 0) warnings.push('Aktif worker kalp atışı yok; zamanlanmış taramalar şu an yürütülmüyor.');
 
       const minutesSinceSuccess = runSummary.lastSuccessAt
         ? Math.round((now.getTime() - Date.parse(runSummary.lastSuccessAt)) / 60_000)
@@ -136,9 +186,7 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
         workers: {
           total: heartbeats.length,
           // "çalışıyor" demek için yalnızca status alanı yetmez: kalp atışı taze olmalı.
-          running: heartbeats.filter(
-            (beat) => beat.status === 'running' && beat.lastHeartbeatAt >= staleThreshold,
-          ).length,
+          running: runningWorkers,
           stale: staleWorkers.length,
           items: heartbeats.slice(0, 10).map((beat) => ({
             workerId: beat.workerId,

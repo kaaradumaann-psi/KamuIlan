@@ -9,6 +9,19 @@
  *  - Hata gövdesi tek biçimde çözülür ve kullanıcıya Türkçe mesaj gösterilir.
  */
 
+export const API_REQUEST_TIMEOUT_MS = 12_000;
+
+/** Sunucu yanıt vermezse React Query ve mutasyonlar sonsuza dek beklemesin. */
+export class ApiTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Sunucu ${Math.ceil(timeoutMs / 1000)} saniye içinde yanıt vermedi. Bağlantıyı kontrol edip yeniden deneyin.`);
+    this.name = 'ApiTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export interface ApiErrorShape {
   code: string;
   message: string;
@@ -46,6 +59,8 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
+  /** Varsayılan: 12 saniye. Sınırlı/yerel işlemler için testlerde ayarlanabilir. */
+  timeoutMs?: number;
   /** Sorgu parametreleri; boş/undefined değerler atlanır. */
   query?: Record<string, string | number | boolean | string[] | undefined | null>;
 }
@@ -67,6 +82,7 @@ export function buildQuery(query: RequestOptions['query']): string {
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? 'GET';
+  const timeoutMs = options.timeoutMs ?? API_REQUEST_TIMEOUT_MS;
   const headers: Record<string, string> = { accept: 'application/json' };
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (method !== 'GET') {
@@ -74,28 +90,49 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (token) headers['x-csrf-token'] = token;
   }
 
-  const response = await fetch(`${path}${buildQuery(options.query)}`, {
-    method,
-    headers,
-    credentials: 'same-origin',
-    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
+  // Her isteğin kendi iptal denetleyicisi olur: React Query'den gelen iptal
+  // sinyali aktarılır, ayrıca yanıt gelmezse sabit bir zaman aşımı uygulanır.
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) forwardAbort();
+  else options.signal?.addEventListener('abort', forwardAbort, { once: true });
 
-  if (response.status === 204) return undefined as T;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
-  const text = await response.text();
-  const parsed: unknown = text.length > 0 ? safeJson(text) : null;
+  try {
+    const response = await fetch(`${path}${buildQuery(options.query)}`, {
+      method,
+      headers,
+      credentials: 'same-origin',
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    const body =
-      parsed && typeof parsed === 'object' && 'error' in parsed
-        ? ((parsed as { error: ApiErrorShape }).error ?? { code: 'unknown', message: 'Beklenmeyen hata.' })
-        : { code: 'unknown', message: `İstek başarısız (HTTP ${response.status}).` };
-    throw new ApiError(response.status, body);
+    if (response.status === 204) return undefined as T;
+
+    const text = await response.text();
+    const parsed: unknown = text.length > 0 ? safeJson(text) : null;
+
+    if (!response.ok) {
+      const body =
+        parsed && typeof parsed === 'object' && 'error' in parsed
+          ? ((parsed as { error: ApiErrorShape }).error ?? { code: 'unknown', message: 'Beklenmeyen hata.' })
+          : { code: 'unknown', message: `İstek başarısız (HTTP ${response.status}).` };
+      throw new ApiError(response.status, body);
+    }
+
+    return parsed as T;
+  } catch (error) {
+    if (timedOut) throw new ApiTimeoutError(timeoutMs);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
-
-  return parsed as T;
 }
 
 function safeJson(text: string): unknown {
@@ -109,10 +146,14 @@ function safeJson(text: string): unknown {
 export const api = {
   get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal): Promise<T> =>
     apiRequest<T>(path, { query, ...(signal ? { signal } : {}) }),
-  post: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'POST', body: body ?? {} }),
-  put: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'PUT', body: body ?? {} }),
-  patch: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'PATCH', body: body ?? {} }),
-  del: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'DELETE', body: body ?? {} }),
+  post: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'POST', body: body ?? {} }),
+  put: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'PUT', body: body ?? {} }),
+  patch: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'PATCH', body: body ?? {} }),
+  del: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'DELETE', body: body ?? {} }),
 };
 
 /**
@@ -140,7 +181,10 @@ export function errorMessage(error: unknown): string {
   }
   // Ağ hatası: fetch reddedildiğinde tarayıcı İngilizce "Failed to fetch" verir.
   // Kullanıcıya ne yapacağını söyle (API süreci kapalı olabilir).
-  if (error instanceof TypeError || (error instanceof Error && /failed to fetch|networkerror|load failed/i.test(error.message))) {
+  if (
+    error instanceof TypeError ||
+    (error instanceof Error && /failed to fetch|networkerror|load failed/i.test(error.message))
+  ) {
     return 'Sunucuya ulaşılamadı. Bağlantınızı ve çalışan API sürecini kontrol edin (geliştirmede: npm run dev).';
   }
   if (error instanceof Error) return error.message;

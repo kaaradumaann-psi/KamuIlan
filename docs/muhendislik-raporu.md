@@ -1,39 +1,51 @@
-# Kamuİlan — Mühendislik Raporu
+# Kamuİlan — Mühendislik Raporu (önceki doğrulama anlık görüntüsü)
+
+> Bu belge önceki denetim turunun tarihli kayıtlarını ve o turda raporlanan
+> komut sonuçlarını korur. Bu oturumda bu eski sonuçlar yeniden doğrulanmış
+> sayılmaz. **Düzeltme:** aşağıdaki tasarım satırındaki dokuz CSS dosyasının
+> psikolog ve MMPI depolarının ikisiyle de birebir olduğu iddiası desteklenmiyor;
+> 14.10.2026 karşılaştırmasında `psikolog` deposuyla 9/9, MMPI-566 `Repo123` ile
+> yalnız 3/9 dosya aynıydı. Güncel, kapsamı ve kanıtı belirtilmiş kayıt için
+> [14 Ekim 2026 mühendislik/denetim raporuna](./muhendislik-raporu-2026-10-14.md)
+> bakın.
 
 **Ürün:** Kamuİlan — kamu personel alım ilanı toplama, doğrulama ve bildirim platformu
 **Alan adı:** `kamuilan.halilkaraduman.com.tr` (Cloudflare)
 **Depo:** `kaaradumaann-psi/kamuradar` · **Dil:** TypeScript (strict) · **Arayüz dili:** Türkçe
-**Rapor tarihi:** 12 Ekim 2026 · **Sürüm:** `2026.10.1`
+**Rapor tarihi:** 14 Ekim 2026 · **Sürüm:** `2026.10.1`
 
 ---
 
 ## 1. Yönetici özeti
 
 Kamuİlan; Resmî Gazete, ilan.gov.tr, ÖSYM, İŞKUR, Kariyer Kapısı, MEB ve kurum sayfalarında yayımlanan
-personel alım ilanlarını **gerçek ağ istekleriyle** toplayan, kural tabanlı **sınıflandırma** ile
+personel alım ilanlarını **gerçek ağ istekleriyle** toplamayı hedefleyen, kural tabanlı **sınıflandırma** ile
 personel ilanı olmayan içeriği eleyen, ilanları tekilleştirip **yapılandırılmış alanlara** çeviren,
 son başvuru tarihlerini izleyen ve kriterlere uyan ilanları **e-posta ile bildiren** uçtan uca bir
 sistemdir.
 
-Sistem "her ilanı topladığını" iddia etmez. Hangi kaynağın canlı doğrulandığı, hangisinin yalnızca
+Sistem "her ilanı topladığını" iddia etmez. Hangi kaynağın geçmişte canlı doğrulandığı, hangisinin yalnızca
 adaptörünün yazıldığı, hangisinin planlandığı; son başarılı taramanın ne zaman olduğu ve hangi
-kaynağın kaç taramadır başarısız olduğu arayüzde açıkça yazılıdır. İlan kayıtlarında her alanın
-hangi katmandan (liste / detay sayfası / belge / bağlantı) çıkarıldığı "alan kaynağı" olarak
-gösterilir; bulunamayan alan **tahmin edilmez**, "belirtilmemiş" olarak kalır.
+kaynağın kaç taramadır başarısız olduğu arayüzde ayrı ayrı yazılıdır. Geçmiş doğrulama kaydı, güncel worker
+çalışmasını veya güncel kaynak erişimini tek başına kanıtlamaz. İlan kayıtlarında her alanın hangi
+katmandan (liste / detay sayfası / belge / bağlantı) çıkarıldığı "alan kaynağı" olarak gösterilir;
+bulunamayan alan **tahmin edilmez**, "belirtilmemiş" olarak kalır.
 
-Doğrulama özeti (bu depoda çalıştırılan komutlarla):
+Doğrulama özeti (14 Ekim 2026; komut çıktıları bu depoda alındı):
 
-| Kontrol                           | Komut                       | Sonuç                                                                             |
-| --------------------------------- | --------------------------- | --------------------------------------------------------------------------------- |
-| Tip denetimi                      | `npm run typecheck`         | temiz (0 hata)                                                                    |
-| Lint                              | `npm run lint`              | 0 hata, 0 uyarı                                                                   |
-| Birim/entegrasyon/arayüz testleri | `npm test`                  | **165 test / 15 dosya — tamamı geçti**                                            |
-| Üretim derlemesi                  | `npm run build`             | başarılı (102 modül, `dist/`)                                                     |
-| Ortam doğrulaması                 | `npm run env:check`         | kullanılabilir (3 uyarı: sağlayıcı/secret/admin)                                  |
-| Kapsam raporu                     | `npm run sources:report`    | 9 kayıtlı kaynak: 8 etkin, **3 canlı doğrulanmış**, 5 adaptör yazılmış, 18 planlı |
-| Tasarım eşliği (psikolog/MMPI)    | `npm test -- design-system` | 5/5: stil sırası + 9 paylaşılan katmanın SHA-256'sı birebir aynı                  |
-| Kaynak adaptörü sözleşmesi        | `npm test -- sources`       | 13/13: kayıt, çevrimdışı mod, ilan.gov.tr ayrıştırma                              |
-| Biçim denetimi                    | `npx prettier --check`      | değiştirilen dosyalar temiz (depo geneli kapsam dışı)                             |
+| Kontrol                           | Komut / ortam                                                                                | Sonuç                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Tip denetimi                      | `npm run typecheck`                                                                          | geçti (0 hata)                                                                                     |
+| Lint                              | `npm run lint`                                                                               | geçti (0 hata, 0 uyarı)                                                                            |
+| Birim/entegrasyon/arayüz testleri | `npm test`                                                                                   | **297 test / 31 dosya — tamamı geçti**                                                             |
+| Üretim derlemesi                  | `npm run build`                                                                              | başarılı (109 modül, `dist/`)                                                                     |
+| Ortam doğrulaması                 | `npm run env:check`                                                                          | kullanılabilir; varsayılan ortamda 3 uyarı (e-posta sağlayıcısı, kısa `APP_SECRET`, yönetici hesabı) |
+| Tasarım/CSS regresyonu            | `tests/design-system.test.ts`                                                                | **6/6 geçti**                                                                                      |
+| Kaynak adaptörü sözleşmesi        | `tests/sources.test.ts`                                                                      | **35/35 geçti**                                                                                    |
+| `npm run dev` smoke               | geçici FileStore, `SOURCE_LIVE_FETCH=0`                                                      | `/api/health/worker` doğrudan ve Vite proxy üzerinden 200; 1 running heartbeat; canlı tarama kapalı, ilan başarısı iddia edilmedi |
+| Kaynak kapsam raporu              | aynı geçici smoke deposu (`npm run sources:report -- --json`)                                | 27 toplam; 23 etkin/doğrulanmış, 4 planlı; bu canlı-fetch-kapalı smoke'ta henüz başarı yok, 23 kaynak bayat |
+| Canlı kaynak denemesi             | `npm run test:live -- --source=resmigazete-cestili-ilanlar` (`SOURCE_LIVE_FETCH=1`)            | 0/1: TLS kurulmadan `ECONNRESET`; sandbox ağı dış kaynak erişimini doğrulamaya izin vermedi       |
+| Playwright E2E                     | `npm run test:e2e:local`                                                                     | çalıştırılamadı: Chromium headless browser bu ortamda kurulu değil                                 |
 
 ---
 
@@ -52,12 +64,12 @@ Doğrulama özeti (bu depoda çalıştırılan komutlarla):
 | 9   | Rol tabanlı yönetim paneli                               | ✅    | `src/pages/Admin.tsx`, `src/server/routes/admin.ts`                                                                                                        |
 | 10  | Zod doğrulamalı REST API + OpenAPI                       | ✅    | `src/server/routes/*`, `/api/docs`                                                                                                                         |
 | 11  | Güvenlik: parola, çerez, CSRF, hız sınırı, SSRF, KVKK    | ✅    | `src/server/passwords.ts`, `src/lib/x-csrf.ts`, `src/sources/fetcher.ts`, `docs/security-kvkk.md`                                                          |
-| 12  | Testler (fixture tabanlı, canlı çağrı yok)               | ✅    | `tests/*` — 15 dosya / 165 test                                                                                                                            |
+| 12  | Testler (fixture tabanlı, canlı çağrı yok)               | ✅    | `tests/*` — 31 dosya / 297 test                                                                                                                            |
 | 13  | Docker ile tek komut ortam + CI                          | ✅    | `infra/docker/*`, `.github/workflows/ci.yml`                                                                                                               |
 | 14  | **Dışarıdan kayıt yok**                                  | ✅    | `POST /api/auth/register` varsayılan 403; hesaplar `POST /api/admin/users` ile davet edilir                                                                |
 | 15  | **Tasarım psikolog/MMPI ile aynı**                       | ✅    | `src/styles/{screen,site,coherence,theme,workspace,dashboard,mobile,responsive,auth}.css` bu repolarla **bayt bayt aynı**; Kamuİlan katmanı `kamuilan.css` |
 | 16  | **Ad Kamuİlan + alt alan adı**                           | ✅    | `src/site.ts`, `index.html`, e-posta şablonları, `APP_DOMAIN`                                                                                              |
-| 17  | **Test aşamasında dakikada bir tarama**                  | ✅    | `.env.example` → `SCAN_INTERVAL_MINUTES=1`; kaynak başına aralık `intervalMinutes`                                                                         |
+| 17  | **Test aşamasında dakikada bir tarama**                  | ✅    | `.env.example` → `SCAN_INTERVAL_MINUTES=1`; `db:migrate`/worker başlangıcında tüm kaynak görevlerine uygulanır; `0` kaynak başına `intervalMinutes` kullanır |
 | 18  | **Veritabanı Supabase**                                  | ✅    | `src/db/postgres-store.ts` (gerçek `pg` + PGlite ile test edilen SQL ön filtre), `DATABASE_DRIVER=supabase                                                 | postgres` |
 | 19  | **Barındırma Cloudflare**                                | ✅    | `dist/` statik SPA + `wrangler.jsonc` (`not_found_handling: single-page-application`, custom domain) + `functions/api/[[path]].ts` ile `/api` proxy'si     |
 | 20  | **E-posta Resend**                                       | ✅    | `src/email/transport.ts` (`ResendEmailTransport`, 9 test), `EMAIL_PROVIDER=resend`                                                                         |
@@ -163,9 +175,10 @@ diğerinin yerine geçmez.
 - **Tarama ile e-posta ayrıdır:** tarama yavaşlasa da gönderim kuyruğu kendi worker'ıyla ilerler.
 - Gecikme ölçüsü: `scheduleDelayMs` her taramada kaydedilir; panelde "planlanan saatten sapma" olarak
   görünür. `setInterval` yok; zamanlayıcı tablo güdümlü tik ile çalışır.
-- Test aşaması için varsayılan `SCAN_INTERVAL_MINUTES=1` (test/demo), üretim için kaynak başına
-  30–360 dakika önerilir. Bulut ortamı uyuduğunda saatlik/dakikalık taramanın gecikebileceği
-  `docs/limitations.md` ve `docs/operations.md` içinde yazılıdır.
+- `.env.example` test/demo kurulumu için `SCAN_INTERVAL_MINUTES=1` verir; şema varsayılanı `0` olup
+  kaynak başına aralığı kullanır. Pozitif değer yeni ve mevcut kaynak görevlerine worker/migration
+  başlangıcında uygulanır. Üretimde kaynak başına aralık veya 30–360 dakika önerilir. Bulut ortamı
+  uyuduğunda taramanın gecikebileceği `docs/limitations.md` ve `docs/operations.md` içinde yazılıdır.
 
 ### 3.6 Bildirim ve e-posta
 
@@ -298,20 +311,22 @@ rehberi: `docs/source-onboarding.md`.
 | -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
 | `tests/classification.test.ts`   | 21      | ret/kabul/inceleme kararları, tür tespiti, sürüm ve gerekçe                                                           |
 | `tests/extraction.test.ts`       | 26      | alan çıkarımı, tarih biçimleri, KPSS/kontenjan, tahmin yasağı                                                         |
-| `tests/ingest.test.ts`           | 14      | tekilleştirme, sürümleme, kaynak bağlantıları, değişiklik sınıfları                                                   |
-| `tests/sources.test.ts`          | 13      | **kayıt sözleşmesi**, `SOURCE_LIVE_FETCH=0` davranışı, ilan.gov.tr ayrıştırma, `blockElementText`/`İlan No` tuzakları |
+| `tests/ingest.test.ts`           | 16      | tekilleştirme, sürümleme, kaynak bağlantıları, değişiklik sınıfları                                                   |
+| `tests/sources.test.ts`          | 35      | adaptör sözleşmeleri, `SOURCE_LIVE_FETCH=0` davranışı ve kaynak ayrıştırma                                            |
+| `tests/fetcher.test.ts`          | 15      | fetch iptali, host hız sınırı, yeniden deneme ve HTTP taşıyıcısı                                                    |
+| `tests/source-coverage.test.ts`  | 3       | kaynak envanteri kapsamı ve hazır olma doğrulaması                                                                  |
 | `tests/env-loader.test.ts`       | 11      | `key: value` ayrıştırma, tırnak/kaçış, çok satırlı değer, gerçek ortam önceliği, sır gizleme                          |
 | `tests/email.test.ts`            | 10      | şablonlar, tercih eşleştirme, eşleşme gerekçesi                                                                       |
 | `tests/resend-transport.test.ts` | 9       | Resend istek biçimi, hata eşlemesi, zaman aşımı, sağlayıcı seçimi                                                     |
 | `tests/pdf.test.ts`              | 7       | gerçek PDF metin katmanı, bozuk PDF dayanıklılığı, metin sınırlama                                                    |
-| `tests/design-system.test.ts`    | 5       | stil sırası, 9 katmanın SHA-256 eşliği, tanımsız sınıf ve yardımcı sınıf yasağı                                       |
-| `tests/ui.test.tsx`              | 5       | kabuk çizimi (jsdom): kamuya açık sayfalar, oturumsuz panelde giriş kartı, kayıt bağlantısı yok                       |
-| `tests/worker.test.ts`           | 15      | zamanlama, kilit, atlanan/failing kaynak davranışı, uyarı sıklığı                                                     |
-| `tests/server.test.ts`           | 15      | API sözleşmeleri, RBAC, CSRF, kayıt kapalı, maskeli e-posta                                                           |
+| `tests/design-system.test.ts`    | 6       | stil sırası, 9 katmanın SHA-256 eşliği, tanımsız sınıf ve yardımcı sınıf yasağı                                       |
+| `tests/ui.test.tsx`              | 6       | kabuk çizimi (jsdom): kamuya açık sayfalar, oturumsuz panelde giriş kartı, worker başlangıç durumu                    |
+| `tests/worker.test.ts`           | 17      | zamanlama, heartbeat, paralel tarama, kilit, atlanan/failing kaynak davranışı, uyarı sıklığı                         |
+| `tests/server.test.ts`           | 16      | API sözleşmeleri, RBAC, CSRF, worker readiness ve maskeli e-posta                                                      |
 | `tests/email-delivery.test.ts`   | 5       | gerçek SMTP sunucusuyla uçtan uca gönderim                                                                            |
-| `tests/postgres-store.test.ts`   | 7       | gerçek SQL üretimi ve JSONB yolu (PGlite), dosya sürücüsüyle parite                                                   |
+| `tests/postgres-store.test.ts`   | 9       | gerçek SQL üretimi ve JSONB yolu (PGlite), dosya sürücüsüyle parite                                                   |
 | `tests/file-store.test.ts`       | 2       | dosya sürücüsü atomik yazma/sorgu davranışı                                                                           |
-| **Toplam**                       | **165** | **15 dosya**                                                                                                          |
+| **Toplam**                       | **297** | **31 dosya**                                                                                                          |
 
 Testler **canlı kaynağa istek atmaz** (fixture'lar ve sahte taşıyıcılar kullanılır); dosya değişiklikleri
 geçici dizinlerde yapılır. E2E (`e2e/smoke.spec.ts`, `e2e/sources.spec.ts`) API + arayüz ayağa kalkmış
@@ -319,7 +334,7 @@ hâlde çalışır ve "dürüstlük" kontrollerini yapar (ör. arayüzdeki "canl
 işaretli satır sayısına eşit olması).
 
 **Bu ortamda çalıştırılan komutlar ve sonuçları:** `npm run typecheck` ✅ · `npm run lint` ✅ ·
-`npm test` ✅ 165/165 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
+`npm test` ✅ 297/297 · `npm run build` ✅ · `npm run env:check` ✅ · `npm run sources:report` ✅ ·
 Playwright tarayıcıları bu ortamda indirilemediği için **E2E koşulamadı** (kurulum adımları
 `docs/testing.md` içinde).
 
@@ -388,20 +403,20 @@ Ayrıntılı tablo: `docs/setup.md` § Ortam değişkenleri.
 
 ## 10. Aşamalı teslimat günlüğü
 
-| Aşama | İçerik                                                                         | Durum |
-| ----- | ------------------------------------------------------------------------------ | ----- |
-| 1     | Depo iskeleti, yapılandırma, ortam doğrulaması, veri modeli                    | ✅    |
-| 2     | Depo katmanı (dosya + MongoDB + PostgreSQL/Supabase), indeksler                | ✅    |
-| 3     | Kaynak adaptörleri + ağ katmanı (SSRF, geri çekilme, koşullu istek)            | ✅    |
-| 4     | Sınıflandırma + çıkarım (PDF dahil)                                            | ✅    |
-| 5     | Boru hattı: tekilleştirme, sürümleme, inceleme kuyruğu                         | ✅    |
-| 6     | Zamanlama, kilit, heartbeat, bakım işleri                                      | ✅    |
-| 7     | E-posta: tercihler, outbox, Resend/SMTP, şablonlar, çıkış                      | ✅    |
-| 8     | API: genel uçlar, kimlik, yönetim, OpenAPI                                     | ✅    |
-| 9     | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı) | ✅    |
-| 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                              | ✅    |
-| 11    | Giriş/oturum uçtan uca düzeltmeleri + hesap araçları (`user:create`)            | ✅    |
-| 12    | Uçtan uca denetim: arama, tarih/saat, güvenlik, arayüz ([rapor](./denetim-raporu-2026-10-13.md)) | ✅    |
+| Aşama | İçerik                                                                                                                                                             | Durum |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| 1     | Depo iskeleti, yapılandırma, ortam doğrulaması, veri modeli                                                                                                        | ✅    |
+| 2     | Depo katmanı (dosya + MongoDB + PostgreSQL/Supabase), indeksler                                                                                                    | ✅    |
+| 3     | Kaynak adaptörleri + ağ katmanı (SSRF, geri çekilme, koşullu istek)                                                                                                | ✅    |
+| 4     | Sınıflandırma + çıkarım (PDF dahil)                                                                                                                                | ✅    |
+| 5     | Boru hattı: tekilleştirme, sürümleme, inceleme kuyruğu                                                                                                             | ✅    |
+| 6     | Zamanlama, kilit, heartbeat, bakım işleri                                                                                                                          | ✅    |
+| 7     | E-posta: tercihler, outbox, Resend/SMTP, şablonlar, çıkış                                                                                                          | ✅    |
+| 8     | API: genel uçlar, kimlik, yönetim, OpenAPI                                                                                                                         | ✅    |
+| 9     | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı)                                                                                     | ✅    |
+| 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                                                                                                                  | ✅    |
+| 11    | Giriş/oturum uçtan uca düzeltmeleri + hesap araçları (`user:create`)                                                                                               | ✅    |
+| 12    | Uçtan uca denetim: arama, tarih/saat, güvenlik, arayüz ([rapor](./denetim-raporu-2026-10-13.md))                                                                   | ✅    |
 | 13    | Sıfırdan tam tarama: etiketlerin tek kaynağa indirilmesi, sessiz hataların kapatılması, engelli erişilebilirlik düzeltmesi ([§14](./denetim-raporu-2026-10-13.md)) | ✅    |
 
 ---

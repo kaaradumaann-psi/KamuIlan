@@ -10,9 +10,10 @@
  *  1. SQL yalnızca bir ÖN FİLTRE (superset) uygular: eşitlik ve `$in` koşulları
  *     JSONB kapsama (`@>`) ile daraltılır; bilinmeyen koşullarda ön filtre
  *     tamamen atlanır.
- *  2. Nihai karar, dosya/Mongo sürücüleriyle AYNI kod yolundan gelir
- *     (`matchesQuery` + `sortDocuments`). Böylece üç sürücü birebir aynı
- *     semantiği uygular; hızlı ama yanlış bir SQL çevirisi riski yoktur.
+ *  2. Nihai filtre kararı `matchesQuery` ile verilir; sıralama varsayılan olarak
+ *     `sortDocuments` üzerinden yapılır. Tek istisna, boş filtre + yalnızca `id`
+ *     sıralaması + limit içeren tam tablo sayfalarıdır: bu durumda SQL, kararlı
+ *     ID sayfalamasını doğrudan uygular (göçler için gerekli).
  *  3. Ön filtre bir üst sınırı aşarsa (`MAX_SCAN_ROWS`) sessizce kırpmak yerine
  *     açık hata verilir.
  *
@@ -23,7 +24,16 @@
 import { Pool, type PoolClient } from 'pg';
 import type { CollectionName, DocumentOf } from './schemas';
 import { COLLECTION_SCHEMAS } from './schemas';
-import { applyPatch, getPath, isOperatorObject, matchesQuery, sortDocuments, type ConditionOperators, type FindOptions, type Query } from './query';
+import {
+  applyPatch,
+  getPath,
+  isOperatorObject,
+  matchesQuery,
+  sortDocuments,
+  type ConditionOperators,
+  type FindOptions,
+  type Query,
+} from './query';
 import type { IndexSpec, InsertIfAbsentResult, StoragePort } from './ports';
 import { INDEXES } from './indexes';
 
@@ -88,7 +98,12 @@ function tableName(prefix: string, collection: string): string {
 
 /** Koleksiyon adından indeks adı üretir (Postgres indeks adları 63 baytla sınırlıdır). */
 function indexIdentifier(table: string, rawName: string): string {
-  return safeIdentifier(`${table}_${rawName}`.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 60));
+  return safeIdentifier(
+    `${table}_${rawName}`
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .slice(0, 60),
+  );
 }
 
 /**
@@ -109,7 +124,12 @@ function containmentVariants(path: string, value: unknown): string[] {
   };
 
   const variants = new Set<string>();
-  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
     variants.add(build(value));
   }
   if (typeof value === 'number' && Number.isFinite(value)) variants.add(build(String(value)));
@@ -138,7 +158,9 @@ function scalarEqualityClause(field: string, values: unknown[], params: unknown[
     if (typeof value === 'string' || typeof value === 'number') {
       // `?` operatörü metin bekler; sayılar metin biçimiyle de aranmalı.
       params.push(typeof value === 'number' ? String(value) : value);
-      ors.push(`(jsonb_typeof(data -> ${quoteLiteral(field)}) = 'array' AND (data -> ${quoteLiteral(field)}) ? $${params.length}::text)`);
+      ors.push(
+        `(jsonb_typeof(data -> ${quoteLiteral(field)}) = 'array' AND (data -> ${quoteLiteral(field)}) ? $${params.length}::text)`,
+      );
     }
   }
   return ors.length > 0 ? ors.join(' OR ') : null;
@@ -231,7 +253,9 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
       else values.push(condition);
     } else {
       const operators = condition as ConditionOperators;
-      const onlyEquality = Object.keys(operators).every((operator) => operator === '$eq' || operator === '$in');
+      const onlyEquality = Object.keys(operators).every(
+        (operator) => operator === '$eq' || operator === '$in',
+      );
       if (!onlyEquality) return abandon();
       if (operators.$eq !== undefined) values.push(operators.$eq);
       if (operators.$in) values.push(...operators.$in);
@@ -274,17 +298,21 @@ export class PostgresStore implements StoragePort {
 
   async init(): Promise<void> {
     this.prefix = safeIdentifier(this.prefix);
-    for (const collection of this.collections) {
-      const table = this.table(collection);
-      await this.pool.query(
-        `CREATE TABLE IF NOT EXISTS ${table} (
-           id text PRIMARY KEY,
-           data jsonb NOT NULL,
-           updated_at timestamptz NOT NULL DEFAULT now()
-         )`,
-      );
-      await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
-    }
+    // Şemada koleksiyon başına bağımsız DDL var. Uzak Supabase bağlantısında
+    // seri gidiş-dönüşleri azaltmak için havuzun sınırlı eşzamanlılığını kullan.
+    await Promise.all(
+      this.collections.map(async (collection) => {
+        const table = this.table(collection);
+        await this.pool.query(
+          `CREATE TABLE IF NOT EXISTS ${table} (
+             id text PRIMARY KEY,
+             data jsonb NOT NULL,
+             updated_at timestamptz NOT NULL DEFAULT now()
+           )`,
+        );
+        await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
+      }),
+    );
   }
 
   async close(): Promise<void> {
@@ -305,34 +333,32 @@ export class PostgresStore implements StoragePort {
   }
 
   async ensureIndexes(indexes?: readonly IndexSpec[]): Promise<{ collection: string; name: string; created: boolean }[]> {
-    const result: { collection: string; name: string; created: boolean }[] = [];
     // Diğer sürücülerle (dosya/Mongo) aynı sözleşme: argümansız çağrı
-    // varsayılan `INDEXES` kümesini kurar. `initStore`, `db:migrate` ve
-    // `db:indexes` tam olarak böyle çağırır; varsayılan boş olursa Postgres'te
-    // HİÇBİR indeks (benzersizler dahil) kurulmaz, `uniqueIndexes` haritası
-    // boş kalır ve `insertIfAbsent`'in benzersiz-çakışma çözümü devreye
-    // giremezdi (`indeksler: 0 tanım` çıktısı bu hatanın belirtisiydi).
-    const specs = indexes ?? INDEXES;
-    for (const spec of specs) {
-      const table = this.table(spec.collection);
-      if (spec.keys.length === 0) continue;
-      const expression = spec.keys
-        .map(([path]) => `(data -> ${quoteLiteral(path)})`)
-        .join(', ');
-      const name = indexIdentifier(table, `${spec.unique ? 'uniq' : 'idx'}_${spec.name}`);
-      await this.pool.query(
-        `CREATE ${spec.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table} (${expression})`,
-      );
-      result.push({ collection: spec.collection, name, created: true });
+    // varsayılan `INDEXES` kümesini kurar. Varsayılan boş olursa Postgres'te
+    // benzersizler dahil hiçbir ek indeks kurulmaz ve atomik ekleme bozulur.
+    const specs = (indexes ?? INDEXES).filter((spec) => spec.keys.length > 0);
+    const ensured = await Promise.all(
+      specs.map(async (spec) => {
+        const table = this.table(spec.collection);
+        const expression = spec.keys
+          .map(([path]) => `(data -> ${quoteLiteral(path)})`)
+          .join(', ');
+        const name = indexIdentifier(table, `${spec.unique ? 'uniq' : 'idx'}_${spec.name}`);
+        await this.pool.query(
+          `CREATE ${spec.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table} (${expression})`,
+        );
+        return { spec, result: { collection: spec.collection, name, created: true } };
+      }),
+    );
 
-      if (spec.unique) {
-        const existing = this.uniqueIndexes.get(spec.collection) ?? [];
-        const fields = spec.keys.map(([path]) => path);
-        if (!existing.some((entry) => entry.name === name)) existing.push({ name, fields });
-        this.uniqueIndexes.set(spec.collection, existing);
-      }
+    for (const { spec, result } of ensured) {
+      if (!spec.unique) continue;
+      const existing = this.uniqueIndexes.get(spec.collection) ?? [];
+      const fields = spec.keys.map(([path]) => path);
+      if (!existing.some((entry) => entry.name === result.name)) existing.push({ name: result.name, fields });
+      this.uniqueIndexes.set(spec.collection, existing);
     }
-    return result;
+    return ensured.map(({ result }) => result);
   }
 
   /** Ön filtre + doğrulama: nihai karar `matchesQuery` ile verilir. */
@@ -369,10 +395,7 @@ export class PostgresStore implements StoragePort {
     client?: PoolClient,
   ): Promise<DocumentOf<K> | null> {
     const table = this.table(collection);
-    const query = await this.queryRunner(client)(
-      `SELECT data FROM ${table} WHERE id = $1`,
-      [id],
-    );
+    const query = await this.queryRunner(client)(`SELECT data FROM ${table} WHERE id = $1`, [id]);
     const row = query.rows[0] as { data: unknown } | undefined;
     return row ? (row.data as DocumentOf<K>) : null;
   }
@@ -386,7 +409,10 @@ export class PostgresStore implements StoragePort {
   async insertOne<K extends CollectionName>(collection: K, doc: DocumentOf<K>): Promise<DocumentOf<K>> {
     const table = this.table(collection);
     const id = String((doc as { id: string }).id);
-    await this.pool.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [id, JSON.stringify(doc)]);
+    await this.pool.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [
+      id,
+      JSON.stringify(doc),
+    ]);
     return doc;
   }
 
@@ -398,7 +424,10 @@ export class PostgresStore implements StoragePort {
       await client.query('BEGIN');
       for (const doc of docs) {
         const id = String((doc as { id: string }).id);
-        await client.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [id, JSON.stringify(doc)]);
+        await client.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [
+          id,
+          JSON.stringify(doc),
+        ]);
       }
       await client.query('COMMIT');
       return docs.length;
@@ -420,10 +449,38 @@ export class PostgresStore implements StoragePort {
     filter?: Query,
     options?: FindOptions,
   ): Promise<DocumentOf<K>[]> {
+    const sort = options?.sort;
+    const isUnfiltered = !filter || Object.keys(filter).length === 0;
+    const idSort = sort?.length === 1 && sort[0]?.[0] === 'id' ? sort[0][1] : undefined;
+    const limit = options?.limit;
+    const skip = options?.skip ?? 0;
+
+    // Migrations and other bounded full scans read deterministic ID pages.
+    // Apply pagination in SQL for this exact case; otherwise selectMatching's
+    // MAX_SCAN_ROWS guard would reject collections over 20,000 rows before the
+    // caller could fetch page two. C collation keeps page order deterministic
+    // regardless of the database's locale; application-generated IDs are ASCII.
+    if (
+      isUnfiltered &&
+      (idSort === 1 || idSort === -1) &&
+      limit !== undefined &&
+      Number.isSafeInteger(limit) &&
+      limit >= 0 &&
+      Number.isSafeInteger(skip) &&
+      skip >= 0
+    ) {
+      const direction = idSort === 1 ? 'ASC' : 'DESC';
+      const result = await this.pool.query<{ data: unknown }>(
+        `SELECT data FROM ${this.table(collection)} ORDER BY id COLLATE "C" ${direction} LIMIT $1 OFFSET $2`,
+        [limit, skip],
+      );
+      return result.rows.map((row) => row.data as DocumentOf<K>);
+    }
+
     const docs = await this.selectMatching(collection, filter);
     const sorted = sortDocuments(docs, options?.sort);
-    const skip = options?.skip ?? 0;
-    const limited = options?.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
+    const limited =
+      options?.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
     return limited;
   }
 

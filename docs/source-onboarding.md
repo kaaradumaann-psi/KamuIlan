@@ -19,6 +19,12 @@ tutulur; asıl iş kaynağın gerçekten okunabilir olduğunu göstermektir.
    zorlanmaz; ek olarak saklanır ve "metin yok" işaretlenir.)
 4. Sayfa `robots.txt` ve kullanım koşulları açısından otomatik okumaya izin veriyor mu?
 
+> Bu kontrol onboarding sırasında operatör tarafından yapılır. Mevcut HTTP
+> istemcisi her istek öncesi `robots.txt` indirip kural uygulamaz; allowlist,
+> hız sınırı ve erişim engeli kontrolleri bunun yerine geçmez. Bu nedenle bir
+> kaynak ancak güncel manuel uygunluk incelemesiyle etkinleştirilmeli; otomatik
+> robots uyumluluğu henüz çözülmemiş üretim kontrolüdür.
+
 ## 1. Kaynak kaydını envantere ekle
 
 `src/config/sources.ts` içindeki `SOURCE_DEFINITIONS` listesine kayıt ekleyin:

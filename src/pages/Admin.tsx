@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
+import { HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { Icon } from '../components/Icon';
 import {
   RUN_STATUS_LABELS,
@@ -67,15 +68,15 @@ export function AdminPage(): ReactNode {
   const [tab, setTab] = useState<Tab>('ozet');
   const overview = useQuery({
     queryKey: ['admin-overview'],
-    queryFn: () => api.get<AdminOverview>('/api/admin/overview'),
+    queryFn: ({ signal }) => api.get<AdminOverview>('/api/admin/overview', undefined, signal),
     retry: 0,
   });
 
   if (overview.isError) {
     return (
-      <Card title="Yetki gerekli">
-        <ErrorNotice message={errorMessage(overview.error)} />
-        <p className="body-copy push">Bu bölüm yalnızca yönetici hesaplarına açıktır.</p>
+      <Card title="Yönetim paneli alınamadı">
+        <ErrorNotice message={errorMessage(overview.error)} onRetry={() => void overview.refetch()} />
+        <p className="body-copy push">Yönetici yetkinizi ve API bağlantısını kontrol edip yeniden deneyin.</p>
       </Card>
     );
   }
@@ -110,7 +111,10 @@ export function AdminPage(): ReactNode {
 }
 
 function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
-  const health = useQuery({ queryKey: ['health'], queryFn: () => api.get<HealthResponse>('/api/health') });
+  const health = useQuery({
+    queryKey: HEALTH_QUERY_KEY,
+    queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
+  });
   return (
     <div className="page-stack">
       {data.workerWarning && <InfoNote tone="warning">{data.workerWarning}</InfoNote>}
@@ -194,7 +198,7 @@ function SourcesTab(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const sources = useQuery({
     queryKey: ['admin-sources'],
-    queryFn: () => api.get<{ sources: SourceCoverageEntry[] }>('/api/admin/sources'),
+    queryFn: ({ signal }) => api.get<{ sources: SourceCoverageEntry[] }>('/api/admin/sources', undefined, signal),
   });
 
   const scan = useMutation({
@@ -319,11 +323,11 @@ function RunsTab(): ReactNode {
   const [sourceKey, setSourceKey] = useState('');
   const query = useQuery({
     queryKey: ['admin-runs', sourceKey],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<{
         runs: ScrapeRunSummary[];
         failing: { id: string; sourceKey: string; startedAt: string; result: string; errors: string[] }[];
-      }>('/api/admin/scrape-runs', { limit: 50, ...(sourceKey ? { sourceKey } : {}) }),
+      }>('/api/admin/scrape-runs', { limit: 50, ...(sourceKey ? { sourceKey } : {}) }, signal),
   });
 
   return (
@@ -343,7 +347,10 @@ function RunsTab(): ReactNode {
         <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
       )}
       {query.data?.failing.length ? (
-        <Card title="Hata bildirimleri" description="Site yapısı değiştiğinde ya da ulaşılamadığında burada görünür.">
+        <Card
+          title="Hata bildirimleri"
+          description="Site yapısı değiştiğinde ya da ulaşılamadığında burada görünür."
+        >
           <ul className="summary-list">
             {query.data.failing.map((run) => (
               <li key={run.id} className="text-danger-sm">
@@ -423,12 +430,12 @@ function ReviewTab(): ReactNode {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ['admin-review', kind],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<{
         items: ReviewItem[];
         counts: { total: number; classification: number; dedupe: number; extraction: number };
         candidateTitles: Record<string, string>;
-      }>('/api/admin/review-queue', { status: 'open', ...(kind ? { kind } : {}) }),
+      }>('/api/admin/review-queue', { status: 'open', ...(kind ? { kind } : {}) }, signal),
   });
 
   const decide = useMutation({
@@ -469,9 +476,8 @@ function ReviewTab(): ReactNode {
         </label>
         {query.data && (
           <p className="text-muted-sm">
-            İncelenecek: {formatNumber(query.data.counts.total)} (ilgililik{' '}
-            {query.data.counts.classification}, aynı ilan olabilir {query.data.counts.dedupe}, bilgi okunamadı{' '}
-            {query.data.counts.extraction})
+            İncelenecek: {formatNumber(query.data.counts.total)} (ilgililik {query.data.counts.classification}
+            , aynı ilan olabilir {query.data.counts.dedupe}, bilgi okunamadı {query.data.counts.extraction})
           </p>
         )}
       </div>
@@ -571,13 +577,14 @@ function OutboxTab(): ReactNode {
   const [message, setMessage] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ['admin-outbox', status],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<{ items: OutboxItem[]; stats: Record<string, number>; notice: string; schema: string }>(
         '/api/admin/email-outbox',
         {
           limit: 50,
           ...(status ? { status } : {}),
         },
+        signal,
       ),
   });
 
@@ -679,7 +686,7 @@ function OutboxTab(): ReactNode {
 function QueueTab(): ReactNode {
   const query = useQuery({
     queryKey: ['admin-queue'],
-    queryFn: () => api.get<QueueResponse>('/api/admin/queue'),
+    queryFn: ({ signal }) => api.get<QueueResponse>('/api/admin/queue', undefined, signal),
     refetchInterval: 30_000,
   });
 
@@ -763,11 +770,17 @@ function QueueTab(): ReactNode {
 function CoverageTab(): ReactNode {
   const query = useQuery({
     queryKey: ['admin-coverage'],
-    queryFn: () => api.get<CoverageReport>('/api/admin/coverage-report'),
+    queryFn: ({ signal }) => api.get<CoverageReport>('/api/admin/coverage-report', undefined, signal),
   });
-  if (query.isLoading) return <Spinner />;
+  if (query.isLoading) return <Spinner label="Kapsam raporu yükleniyor…" />;
   if (!query.data)
-    return <ErrorNotice message="Kapsam raporu alınamadı." onRetry={() => void query.refetch()} />;
+    return (
+      <ErrorNotice
+        title="Kapsam raporu alınamadı"
+        message={query.error ? errorMessage(query.error) : 'Sunucudan kapsam verisi alınamadı.'}
+        onRetry={() => void query.refetch()}
+      />
+    );
   return (
     <div className="page-stack">
       <InfoNote tone="warning">{query.data.disclaimer}</InfoNote>
@@ -827,7 +840,7 @@ function AuditTab(): ReactNode {
   const [action, setAction] = useState('');
   const query = useQuery({
     queryKey: ['admin-audit', action],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<{
         logs: {
           id: string;
@@ -840,7 +853,7 @@ function AuditTab(): ReactNode {
           ipHash: string | null;
           meta: Record<string, unknown>;
         }[];
-      }>('/api/admin/audit-logs', { limit: 100, ...(action ? { action } : {}) }),
+      }>('/api/admin/audit-logs', { limit: 100, ...(action ? { action } : {}) }, signal),
   });
 
   return (
@@ -907,10 +920,12 @@ function UsersTab(): ReactNode {
 
   const users = useQuery({
     queryKey: ['admin-users'],
-    queryFn: () =>
-      api.get<{ users: AdminUserRow[]; notifiableCount: number; notice: string }>('/api/admin/users', {
-        limit: 100,
-      }),
+    queryFn: ({ signal }) =>
+      api.get<{ users: AdminUserRow[]; notifiableCount: number; notice: string }>(
+        '/api/admin/users',
+        { limit: 100 },
+        signal,
+      ),
   });
 
   const invite = useMutation({

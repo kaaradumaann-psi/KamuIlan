@@ -18,9 +18,13 @@ export interface AdapterContext {
   logger: Logger;
   /** Canlı erişim kapalıysa adaptör yalnızca doğrulama yapar ve boş liste döner. */
   liveFetch: boolean;
+  /** Tarama zaman aşımı/iptalinde HTTP ve browser işlemlerini durdurur. */
+  signal?: AbortSignal;
   fetchedAt: Date;
   /** Kaynak içi ilerleme: daha önce gördüğümüz kayıt kimlikleri (idempotency için). */
   knownItemIds?: ReadonlySet<string>;
+  /** Daha önce tam detay metni yakalanmış kayıtlar; eksik detaylar yeniden denenir. */
+  knownItemIdsWithDetail?: ReadonlySet<string>;
   /** Adapter'ın indirebileceği ek belge sayısı üst sınırı. */
   maxDetailFetches: number;
 }
@@ -36,6 +40,8 @@ export interface AdapterRunResult {
   lastModified: string | null;
   /** İçerik değişmediyse true (304). */
   notModified: boolean;
+  /** Kapsam bu çalışmada gerçekten kanıtlandı mı? "unknown" is not "complete". */
+  coverage?: { status: 'complete' | 'partial' | 'unknown'; note: string };
   /** Görülen HTTP durum kodları (opsiyonel; tarama kaydında gösterilir). */
   httpStatuses?: number[];
 }

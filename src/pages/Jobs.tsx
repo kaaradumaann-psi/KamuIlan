@@ -54,7 +54,7 @@ export function JobsPage() {
 
   const jobs = useQuery({
     queryKey: ['jobs', JSON.stringify(query)],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<JobListResponse>('/api/jobs', {
         q: query.q || undefined,
         city: query.city || undefined,
@@ -74,7 +74,7 @@ export function JobsPage() {
         sort: query.sort,
         page,
         pageSize: PAGE_SIZE,
-      }),
+      }, signal),
     placeholderData: (previous) => previous,
   });
 
@@ -142,8 +142,8 @@ export function JobsPage() {
           <span className="kicker">İlan arama</span>
           <h1 className="page-title">Kamu personel alım ilanları</h1>
           <p className="info-lede">
-            Ne aradığınızı yazın, isterseniz il ve tür seçip <strong>Ara</strong>'ya
-            basın. Daha fazla seçenek isterseniz gelişmiş filtreler bir tık altta.
+            Ne aradığınızı yazın, isterseniz il ve tür seçip <strong>Ara</strong>'ya basın. Daha fazla seçenek
+            isterseniz gelişmiş filtreler bir tık altta.
           </p>
         </div>
         <div className="page-head-actions">

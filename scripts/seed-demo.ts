@@ -35,7 +35,9 @@ function sampleAnnouncements(): RawAnnouncement[] {
       institution: 'Örnek Üniversitesi Rektörlüğü',
       publishedAt: '2026-10-12T00:00:00+03:00',
       sourceCategory: 'personel alımı',
-      attachments: [{ url: 'https://ornek.kamuilan.test/ek/kilavuz.pdf', label: 'Başvuru kılavuzu', kind: 'pdf' }],
+      attachments: [
+        { url: 'https://ornek.kamuilan.test/ek/kilavuz.pdf', label: 'Başvuru kılavuzu', kind: 'pdf' },
+      ],
       extractionConfidence: 0.5,
       bodyText: `
 Örnek Üniversitesi Rektörlüğünden:
@@ -120,7 +122,9 @@ async function main(): Promise<void> {
   const env = getEnv();
   const force = process.argv.includes('--force');
   if (env.NODE_ENV === 'production' && !force) {
-    console.error('✖ Üretim ortamında örnek veri yüklenmez. Gerçekten istiyorsanız --force kullanın (önerilmez).');
+    console.error(
+      '✖ Üretim ortamında örnek veri yüklenmez. Gerçekten istiyorsanız --force kullanın (önerilmez).',
+    );
     process.exitCode = 1;
     return;
   }
@@ -138,7 +142,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log('⚠ Bu komut ÖRNEK veri ekler: kayıtlar "sample" olarak işaretlenir ve arayüzde "örnek veri" etiketiyle görünür.');
+  console.log(
+    '⚠ Bu komut ÖRNEK veri ekler: kayıtlar "sample" olarak işaretlenir ve arayüzde "örnek veri" etiketiyle görünür.',
+  );
   await repos.sources.seed(SOURCE_DEFINITIONS);
   await repos.sources.seed([
     {
@@ -178,7 +184,7 @@ async function main(): Promise<void> {
     console.log(`• ${outcome.action}: ${raw.title.slice(0, 70)}`);
   }
 
-  const tasks = await ensureScheduledTasks(repos, LOGGER);
+  const tasks = await ensureScheduledTasks(repos, LOGGER, env.SCAN_INTERVAL_MINUTES);
   console.log(`• zamanlanmış görevler: toplam ${tasks.total} (yeni ${tasks.created})`);
 
   if (env.ADMIN_EMAIL && env.ADMIN_PASSWORD) {

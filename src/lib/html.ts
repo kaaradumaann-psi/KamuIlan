@@ -1,13 +1,13 @@
 /**
- * HTML yardımcıları (cheerio).
+ * HTML helpers (Cheerio).
  *
- * Toplanan içerik GÜVENSİZ VERİ olarak ele alınır:
- *  - script/style/iframe içerikleri hiç okunmaz.
- *  - Metin her zaman düz metne çevrilir; HTML olarak render edilmez.
- *  - Sayfadaki talimatlar sistem komutu değildir (bkz. docs/security.md).
+ * Collected pages are untrusted input:
+ *  - script/style/iframe content is never extracted as announcement text.
+ *  - Text is returned as plain text, not rendered as HTML.
+ *  - Instructions found on a page are data, not system commands (see docs/security.md).
  */
 import { load, type CheerioAPI, type Cheerio } from 'cheerio';
-import type { AnyNode } from 'domhandler';
+import { isTag, type AnyNode } from 'domhandler';
 import { collapseWhitespace, stripHtmlTags } from '../domain/text';
 
 export type { CheerioAPI, Cheerio, AnyNode };
@@ -16,53 +16,122 @@ export function loadHtml(html: string): CheerioAPI {
   return load(html);
 }
 
-/** XML (RSS/Atom) belgeleri için: etiket adları ve metin düğümleri aynen korunur. */
+/** XML (RSS/Atom) documents: preserve tag names and text nodes as written. */
 export function loadXml(xml: string): CheerioAPI {
   return load(xml, { xml: true });
 }
 
-/** Düz metin: script/style/noscript kaldırılır, boşluklar sadeleştirilir. */
+/** Plain text: remove executable/non-visible elements and normalize whitespace. */
 export function readableText($: CheerioAPI, selector?: string, limit = 20_000): string {
   const root = selector ? $(selector).first() : $.root();
   if (root.length === 0) return '';
   const clone = root.clone();
-  clone.find('script, style, noscript, svg, template').remove();
+  stripPageChrome(clone);
   const text = collapseWhitespace(clone.text());
   return text.length > limit ? text.slice(0, limit) : text;
 }
 
 export function elementText(element: Cheerio<AnyNode>, limit = 4_000): string {
   const clone = element.clone();
-  clone.find('script, style, noscript, svg, template').remove();
+  stripPageChrome(clone);
   const text = collapseWhitespace(clone.text());
   return text.length > limit ? text.slice(0, limit) : text;
 }
 
 /**
- * Blok sınırlarını satır sonu olarak KORUYARAK düz metin çıkarır.
- *
- * `elementText` tüm boşlukları tek boşluğa indirger; bir ilan kartında ayrı
- * bloklarda duran kurum / il / tarih alanları bu yüzden tek paragrafta
- * birleşir. Liste ayrıştırıcıları (bkz. `sources/adapters/ilan-gov-tr.ts`)
- * alanları satır satır okuyabilsin diye bu yardımcı kullanılır.
+ * Keep structural boundaries as line breaks when extracting card/list text.
+ * A single collapsed paragraph loses institution, province, and date fields
+ * that the source presents in separate blocks.
  */
 export function blockElementText(element: Cheerio<AnyNode>, limit = 4_000): string {
   const clone = element.clone();
-  clone.find('script, style, noscript, svg, template').remove();
+  stripPageChrome(clone);
   const text = stripHtmlTags(clone.html() ?? '');
   return text.length > limit ? text.slice(0, limit) : text;
 }
 
-/** Sayfa içi <base href> dikkate alınarak göreli bağlantıyı mutlaklaştırır. */
+const CHROME_SELECTORS = [
+  'script',
+  'style',
+  'noscript',
+  'svg',
+  'template',
+  'iframe',
+  'object',
+  'embed',
+  'nav',
+  'footer',
+  'aside',
+  'form',
+  'button',
+  '[role="navigation"]',
+  '[role="complementary"]',
+  '[aria-hidden="true"]',
+  '[hidden]',
+  '.breadcrumb',
+  '.breadcrumbs',
+  '.navbar',
+  '.navigation',
+  '.sidebar',
+  '.share-buttons',
+].join(',');
+
+/** Remove recurring page chrome from a selected root before extracting text or links. */
+export function stripPageChrome(root: Cheerio<AnyNode>): void {
+  root.find(CHROME_SELECTORS).remove();
+  root
+    .find('[style]')
+    .filter((_index, element) => {
+      const style = isTag(element) ? (element.attribs.style ?? '') : '';
+      return /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(style);
+    })
+    .remove();
+}
+
+/**
+ * Extracts the first meaningful preferred announcement container, falling
+ * back to body/root. Candidate selectors are ordered from most specific to
+ * broadest by the adapter.
+ */
+export function readableAnnouncementText(
+  $: CheerioAPI,
+  selectors: readonly string[],
+  limit = 100_000,
+): string {
+  const candidates = [...selectors, 'body'];
+  const seen = new Set<AnyNode>();
+  for (const selector of candidates) {
+    for (const node of $(selector).toArray()) {
+      if (seen.has(node)) continue;
+      seen.add(node);
+      const text = blockElementText($(node), limit + 1);
+      if (text.length >= 80) return text.length > limit ? text.slice(0, limit + 1) : text;
+    }
+  }
+  return blockElementText($.root(), limit + 1).slice(0, limit + 1);
+}
+
+/** Resolve a link while ignoring cross-origin or malformed <base href> values. */
 export function absoluteUrl(href: string | undefined, baseUrl: string, $?: CheerioAPI): string | null {
   if (!href) return null;
   const trimmed = href.trim();
   if (!trimmed || trimmed.startsWith('#') || trimmed.toLowerCase().startsWith('javascript:')) return null;
-  const baseHref = $?.('base[href]').first().attr('href');
-  const effectiveBase = baseHref ? new URL(baseHref, baseUrl).toString() : baseUrl;
+
   try {
+    const pageBase = new URL(baseUrl);
+    let effectiveBase = pageBase;
+    const baseHref = $?.('base[href]').first().attr('href');
+    if (baseHref) {
+      try {
+        const candidateBase = new URL(baseHref, pageBase);
+        if (candidateBase.origin === pageBase.origin) effectiveBase = candidateBase;
+      } catch {
+        // Malformed base tags are ignored; relative links stay on the page origin.
+      }
+    }
+
     const url = new URL(trimmed, effectiveBase);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return null;
     return url.toString();
   } catch {
     return null;
@@ -72,11 +141,11 @@ export function absoluteUrl(href: string | undefined, baseUrl: string, $?: Cheer
 export interface Anchor {
   text: string;
   href: string;
-  /** Kapsayıcı başlık seviyesi (h1..h6) varsa. */
+  /** Heading level (h1..h6), if the anchor is contained in a heading. */
   headingLevel?: number;
 }
 
-/** Belirli bir kök altındaki bağlantıları toplar. */
+/** Collect links below a selected root. */
 export function anchors($: CheerioAPI, selector: string, baseUrl: string, textLimit = 400): Anchor[] {
   const out: Anchor[] = [];
   $(selector)
@@ -91,19 +160,19 @@ export function anchors($: CheerioAPI, selector: string, baseUrl: string, textLi
   return out;
 }
 
-/** Metin içindeki tarih benzeri ifadeleri bulur (03.10.2026, 3 Ekim 2026, 2026-10-03). */
+/** Date-like forms found in Turkish notices (03.10.2026, 3 Ekim 2026, 2026-10-03). */
 export const DATE_PATTERNS: readonly RegExp[] = [
   /\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\b/g,
   /\b(\d{4})-(\d{2})-(\d{2})\b/g,
   /\b(\d{1,2})\s+(Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)\s+(\d{4})\b/gi,
 ];
 
-/** HTML'den görünür metin çıkarırken satır sonlarını korur. */
+/** Extract visible text from an HTML fragment while preserving line breaks. */
 export function blockText(html: string, limit = 20_000): string {
   return stripHtmlTags(html).slice(0, limit);
 }
 
-/** Bağlantı metnini temizler (ikon/ok işaretleri, fazla boşluk). */
+/** Clean anchor labels (icons/arrows and excess whitespace). */
 export function cleanAnchorText(value: string): string {
   return collapseWhitespace(
     value

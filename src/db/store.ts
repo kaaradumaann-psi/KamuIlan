@@ -50,7 +50,9 @@ export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE):
   const driver = effectiveDriver(env);
   if (driver === 'postgres') {
     if (!hasPostgresConfig(env)) {
-      throw new Error('DATABASE_DRIVER=postgres/supabase için POSTGRES_URL (Supabase bağlantı dizesi) zorunludur.');
+      throw new Error(
+        'DATABASE_DRIVER=postgres/supabase için POSTGRES_URL (Supabase bağlantı dizesi) zorunludur.',
+      );
     }
     return new PostgresStore({
       connectionString: postgresUrl(env),
@@ -78,12 +80,15 @@ export function fileStorePath(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE
 
 let singleton: StoragePort | null = null;
 
-/** Depoyu hazırlar (indeksler dahil). Uygulama başlangıcında bir kez çağrılır. */
-export async function initStore(store?: StoragePort): Promise<StoragePort> {
+/** Depoyu hazırlar (indeksler varsayılan olarak dahil). Uygulama başlangıcında bir kez çağrılır. */
+export async function initStore(
+  store?: StoragePort,
+  options: { ensureIndexes?: boolean } = {},
+): Promise<StoragePort> {
   if (singleton && !store) return singleton;
   const instance = store ?? createStore();
   await instance.init();
-  await instance.ensureIndexes();
+  if (options.ensureIndexes !== false) await instance.ensureIndexes();
   singleton = instance;
   return instance;
 }

@@ -1,6 +1,11 @@
-# Uçtan uca doğrulama kaydı — 13 Ekim 2026
+# Uçtan uca doğrulama kaydı — 13 Ekim 2026 (tarihsel kayıt)
 
-Bu kayıt, "her şey çalışıyor mu" sorusuna verilen kanıtların listesidir.
+> Bu dosya 13 Ekim tarihindeki kaynak gözlemlerini ve koşumları saklar; bu
+> oturumda yeniden yürütülmemiştir ve 14 Ekim'deki mevcut kaynak sağlığını
+> kanıtlamaz. Güncel durum için
+> [14 Ekim 2026 raporuna](./muhendislik-raporu-2026-10-14.md) bakın.
+
+Bu kayıt, o tarihte "her şey çalışıyor mu" sorusuna verilen kanıtların listesidir.
 Yöntem: bu geliştirme ortamından devlet sitelerine doğrudan ağ erişimi
 olmadığı için her kaynağın resmî liste sayfası **bağımsız bir kanaldan
 açıldı**, sayfa yapısı (bağlantı biçimi, tarih biçimi, liste adresi)

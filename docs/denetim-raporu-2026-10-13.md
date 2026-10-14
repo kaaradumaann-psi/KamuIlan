@@ -1,14 +1,19 @@
-# Uçtan uca denetim raporu — 13 Ekim 2026
+# Uçtan uca denetim raporu — 13 Ekim 2026 (tarihsel kayıt)
 
-Bu rapor, "tüm sistemi baştan sona kontrol et, her şey eksiksiz çalışsın" isteği
+> Bu, 13 Ekim turunun kendi dalı/koşumları için hazırlanmış tarihsel rapordur.
+> İçindeki test, canlı kaynak ve PR/merge sonuçları 14 Ekim çalışma ağacının
+> doğrulaması değildir. Güncel denetim için
+> [14 Ekim 2026 raporuna](./muhendislik-raporu-2026-10-14.md) bakın.
+
+Bu rapor, o tarihte "tüm sistemi baştan sona kontrol et, her şey eksiksiz çalışsın" isteği
 üzerine yapılan denetimin **bulgularını, düzeltmelerini ve kanıtlarını** eksiksiz
 listeler. Raporun tamamı tek bir oturumda yapılan üç teslimatı kapsar:
 
-| Teslimat | Commit    | İçerik                                                             |
-| -------- | --------- | ------------------------------------------------------------------ |
+| Teslimat | Commit    | İçerik                                                              |
+| -------- | --------- | ------------------------------------------------------------------- |
 | 1        | `84c08a2` | Giriş ekranı, 401 mesajı, hesap/Supabase kurgusu, geliştirme ortamı |
 | 2        | `9e77db2` | Denetim düzeltmeleri: arama, tarih, güvenlik, arayüz, belgeler      |
-| 3        | `4718418` | Çıkış ucu CSRF koruması (zorla çıkış açığı)                          |
+| 3        | `4718418` | Çıkış ucu CSRF koruması (zorla çıkış açığı)                         |
 
 Dal: `arena/320a7d65-kamuradar` · CI: `84c08a2` ✅ · `9e77db2` ✅ ·
 `4718418` koşum `38428638576` (push sonrası otomatik başlar).
@@ -77,7 +82,7 @@ Denetim "sadece mutlu yol" değil, aşağıdaki katmanların tamamını kapsadı
 ### 3.2 Yönetici/aday girişinde "Bu işlem için oturum açmanız gerekiyor."
 
 - **Belirti:** Kullanıcı Supabase panelinde hesap açıyor, giriş `401
-  (Unauthorized)` ve yanıltıcı Türkçe mesajla dönüyordu.
+(Unauthorized)` ve yanıltıcı Türkçe mesajla dönüyordu.
 - **Kök neden (iki katmanlı):**
   1. **Gerçek neden:** Kamuİlan **Supabase Auth kullanmaz.** Hesaplar
      `kamuilan_users` koleksiyonunda, scrypt özetli parolayla tutulur.
@@ -108,8 +113,12 @@ Denetim "sadece mutlu yol" değil, aşağıdaki katmanların tamamını kapsadı
   ekranında bağlantı hatası görünüyordu.
 - **Kök neden:** `npm run dev`, API `/api/health` yanıt vermeden arayüzü
   başlatıyordu.
-- **Düzeltme:** `scripts/dev-all.ts` artık API sağlık kontrolünü bekler, sonra
-  Vite'ı başlatır; açılışta etkin veritabanını ve ilk yönetici komutunu yazar.
+- **Düzeltme:** `scripts/dev-all.ts` Vite başlamadan önce API'nin gerçek proxy
+  hedefi `127.0.0.1:$PORT` üzerinde TCP bağlantısı kabul etmesini bekler. `/api/health`
+  kapsamlı ölçümler için kaynak başına çok sayıda veritabanı sorgusu yaptığı için
+  kısa HTTP zaman aşımı, API zaten dinliyor olsa da istekleri iptal edip yanlış
+  "başlamadı" alarmına yol açabiliyordu. TCP kontrolü istek üretmeden portun
+  dinlediğini doğrular. Açılışta etkin veritabanı ve ilk yönetici komutu da yazılır.
   `.env.example` da "olduğu gibi çalışır" hâle getirildi (varsayılan
   `EMAIL_PROVIDER=smtp` + `SMTP_HOST=127.0.0.1` + `SMTP_PORT=1025`): resend
   seçiliyken anahtar boşsa uygulama bilinçli olarak başlamıyordu.
@@ -181,14 +190,14 @@ Denetim "sadece mutlu yol" değil, aşağıdaki katmanların tamamını kapsadı
 Sistemin ilkesi: **"tahmin yürütmek yasaktır."** Denetimde bu ilkeyi delen
 noktalar bulundu ve düzeltildi.
 
-| # | Belirti | Kök neden | Düzeltme | Test |
-| - | ------- | --------- | -------- | ---- |
-| 1 | İlan kartlarında **"NaN Ekim 2026"** | `formatDateOnly` tam ISO damgasını da `split('-')` ile parçalıyordu | Gün gösterimi İstanbul saatine göre; iki biçim de desteklenir | `audit-fixes` |
-| 2 | İlanda yazmayan saat ("00:00") gösteriliyordu | Çıkarım saati bilinmeyen tarihte 00:00 yazar; arayüz bunu saat sanıyordu | `formatDateMaybeTime`: 00:00 ise yalnızca gün yazılır | `audit-fixes` |
-| 3 | Son başvuru **günü bugün** olan ilan gece yarısından sonra "Kapandı" oluyordu | 00:00 damgası kesin saat sanılıp kapanış sayılıyordu | Kapanış yalnızca saat metinde açıkça yazılıysa; gün bitene kadar açık | `audit-fixes` |
-| 4 | "7 gün içinde kapananlar" ve `/api/jobs/deadlines/upcoming` penceresi 00:00-03:00 arası bir gün kayabiliyordu | Pencere UTC günüyle (`toISOString().slice(0,10)`) hesaplanıyordu | Pencere Türkiye gününe göre (`toIstanbulDateOnly`) | `filters` / canlı koşum |
-| 5 | Takvim (.ics) yanlış saate kuruluyordu | 00:00 damgası gerçek saat sanılıyordu | Saat yazılıysa 30 dakikalık etkinlik, değilse tüm gün | `candidate-features` |
-| 6 | Bitiş tarihi olmayan ilan için durum Türkçe `'bilinmiyor'` dönüyordu | Kanonik sözlüğe uymayan değer | `unknown` | `serializers` |
+| #   | Belirti                                                                                                       | Kök neden                                                                | Düzeltme                                                              | Test                    |
+| --- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------- | ----------------------- |
+| 1   | İlan kartlarında **"NaN Ekim 2026"**                                                                          | `formatDateOnly` tam ISO damgasını da `split('-')` ile parçalıyordu      | Gün gösterimi İstanbul saatine göre; iki biçim de desteklenir         | `audit-fixes`           |
+| 2   | İlanda yazmayan saat ("00:00") gösteriliyordu                                                                 | Çıkarım saati bilinmeyen tarihte 00:00 yazar; arayüz bunu saat sanıyordu | `formatDateMaybeTime`: 00:00 ise yalnızca gün yazılır                 | `audit-fixes`           |
+| 3   | Son başvuru **günü bugün** olan ilan gece yarısından sonra "Kapandı" oluyordu                                 | 00:00 damgası kesin saat sanılıp kapanış sayılıyordu                     | Kapanış yalnızca saat metinde açıkça yazılıysa; gün bitene kadar açık | `audit-fixes`           |
+| 4   | "7 gün içinde kapananlar" ve `/api/jobs/deadlines/upcoming` penceresi 00:00-03:00 arası bir gün kayabiliyordu | Pencere UTC günüyle (`toISOString().slice(0,10)`) hesaplanıyordu         | Pencere Türkiye gününe göre (`toIstanbulDateOnly`)                    | `filters` / canlı koşum |
+| 5   | Takvim (.ics) yanlış saate kuruluyordu                                                                        | 00:00 damgası gerçek saat sanılıyordu                                    | Saat yazılıysa 30 dakikalık etkinlik, değilse tüm gün                 | `candidate-features`    |
+| 6   | Bitiş tarihi olmayan ilan için durum Türkçe `'bilinmiyor'` dönüyordu                                          | Kanonik sözlüğe uymayan değer                                            | `unknown`                                                             | `serializers`           |
 
 Arayüz tarafında son başvuru bilgisi artık **her koşulda** gösterilir:
 saat varsa saat, yoksa gün (`JobDetail` bilgi tablosu ve ana sayfadaki
@@ -325,14 +334,14 @@ bağlantıları gerçek rotalara çözülüyor; ikon kümesi tutarlı (52 tanım
 
 ## 8. Arayüz ve kullanılabilirlik (teslimat 2)
 
-| # | Bulgu | Etki | Düzeltme |
-| - | ----- | ---- | -------- |
-| 1 | Mobil menüdeki bilgi bağlantıları `<a href>` | Tam sayfa yeniden yükleme; akış/oturum kesintisi | `Link` ile SPA içi gezinme |
-| 2 | Panel çıkışı ham `api.post` çağrısıydı, hata sessizce yutuluyordu | Kullanıcı çıkışın olup olmadığını anlamıyordu | Ortak `logout()` akışı; hata görünür |
-| 3 | Yönetim → İnceleme'de aday ilan bağlantısı düz `<a href>` idi | Tam sayfa yenileme, URL kaçışı yok | `Link` + `encodeURIComponent` |
-| 4 | Ana sayfadaki "son gün" etiketi yalnızca `applicationEndAt` kullanıyordu | Saati olmayan ilanlar "belirtilmemiş" görünüyordu | Gün alanına düşülür |
-| 5 | İlan detayında başvuru başlangıcı/bitişi 00:00 gösteriyordu | Uydurma saat | `formatDateMaybeTime` |
-| 6 | Panel eğitim kutucukları ve filtre "Lise" seçeneği | 400 hatası / sessiz 0 sonuç | Kanonik liste (bkz. 4.3) |
+| #   | Bulgu                                                                    | Etki                                              | Düzeltme                             |
+| --- | ------------------------------------------------------------------------ | ------------------------------------------------- | ------------------------------------ |
+| 1   | Mobil menüdeki bilgi bağlantıları `<a href>`                             | Tam sayfa yeniden yükleme; akış/oturum kesintisi  | `Link` ile SPA içi gezinme           |
+| 2   | Panel çıkışı ham `api.post` çağrısıydı, hata sessizce yutuluyordu        | Kullanıcı çıkışın olup olmadığını anlamıyordu     | Ortak `logout()` akışı; hata görünür |
+| 3   | Yönetim → İnceleme'de aday ilan bağlantısı düz `<a href>` idi            | Tam sayfa yenileme, URL kaçışı yok                | `Link` + `encodeURIComponent`        |
+| 4   | Ana sayfadaki "son gün" etiketi yalnızca `applicationEndAt` kullanıyordu | Saati olmayan ilanlar "belirtilmemiş" görünüyordu | Gün alanına düşülür                  |
+| 5   | İlan detayında başvuru başlangıcı/bitişi 00:00 gösteriyordu              | Uydurma saat                                      | `formatDateMaybeTime`                |
+| 6   | Panel eğitim kutucukları ve filtre "Lise" seçeneği                       | 400 hatası / sessiz 0 sonuç                       | Kanonik liste (bkz. 4.3)             |
 
 Ek olarak, arayüzün "hazır görünümler" düğmeleri (Tümü / Açık ilanlar /
 7 gün içinde kapananlar / En yeni) artık Türkiye gününe göre hesap yapıyor;
@@ -385,12 +394,12 @@ güvenlik açığı değildir:
 
 ### 11.1 Otomatik testler ve statik denetim
 
-| Komut | Sonuç |
-| ----- | ----- |
-| `npx tsc --noEmit` | temiz |
-| `npx eslint .` | temiz |
-| `npm run build` | başarılı (`dist/` üretildi) |
-| `npx vitest run` | **28 dosya / 273 test yeşil** |
+| Komut                | Sonuç                                                    |
+| -------------------- | -------------------------------------------------------- |
+| `npx tsc --noEmit`   | temiz                                                    |
+| `npx eslint .`       | temiz                                                    |
+| `npm run build`      | başarılı (`dist/` üretildi)                              |
+| `npx vitest run`     | **28 dosya / 273 test yeşil**                            |
 | `npm run db:migrate` | 44 indeks, 27 kaynak, 3 ilan için arama metni tamamlandı |
 
 ### 11.2 Canlı uçtan uca koşum (API 3000 · Vite 5173 · SMTP 1025 · görüntüleyici 1080)
@@ -472,10 +481,10 @@ kalan maddeler yalnızca düşük öncelikli ve yukarıda açıkça listelendi.
 
 ## 14. Dördüncü tur — sıfırdan tam sistem taraması (13.10.2026, gece)
 
-Kullanıcı isteği: *"Hiçbir şey bilmiyormuşsun gibi baştan sona eksiksiz olarak tüm
+Kullanıcı isteği: _"Hiçbir şey bilmiyormuşsun gibi baştan sona eksiksiz olarak tüm
 sistemi baştan sona tara. Bir bug, bir eksiklik varsa, UX düzeyinde kullanıcının
 işini zorlaştıran bir durum varsa baştan sona eksiksiz düzelt. Bug veya güvenlik
-açığı olmamalı. Ardından PR aç, merge et."*
+açığı olmamalı. Ardından PR aç, merge et."_
 
 Bu turda hiçbir şey önceki turların bilgisi sayılmadı: katmanlar tek tek yeniden
 okundu, iki canlı uçtan uca koşum yazıldı, arayüzde "sessiz başarısızlık" kalıp
@@ -484,18 +493,18 @@ indirilmesi** (bkz. §14.2.1) tamamlandı.
 
 ### 14.1 Bulunan ve kapatılan gerçek hatalar
 
-| # | Belirti (kullanıcının gördüğü) | Kök neden | Düzeltme |
-| - | ------------------------------ | --------- | -------- |
-| 1 | Aynı ilan türü arayüzde **"Kamu işçisi"**, bildirim e-postasında **"Kamu işçisi (İŞKUR)"**, API'de üçüncü bir metin olarak görünüyordu | Etiket sözlükleri **dört ayrı dosyada** kopyalanmıştı (`domain/types.ts`, `lib/format.ts`, `notifications/matcher.ts`, `email/templates.ts`) ve zamanla ayrışmıştı | Etiketlerin tek kaynağı `src/domain/types.ts` yapıldı; diğer üç dosya oradan içe alıyor. Yeni `educationLabel/employmentTypeLabel/jobStatusLabel/sourceStatusLabel` yardımcıları eklendi |
-| 2 | "Kaynaklar" sayfasında aynı durum bilgisi **iki kez** yazılıydı; "Çalıştığı kanıtlanan" ifadesi API'nin döndürdüğü "Gerçek veriyle doğrulanan" durumundan farklıydı | §1'deki etiket ayrışmasının görsel sonucu + elle yazılmış ikinci satır | Yinelenen satır kaldırıldı, kart etiketi kanonik metne bağlandı; `Home` durum şeridi ve E2E seçicileri aynı metne güncellendi |
-| 3 | İlan kaydetme başarısız olduğunda buton **hiçbir şey söylemiyordu** (sessiz hata) | `SaveJobButton` mutasyonunda `onError` yoktu | Hata metni `Kaydedilemedi: …` olarak `aria-live` bölgesinde gösteriliyor; bekleme durumunda "Kaydediliyor…" yazıyor |
-| 4 | Yönetim panelinde inceleme kararı verilemediğinde ekran **boş kalıyordu** | `ReviewTab.decide` mutasyonunda `onError` yoktu | `Karar kaydedilemedi: …` uyarısı + "Kapat" düğmesi; `ErrorNotice` bileşenine `retryLabel` desteği eklendi |
-| 5 | "Ölü e-posta işini yeniden kuyruğa al" düğmesi başarısız olursa sessizdi | `OutboxTab.requeue` mutasyonunda `onError` yoktu | Başarı/hata mesajı sekmenin üstünde gösteriliyor (hata tonu kırmızı) |
-| 6 | Yönetim panelinin 5 sekmesinde sorgu hatası **sessizce boş ekran** bırakıyordu | `query.isError` dalı yoktu | Beş sekmede `ErrorNotice` + "Yeniden dene"; kaynaklar sekmesine `Spinner` + hata dalı eklendi |
-| 7 | Bildirim geçmişi isteği başarısız olursa panel sessizdi | `history.isError` ele alınmamıştı | Panel geçmişi bölümüne hata dalı + yeniden deneme eklendi |
-| 8 | Bilgi sayfalarında "Ana içeriğe atla" bağlantısı ve rota değişimi odağı **çalışmıyordu** | `InfoPageShell` içindeki `<main id="main">` odaklanabilir değildi (`tabIndex` yok) | `tabIndex={-1}` eklendi; klavye/ekran okuyucu odağı artık taşınıyor |
-| 9 | İlan listesi ve vekil (proxy) kontrolleri, tarayıcı **kabul başlığı olmadan** yapıldığında 404 dönüyordu (testlerde yanlış negatif üretiyordu) | SPA yedeği yalnızca `Accept: text/html` isteklerinde devreye girer (Vite sözleşmesi) | Davranış doğru; doğrulama betiği tarayıcı gibi `Accept: text/html` gönderecek biçimde düzeltildi |
-| 10 | `package-lock.json` kök bağımlılıklarında `package.json`'da bulunmayan `playwright` satırı duruyordu | Geçmiş `npm install` artığı | `npm install` satırı temizledi; kilit artık `package.json` ile birebir uyumlu |
+| #   | Belirti (kullanıcının gördüğü)                                                                                                                                      | Kök neden                                                                                                                                                          | Düzeltme                                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Aynı ilan türü arayüzde **"Kamu işçisi"**, bildirim e-postasında **"Kamu işçisi (İŞKUR)"**, API'de üçüncü bir metin olarak görünüyordu                              | Etiket sözlükleri **dört ayrı dosyada** kopyalanmıştı (`domain/types.ts`, `lib/format.ts`, `notifications/matcher.ts`, `email/templates.ts`) ve zamanla ayrışmıştı | Etiketlerin tek kaynağı `src/domain/types.ts` yapıldı; diğer üç dosya oradan içe alıyor. Yeni `educationLabel/employmentTypeLabel/jobStatusLabel/sourceStatusLabel` yardımcıları eklendi |
+| 2   | "Kaynaklar" sayfasında aynı durum bilgisi **iki kez** yazılıydı; "Çalıştığı kanıtlanan" ifadesi API'nin döndürdüğü "Gerçek veriyle doğrulanan" durumundan farklıydı | §1'deki etiket ayrışmasının görsel sonucu + elle yazılmış ikinci satır                                                                                             | Yinelenen satır kaldırıldı, kart etiketi kanonik metne bağlandı; `Home` durum şeridi ve E2E seçicileri aynı metne güncellendi                                                            |
+| 3   | İlan kaydetme başarısız olduğunda buton **hiçbir şey söylemiyordu** (sessiz hata)                                                                                   | `SaveJobButton` mutasyonunda `onError` yoktu                                                                                                                       | Hata metni `Kaydedilemedi: …` olarak `aria-live` bölgesinde gösteriliyor; bekleme durumunda "Kaydediliyor…" yazıyor                                                                      |
+| 4   | Yönetim panelinde inceleme kararı verilemediğinde ekran **boş kalıyordu**                                                                                           | `ReviewTab.decide` mutasyonunda `onError` yoktu                                                                                                                    | `Karar kaydedilemedi: …` uyarısı + "Kapat" düğmesi; `ErrorNotice` bileşenine `retryLabel` desteği eklendi                                                                                |
+| 5   | "Ölü e-posta işini yeniden kuyruğa al" düğmesi başarısız olursa sessizdi                                                                                            | `OutboxTab.requeue` mutasyonunda `onError` yoktu                                                                                                                   | Başarı/hata mesajı sekmenin üstünde gösteriliyor (hata tonu kırmızı)                                                                                                                     |
+| 6   | Yönetim panelinin 5 sekmesinde sorgu hatası **sessizce boş ekran** bırakıyordu                                                                                      | `query.isError` dalı yoktu                                                                                                                                         | Beş sekmede `ErrorNotice` + "Yeniden dene"; kaynaklar sekmesine `Spinner` + hata dalı eklendi                                                                                            |
+| 7   | Bildirim geçmişi isteği başarısız olursa panel sessizdi                                                                                                             | `history.isError` ele alınmamıştı                                                                                                                                  | Panel geçmişi bölümüne hata dalı + yeniden deneme eklendi                                                                                                                                |
+| 8   | Bilgi sayfalarında "Ana içeriğe atla" bağlantısı ve rota değişimi odağı **çalışmıyordu**                                                                            | `InfoPageShell` içindeki `<main id="main">` odaklanabilir değildi (`tabIndex` yok)                                                                                 | `tabIndex={-1}` eklendi; klavye/ekran okuyucu odağı artık taşınıyor                                                                                                                      |
+| 9   | İlan listesi ve vekil (proxy) kontrolleri, tarayıcı **kabul başlığı olmadan** yapıldığında 404 dönüyordu (testlerde yanlış negatif üretiyordu)                      | SPA yedeği yalnızca `Accept: text/html` isteklerinde devreye girer (Vite sözleşmesi)                                                                               | Davranış doğru; doğrulama betiği tarayıcı gibi `Accept: text/html` gönderecek biçimde düzeltildi                                                                                         |
+| 10  | `package-lock.json` kök bağımlılıklarında `package.json`'da bulunmayan `playwright` satırı duruyordu                                                                | Geçmiş `npm install` artığı                                                                                                                                        | `npm install` satırı temizledi; kilit artık `package.json` ile birebir uyumlu                                                                                                            |
 
 ### 14.2 Güvenlik incelemesi (bu turda yeniden yapıldı)
 
@@ -557,18 +566,18 @@ SPA yolları (`/`, `/giris`, bilinmeyen yol → `index.html`), Vite vekili
 
 ### 14.5 Statik ve otomatik doğrulamalar (bu turda yeniden koşuldu)
 
-| Denetim | Sonuç |
-| ------- | ----- |
-| `npx tsc --noEmit` | temiz |
-| `npx eslint .` | temiz |
-| `npx vitest run` | **29 dosya / 276 test yeşil** (yeni: `tests/admin-feedback.test.tsx`) |
-| `npm run build` | başarılı (`dist/` yeniden üretildi) |
-| `npm run env:check` | kullanılabilir (yalnızca beklenen `ADMIN_EMAIL` bilgisi) |
-| `npm run sources:report` | 27 kaynak · 23 etkin · 23 doğrulanmış · 0 başarısız · 0 bayat |
-| Ortam değişkeni paritesi | `src/config/env.ts` 59 anahtar = `.env.example` 59 anahtar · **eksik/fazla yok** |
-| Uç paritesi | Arayüzdeki 41 `api.*` çağrısının tamamı sunucudaki 47 rotadan biriyle eşleşiyor · **eşleşmeyen yok** |
-| Belge bağlantıları ve komutlar | `docs/*.md` + `README.md` içindeki tüm `npm run …` komutları ve yerel bağlantılar geçerli · **kırık yok** |
-| TODO/FIXME/HACK ve `console.log` | `src/` altında yok |
+| Denetim                          | Sonuç                                                                                                     |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`               | temiz                                                                                                     |
+| `npx eslint .`                   | temiz                                                                                                     |
+| `npx vitest run`                 | **29 dosya / 276 test yeşil** (yeni: `tests/admin-feedback.test.tsx`)                                     |
+| `npm run build`                  | başarılı (`dist/` yeniden üretildi)                                                                       |
+| `npm run env:check`              | kullanılabilir (yalnızca beklenen `ADMIN_EMAIL` bilgisi)                                                  |
+| `npm run sources:report`         | 27 kaynak · 23 etkin · 23 doğrulanmış · 0 başarısız · 0 bayat                                             |
+| Ortam değişkeni paritesi         | `src/config/env.ts` 59 anahtar = `.env.example` 59 anahtar · **eksik/fazla yok**                          |
+| Uç paritesi                      | Arayüzdeki 41 `api.*` çağrısının tamamı sunucudaki 47 rotadan biriyle eşleşiyor · **eşleşmeyen yok**      |
+| Belge bağlantıları ve komutlar   | `docs/*.md` + `README.md` içindeki tüm `npm run …` komutları ve yerel bağlantılar geçerli · **kırık yok** |
+| TODO/FIXME/HACK ve `console.log` | `src/` altında yok                                                                                        |
 
 ### 14.6 Bu turda değişen dosyalar
 
@@ -594,15 +603,15 @@ SPA yolları (`/`, `/giris`, bilinmeyen yol → `index.html`), Vite vekili
 Bu bölümdeki turların tamamı tek bir dalda toplandı, CI ile doğrulandı ve
 kullanıcının açık talebi üzerine `main`'e **birleştirildi**:
 
-| Adım | Kayıt |
-| ---- | ----- |
-| Dal | `arena/320a7d65-kamuradar` |
-| PR | **#7** — "Sıfırdan tam tarama: etiketler tek kaynakta, sessiz hatalar kapatıldı, giriş/oturum ve denetim düzeltmeleri" → `main` |
-| PR başlık commit'i | `27f77a8` |
-| CI (PR commit'i) | koşum `38446889590` ✅ ve `38446927394` ✅ (`verify` yeşil) |
-| Birleştirme | `--merge` (merge commit) · birleştirme anı: 13.10.2026 18:29 UTC |
-| Merge commit | **`a87d7fb`** — `Merge pull request #7 from kaaradumaann-psi/arena/320a7d65-kamuradar` |
-| CI (main, merge sonrası) | koşum `38447202184` ✅ (`verify` 1 dk 38 sn) |
+| Adım                     | Kayıt                                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Dal                      | `arena/320a7d65-kamuradar`                                                                                                      |
+| PR                       | **#7** — "Sıfırdan tam tarama: etiketler tek kaynakta, sessiz hatalar kapatıldı, giriş/oturum ve denetim düzeltmeleri" → `main` |
+| PR başlık commit'i       | `27f77a8`                                                                                                                       |
+| CI (PR commit'i)         | koşum `38446889590` ✅ ve `38446927394` ✅ (`verify` yeşil)                                                                     |
+| Birleştirme              | `--merge` (merge commit) · birleştirme anı: 13.10.2026 18:29 UTC                                                                |
+| Merge commit             | **`a87d7fb`** — `Merge pull request #7 from kaaradumaann-psi/arena/320a7d65-kamuradar`                                          |
+| CI (main, merge sonrası) | koşum `38447202184` ✅ (`verify` 1 dk 38 sn)                                                                                    |
 
 Bu PR'ın taşıdığı dört turun özeti:
 

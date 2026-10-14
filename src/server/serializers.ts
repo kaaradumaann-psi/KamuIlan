@@ -8,7 +8,7 @@
  *  - E-posta adresleri yalnızca maskeli gösterilir; kullanıcının kendi kaydı hariç.
  */
 import { deadlineState, toIstanbulDateOnly } from '../domain/dates';
-import { maskEmail } from '../domain/text';
+import { makeExcerpt, maskEmail } from '../domain/text';
 import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS } from '../domain/types';
 import type { JobDoc, JobRevisionDoc, JobSourceDoc, ScrapeRunDoc, SourceDoc, UserDoc } from '../db/schemas';
 import type { SourceCoverageEntry } from '../db/repos/sources';
@@ -63,6 +63,13 @@ export interface PublicJobDetail extends PublicJobSummary {
   evidence: JobDoc['evidence'];
   uncertainties: string[];
   firstSeenAt: string;
+  /** Capture metadata only; source body text is never returned by a public serializer. */
+  capturedNotice: {
+    sourceKey: string;
+    sourceName: string | null;
+    characterCount: number;
+    status: 'captured' | 'truncated';
+  } | null;
   sources: {
     sourceKey: string;
     sourceName: string | null;
@@ -73,6 +80,63 @@ export interface PublicJobDetail extends PublicJobSummary {
     lastSeenAt: string;
     active: boolean;
   }[];
+}
+
+const PUBLIC_TEXT_EXCERPT_MAX = 400;
+const MIN_TEXT_LENGTH_FOR_PUBLIC_EXCERPT = PUBLIC_TEXT_EXCERPT_MAX + 100;
+
+/**
+ * Matching/search use a separate bounded, contact-redacted job excerpt; full
+ * source-link capture bodies are not retained. Public pages get at most a
+ * short excerpt, and none if it could reproduce a short source notice in full.
+ */
+function publicTextExcerpt(value: string): string {
+  // Sanitize before checking the minimum length, including legacy stored records.
+  const clean = makeExcerpt(value, Number.MAX_SAFE_INTEGER);
+  if (clean.length < MIN_TEXT_LENGTH_FOR_PUBLIC_EXCERPT) return '';
+  return makeExcerpt(clean, PUBLIC_TEXT_EXCERPT_MAX);
+}
+
+/** A provenance snippet may repeat text already in the public excerpt, but may not extend it. */
+function publicSnippet(job: JobDoc, value: string): string | null {
+  const visibleExcerpt = publicTextExcerpt(job.textExcerpt);
+  const visibleBody = visibleExcerpt.endsWith('…') ? visibleExcerpt.slice(0, -1) : visibleExcerpt;
+  const cleanSnippet = makeExcerpt(value, Number.MAX_SAFE_INTEGER);
+  if (!visibleBody || !cleanSnippet || !visibleBody.includes(cleanSnippet)) return null;
+  return makeExcerpt(cleanSnippet, 200);
+}
+
+function publicFieldSources(job: JobDoc): JobDoc['fieldSources'] {
+  return Object.fromEntries(
+    Object.entries(job.fieldSources ?? {}).map(([field, source]) => [
+      field,
+      { kind: source.kind, snippet: source.snippet ? publicSnippet(job, source.snippet) : null },
+    ]),
+  );
+}
+
+function publicEvidence(job: JobDoc): JobDoc['evidence'] {
+  const entries = Object.entries(job.evidence ?? {}).flatMap(([field, evidence]) => {
+    const snippet = publicSnippet(job, evidence);
+    return snippet ? [[field, snippet] as const] : [];
+  });
+  return Object.fromEntries(entries);
+}
+
+function publicRevisionSnapshot(snapshot: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!snapshot || typeof snapshot.textExcerpt !== 'string') return snapshot;
+  return { ...snapshot, textExcerpt: publicTextExcerpt(snapshot.textExcerpt) };
+}
+
+/** Prefer retained metadata; the legacy body fallback exists only for pre-migration rows. */
+function capturedCharacterCount(link: JobSourceDoc): number {
+  const legacy = link as unknown as { capturedText?: unknown; capturedTextCharacterCount?: unknown };
+  const count = legacy.capturedTextCharacterCount;
+  if (typeof count === 'number' && Number.isSafeInteger(count) && count > 0) return count;
+  if (typeof legacy.capturedText === 'string' && legacy.capturedText.length > 0) {
+    return legacy.capturedText.length;
+  }
+  return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : 0;
 }
 
 export function deadlineOf(job: JobDoc, now: Date = new Date()): { state: string; daysLeft: number | null } {
@@ -121,12 +185,23 @@ export function toPublicJobDetail(
   options: { sources: JobSourceDoc[]; sourceNames?: Map<string, string>; now?: Date },
 ): PublicJobDetail {
   const summary = toPublicJobSummary(job, options.now ?? new Date());
+  const capturedSource = options.sources
+    .filter(
+      (link) =>
+        (link.capturedTextStatus === 'captured' || link.capturedTextStatus === 'truncated') &&
+        capturedCharacterCount(link) > 0,
+    )
+    .sort((a, b) => {
+      const aPrimary = a.sourceKey === job.primarySourceKey ? 1 : 0;
+      const bPrimary = b.sourceKey === job.primarySourceKey ? 1 : 0;
+      return bPrimary - aPrimary || capturedCharacterCount(b) - capturedCharacterCount(a);
+    })[0];
   return {
     ...summary,
     applicationUrl: job.applicationUrl,
     applicationMethod: job.applicationMethod ?? null,
     originalRefNo: job.originalRefNo,
-    textExcerpt: job.textExcerpt,
+    textExcerpt: publicTextExcerpt(job.textExcerpt),
     requirements: job.requirements,
     attachments: job.attachments,
     classification: {
@@ -136,11 +211,19 @@ export function toPublicJobDetail(
       reasons: job.classification.reasons,
       version: job.classification.version,
     },
-    fieldSources: job.fieldSources ?? {},
-    evidence: job.evidence ?? {},
+    fieldSources: publicFieldSources(job),
+    evidence: publicEvidence(job),
     uncertainties: job.uncertainties ?? [],
     provenance: job.provenance,
     firstSeenAt: job.firstSeenAt,
+    capturedNotice: capturedSource
+      ? {
+          sourceKey: capturedSource.sourceKey,
+          sourceName: options.sourceNames?.get(capturedSource.sourceKey) ?? null,
+          characterCount: capturedCharacterCount(capturedSource),
+          status: capturedSource.capturedTextStatus as 'captured' | 'truncated',
+        }
+      : null,
     sources: options.sources.map((link) => ({
       sourceKey: link.sourceKey,
       sourceName: options.sourceNames?.get(link.sourceKey) ?? null,
@@ -220,6 +303,8 @@ export function toSourceStatus(source: SourceDoc, lastRun: ScrapeRunDoc | null) 
           itemsFound: lastRun.itemsFound,
           itemsAccepted: lastRun.itemsAccepted,
           result: lastRun.result,
+          coverageStatus: lastRun.coverageStatus ?? 'unknown',
+          coverageNote: lastRun.coverageNote ?? 'Eski tarama kaydı; kapsam bilinmiyor.',
           errors: lastRun.errors,
         }
       : null,
@@ -246,7 +331,18 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
     verificationEvidence: entry.verificationEvidence,
     coverageNote: entry.coverageNote,
     intervalMinutes: entry.intervalMinutes,
-    health: entry.health,
+    health: {
+      lastRunAt: entry.health.lastRunAt,
+      lastSuccessAt: entry.health.lastSuccessAt,
+      consecutiveFailures: entry.health.consecutiveFailures,
+      totalRuns: entry.health.totalRuns,
+      successRuns: entry.health.totalSuccesses,
+      failureRuns: Math.max(0, entry.health.totalRuns - entry.health.totalSuccesses),
+      avgDurationMs: entry.health.avgDurationMs,
+      lastError: entry.health.lastErrorMessage,
+      itemsFound: entry.health.lastDiscoveredCount,
+      emptyStreak: entry.health.emptyStreak,
+    },
     lastRun: entry.lastRun,
   };
 }
@@ -272,6 +368,8 @@ export function toRunSummary(run: ScrapeRunDoc) {
     errorCount: run.errorCount,
     errors: run.errors,
     httpStatuses: run.httpStatuses,
+    coverageStatus: run.coverageStatus ?? 'unknown',
+    coverageNote: run.coverageNote ?? 'Eski tarama kaydı; kapsam bilinmiyor.',
     result: run.result,
     notes: run.notes,
     workerId: run.workerId,
@@ -334,7 +432,7 @@ export function toRevision(revision: JobRevisionDoc) {
     changeTypes: revision.changeTypes,
     changedFields: revision.changedFields,
     summary: revision.summary,
-    previous: revision.previous,
+    previous: publicRevisionSnapshot(revision.previous),
     detectedAt: revision.createdAt,
     sourceKey: revision.sourceKey,
   };

@@ -74,7 +74,12 @@ async function seedSource(repos: Repos): Promise<SourceDoc> {
   return source;
 }
 
-function fakeAdapter(items: RawAnnouncement[], notes: string[] = []): SourceAdapter {
+function fakeAdapter(
+  items: RawAnnouncement[],
+  notes: string[] = [],
+  notModified = false,
+  coverage?: AdapterRunResult['coverage'],
+): SourceAdapter {
   return {
     key: 'test-liste',
     label: 'Test listesi',
@@ -86,8 +91,9 @@ function fakeAdapter(items: RawAnnouncement[], notes: string[] = []): SourceAdap
       notes,
       etag: null,
       lastModified: null,
-      notModified: false,
-      httpStatuses: [200],
+      notModified,
+      httpStatuses: [notModified ? 304 : 200],
+      ...(coverage ? { coverage } : {}),
     }),
   };
 }
@@ -142,6 +148,35 @@ describe('kabul hattı — kayıt ve sürümleme', () => {
     const links = await repos.jobs.listSourceLinks(job?.id ?? '');
     expect(links).toHaveLength(1);
     expect(links[0]?.sourceItemId).toBe('ORNEK-2026-0001');
+  });
+
+  it('contact details are redacted from stored excerpts and captured source text', async () => {
+    const repos = await makeRepos();
+    const privateEmail = 'privacy-ingest@example.gov.tr';
+    const privatePhone = '+90 (312) 555-12-34';
+    const fixture = sozlesmeliPersonelIlani();
+    const outcome = await apply(repos, {
+      ...fixture,
+      bodyText: `${fixture.bodyText ?? ''}\nİletişim: ${privateEmail} ${privatePhone}`,
+      bodyTextSource: 'detail',
+    });
+    expect(outcome.action).toBe('created');
+
+    const job = await repos.jobs.findById(outcome.jobId as string);
+    const links = await repos.jobs.listSourceLinks(outcome.jobId as string);
+    expect(job).toBeTruthy();
+    expect(links).toHaveLength(1);
+    const storedText = job?.textExcerpt ?? '';
+    expect(storedText).not.toContain(privateEmail);
+    expect(storedText).not.toContain(privatePhone);
+    expect(storedText).toContain('[e-posta gizlendi]');
+    expect(storedText).toContain('[telefon gizlendi]');
+    const sourceLink = links[0] as unknown as Record<string, unknown>;
+    expect(sourceLink).not.toHaveProperty('capturedText');
+    expect(sourceLink).not.toHaveProperty('rawExcerpt');
+    expect(sourceLink).not.toHaveProperty('rawContentHash');
+    expect(links[0]?.capturedTextCharacterCount).toBeGreaterThan(0);
+    expect(links[0]?.capturedTextStatus).toBe('captured');
   });
 
   it('ihale ve sonuç duyurularını reddeder, ilan oluşturmaz', async () => {
@@ -273,6 +308,7 @@ describe('bildirim olayları', () => {
       emailVerified: options.verified,
     });
     await repos.notifications.upsertPreference(user.id, {
+      enabled: true,
       paused: options.paused ?? false,
       onlyNewJobs: false,
       filters: { titles: options.titles ?? [] },
@@ -352,7 +388,7 @@ describe('tarama hattı', () => {
       passwordSalt: 'test-salt-value',
       emailVerified: true,
     });
-    await repos.notifications.upsertPreference(user.id, { filters: {} });
+    await repos.notifications.upsertPreference(user.id, { enabled: true, filters: {} });
 
     const result = await runSourceScrape({
       repos,
@@ -378,6 +414,115 @@ describe('tarama hattı', () => {
     expect(refreshed?.health.consecutiveFailures).toBe(0);
     expect(refreshed?.health.lastSuccessAt).toBe(NOW.toISOString());
     expect(await repos.outbox.list({}, 10)).toHaveLength(1);
+  });
+
+  it('unknown kapsamı başarıya tamlık kanıtı olarak yükseltmez, bilinen eksikleri partial saklar', async () => {
+    const repos = await makeRepos();
+    const source = await seedSource(repos);
+
+    const unknown = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'manual',
+      workerId: WORKER,
+      adapter: fakeAdapter([], ['son sayfa işareti yok'], false, {
+        status: 'unknown',
+        note: 'Son sayfa işareti yok; tamlık bilinmiyor.',
+      }),
+      logger: createLogger('test', { level: 'silent' }),
+    });
+    expect(unknown.status).toBe('success');
+    expect(unknown.coverageStatus).toBe('unknown');
+    expect(unknown.coverageNote).toContain('tamlık bilinmiyor');
+    expect((await repos.runs.lastRun(source.key))?.coverageStatus).toBe('unknown');
+
+    const partial = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'manual',
+      workerId: WORKER,
+      adapter: fakeAdapter([], ['ikinci sayfa alınamadı'], false, {
+        status: 'partial',
+        note: 'Bilinen sayfa hatası; önceki sayfalar işlendi.',
+      }),
+      logger: createLogger('test', { level: 'silent' }),
+    });
+    expect(partial.status).toBe('partial');
+    expect(partial.coverageStatus).toBe('partial');
+    const runs = await repos.runs.list({ sourceKey: source.key }, 10);
+    expect(runs.map((run) => run.coverageStatus)).toContain('unknown');
+    expect(runs.map((run) => run.coverageStatus)).toContain('partial');
+  });
+
+  it('canlı erişim kapalıysa boş sonucu başarılı tarama gibi göstermez', async () => {
+    const repos = await makeRepos();
+    const source = await seedSource(repos);
+
+    const result = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'schedule',
+      workerId: WORKER,
+      liveFetch: false,
+      logger: createLogger('test', { level: 'silent' }),
+    });
+
+    expect(result.status).toBe('skipped');
+    expect(result.errors).toHaveLength(0);
+    expect(result.notes.join(' ')).toContain('SOURCE_LIVE_FETCH=0');
+    const run = await repos.runs.lastRun(source.key);
+    expect(run?.status).toBe('skipped');
+    expect(run?.result).toContain('ilan taraması yapılmadı');
+
+    const refreshed = await repos.sources.getByKey(source.key);
+    expect(refreshed?.health.lastRunAt).toBeNull();
+    expect(refreshed?.health.lastSuccessAt).toBeNull();
+    expect(refreshed?.health.totalRuns).toBe(0);
+
+    const summary = await repos.runs.summary();
+    expect(summary.success).toBe(0);
+    expect(summary.skipped).toBe(1);
+    expect(summary.lastSuccessAt).toBeNull();
+    expect((await repos.sources.coverage()).summary.stale).toBe(1);
+  });
+
+  it('HTTP 304 içerik değiştirmese de başarılı kontrol sayılır ve önbellek korunur', async () => {
+    const repos = await makeRepos();
+    const source = await seedSource(repos);
+    const previousSuccessAt = new Date(NOW.getTime() - 60 * 60_000).toISOString();
+    await repos.sources.recordHealth(source.key, {
+      lastRunAt: previousSuccessAt,
+      success: true,
+      durationMs: 400,
+      discoveredCount: 2,
+      acceptedCount: 1,
+      etag: '"ilanlar-v1"',
+      lastModified: 'Mon, 12 Oct 2026 06:00:00 GMT',
+      contentHash: 'previous-content-hash',
+    });
+
+    const result = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'schedule',
+      workerId: WORKER,
+      liveFetch: false,
+      adapter: fakeAdapter([], ['HTTP 304'], true),
+      logger: createLogger('test', { level: 'silent' }),
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.itemsFound).toBe(0);
+    const run = await repos.runs.lastRun(source.key);
+    expect(run?.status).toBe('success');
+    expect(run?.result).toContain('değişmemiş');
+
+    const refreshed = await repos.sources.getByKey(source.key);
+    expect(refreshed?.health.lastSuccessAt).toBe(NOW.toISOString());
+    expect(refreshed?.health.lastContentHash).toBe('previous-content-hash');
+    expect(refreshed?.health.etag).toBe('"ilanlar-v1"');
+    expect(refreshed?.health.lastModified).toBe('Mon, 12 Oct 2026 06:00:00 GMT');
+    expect(refreshed?.health.emptyStreak).toBe(0);
   });
 
   it('aynı kaynağı eşzamanlı iki kez taramaz (kilit)', async () => {
@@ -413,7 +558,10 @@ describe('tarama hattı', () => {
       method: 'html-list',
       notes: 'Testlerde kullanılan hatalı adaptör; kaynak yapısı değişimini taklit eder.',
       run: async () => {
-        throw new AdapterStructureError('test-liste', 'Beklenen ilan tablosu bulunamadı; sayfa yapısı değişmiş olabilir.');
+        throw new AdapterStructureError(
+          'test-liste',
+          'Beklenen ilan tablosu bulunamadı; sayfa yapısı değişmiş olabilir.',
+        );
       },
     };
 

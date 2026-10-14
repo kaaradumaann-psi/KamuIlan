@@ -96,7 +96,12 @@ export class JobRepo {
     const limit = params.limit ?? 40;
     const byInstitution = await this.store.find(
       'jobs',
-      { institutionNormalized: { $regex: escapeRegExp(params.institutionNormalized.slice(0, 24)), $regexFlags: 'i' } },
+      {
+        institutionNormalized: {
+          $regex: escapeRegExp(params.institutionNormalized.slice(0, 24)),
+          $regexFlags: 'i',
+        },
+      },
       { limit, sort: [['createdAt', -1]] },
     );
     const byTitle = await this.store.find(
@@ -140,7 +145,17 @@ export class JobRepo {
 
   async touchSourceLink(
     linkId: string,
-    patch: { lastSeenAt: string; title?: string; active?: boolean },
+    patch: Partial<
+      Pick<
+        JobSourceDoc,
+        | 'lastSeenAt'
+        | 'title'
+        | 'active'
+        | 'capturedTextCharacterCount'
+        | 'capturedTextStatus'
+        | 'attachments'
+      >
+    >,
   ): Promise<void> {
     await this.store.updateOne('jobSources', { id: linkId }, patch);
   }

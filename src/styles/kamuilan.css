@@ -15,6 +15,12 @@
      workspace.css içindeki klinik token adları ortak palete eşlenir; böylece
      kenar çubuğu, gün panosu ve etkileşim katmanı aynen çalışır.
      --------------------------------------------------------------------- */
+  /* Kayıtlar yüklenince dikey scrollbar'ın belirmesi içerik sütunlarını yana
+     itmesin; taşan ilan tabloları ise kendi kaydırma kapsayıcısında kalır. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
   :root {
     --canvas: #ffffff;
     --paper: #ffffff;
@@ -197,10 +203,12 @@
      --------------------------------------------------------------------- */
   .job-list {
     display: grid;
+    min-width: 0;
     gap: 14px;
   }
 
   .job-card {
+    min-width: 0;
     border: 1px solid var(--hairline);
     border-left: 3px solid var(--accent);
     border-radius: 14px;
@@ -223,6 +231,8 @@
   }
 
   .job-card-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
     margin: 0;
     font-size: 16px;
     font-weight: 650;
@@ -242,6 +252,8 @@
   }
 
   .job-card-institution {
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: var(--soft);
     font-size: 12.5px;
     font-weight: 600;
@@ -927,10 +939,31 @@
     font-family: inherit;
   }
 
-  .search-input-wrap input,
   .search-input-wrapper input,
-  .form-group .search-input-wrap input {
+  .form-group .search-input-wrap > input[type='search'] {
     padding-left: 38px;
+  }
+
+  /* Spinner bileşeninde dönen halka yalnızca iç .spinner öğesidir. */
+  .spinner-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    animation: none;
+    color: var(--soft);
+  }
+
+  .spinner-inline .spinner {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    flex: 0 0 14px;
+    border-width: 2px;
   }
 
   .input:focus,
@@ -1128,6 +1161,7 @@
     font-size: 13px;
     line-height: 1.65;
     color: var(--soft);
+    overflow-wrap: anywhere;
   }
 
   /* 16 · Detay başlığı ----------------------------------------------------- */
@@ -1998,12 +2032,76 @@
   }
 }
 
-
 /* --- Dokunmatik kullanım ve dar ekran toplu iyileştirmesi ----------
    Telefonda rahat kullanım: 44 px dokunma hedefleri, kart içinde iki yana
    yayılan eylemlerin tam genişlikte alt alta dizilmesi, durum şeridi ve
    istatistik kartlarının dar ekranda okunaklı kalması. */
+.profile-matching-settings {
+  min-inline-size: 0;
+  padding: 18px;
+  border: 1px solid var(--border, #d9e2ec);
+  border-radius: 14px;
+  background: var(--surface-soft, #f8fafc);
+}
+
+.profile-matching-settings > legend {
+  padding-inline: 6px;
+}
+
+.profile-consent-row {
+  margin-block: 12px;
+  font-weight: 650;
+}
+
+.profile-form-grid {
+  margin-top: 14px;
+}
+
+.profile-save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+
+.profile-match-card {
+  min-width: 0;
+}
+
+.profile-match-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.profile-match-list {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 16px;
+  padding-left: 22px;
+}
+
+.profile-match-list li {
+  overflow-wrap: anywhere;
+}
+
+.profile-match-caveats {
+  color: var(--warning-ink, #854d0e);
+}
+
 @media (max-width: 620px) {
+  .profile-matching-settings {
+    padding: 14px 12px;
+  }
+
+  .profile-match-summary {
+    align-items: flex-start;
+  }
+
   .btn-sm {
     min-height: 40px;
   }

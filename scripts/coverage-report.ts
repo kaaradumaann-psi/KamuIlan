@@ -56,14 +56,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  const adapterCount = coverage.sources.filter((entry) => entry.built).length;
   console.log(`\nKamuİlan kaynak kapsamı — ${toIstanbulDateOnly(now)}`);
   console.log(
-    `${coverage.summary.total} kayıtlı kaynak (etkin ${coverage.summary.enabled}, canlı doğrulanmış ${coverage.summary.verified}, ` +
-      `adaptörü yazılmış ${coverage.summary.built}), ` +
+    `${coverage.summary.total} kayıtlı kaynak (etkin ${coverage.summary.enabled}, geçmiş canlı doğrulama kaydı bulunan ${coverage.summary.verified}, ` +
+      `adaptörü yazılmış ${adapterCount}, canlı doğrulama bekleyen hazır ${coverage.summary.built}), ` +
       `planlanan ${coverage.summary.planned}, üst üste başarısız ${coverage.summary.failing}, bayat ${coverage.summary.stale}\n`,
   );
 
-  console.log(pad('KAYNAK', 34), pad('DURUM', 16), pad('ETKİN', 6), pad('SON BAŞARI', 20), pad('HATA', 5), 'ARALIK');
+  console.log(
+    pad('KAYNAK', 34),
+    pad('DURUM', 16),
+    pad('ETKİN', 6),
+    pad('SON BAŞARI', 20),
+    pad('HATA', 5),
+    'ARALIK',
+  );
   for (const entry of coverage.sources) {
     console.log(
       pad(entry.key, 34),
@@ -79,7 +87,9 @@ async function main(): Promise<void> {
   console.log('\nDoğrulanmış kaynakların adaptör eşleşmesi:');
   for (const definition of SOURCE_DEFINITIONS.filter((source) => source.status === 'verified')) {
     const adapter = adapters.get(definition.adapterKey);
-    console.log(`  ${adapter ? '✔' : '✖'} ${definition.key} → ${definition.adapterKey}${adapter ? ` (${adapter.method})` : ' (adaptör kayıtlı değil!)'}`);
+    console.log(
+      `  ${adapter ? '✔' : '✖'} ${definition.key} → ${definition.adapterKey}${adapter ? ` (${adapter.method})` : ' (adaptör kayıtlı değil!)'}`,
+    );
   }
 
   console.log('\nPlanlanan (henüz entegre edilmemiş) kaynaklar:');

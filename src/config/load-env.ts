@@ -64,18 +64,22 @@ function hasUnterminatedQuote(line: string): boolean {
 /**
  * Ayrıştırılan değerleri `process.env` içine yazar.
  *
- * @param override `true` ise var olan değerlerin ÜZERİNE yazar. `.env` için
- *   `false` (gerçek ortam önceliklidir), `.env.<NODE_ENV>` için `true`
- *   (daha özel dosya `.env`'i ezer).
+ * @param override `true` ise var olan değerlerin ÜZERİNE yazar.
+ * @param overrideKeys `override` kapalıyken bile üzerine yazılmasına izin verilen
+ *   anahtarlar; özel `.env.<NODE_ENV>` dosyası yalnızca temel `.env` dosyasından
+ *   gelen anahtarları bu yolla ezer, gerçek ortam değerlerine dokunmaz.
  * @returns Yazılan anahtarlar.
  */
 export function applyEnvValues(
   values: Record<string, string>,
-  { override = false }: { override?: boolean } = {},
+  {
+    override = false,
+    overrideKeys = new Set<string>(),
+  }: { override?: boolean; overrideKeys?: ReadonlySet<string> } = {},
 ): string[] {
   const written: string[] = [];
   for (const [key, value] of Object.entries(values)) {
-    if (!override && process.env[key] !== undefined) continue;
+    if (!override && process.env[key] !== undefined && !overrideKeys.has(key)) continue;
     process.env[key] = value;
     written.push(key);
   }
@@ -135,6 +139,7 @@ export function loadEnvFile(cwd: string = process.cwd()): string | null {
     candidates.push({ path: resolve(cwd, `${ENV_FILE}.${nodeEnv}`), override: true });
   }
 
+  const keysWrittenByBaseFile = new Set<string>();
   for (const candidate of candidates) {
     if (!existsSync(candidate.path)) continue;
     let contents: string;
@@ -143,7 +148,13 @@ export function loadEnvFile(cwd: string = process.cwd()): string | null {
     } catch {
       continue;
     }
-    applyEnvValues(parseEnvFile(contents), { override: candidate.override });
+    const values = parseEnvFile(contents);
+    const written = candidate.override
+      ? applyEnvValues(values, { overrideKeys: keysWrittenByBaseFile })
+      : applyEnvValues(values);
+    if (!candidate.override) {
+      for (const key of written) keysWrittenByBaseFile.add(key);
+    }
     loadedFrom = candidate.path;
   }
   return loadedFrom;

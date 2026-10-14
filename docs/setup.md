@@ -50,9 +50,13 @@ Geliştirme için çoğu değer boş kalabilir. En az:
   oturumlar çalışır ama başlangıçta uyarı loglanır.
 - `DATA_DIR` — dosya deposu ve geliştirme posta kutusu dizini (öntanımlı `./data`).
 - `SOURCE_LIVE_FETCH=1` — gerçek kaynaklara istek atılmasını sağlar. `0` iken
-  adaptörler ağa çıkmaz (demo/test için).
-- `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: her kaynak dakikada bir
-  taranır. Üretimde `0` (kaynak başına `intervalMinutes`) veya 30–360 önerilir.
+  worker ağa çıkmaz (demo/test için): deneme `skipped` kaydedilir; başarılı tarama
+  zamanı/ilan bulundu sayısı üretilmez ve kaynak erişilmiş gibi gösterilmez.
+- `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: tüm etkin kaynakların
+  zamanlanmış görevi dakikada bir çalışır. `db:migrate` ve worker başlangıcında
+  yeni/mevcut görev aralıkları bu değere eşitlenir. Üretimde `0` (kaynak başına
+  `intervalMinutes`) veya kaynaklara uygun 30–360 önerilir; kaynak hız sınırları
+  (`minRequestIntervalMs`) her durumda korunur.
 - `TRUST_PROXY`, `CORS_ORIGINS`, `DOCS_ENABLED` — güvenlik anahtarları;
   varsayılanları güvenli seçeneklerdir. Yalnızca ters vekil/CORS gerçekten
   gerektiğinde değiştirin:
@@ -103,12 +107,17 @@ npm run dev
 
 Tek komutla dört süreç ayağa kalkar:
 
-| Bileşen                 | Adres                 | Not                                           |
-| ----------------------- | --------------------- | --------------------------------------------- |
-| Arayüz (Vite)           | http://localhost:5173 | `/api` isteklerini API'ye proxy'ler           |
-| API                     | http://localhost:3000 | Dokümanlar: http://localhost:3000/api/docs    |
-| Worker                  | —                     | Tarama + e-posta döngüsü, kalıcı kuyruk       |
+| Bileşen                 | Adres                 | Not                                                    |
+| ----------------------- | --------------------- | ------------------------------------------------------ |
+| Arayüz (Vite)           | http://localhost:5173 | `/api` isteklerini API'ye proxy'ler                    |
+| API                     | http://localhost:3000 | Dokümanlar: http://localhost:3000/api/docs             |
+| Worker                  | —                     | Tarama + e-posta döngüsü, kalıcı kuyruk                |
 | Geliştirme posta kutusu | http://localhost:1080 | SMTP: `127.0.0.1:1025` (`.env`); gerçek e-posta GİTMEZ |
+
+Supabase/PostgreSQL ile ilk açılışta uzak veritabanı hazırlığı zaman alabilir. `npm run dev`,
+worker'ın hafif heartbeat ucunu (`/api/health/worker`) bekler; kaynak/görev eşitlemesi sürerken
+durum `başlatılıyor` görünür. Worker heartbeat'i alınamazsa terminalde ilgili hata ve worker
+sürecinin günlükleri yazılır; yalnızca arayüzün açılmış olması taramanın çalıştığını kanıtlamaz.
 
 Tek tek çalıştırmak isterseniz: `npm run dev:api`, `npm run dev:worker`,
 `npm run dev:web`, `npm run dev:smtp`.
@@ -131,12 +140,12 @@ Betik şifreyi ekrana yazmaz/loglamaz. Var olan kullanıcıyı yöneticiye yüks
 Bu adım, en sık karışan noktadır: **Kamuİlan, Supabase Auth (GoTrue) kullanmaz.**
 Kullanıcılar uygulamanın kendi tablosunda tutulur:
 
-| Ne | Nerede |
-| --- | --- |
-| Kullanıcı kayıtları | `kamuilan_users` tablosu (JSONB belge; `driver` neyse orada) |
-| Parolalar | `scrypt` özeti + rastgele tuz (düz metin asla yazılmaz) |
-| Oturumlar / jetonlar | `kamuilan_sessions`, `kamuilan_tokens` |
-| Supabase panelindeki **Authentication → Users** kayıtları | Uygulama tarafından **kullanılmaz** |
+| Ne                                                        | Nerede                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| Kullanıcı kayıtları                                       | `kamuilan_users` tablosu (JSONB belge; `driver` neyse orada) |
+| Parolalar                                                 | `scrypt` özeti + rastgele tuz (düz metin asla yazılmaz)      |
+| Oturumlar / jetonlar                                      | `kamuilan_sessions`, `kamuilan_tokens`                       |
+| Supabase panelindeki **Authentication → Users** kayıtları | Uygulama tarafından **kullanılmaz**                          |
 
 Bu yüzden Supabase panosundan elle kullanıcı eklemek (ya da `auth.users` içine
 kayıt açmak) giriş **yapmaz**: özet biçimi uyuşmadığı için giriş "E-posta veya
@@ -219,18 +228,18 @@ Ayrıntılar: [deployment.md](./deployment.md).
 
 ## Sık karşılaşılan sorunlar
 
-| Belirti                                | Çözüm                                                                                                       |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `EADDRINUSE :5173`                     | Vite `strictPort` kullanır. Eski süreci kapatın veya `PORT` çakışmasını giderin.                            |
-| Arayüz açılıyor, veri gelmiyor         | API çalışmıyor olabilir: `curl http://localhost:3000/api/health`.                                           |
-| `/api/health` durumu `degraded`        | Kaynak uyarıları normaldir (ör. coğrafi kısıtlı kaynak). `warnings` alanını okuyun.                         |
-| E-posta gelmiyor                       | Geliştirmede gerçek gönderim yoktur: http://localhost:1080 posta kutusunu kontrol edin.                     |
-| `PDF okunamadı`                        | PDF bozuk/şifreli olabilir. Kayıt silinmez, inceleme kuyruğuna düşer.                                       |
-| Kariyer Kapısı kaynağı hata veriyor    | Tarayıcı gerekir: `npx playwright install chromium`.                                                        |
-| MongoDB'ye bağlanılmıyor               | `MONGODB_URI` boşsa dosya deposu kullanılır; istenmiyorsa `MONGODB_URI` ayarlayın.                          |
-| Girişte sürekli 401 / "E-posta veya parola hatalı." | Hesap **etkin depoda** yok ya da parola uyuşmuyor. Hangi deponun kullanıldığını giriş ekranındaki kurulum notundan, `curl -s localhost:3000/api/health/config` (`database`) veya `npm run env:check` çıktısından görün. Supabase panosuna elle eklenen kullanıcı GİRİŞ YAPMAZ (Supabase Auth kullanılmaz): `npm run user:create -- --email … --password … --force` kullanın. |
-| Giriş ekranında "Bu işlem için oturum açmanız gerekiyor."  | 401'in tek anlamı "oturum yok" değildir; giriş/parola uçlarında 401 kimlik bilgisinin yanlış olduğunu gösterir ve artık sunucunun kendi mesajı gösterilir. Bu metni görüyorsanız oturum gerektiren bir uca çıkışsız istek gidiyor demektir (`/giris`'e yönlendirilirsiniz). |
-| Davet e-postası 1080'de görünmüyor      | `SMTP_HOST` boşsa e-postalar dosyaya yazılır ve yerel posta sunucusu devre dışı kalır. `.env` içinde `SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025` bırakın (öntanımlı). |
-| `Veritabanına erişilemiyor` (Supabase) | `POSTGRES_URL` havuz (pooler) adresi mi, `POSTGRES_SSL=true` mı, Supabase'de IP kısıtı var mı kontrol edin. |
-| E-posta gönderilmiyor (üretim)         | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar.  |
-| Davet e-postası gelmiyor               | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır.                 |
+| Belirti                                                   | Çözüm                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EADDRINUSE :5173`                                        | Vite `strictPort` kullanır. Eski süreci kapatın veya `PORT` çakışmasını giderin.                                                                                                                                                                                                                                                                                             |
+| Arayüz açılıyor, veri gelmiyor                            | API çalışmıyor olabilir: `curl http://localhost:3000/api/health`.                                                                                                                                                                                                                                                                                                            |
+| `/api/health` durumu `degraded`                           | Kaynak uyarıları normaldir (ör. coğrafi kısıtlı kaynak). `warnings` alanını okuyun.                                                                                                                                                                                                                                                                                          |
+| E-posta gelmiyor                                          | Geliştirmede gerçek gönderim yoktur: http://localhost:1080 posta kutusunu kontrol edin.                                                                                                                                                                                                                                                                                      |
+| `PDF okunamadı`                                           | PDF bozuk/şifreli olabilir. Kayıt silinmez, inceleme kuyruğuna düşer.                                                                                                                                                                                                                                                                                                        |
+| Kariyer Kapısı kaynağı hata veriyor                       | Tarayıcı gerekir: `npx playwright install chromium`.                                                                                                                                                                                                                                                                                                                         |
+| MongoDB'ye bağlanılmıyor                                  | `MONGODB_URI` boşsa dosya deposu kullanılır; istenmiyorsa `MONGODB_URI` ayarlayın.                                                                                                                                                                                                                                                                                           |
+| Girişte sürekli 401 / "E-posta veya parola hatalı."       | Hesap **etkin depoda** yok ya da parola uyuşmuyor. Hangi deponun kullanıldığını giriş ekranındaki kurulum notundan, `curl -s localhost:3000/api/health/config` (`database`) veya `npm run env:check` çıktısından görün. Supabase panosuna elle eklenen kullanıcı GİRİŞ YAPMAZ (Supabase Auth kullanılmaz): `npm run user:create -- --email … --password … --force` kullanın. |
+| Giriş ekranında "Bu işlem için oturum açmanız gerekiyor." | 401'in tek anlamı "oturum yok" değildir; giriş/parola uçlarında 401 kimlik bilgisinin yanlış olduğunu gösterir ve artık sunucunun kendi mesajı gösterilir. Bu metni görüyorsanız oturum gerektiren bir uca çıkışsız istek gidiyor demektir (`/giris`'e yönlendirilirsiniz).                                                                                                  |
+| Davet e-postası 1080'de görünmüyor                        | `SMTP_HOST` boşsa e-postalar dosyaya yazılır ve yerel posta sunucusu devre dışı kalır. `.env` içinde `SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025` bırakın (öntanımlı).                                                                                                                                                                                                            |
+| `Veritabanına erişilemiyor` (Supabase)                    | `POSTGRES_URL` havuz (pooler) adresi mi, `POSTGRES_SSL=true` mı, Supabase'de IP kısıtı var mı kontrol edin.                                                                                                                                                                                                                                                                  |
+| E-posta gönderilmiyor (üretim)                            | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar.                                                                                                                                                                                                                                                                   |
+| Davet e-postası gelmiyor                                  | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır.                                                                                                                                                                                                                                                                                  |
