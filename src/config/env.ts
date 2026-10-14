@@ -19,6 +19,18 @@ import { envFileSource, loadEnvFile } from './load-env';
  */
 loadEnvFile();
 
+/** 0/1 (veya true/false) bayrağı; öntanımlı değer verilir. */
+const flag = (fallback: '0' | '1') =>
+  z
+    .string()
+    .default(fallback)
+    .transform((value) => value === '1' || value.toLowerCase() === 'true');
+
+/** Telegram webhook sırrı biçimi (Telegram belgesi: 1–256 karakter, A-Z a-z 0-9 _ -). */
+export const TELEGRAM_SECRET_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
+/** Telegram bot kullanıcı adı: 5–32 karakter, harf/rakam/_ ve "bot" ile biter. */
+export const TELEGRAM_USERNAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{3,30}bot$/i;
+
 const csv = (value: string): string[] =>
   value
     .split(',')
@@ -175,6 +187,31 @@ const envSchema = z.object({
   EMAIL_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
   EMAIL_RETRY_BASE_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
   EMAIL_VERIFICATION_SECRET: z.string().default(''),
+
+  // --- Telegram bildirimleri (kullanıcı başına hesap bağlama) ---
+  /** BotFather token'ı. Boşsa Telegram kanalı kapalıdır; e-posta etkilenmez. */
+  TELEGRAM_BOT_TOKEN: z.string().default(''),
+  /** Bot kullanıcı adı (@ olmadan). Bağlantı bağlantıları (t.me/<ad>?start=...) için gerekir. */
+  TELEGRAM_BOT_USERNAME: z
+    .string()
+    .default('')
+    .transform((value) => value.trim().replace(/^@/, '')),
+  /** Webhook sırrı: Telegram her istekte X-Telegram-Bot-Api-Secret-Token başlığıyla gönderir. */
+  TELEGRAM_WEBHOOK_SECRET: z.string().default(''),
+  /** Bot API taban adresi (test için değiştirilebilir; üretimde öntanımlı kalır). */
+  TELEGRAM_API_BASE_URL: z.string().default('https://api.telegram.org'),
+
+  // --- Yapay zekâ destekli öneriler (açık rıza ile; varsayılan KAPALI) ---
+  AI_ASSISTANT_ENABLED: flag('0'),
+  /** Rıza metninde gösterilen sağlayıcı adı (ör. "Groq"). Hangi hizmete gittiğini kullanıcı görür. */
+  AI_PROVIDER_LABEL: z.string().default('harici bir yapay zekâ hizmeti'),
+  /** OpenAI uyumlu sohbet tamamlama tabanı (ör. https://api.groq.com/openai/v1). */
+  LLM_BASE_URL: z.string().default(''),
+  LLM_API_KEY: z.string().default(''),
+  LLM_MODEL: z.string().default(''),
+  LLM_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
+  /** Kullanıcı başına günlük öneri isteği sınırı (maliyet ve kötüye kullanım koruması). */
+  AI_DAILY_LIMIT_PER_USER: z.coerce.number().int().min(1).max(100).default(5),
   /** Geliştirme posta görüntüleyicisinin portu (scripts/dev-smtp-server.ts). */
   DEV_MAIL_VIEWER_PORT: z.coerce.number().int().min(1).max(65_535).default(1080),
 
@@ -279,6 +316,30 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
     if (env.NODE_ENV === 'production' && process.env['SMTP_PASS']?.startsWith('dev-')) {
       problems.push('Üretimde geliştirme SMTP şifresi kullanılamaz.');
     }
+    if (env.TELEGRAM_BOT_TOKEN && !TELEGRAM_SECRET_PATTERN.test(env.TELEGRAM_WEBHOOK_SECRET)) {
+      problems.push(
+        'Üretimde Telegram için TELEGRAM_WEBHOOK_SECRET zorunludur (1–256 karakter: A-Z a-z 0-9 _ -).',
+      );
+    }
+    if (env.AI_ASSISTANT_ENABLED && env.LLM_BASE_URL && !env.LLM_BASE_URL.startsWith('https://')) {
+      problems.push('Üretimde LLM_BASE_URL https:// ile başlamalıdır (kişisel profil verisi taşınır).');
+    }
+  }
+  if (env.TELEGRAM_BOT_TOKEN) {
+    if (!env.TELEGRAM_BOT_USERNAME) {
+      problems.push('TELEGRAM_BOT_TOKEN tanımlı ama TELEGRAM_BOT_USERNAME boş (bağlantı bağlantıları üretilemez).');
+    } else if (!TELEGRAM_USERNAME_PATTERN.test(env.TELEGRAM_BOT_USERNAME)) {
+      problems.push('TELEGRAM_BOT_USERNAME biçimi geçersiz (5–32 karakter, harf/rakam/_, "bot" ile biter).');
+    }
+    if (env.TELEGRAM_WEBHOOK_SECRET && !TELEGRAM_SECRET_PATTERN.test(env.TELEGRAM_WEBHOOK_SECRET)) {
+      problems.push('TELEGRAM_WEBHOOK_SECRET yalnızca A-Z a-z 0-9 _ - karakterlerini içerebilir (1–256).');
+    }
+    if (!env.TELEGRAM_WEBHOOK_SECRET) {
+      warnings.push('TELEGRAM_WEBHOOK_SECRET boş: webhook uçu kapalı kalır; bağlantı kurulamaz.');
+    }
+  }
+  if (env.AI_ASSISTANT_ENABLED && (!env.LLM_BASE_URL || !env.LLM_API_KEY || !env.LLM_MODEL)) {
+    problems.push('AI_ASSISTANT_ENABLED=1 için LLM_BASE_URL, LLM_API_KEY ve LLM_MODEL zorunludur.');
   }
   if (env.DATABASE_DRIVER === 'mongo' && !env.MONGODB_URI) {
     problems.push('DATABASE_DRIVER=mongo için MONGODB_URI gereklidir.');
@@ -366,5 +427,11 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
     // Hangi dosyadan okunduğu (içerik değil) — ".env okunmadı" sorunlarını
     // ayıklamak için görünür tutulur.
     envFile: envFileSource() ?? 'yok (yalnızca ortam değişkenleri)',
+    // Telegram: yalnızca token VE kullanıcı adı varsa etkin; sır değerleri gösterilmez.
+    telegram:
+      env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_USERNAME
+        ? `@${env.TELEGRAM_BOT_USERNAME} (webhook sırrı ${env.TELEGRAM_WEBHOOK_SECRET ? 'tanımlı' : 'yok'})`
+        : 'kapalı',
+    aiAssistant: env.AI_ASSISTANT_ENABLED ? `açık (${env.LLM_MODEL || 'model yok'})` : 'kapalı',
   };
 }

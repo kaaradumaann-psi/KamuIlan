@@ -28,6 +28,7 @@
     "start": "tsx src/server/main.ts",
     "start:worker": "tsx src/worker/main.ts",
     "env:check": "tsx scripts/check-env.ts",
+    "telegram:webhook": "tsx scripts/telegram-webhook.ts",
     "db:indexes": "tsx scripts/create-indexes.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "sources:report": "tsx scripts/coverage-report.ts",

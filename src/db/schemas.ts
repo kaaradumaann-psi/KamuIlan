@@ -306,7 +306,7 @@ export type SessionDoc = z.infer<typeof sessionSchema>;
 export const tokenSchema = z.object({
   id: idString('tok'),
   userId: idString('usr'),
-  type: z.enum(['email-verify', 'password-reset', 'unsubscribe']),
+  type: z.enum(['email-verify', 'password-reset', 'unsubscribe', 'telegram-link']),
   tokenHash: z.string().min(16),
   createdAt: isoString(),
   expiresAt: isoString(),
@@ -335,6 +335,11 @@ export const notificationPreferenceSchema = z.object({
   includeAcademicJobs: z.boolean(),
   /** Profile matching is opt-in; profile text is never sent to a third-party model. */
   profilePersonalizationEnabled: z.boolean().default(false),
+  /**
+   * Yapay zekâ destekli öneriler için AÇIK RIZA zamanı (ISO). Null = rıza yok.
+   * Rıza olmadan profil hiçbir harici hizmete gönderilmez.
+   */
+  aiConsentAt: z.string().nullable().default(null),
   candidateProfile: candidateProfileSchema.default({
     profession: '',
     educationLevel: null,
@@ -375,6 +380,8 @@ export type NotificationEventDoc = z.infer<typeof notificationEventSchema>;
 
 export const emailOutboxSchema = z.object({
   id: idString('eml'),
+  /** Teslim kanalı. Eski kayıtlar 'email' kabul edilir. */
+  channel: z.enum(['email', 'telegram']).default('email'),
   eventId: idString('nev').nullable(),
   jobId: idString('job').nullable(),
   userId: idString('usr').nullable(),
@@ -407,6 +414,26 @@ export const emailOutboxSchema = z.object({
   updatedAt: isoString(),
 });
 export type EmailOutboxDoc = z.infer<typeof emailOutboxSchema>;
+
+/**
+ * Telegram hesap bağlantısı (kullanıcı başına en çok bir kayıt).
+ * chatId: Telegram özel sohbet kimliği (yalnızca bot ile özel sohbet kabul edilir).
+ * status: active (gönderim açık), stopped (kullanıcı /dur dedi), blocked (Telegram
+ * botu engellendi / sohbet artık yok), unlinked (bağlantı kaldırıldı; kayıt izi için tutulur).
+ */
+export const telegramLinkSchema = z.object({
+  id: idString('tgl'),
+  userId: idString('usr'),
+  chatId: z.string().min(1).max(32),
+  telegramUsername: z.string().max(64).nullable(),
+  status: z.enum(['active', 'stopped', 'blocked', 'unlinked']),
+  linkedAt: isoString(),
+  statusChangedAt: isoString(),
+  lastError: z.string().max(300).nullable(),
+  createdAt: isoString(),
+  updatedAt: isoString(),
+});
+export type TelegramLinkDoc = z.infer<typeof telegramLinkSchema>;
 
 export const scrapeRunSchema = z.object({
   id: idString('run'),
@@ -564,6 +591,7 @@ export const COLLECTION_SCHEMAS = {
   notificationPreferences: notificationPreferenceSchema,
   notificationEvents: notificationEventSchema,
   emailOutbox: emailOutboxSchema,
+  telegramLinks: telegramLinkSchema,
   scrapeRuns: scrapeRunSchema,
   reviewQueue: reviewQueueSchema,
   auditLogs: auditLogSchema,

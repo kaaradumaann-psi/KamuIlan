@@ -18,12 +18,20 @@ import { maskEmail } from '../domain/text';
 import { getEnv } from '../config/env';
 import type { Repos } from '../db/repos';
 import type { EmailOutboxDoc } from '../db/schemas';
+import { deliverTelegramItem, type TelegramSender } from '../telegram/deliver';
 import { renderEmail, type EmailTemplate } from './templates';
 import type { EmailTransport } from './transport';
 
+export type OutboxChannel = EmailOutboxDoc['channel'];
+
 export interface SendOutboxBatchOptions {
   repos: Repos;
-  transport: EmailTransport;
+  /** E-posta kanalı için zorunlu. */
+  transport?: EmailTransport;
+  /** Telegram kanalı için zorunlu (yapılandırılmamışsa Telegram işleri hiç alınmaz). */
+  telegram?: TelegramSender;
+  /** Hangi kanalın işleri alınır (varsayılan e-posta). */
+  channel?: OutboxChannel;
   workerId: string;
   limit?: number;
   leaseMs?: number;
@@ -36,6 +44,7 @@ export interface SendOutboxBatchResult {
   sent: number;
   failed: number;
   dead: number;
+  suppressed: number;
   errors: string[];
 }
 
@@ -68,18 +77,32 @@ function retryDelayMs(attempts: number): number {
 }
 
 export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<SendOutboxBatchResult> {
-  const { repos, transport, workerId } = options;
+  const { repos, workerId } = options;
+  const channel = options.channel ?? 'email';
+  if (channel === 'email' && !options.transport) throw new Error('E-posta gönderimi için taşıyıcı gerekli.');
+  if (channel === 'telegram' && !options.telegram) throw new Error('Telegram gönderimi için istemci gerekli.');
   const now = options.now ?? repos.clock.now();
-  const batch = await repos.outbox.claimBatch(workerId, options.limit ?? 20, options.leaseMs ?? 120_000);
-  const result: SendOutboxBatchResult = { claimed: batch.length, sent: 0, failed: 0, dead: 0, errors: [] };
+  const batch = await repos.outbox.claimBatch(workerId, options.limit ?? 20, options.leaseMs ?? 120_000, channel);
+  const result: SendOutboxBatchResult = { claimed: batch.length, sent: 0, failed: 0, dead: 0, suppressed: 0, errors: [] };
 
   for (const item of batch) {
-    const outcome = await sendOne({ repos, transport, item, workerId, now });
+    const outcome = await sendOne({
+      repos,
+      ...(options.transport ? { transport: options.transport } : {}),
+      ...(options.telegram ? { telegram: options.telegram } : {}),
+      item,
+      workerId,
+      now,
+    });
     if (outcome.status === 'accepted') result.sent += 1;
     else if (outcome.status === 'dead') result.dead += 1;
+    else if (outcome.status === 'suppressed') result.suppressed += 1;
     else {
       result.failed += 1;
-      if (outcome.error) result.errors.push(`${maskEmail(item.toEmail)}: ${outcome.error}`);
+      if (outcome.error) {
+        const target = item.channel === 'telegram' ? `telegram:${item.userId ?? '?'}` : maskEmail(item.toEmail);
+        result.errors.push(`${target}: ${outcome.error}`);
+      }
     }
   }
 
@@ -88,15 +111,37 @@ export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<
 
 export async function sendOne(input: {
   repos: Repos;
-  transport: EmailTransport;
+  transport?: EmailTransport;
+  telegram?: TelegramSender;
   item: EmailOutboxDoc;
   workerId: string;
   /** Yeniden deneme zamanı bu ana göre hesaplanır (testlerde sabit saat). */
   now?: Date;
-}): Promise<{ status: 'accepted' | 'retry' | 'dead'; error?: string }> {
-  const { repos, transport, item } = input;
+}): Promise<{ status: 'accepted' | 'retry' | 'dead' | 'suppressed'; error?: string }> {
+  const { repos, item } = input;
   const env = getEnv();
   const now = input.now ?? repos.clock.now();
+
+  // Kanal dallanması: Telegram işleri e-posta yolundan geçmez.
+  if (item.channel === 'telegram') {
+    if (!input.telegram) {
+      // Yapılandırma eksik: yeniden denemeyle bekletilir (deneme sınırı dolunca ölü mektup).
+      const retryAt = new Date(now.getTime() + 15 * 60_000).toISOString();
+      const updated = await repos.outbox.markFailed(item.id, 'Telegram yapılandırılmamış.', retryAt);
+      if (item.eventId) await repos.notifications.markEvent(item.eventId, 'failed', 'Telegram yapılandırılmamış.');
+      return { status: updated?.status === 'dead' ? 'dead' : 'retry', error: 'Telegram yapılandırılmamış.' };
+    }
+    return deliverTelegramItem({
+      repos,
+      sender: input.telegram,
+      item,
+      now,
+      retryDelayMs: retryDelayMs,
+    });
+  }
+
+  if (!input.transport) throw new Error('E-posta gönderimi için taşıyıcı gerekli.');
+  const transport = input.transport;
 
   try {
     const unsubscribeUrl = item.userId

@@ -30,9 +30,21 @@ export interface QueueNotificationsResult {
   evaluated: number;
   matched: number;
   queued: number;
+  /** Kanal bazında kuyruğa alınan işler (aynı olay e-posta + Telegram olabilir). */
+  queuedEmail: number;
+  queuedTelegram: number;
   alreadyExists: number;
   skippedUnverified: number;
   skippedPaused: number;
+}
+
+/**
+ * Kanal uygunluğu (bildirim için): e-posta yalnızca doğrulanmış adrese;
+ * Telegram yalnızca `active` bağlantıya. İkisi de yoksa kullanıcı atlanır.
+ */
+export interface DeliveryChannels {
+  email: boolean;
+  telegram: boolean;
 }
 
 export async function queueNotificationsForJob(
@@ -44,6 +56,8 @@ export async function queueNotificationsForJob(
     evaluated: 0,
     matched: 0,
     queued: 0,
+    queuedEmail: 0,
+    queuedTelegram: 0,
     alreadyExists: 0,
     skippedUnverified: 0,
     skippedPaused: 0,
@@ -55,9 +69,11 @@ export async function queueNotificationsForJob(
 
     const user = await repos.users.findById(preference.userId);
     if (!user || user.status !== 'active') continue;
-    // Doğrulanmamış adrese bildirim gönderilmez (yanlış adres riski).
-    if (!user.emailVerified || user.emailVerifiedAt === null) {
-      result.skippedUnverified += 1;
+
+    const channels = await deliveryChannelsFor(repos, user.id, user.emailVerified && user.emailVerifiedAt !== null);
+    if (!channels.email && !channels.telegram) {
+      // Doğrulanmamış adrese e-posta gitmez (yanlış adres riski); Telegram da bağlı değil.
+      if (!user.emailVerified || user.emailVerifiedAt === null) result.skippedUnverified += 1;
       continue;
     }
 
@@ -85,40 +101,85 @@ export async function queueNotificationsForJob(
       baseUrl: options.baseUrl,
       ...(options.changeSummary ? { changeSummary: options.changeSummary } : {}),
     });
-    const rendered = renderEmail(kind === 'new-job' ? 'new-job' : 'job-changed', { ...payload }, {
-      baseUrl: options.baseUrl,
-      senderName: options.senderName,
-      preferencesUrl: `${options.baseUrl.replace(/\/$/, '')}/panel`,
-    });
+    const template = kind === 'new-job' ? 'new-job' : 'job-changed';
+    const reference = `${job.id}:${kind}:${job.version}`;
+    let queuedAny = false;
 
-    const enqueued = await repos.outbox.enqueue(
-      {
-        eventId: event.event.id,
-        jobId: job.id,
-        userId: user.id,
-        kind: 'job-notification',
-        toEmail: user.email,
-        subject: rendered.subject,
-        template: kind === 'new-job' ? 'new-job' : 'job-changed',
-        payload: { ...payload },
-        idempotencyKey: outboxIdempotencyKey({
+    if (channels.email) {
+      const rendered = renderEmail(template, { ...payload }, {
+        baseUrl: options.baseUrl,
+        senderName: options.senderName,
+        preferencesUrl: `${options.baseUrl.replace(/\/$/, '')}/panel`,
+      });
+      const enqueued = await repos.outbox.enqueue(
+        {
+          channel: 'email',
+          eventId: event.event.id,
+          jobId: job.id,
           userId: user.id,
           kind: 'job-notification',
-          reference: `${job.id}:${kind}:${job.version}`,
-        }),
-      },
-      5,
-    );
+          toEmail: user.email,
+          subject: rendered.subject,
+          template,
+          payload: { ...payload },
+          // E-posta anahtarı değişmez: önceki sürümlerle aynı kuyruk kaydını tanır.
+          idempotencyKey: outboxIdempotencyKey({ userId: user.id, kind: 'job-notification', reference }),
+        },
+        5,
+      );
+      if (enqueued.created) {
+        result.queuedEmail += 1;
+        queuedAny = true;
+      } else {
+        result.alreadyExists += 1;
+      }
+    }
 
-    if (enqueued.created) {
+    if (channels.telegram) {
+      // Telegram işinin hedefi bağlı sohbettir; `toEmail` alanı zorunlu olduğundan
+      // e-posta adresi yerine hesap kimliği yazılır (adres Telegram kuyruğuna girmez).
+      const enqueued = await repos.outbox.enqueue(
+        {
+          channel: 'telegram',
+          eventId: event.event.id,
+          jobId: job.id,
+          userId: user.id,
+          kind: 'job-notification',
+          toEmail: `telegram:${user.id}`,
+          subject: payload.title.slice(0, 200),
+          template,
+          payload: { ...payload },
+          idempotencyKey: outboxIdempotencyKey({
+            userId: user.id,
+            kind: 'job-notification',
+            reference: `${reference}:telegram`,
+          }),
+        },
+        5,
+      );
+      if (enqueued.created) {
+        result.queuedTelegram += 1;
+        queuedAny = true;
+      }
+    }
+
+    if (queuedAny) {
       await repos.notifications.markEvent(event.event.id, 'queued');
       result.queued += 1;
-    } else {
-      result.alreadyExists += 1;
     }
   }
 
   return result;
+}
+
+/** Kullanıcının o anda hangi kanallara teslim edilebileceği. */
+export async function deliveryChannelsFor(
+  repos: Repos,
+  userId: string,
+  emailVerified: boolean,
+): Promise<DeliveryChannels> {
+  const link = await repos.telegram.findByUser(userId);
+  return { email: emailVerified, telegram: link?.status === 'active' };
 }
 
 /**

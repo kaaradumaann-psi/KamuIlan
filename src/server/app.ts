@@ -35,6 +35,7 @@ import { registerAuthRoutes } from './routes/auth';
 import { registerHealthRoutes } from './routes/health';
 import { registerJobRoutes } from './routes/jobs';
 import { registerNotificationRoutes } from './routes/notifications';
+import { registerTelegramRoutes, TELEGRAM_WEBHOOK_PATH } from './routes/telegram';
 import { registerSourceRoutes } from './routes/sources';
 
 export interface BuildAppOptions {
@@ -64,6 +65,8 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
   '/api/auth/unsubscribe',
+  // Telegram webhook'u oturumsuzdur; doğrulaması sır başlığıyla yapılır.
+  TELEGRAM_WEBHOOK_PATH,
 ]);
 
 function isCsrfExempt(url: string): boolean {
@@ -154,6 +157,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.addHook('preHandler', async (request, reply) => {
     if (options.disableRateLimit) return;
     const pathname = request.url.split('?')[0] ?? request.url;
+    // Telegram sunucuları tek IP'den çok sayıda güncelleme yollar; kimlik sırla doğrulanır.
+    if (pathname === TELEGRAM_WEBHOOK_PATH) return;
     const isStrictAuth = request.method === 'POST' && STRICT_AUTH_PATHS.has(pathname);
     const max = isStrictAuth ? env.AUTH_RATE_LIMIT_MAX_REQUESTS : env.RATE_LIMIT_MAX_REQUESTS;
     const decision = await enforceRateLimit(repos.rateLimits, request, reply, {
@@ -229,6 +234,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerSourceRoutes(app, repos);
   registerAuthRoutes(app, repos);
   registerNotificationRoutes(app, repos);
+  registerTelegramRoutes(app, repos);
   registerAdminRoutes(app, repos);
 
   if (options.serveStatic && env.NODE_ENV === 'production') {

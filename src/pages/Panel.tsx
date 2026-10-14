@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { TelegramCard } from '../components/TelegramCard';
 
 const EMPTY_FILTERS: PreferenceFilters = {
   keywords: [],
@@ -562,6 +563,8 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
           </form>
         </Card>
       )}
+
+      {view === 'preferences' && <TelegramCard />}
 
       {view === 'history' && (
         <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">

@@ -138,9 +138,11 @@ export class UserRepo {
     );
     await this.store.updateMany(
       'emailOutbox',
-      { userId: id, status: 'pending' },
-      { status: 'suppressed', updatedAt: now },
+      { userId: id, status: { $in: ['pending', 'failed'] } },
+      { status: 'suppressed', lastError: 'Hesap silindi', updatedAt: now },
     );
+    // Telegram sohbet kimliği kişisel veridir: bağlantı kaydı tamamen silinir.
+    await this.store.deleteMany('telegramLinks', { userId: id });
     await this.store.updateMany(
       'savedJobs',
       { userId: id },

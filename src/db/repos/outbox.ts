@@ -16,6 +16,8 @@ import type { EmailOutboxDoc } from '../schemas';
 import { validateDocument } from '../validate';
 
 export interface EnqueueEmailInput {
+  /** Teslim kanalı (varsayılan e-posta). Telegram işleri `telegram` olarak yazılır. */
+  channel?: EmailOutboxDoc['channel'];
   eventId: string | null;
   jobId: string | null;
   userId: string | null;
@@ -46,6 +48,7 @@ export class OutboxRepo {
     const now = this.clock.now().toISOString();
     const doc: EmailOutboxDoc = {
       id: createId('eml'),
+      channel: input.channel ?? 'email',
       eventId: input.eventId,
       jobId: input.jobId,
       userId: input.userId,
@@ -78,18 +81,27 @@ export class OutboxRepo {
    * Gönderilecek işleri lease'ler. İki worker aynı işi alamaz: güncelleme
    * yalnızca durum değişmediyse uygulanır (koşullu yazma).
    */
-  async claimBatch(workerId: string, limit: number, leaseMs = 120_000): Promise<EmailOutboxDoc[]> {
+  async claimBatch(
+    workerId: string,
+    limit: number,
+    leaseMs = 120_000,
+    channel: EmailOutboxDoc['channel'] = 'email',
+  ): Promise<EmailOutboxDoc[]> {
     const now = this.clock.now();
     const nowIso = now.toISOString();
+    // Kanal filtresi SORGUDA değil KODDA uygulanır: eski kayıtlarda `channel`
+    // alanı yoktur ve bu kayıtlar e-posta sayılmalıdır (sorguda eşleşmezlerdi).
+    // Aday penceresi, diğer kanalın işleriyle dolup açlık yaratmasın diye geniştir.
     const candidates = await this.store.find(
       'emailOutbox',
       { status: { $in: ['pending', 'failed', 'sending'] }, nextAttemptAt: { $lte: nowIso } },
-      { limit: limit * 4, sort: [['nextAttemptAt', 1]] },
+      { limit: limit * 10 + 50, sort: [['nextAttemptAt', 1]] },
     );
 
     const claimed: EmailOutboxDoc[] = [];
     for (const candidate of candidates) {
       if (claimed.length >= limit) break;
+      if ((candidate.channel ?? 'email') !== channel) continue;
       if (candidate.status === 'sending') {
         const lockedUntil = candidate.lockedUntil ? Date.parse(candidate.lockedUntil) : 0;
         if (lockedUntil > now.getTime()) continue; // başka worker işliyor
@@ -152,11 +164,12 @@ export class OutboxRepo {
   }
 
   async list(
-    filter: { status?: EmailOutboxDoc['status']; userId?: string; jobId?: string } = {},
+    filter: { status?: EmailOutboxDoc['status']; userId?: string; jobId?: string; channel?: EmailOutboxDoc['channel'] } = {},
     limit = 100,
   ): Promise<EmailOutboxDoc[]> {
     const query: Record<string, unknown> = {};
     if (filter.status) query.status = filter.status;
+    if (filter.channel) query.channel = filter.channel;
     if (filter.userId) query.userId = filter.userId;
     if (filter.jobId) query.jobId = filter.jobId;
     return this.store.find('emailOutbox', query, { limit, sort: [['createdAt', -1]] });
@@ -177,6 +190,40 @@ export class OutboxRepo {
   /** Ölü mektuplar: panelde görünür ve tekrar denenebilir. */
   async listDead(limit = 50): Promise<EmailOutboxDoc[]> {
     return this.store.find('emailOutbox', { status: 'dead' }, { limit, sort: [['failedAt', -1]] });
+  }
+
+  /**
+   * Kullanıcının bekleyen (henüz gönderilmemiş) işlerini bastırır. Telegram
+   * bağlantısı kaldırıldığında veya engellendiğinde çağrılır: bağlantı kalktıktan
+   * sonra eski bildirimlerin gönderilmesi istenmeyen bir mesaj olurdu.
+   */
+  async suppressPendingForUser(userId: string, channel: EmailOutboxDoc['channel'], reason: string): Promise<number> {
+    const now = this.clock.now().toISOString();
+    const pending = await this.store.find(
+      'emailOutbox',
+      { userId, channel, status: { $in: ['pending', 'failed'] } },
+      { limit: 500 },
+    );
+    let count = 0;
+    for (const item of pending) {
+      const updated = await this.store.updateOne(
+        'emailOutbox',
+        { id: item.id, status: item.status },
+        { status: 'suppressed', lastError: reason.slice(0, 500), lockedBy: null, lockedUntil: null, updatedAt: now },
+      );
+      if (updated) count += 1;
+    }
+    return count;
+  }
+
+  /** Tek bir işi bastırır (gönderim anındaki denetim: bağlantı durdu/engellendi). Ölü mektup değildir. */
+  async markSuppressed(id: string, reason: string): Promise<void> {
+    const now = this.clock.now().toISOString();
+    await this.store.updateOne(
+      'emailOutbox',
+      { id },
+      { status: 'suppressed', lastError: reason.slice(0, 500), lockedBy: null, lockedUntil: null, updatedAt: now },
+    );
   }
 
   /** Ölü mektubu elle yeniden kuyruğa alır (yönetici işlemi). */

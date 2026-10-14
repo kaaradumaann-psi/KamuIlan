@@ -495,3 +495,28 @@ export interface CoverageReport {
   disclaimer: string;
   generatedAt: string;
 }
+
+export interface TelegramLinkView {
+  status: 'active' | 'stopped' | 'blocked';
+  telegramUsername: string | null;
+  linkedAt: string;
+  statusChangedAt: string;
+  lastError: string | null;
+}
+
+export interface TelegramStatusResponse {
+  configured: boolean;
+  botUsername: string | null;
+  link: TelegramLinkView | null;
+  notificationsOn: boolean;
+  canReceive: boolean;
+  notice: string;
+}
+
+export interface TelegramLinkCodeResponse {
+  deepLink: string;
+  expiresAt: string;
+  botUsername: string;
+  manualCommand: string;
+  message: string;
+}
