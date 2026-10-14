@@ -41,7 +41,7 @@ jobs:
       - name: İzole E2E yönetici kimlik bilgileri üret
         run: |
           admin_email="e2e-$(openssl rand -hex 8)@kamuilan.test"
-          admin_password="$(openssl rand -hex 32)"
+          admin_password="A$(openssl rand -hex 24)Z9"
           echo "::add-mask::$admin_password"
           {
             echo "ADMIN_EMAIL=$admin_email"
