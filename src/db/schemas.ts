@@ -129,6 +129,7 @@ export const jobSchema = z.object({
     kpssScoreTypes: z.array(z.enum(KPSS_SCORE_TYPES)),
     kpssMinScore: z.number().min(0).max(100).nullable(),
     kpssYear: z.number().int().min(2000).max(2100).nullable(),
+    qualificationCodes: z.array(z.string()).default([]),
     minAge: z.number().int().min(15).max(80).nullable(),
     maxAge: z.number().int().min(15).max(80).nullable(),
     certificates: z.array(z.string()),
@@ -208,6 +209,36 @@ export const jobSourceSchema = z.object({
   lastSeenAt: isoString(),
 });
 export type JobSourceDoc = z.infer<typeof jobSourceSchema>;
+
+/**
+ * Tarama belleği: ilan OLUŞTURMAYAN ama işlenmiş kaynak kayıtları.
+ *
+ * Sınıflandırma reddi veya incelemeye alınan bir kaynak için `jobSources`
+ * bağı oluşmaz (ilana bağlanacak kayıt yoktur). Bu kayıtlar buraya yazılır;
+ * `loadKnownItemIds` bunları da bildiği için adaptör aynı ilanı her taramada
+ * yeniden "yeni" sayıp detay bütçesini tüketmez. Aksi hâlde liste başındaki
+ * ihale/sonuç duyuruları bütçenin tamamını yutar ve sonraki sayfalardaki gerçek
+ * personel alım ilanları süresiz aç kalır (açlık/starvation).
+ *
+ * Gövde metni karar anında yoksa ('listing-only'/'unavailable') kayıt,
+ * `loadKnownItemIdsWithDetail` tarafından bilinen-detaylı sayılmaz; adaptör
+ * detay alındığında sınıflandırma yeniden çalışabilir (ret → kabul düzelmesi).
+ */
+export const sourceItemDecisionSchema = z.object({
+  id: idString('sid'),
+  sourceKey: z.string().min(2),
+  sourceItemId: z.string().min(1),
+  /** 'rejected': sınıflandırma reddi; 'review': inceleme kuyruğunda; 'signal': iptal/düzeltme sinyali işlendi. */
+  decision: z.enum(['rejected', 'review', 'signal']),
+  /** Karar anında yakalanmış gövde metni var mıydı? */
+  capturedTextStatus: z.enum(['captured', 'truncated', 'listing-only', 'unavailable']),
+  title: z.string().min(1).max(300),
+  url: z.string().min(8),
+  classificationVersion: z.string().min(1),
+  firstSeenAt: isoString(),
+  lastSeenAt: isoString(),
+});
+export type SourceItemDecisionDoc = z.infer<typeof sourceItemDecisionSchema>;
 
 export const jobRevisionSchema = z.object({
   id: idString('rev'),
@@ -525,6 +556,7 @@ export const COLLECTION_SCHEMAS = {
   sources: sourceSchema,
   jobs: jobSchema,
   jobSources: jobSourceSchema,
+  sourceItemDecisions: sourceItemDecisionSchema,
   jobRevisions: jobRevisionSchema,
   users: userSchema,
   sessions: sessionSchema,

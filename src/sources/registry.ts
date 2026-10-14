@@ -11,6 +11,7 @@
 import type { SourceAdapter } from './types';
 import { ResmiGazeteAdapter } from './adapters/resmigazete';
 import { IlanGovTrAdapter } from './adapters/ilan-gov-tr';
+import { IlanGovTrApiAdapter } from './adapters/ilan-gov-tr-api';
 import { OsymAdapter } from './adapters/osym';
 import { SbbKamuIlanAdapter } from './adapters/sbb-kamuilan';
 import { KariyerKapisiAdapter } from './adapters/kariyerkapisi';
@@ -20,6 +21,7 @@ import { createIskurAdapter, createKurumAdapter, createMebAdapter } from './adap
 const ADAPTERS: readonly SourceAdapter[] = [
   new ResmiGazeteAdapter(),
   new IlanGovTrAdapter(),
+  new IlanGovTrApiAdapter(),
   new OsymAdapter(),
   new SbbKamuIlanAdapter(),
   new KariyerKapisiAdapter(),

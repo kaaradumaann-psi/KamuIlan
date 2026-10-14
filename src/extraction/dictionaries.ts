@@ -163,6 +163,32 @@ export const KPSS_TYPES: readonly string[] = [
   'P1', 'P2', 'P3', 'P10', 'P93', 'P94', 'DHBT', 'P121', 'P124', 'P128', 'P131',
 ];
 
+/**
+ * ÖSYM başvuru nitelik kodları (ilanlardaki "Nitelik Kodu" sütunu).
+ *
+ * Kodlar her yıl kılavuzla güncellenir; bu yüzden etiketli liste yalnızca
+ * en istikrarlı bilinen kodları içerir, çıkarım ise "nitelik kodu" bağlamındaki
+ * her 3-6xxx kalıbını yakalar (ekosistemdeki emrekorkusuz/kamu-ilan-takip
+ * yaklaşımı: 4001/6225 genel, 45xx bilişim ailesi).
+ */
+export const QUALIFICATION_CODE_LABELS: Readonly<Record<string, string>> = {
+  '3001': 'Ortaöğretim (lise) herhangi bir program mezunu',
+  '4001': 'Lisans herhangi bir program mezunu',
+  '6225': 'Önlisans herhangi bir program mezunu',
+  '4539': 'Bilgisayar Mühendisliği (4 yıllık) mezunu',
+  '4531': 'Bilgisayar/Donanım mühendisliği mezunu',
+  '4532': 'Bilgisayar/Programlama mühendisliği mezunu',
+  '4533': 'Bilgisayar/Donanım önlisans mezunu',
+  '4535': 'Bilgisayar/Programlama önlisans mezunu',
+  '4537': 'Bilgisayar Operatörlüğü önlisans mezunu',
+};
+
+/** Etiketleri olmasa da tanınan standart nitelik kodu aileleri. */
+export const KNOWN_QUALIFICATION_CODES: readonly string[] = [
+  ...Object.keys(QUALIFICATION_CODE_LABELS),
+  '4002', '4534', '4536', '4538', '6224', '6226',
+];
+
 /** Bölüm/program adları (başvuru şartlarında geçer). */
 export const DEPARTMENTS: readonly string[] = [
   'Hemşirelik',

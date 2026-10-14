@@ -66,6 +66,7 @@ export interface PublicJobDetail extends PublicJobSummary {
     kpssScoreTypes: string[];
     kpssMinScore: number | null;
     kpssYear: number | null;
+    qualificationCodes: string[];
     minAge: number | null;
     maxAge: number | null;
     certificates: string[];

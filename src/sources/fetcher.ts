@@ -37,7 +37,9 @@ export interface FetchOptions {
   /** Host başına asgari istek aralığı (ms). */
   minIntervalMs?: number;
   expectedContentTypes?: readonly string[];
-  method?: 'GET' | 'HEAD';
+  method?: 'GET' | 'HEAD' | 'POST';
+  /** POST gövdesi (JSON API'ler için); content-type otomatik ayarlanır. */
+  jsonBody?: unknown;
 }
 
 export interface FetchResponse {
@@ -230,7 +232,8 @@ export interface HttpClientOptions {
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('İstek yeniden deneme beklerken iptal edildi.'));
+  if (signal?.aborted)
+    return Promise.reject(signal.reason ?? new Error('İstek yeniden deneme beklerken iptal edildi.'));
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const cleanup = () => {
@@ -423,12 +426,16 @@ export class HttpClient {
     const env = getEnv();
     const maxRedirects = env.MAX_REDIRECTS;
     let currentUrl = assertSafeUrl(rawUrl, options.allowedHosts ?? []).toString();
+    let method: 'GET' | 'HEAD' | 'POST' = options.method ?? 'GET';
+    let requestBody: string | undefined =
+      options.jsonBody !== undefined ? JSON.stringify(options.jsonBody) : undefined;
     const requestHeaders: Record<string, string> = {
       'user-agent': this.userAgent,
       accept: options.accept ?? 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'accept-language': 'tr-TR,tr;q=0.9,en;q=0.5',
       ...(options.etag ? { 'if-none-match': options.etag } : {}),
       ...(options.lastModified ? { 'if-modified-since': options.lastModified } : {}),
+      ...(requestBody !== undefined ? { 'content-type': 'application/json; charset=utf-8' } : {}),
       ...(options.headers ?? {}),
     };
 
@@ -441,10 +448,11 @@ export class HttpClient {
       );
 
       const response = await request(currentUrl, {
-        method: options.method ?? 'GET',
+        method,
         headers: requestHeaders,
         dispatcher: this.dispatcherFor(url),
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(requestBody !== undefined ? { body: requestBody } : {}),
         // Not: yönlendirmeler burada ELLE izlenir (her adımda SSRF allowlist doğrulaması
         // yapılır), bu yüzden undici'nin kendi yönlendirme takibi (varsayılan: kapalı)
         // kullanılmaz.
@@ -461,6 +469,14 @@ export class HttpClient {
         assertSafeUrl(nextUrl, options.allowedHosts ?? []);
         if (redirect === maxRedirects) {
           throw new FetchError(currentUrl, `Çok fazla yönlendirme (${maxRedirects}).`, status, false);
+        }
+        // POST yönlendirmesi: 307/308 yöntemi ve gövdeyi korur; 301/302/303
+        // tarayıcı davranışıyla GET'e düşer (gövde yeniden gönderilmez).
+        if (method === 'POST' && status !== 307 && status !== 308) {
+          method = 'GET';
+          requestBody = undefined;
+          delete requestHeaders['content-type'];
+          requestHeaders['accept'] = options.accept ?? 'application/json, text/plain, */*';
         }
         currentUrl = nextUrl;
         await response.body.dump();

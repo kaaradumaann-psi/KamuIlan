@@ -230,6 +230,16 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
       /\b(?:mesleki\s+egitim\s+kursu|isbasi\s+egitim\s+programi|hizmet\s+ici\s+egitim|kursiyer|seminer|panel\s+duyurusu)/,
     weight: 0,
   },
+  {
+    // Ekosistem deseni (github.com/berketez/is-basvuru-botu): genel başvuru /
+    // özgeçmiş havuzu ilanları belirli bir kadro açığı değil, ilerideki
+    // pozisyonlar için havuz toplamadır — "yeni ilan" sayılmaz.
+    id: 'ret-baslik.genel-basvuru',
+    reason: 'Başlık genel başvuru/özgeçmiş havuzu duyurusu — belirli bir kadro açığı değil',
+    pattern:
+      /\b(?:genel\s+basvuru(?:lar)?(?:\s+(?:ilan|duyuru|ilanlari))?|ozgecmis\s+havuz\w*|cv\s+havuz\w*|talent\s+pool)/,
+    weight: 0,
+  },
 ];
 
 /**
@@ -295,6 +305,15 @@ export const SOFT_NEGATIVE_RULES: readonly KeywordRule[] = [
     id: 'ret-yumusak.satin-alma',
     reason: 'Metinde satın alma/sipariş ifadesi geçiyor',
     pattern: /\b(?:satin\s+alma\s+birimine|siparis\s+verilecektir|fiyat\s+teklifi)/,
+    weight: 1.5,
+  },
+  {
+    // "İleride açılacak pozisyonlar için" havuz ilanı sinyali — gerçek bir kadro
+    // açığı olabilir ama sıklıkla hayalet ilandır (ekosistem: berketez/is-basvuru-botu).
+    id: 'ret-yumusak.genel-basvuru',
+    reason: 'Metin genel başvuru/havuz toplama ya da ileride açılacak pozisyon ifadesi içeriyor',
+    pattern:
+      /\b(?:genel\s+basvuru(?:lar)?(?:dan|ya|de|da)?|ozgecmis\s+havuz|cv\s+havuz|ileride\s+acil\w*\s+pozisyon|acilacak\s+pozisyonlar\s+icin|expression\s+of\s+interest|talent\s+pool)/,
     weight: 1.5,
   },
 ];

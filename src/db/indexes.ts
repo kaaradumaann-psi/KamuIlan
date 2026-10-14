@@ -28,6 +28,10 @@ export const INDEXES: readonly IndexSpec[] = [
   { collection: 'jobSources', name: 'uniq_source_item', keys: [['sourceKey', 1], ['sourceItemId', 1]], unique: true },
   { collection: 'jobSources', name: 'job_id', keys: [['jobId', 1]] },
 
+  // Tarama belleği (ilan oluşturmayan işlenmiş kaynak kayıtları)
+  { collection: 'sourceItemDecisions', name: 'uniq_source_item_decision', keys: [['sourceKey', 1], ['sourceItemId', 1]], unique: true },
+  { collection: 'sourceItemDecisions', name: 'decision_source_key', keys: [['sourceKey', 1]] },
+
   // Sürüm geçmişi
   { collection: 'jobRevisions', name: 'uniq_job_version', keys: [['jobId', 1], ['version', 1]], unique: true },
 

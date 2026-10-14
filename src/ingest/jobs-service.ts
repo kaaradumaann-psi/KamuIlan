@@ -14,7 +14,7 @@ import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult }
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
 import { classify } from '../classification/engine';
 import { extract, type ExtractedJob } from '../extraction/engine';
-import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceDoc } from '../db/schemas';
+import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceDoc, SourceItemDecisionDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
 import { DEDUPE_THRESHOLDS, decideDedupe, matchBySourceIdentity } from './dedupe';
 import type { DedupeCandidateJob, DedupeDecision } from './dedupe';
@@ -79,6 +79,30 @@ function sourceLinkDocument(raw: RawAnnouncement, jobId: string, nowIso: string)
     firstSeenAt: nowIso,
     lastSeenAt: nowIso,
   };
+}
+
+/**
+ * İlan oluşturmayan kaydı tarama belleğine yazar (ret/inceleme).
+ *
+ * Bu kayıt yoksa adaptör aynı ilanı her taramada yeniden "yeni" sayar; liste
+ * başındaki ihale/sonuç duyuruları detay bütçesinin tamamını yutup sonraki
+ * sayfalardaki gerçek personel alım ilanlarının süresiz aç kalmasına yol açar.
+ */
+async function recordIngestDecision(
+  raw: RawAnnouncement,
+  ctx: ApplyContext,
+  decision: SourceItemDecisionDoc['decision'],
+): Promise<void> {
+  const capture = capturedTextFields(raw);
+  await ctx.repos.jobs.recordSourceItemDecision({
+    sourceKey: raw.sourceKey,
+    sourceItemId: raw.sourceItemId,
+    decision,
+    capturedTextStatus: capture.capturedTextStatus,
+    title: raw.title,
+    url: normalizeUrl(raw.url) ?? raw.url,
+    classificationVersion: CLASSIFICATION_VERSION,
+  });
 }
 
 /** Başvuru penceresine göre ilan durumu. */
@@ -222,6 +246,7 @@ export function toStoredRequirements(extraction: ExtractedJob): JobDoc['requirem
     kpssScoreTypes: extraction.kpssScoreTypes,
     kpssMinScore: extraction.kpssMinScore,
     kpssYear: extraction.kpssYear,
+    qualificationCodes: extraction.qualificationCodes,
     minAge: extraction.minAge,
     maxAge: extraction.maxAge,
     certificates: extraction.certificates,
@@ -337,6 +362,9 @@ export async function applyRawAnnouncement(
   const existingLink = await ctx.repos.jobs.findLinkBySourceItem(raw.sourceKey, raw.sourceItemId);
 
   if (classification.decision === 'reject' && !withdrawal) {
+    // İlan oluşmuyor; yine de tarama belleğine yaz ki sonraki taramada bu
+    // kayıt yeniden "yeni" sayılıp detay bütçesini yemesin.
+    await recordIngestDecision(raw, ctx, 'rejected');
     return {
       action: 'rejected',
       jobId: existingLink?.jobId ?? null,
@@ -370,6 +398,7 @@ export async function applyRawAnnouncement(
           excerpt: makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 1_500),
         },
       });
+      await recordIngestDecision(raw, ctx, 'review');
       return {
         action: 'review',
         jobId: null,
@@ -449,6 +478,7 @@ export async function applyRawAnnouncement(
     });
     // İnceleme bekleyen kayıt için ilan oluşturulmaz; karar verildiğinde
     // yönetici paneli bu kaydı kabul edip ilana dönüştürebilir.
+    await recordIngestDecision(raw, ctx, 'review');
     return {
       action: 'review',
       jobId: decision.jobId,
@@ -475,6 +505,7 @@ export async function applyRawAnnouncement(
       },
       candidateJobIds: decision.candidateJobIds,
     });
+    await recordIngestDecision(raw, ctx, 'review');
     return {
       action: 'review',
       jobId: null,
@@ -631,10 +662,12 @@ async function mergeIntoExistingJob(
     requirements:
       document.requirements.departments.length +
         document.requirements.educationLevels.length +
-        document.requirements.kpssScoreTypes.length >
+        document.requirements.kpssScoreTypes.length +
+        document.requirements.qualificationCodes.length >
       previous.requirements.departments.length +
         previous.requirements.educationLevels.length +
-        previous.requirements.kpssScoreTypes.length
+        previous.requirements.kpssScoreTypes.length +
+        previous.requirements.qualificationCodes.length
         ? document.requirements
         : previous.requirements,
     attachments: dedupeAttachments([
@@ -733,6 +766,15 @@ async function applyWithdrawal(
     lastSeenAt: nowIso,
     lastVerifiedAt: nowIso,
   });
+
+  // Sinyal duyurusu da kaynak kaydı üretir: aksi hâlde aynı iptal/düzeltme
+  // ilanı her taramada yeniden görülür ve her seferinde yeni sürüm yazar.
+  const signalLink = await ctx.repos.jobs.findLinkBySourceItem(raw.sourceKey, raw.sourceItemId);
+  if (signalLink) {
+    await ctx.repos.jobs.touchSourceLink(signalLink.id, { lastSeenAt: nowIso, title: raw.title });
+  } else {
+    await ctx.repos.jobs.addSourceLink(sourceLinkDocument(raw, jobId, nowIso));
+  }
 
   const revision = await ctx.repos.jobs.addRevision({
     id: createId('rev'),

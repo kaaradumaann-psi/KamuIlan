@@ -99,6 +99,7 @@ describe('profile-aware listing explanation', () => {
           kpssScoreTypes: [],
           kpssMinScore: null,
           kpssYear: null,
+          qualificationCodes: [],
           minAge: null,
           maxAge: null,
           certificates: [],

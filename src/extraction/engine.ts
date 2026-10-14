@@ -29,6 +29,7 @@ import {
   EMPLOYMENT_TYPE_KEYWORDS,
   FOREIGN_LANGUAGES,
   JOB_TITLES,
+  KNOWN_QUALIFICATION_CODES,
   KPSS_TYPES,
   PROVINCES,
 } from './dictionaries';
@@ -110,6 +111,8 @@ export interface ExtractedJob {
   kpssScoreTypes: KpssScoreType[];
   kpssMinScore: number | null;
   kpssYear: number | null;
+  /** ÖSYM başvuru nitelik kodları ("Nitelik Kodu" sütunu: 4001, 6225, 4539...). */
+  qualificationCodes: string[];
   minAge: number | null;
   maxAge: number | null;
   certificates: string[];
@@ -310,6 +313,9 @@ export function extract(input: ExtractionInput): ExtractedJob {
   setField('kpss', sourceForEvidence(input, kpss.snippet), kpss.snippet);
   if (kpss.types.length === 0 && kpss.minScore === null) uncertainties.push('KPSS puanı/türü belirtilmemiş.');
 
+  const qualification = extractQualificationCodes(haystack);
+  setField('qualificationCodes', sourceForEvidence(input, qualification.snippet), qualification.snippet);
+
   const age = extractAge(haystack);
   setField('age', sourceForEvidence(input, age.snippet), age.snippet);
 
@@ -374,6 +380,7 @@ export function extract(input: ExtractionInput): ExtractedJob {
     kpssScoreTypes: kpss.types,
     kpssMinScore: kpss.minScore,
     kpssYear: kpss.year,
+    qualificationCodes: qualification.codes,
     minAge: age.minAge,
     maxAge: age.maxAge,
     certificates,
@@ -912,6 +919,54 @@ export function extractKpss(text: string): {
     year,
     snippet: snippetMatch ? collapseWhitespace(snippetMatch[0]) : null,
   };
+}
+
+/**
+ * ÖSYM başvuru nitelik kodu çıkarımı ("Nitelik Kodu: 4001", "4539 ve 6225").
+ *
+ * Ekosistem yaklaşımı (emrekorkusuz/kamu-ilan-takip): kodlar 4xxx/6225 kalıbıyla
+ * yakalanır. Yanlış pozitifi (yıl, dosya no, tutar) elemek için bağlam penceresi
+ * isteriz: "nitelik kodu" etrafı; bilinen kodlar (4001, 6225...) ise nitelik/
+ * KPSS/ÖSYM/mezun yakınlığıyla da kabul edilir.
+ */
+export function extractQualificationCodes(text: string): { codes: string[]; snippet: string | null } {
+  const normalizedText = text.replace(/\s+/g, ' ');
+  const found: string[] = [];
+  let snippet: string | null = null;
+  const add = (code: string, window: string): void => {
+    if (found.includes(code)) return;
+    if (found.length >= 8) return;
+    found.push(code);
+    snippet ??= collapseWhitespace(window.slice(0, 240));
+  };
+
+  // 1) "nitelik kodu / nitelik kodları" penceresi (±220 karakter)
+  for (const match of normalizedText.matchAll(/\bnitelik\s+kod(?:u|lar[ıi])?\b/giu)) {
+    const index = match.index ?? 0;
+    const window = normalizedText.slice(
+      Math.max(0, index - 220),
+      Math.min(normalizedText.length, index + 260),
+    );
+    for (const codeMatch of window.matchAll(/\b[3-6]\d{3}\b/g)) {
+      add(codeMatch[0], window);
+    }
+  }
+
+  // 2) Bilinen nitelik kodları: nitelik/KPSS/ÖSYM/mezun yakınlığıyla
+  const NEAR = /\bnitelik|\bkpss\b|\b[öo]sym\b|\bmezun|\bpuan\s*t[üu]r/iu;
+  for (const code of KNOWN_QUALIFICATION_CODES) {
+    const pattern = new RegExp(`\\b${code}\\b`, 'g');
+    for (const match of normalizedText.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      const window = normalizedText.slice(
+        Math.max(0, index - 120),
+        Math.min(normalizedText.length, index + 120),
+      );
+      if (NEAR.test(window)) add(code, window);
+    }
+  }
+
+  return { codes: found, snippet };
 }
 
 export function extractAge(text: string): {

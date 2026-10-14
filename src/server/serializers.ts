@@ -202,7 +202,11 @@ export function toPublicJobDetail(
     applicationMethod: job.applicationMethod ?? null,
     originalRefNo: job.originalRefNo,
     textExcerpt: publicTextExcerpt(job.textExcerpt),
-    requirements: job.requirements,
+    requirements: {
+      ...job.requirements,
+      // Eski dokümanlarda alan yoksa boş liste dön (API sözleşmesi sabit kalsın).
+      qualificationCodes: job.requirements.qualificationCodes ?? [],
+    },
     attachments: job.attachments,
     classification: {
       decision: job.classification.decision,

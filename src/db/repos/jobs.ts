@@ -8,7 +8,7 @@ import type { JobStatus } from '../../domain';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
 import type { StoragePort } from '../ports';
-import type { JobDoc, JobRevisionDoc, JobSourceDoc } from '../schemas';
+import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceItemDecisionDoc } from '../schemas';
 import { validateDocument } from '../validate';
 import type { Query, SortSpec } from '../query';
 
@@ -158,6 +158,68 @@ export class JobRepo {
     >,
   ): Promise<void> {
     await this.store.updateOne('jobSources', { id: linkId }, patch);
+  }
+
+  /**
+   * İlan oluşturmayan işlenmiş kaynak kaydı (ret/inceleme/sinyal): adaptör aynı
+   * ilanı bir sonraki taramada yeniden "yeni" saymasın diye tarama belleğine
+   * yazılır. Benzersiz (sourceKey, sourceItemId) indeksi eşzamanlı yazmayı
+   * tekilleştirir.
+   */
+  async recordSourceItemDecision(input: {
+    sourceKey: string;
+    sourceItemId: string;
+    decision: SourceItemDecisionDoc['decision'];
+    capturedTextStatus: SourceItemDecisionDoc['capturedTextStatus'];
+    title: string;
+    url: string;
+    classificationVersion: string;
+  }): Promise<SourceItemDecisionDoc> {
+    const now = this.clock.now().toISOString();
+    const existing = await this.store.findOne('sourceItemDecisions', {
+      sourceKey: input.sourceKey,
+      sourceItemId: input.sourceItemId,
+    });
+    if (existing) {
+      const updated = await this.store.updateOne(
+        'sourceItemDecisions',
+        { id: existing.id },
+        {
+          decision: input.decision,
+          capturedTextStatus: input.capturedTextStatus,
+          title: input.title.slice(0, 300),
+          classificationVersion: input.classificationVersion,
+          lastSeenAt: now,
+        },
+      );
+      return updated ?? existing;
+    }
+    const doc: SourceItemDecisionDoc = {
+      id: createId('sid'),
+      sourceKey: input.sourceKey,
+      sourceItemId: input.sourceItemId,
+      decision: input.decision,
+      capturedTextStatus: input.capturedTextStatus,
+      title: input.title.slice(0, 300),
+      url: input.url,
+      classificationVersion: input.classificationVersion,
+      firstSeenAt: now,
+      lastSeenAt: now,
+    };
+    validateDocument('sourceItemDecisions', doc);
+    const result = await this.store.insertIfAbsent('sourceItemDecisions', doc);
+    return result.document;
+  }
+
+  async listSourceItemDecisions(sourceKey: string, limit = 5_000): Promise<SourceItemDecisionDoc[]> {
+    return this.store.find('sourceItemDecisions', { sourceKey }, { limit, sort: [['firstSeenAt', -1]] });
+  }
+
+  async findSourceItemDecision(
+    sourceKey: string,
+    sourceItemId: string,
+  ): Promise<SourceItemDecisionDoc | null> {
+    return this.store.findOne('sourceItemDecisions', { sourceKey, sourceItemId });
   }
 
   async addRevision(doc: JobRevisionDoc): Promise<{ revision: JobRevisionDoc; created: boolean }> {

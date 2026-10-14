@@ -123,17 +123,28 @@ export function detailFetchBudget(method: string): number {
 
 /** Daha önce görülmüş kaynak içi kimlikler (pahalı indirmeleri atlamak için). */
 export async function loadKnownItemIds(repos: Repos, sourceKey: string): Promise<Set<string>> {
-  const links = await repos.store.find('jobSources', { sourceKey }, { limit: KNOWN_ITEMS_LOOKBACK });
-  return new Set(links.map((link) => link.sourceItemId));
+  const [links, decisions] = await Promise.all([
+    repos.store.find('jobSources', { sourceKey }, { limit: KNOWN_ITEMS_LOOKBACK }),
+    repos.jobs.listSourceItemDecisions(sourceKey, KNOWN_ITEMS_LOOKBACK),
+  ]);
+  // İlan oluşturmayan kayıtlar (ret/inceleme/sinyal) da "görüldü" sayılır;
+  // yoksa liste başındaki reddedilen duyurular her koşumda detay bütçesini
+  // yutup sonraki sayfalardaki gerçek ilanların süresiz aç kalmasına yol açar.
+  return new Set([...links.map((link) => link.sourceItemId), ...decisions.map((d) => d.sourceItemId)]);
 }
 
 export async function loadKnownItemIdsWithDetail(repos: Repos, sourceKey: string): Promise<Set<string>> {
-  const links = await repos.store.find('jobSources', { sourceKey }, { limit: KNOWN_ITEMS_LOOKBACK });
-  return new Set(
-    links
-      .filter((link) => link.capturedTextStatus === 'captured' || link.capturedTextStatus === 'truncated')
-      .map((link) => link.sourceItemId),
-  );
+  const [links, decisions] = await Promise.all([
+    repos.store.find('jobSources', { sourceKey }, { limit: KNOWN_ITEMS_LOOKBACK }),
+    repos.jobs.listSourceItemDecisions(sourceKey, KNOWN_ITEMS_LOOKBACK),
+  ]);
+  const withText = (status: string): boolean => status === 'captured' || status === 'truncated';
+  return new Set([
+    ...links.filter((link) => withText(link.capturedTextStatus)).map((link) => link.sourceItemId),
+    // Gövde metni olmadan reddedilmiş/incelemeye alınmış kayıtlar burada yer
+    // almaz: detay sonradan gelirse sınıflandırma yeniden çalışabilir.
+    ...decisions.filter((d) => withText(d.capturedTextStatus)).map((d) => d.sourceItemId),
+  ]);
 }
 
 async function withTimeout<T>(
