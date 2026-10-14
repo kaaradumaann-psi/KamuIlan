@@ -84,7 +84,8 @@ const envSchema = z.object({
    *  - file              : yalnızca geliştirme/test (tek dosya).
    * 'supabase' bir takma addır; ikisi de POSTGRES_URL kullanır.
    */
-  DATABASE_DRIVER: z.enum(['postgres', 'supabase', 'mongo', 'file']).default('file'),
+  /** Boşsa otomatik: POSTGRES_URL/DATABASE_URL varsa Postgres, MONGODB_URI varsa Mongo, yoksa dosya. */
+  DATABASE_DRIVER: z.enum(['postgres', 'supabase', 'mongo', 'file']).optional(),
   /** Supabase bağlantı dizesi (Connection pooling / IPv4 uyumlu uç). */
   POSTGRES_URL: z.string().default(''),
   DATABASE_URL: z.string().default(''),

@@ -28,6 +28,7 @@ nedenle sorunlu olduğunu yazar.
 | Son başvuru durumlarının yenilenmesi            | 12 saatte bir   | Worker ("deadline-refresh" görevi)                                              |
 | Kapsam denetimi                                 | Günlük          | Worker ("coverage-audit" görevi)                                                |
 | Yedek                                           | Günlük          | aşağıya bakın                                                                   |
+| Eski ilan kayıtlarını yeniden sınıflandırma     | Kural değişince | `npm run jobs:reclassify` (kuru), sonra `-- --apply`                            |
 
 Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çalıştır" veya
 `POST /api/admin/maintenance/:kind`.
@@ -151,14 +152,14 @@ Geri yüklemede dosyayı yerine kopyalayın; uygulama açılışta indeksleri ye
 
 ## 7. Olay müdahalesi (runbook)
 
-| Belirti                          | İlk adım                                                | Kalıcı çözüm                                                                       |
-| -------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| API yanıt vermiyor               | `GET /api/health`, süreç günlüğü                        | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et                       |
+| Belirti                          | İlk adım                                                     | Kalıcı çözüm                                                                                      |
+| -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| API yanıt vermiyor               | `GET /api/health`, süreç günlüğü                             | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et                                      |
 | Zamanlanmış taramalar durdu      | `/api/health/worker`, `/api/health/config`, Yönetim → Kuyruk | Worker heartbeat'ini ve `SCHEDULER_ENABLED` ayarını kontrol et; kuyrukta kalan işleri ayrıca izle |
-| E-postalar gitmiyor              | Yönetim → E-posta kuyruğu `lastError`                   | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al                             |
-| İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et | Doğrulanmamış adrese gönderim yapılmaz (bilinçli)                                  |
-| Aynı ilan iki kayıt              | İnceleme kuyruğu → birleştirme                          | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez |
-| Yanlış ilan kabul edilmiş        | İnceleme kuyruğu → reddet                               | Sınıflandırma kuralını güncelle + test ekle (`tests/classification.test.ts`)       |
+| E-postalar gitmiyor              | Yönetim → E-posta kuyruğu `lastError`                        | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al                                            |
+| İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et      | Doğrulanmamış adrese gönderim yapılmaz (bilinçli)                                                 |
+| Aynı ilan iki kayıt              | İnceleme kuyruğu → birleştirme                               | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez                |
+| Yanlış ilan kabul edilmiş        | İnceleme kuyruğu → reddet                                    | Sınıflandırma kuralını güncelle + test ekle (`tests/classification.test.ts`)                      |
 
 `SCHEDULER_ENABLED=0`, yalnızca zamanı gelen görevlerin kuyruğa eklenmesini
 bekletir. Worker heartbeat'i sürer; önceden kuyruğa alınmış işler ve e-posta

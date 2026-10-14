@@ -240,6 +240,39 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
       /\b(?:genel\s+basvuru(?:lar)?(?:\s+(?:ilan|duyuru|ilanlari))?|ozgecmis\s+havuz\w*|cv\s+havuz\w*|talent\s+pool)/,
     weight: 0,
   },
+  {
+    id: 'ret-baslik.basin-konferans-rapor',
+    reason: 'Başlık basın duyurusu, konferans, sempozyum, rapor ya da eğitim programı — iş ilanı değil',
+    pattern:
+      /\b(?:basin\s+(?:duyuru|aciklama|bulten)\w*|konferans\w*|sempozyum\w*|kongre\w*|calistay\w*|seminer\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|izleme\s+ve\s+degerlendirme|degerlendirme\s+raporu|faaliyet\s+raporu|arastirma\s+programlari)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.yer-degistirme-satis',
+    reason: 'Başlık yer değiştirme, gayrimenkul satışı ya da çerez bildirimi — iş ilanı değil',
+    pattern: /\b(?:yer\s+degistirme\w*|satis\s+ilan\w*|satis\s+duyur\w*|gayrimenkul\s+satis\w*|cerez\w*|cookie\w*)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.sinav-metni-kura',
+    reason: 'Başlık sınav metni, sınav yeri/tarihi, kura ya da çağrı listesi — yeni alım ilanı değil',
+    pattern:
+      /\b(?:sinav\s+metin\w*|sinav\s+yeri\w*|sinav\s+tarih\w*|cagrilacak\s+adaylar|noter\s+kura\w*|kura\s+duyur\w*)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.ogrenci-kabul-tercih',
+    reason: 'Başlık öğrenci kabulü, yerleştirme ya da tercih duyurusu — personel alımı değil',
+    pattern:
+      /\b(?:ogrenci\s+secme|ogrenci\s+kabul\w*|dikey\s+gecis|ek\s+yerlestirme|yerlestirme\s+sonuc\w*|tercih\w*|rektor\s+adayligi|yks\b)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.proje-cagri',
+    reason: 'Başlık proje/hibe çağrısı ya da destek programı — iş ilanı değil',
+    pattern: /\b(?:proje\s+cagri\w*|cagrisi\s+acildi|cagri\s+acildi|hibe\s+programi\w*|destek\s+programi\w*)/,
+    weight: 0,
+  },
 ];
 
 /**
@@ -322,6 +355,14 @@ export const SOFT_NEGATIVE_RULES: readonly KeywordRule[] = [
  * Kaynak kategori adı personel alımı kategorisi ise ek güven verir.
  * (Örn. ilan.gov.tr "Kamu-Akademik Personel", "Kamu Personel Alım ve Sınavları")
  */
+/**
+ * Kabul için zorunlu kanıt: metinde (başlık veya gövde) açık bir personel
+ * alım/istihdam ifadesi olmalı. Kaynak kategorisi, sayfa kenar metni ve
+ * genel kamu kelimeleri tek başına yeterli değildir.
+ */
+export const RECRUITMENT_EVIDENCE_PATTERN =
+  /\b(?:personel\s+alim\w*|alim\s+ilan\w*|alim\s+yapil\w*|alim\s+duyur\w*|isci\s+alim\w*|memur\s+alim\w*|sozlesmeli\s+(?:\w+\s+){0,3}personel|sozlesmeli\s+personel|kadro\w*|istihdam\w*|giris\s+sinavi|uzman\s+yardimci\w*|alinacak\w*|alinmak\s+uzere|alinacaktir|basvuru\s+(?:yapabilir|yapilacak|sarti))/;
+
 export const RECRUITMENT_CATEGORY_PATTERN =
   /\b(?:kamu\s*-?\s*akademik\s+personel|personel\s+alim|alim\s+ve\s+sinav|akademik\s+personel\s+alim|kamu\s+personel)/;
 

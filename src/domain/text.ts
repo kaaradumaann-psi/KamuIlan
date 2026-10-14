@@ -191,3 +191,29 @@ export function maskEmail(email: string): string {
   if (!local || !domain) return '***';
   return `${local.slice(0, 1)}***@${domain}`;
 }
+
+/**
+ * Sitelerin arayüz (sayfa kabuğu) ifadeleri. Bunlar ilan metni değildir; başlığa,
+ * kuruma ya da gövdeye karışırsa "Daha yüksek erişilebilirlik modunu aç" gibi sahte
+ * başlıklar üretir. Yalnızca açık arayüz ifadeleri çıkarılır; ilan içeriğine dokunulmaz.
+ */
+export const UI_CHROME_PHRASES: readonly string[] = [
+  'Ana içeriğe atla',
+  'Daha yüksek erişilebilirlik modunu aç',
+  'Erişilebilirlik modunu aç',
+  'Oturum Aç',
+  'SharePoint',
+  'Takip Et',
+  'Sıkça Sorulan Sorular',
+  'Kurumsal Kimlik',
+  'Bilgi Güvenliği Politikası',
+  'Teşkilat Şeması',
+  'Çerez politikamız',
+  'Çerez politikası',
+];
+const UI_CHROME_PATTERN = new RegExp(UI_CHROME_PHRASES.map((phrase) => escapeRegExp(phrase)).join('|'), 'gi');
+
+/** Sayfa kabuğu ifadelerini çıkarır ve boşlukları toparlar. */
+export function stripUiChrome(text: string): string {
+  return collapseWhitespace(text.replace(UI_CHROME_PATTERN, ' '));
+}

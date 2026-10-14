@@ -2,7 +2,9 @@
 
 ## Gereksinimler
 
-- **Node.js 22+** ve npm 10+ (`node -v`)
+- **Node.js 22.15+** ve npm 10+ (`node -v`). 22.15 öncesi sürümlerde sistem sertifika deposu okunamaz;
+  ilan.gov.tr, BDDK ve TMSF gibi eksik sertifika zinciri olan siteler `UNABLE_TO_VERIFY_LEAF_SIGNATURE`
+  hatasıyla reddedilir. `npm run test:live` çıktısının ilk satırı TLS durumunu gösterir.
 - Geliştirme: başka hiçbir şey gerekmez (yerel **dosya deposu** + **yerleşik kuyruk**).
 - Üretim: **Supabase** projesi (Postgres), **Cloudflare** (alan adı/barındırma),
   **Resend** hesabı (e-posta). Ayrıntı: [deployment.md](./deployment.md).
@@ -205,6 +207,22 @@ Gerçek kaynaklara karşı canlı doğrulama (yalnızca gerçek ağ olan ortamda
 ```bash
 SOURCE_LIVE_FETCH=1 npm run test:live
 ```
+
+Canlı doğrulama sonucunda her kaynağın durumu ya da hatası yazdırılır. Başarısız kaynaklar
+`config/sources.ts` içinde "doğrulanmış" olarak kalmaz; nedeni `statusNote` alanına yazılır.
+
+## Mevcut ilan kayıtlarını yeniden değerlendirme
+
+Sınıflandırma kuralları değiştiğinde (ör. iş ilanı dışı duyuruların akıştan çıkarılması) eski
+kayıtlar için:
+
+```bash
+npm run jobs:reclassify            # kuru çalıştırma: ne değişeceğini raporlar (yazmaz)
+npm run jobs:reclassify -- --apply # değişiklikleri yazar
+```
+
+Yalnızca açık ret sinyali olan kayıtlar "reddedildi" olur ve akıştan çıkar; kayıt silinmez.
+Supabase üzerinde çalıştırmadan önce kuru çalıştırma çıktısını inceleyin.
 
 ## Kapsam raporu
 

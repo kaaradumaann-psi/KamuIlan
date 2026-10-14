@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Kamuİlan — Türkiye'deki kamu personel alım ilanlarını resmî kaynaklardan toplayan, doğrulayan, tekilleştiren ve e-posta ile bildiren platform.",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.15.0"
   },
   "scripts": {
     "dev": "tsx scripts/dev-all.ts",
@@ -35,6 +35,7 @@
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",
+    "jobs:reclassify": "tsx scripts/reclassify-jobs.ts",
     "seed:admin": "tsx scripts/create-admin.ts",
     "user:create": "tsx scripts/create-user.ts"
   },

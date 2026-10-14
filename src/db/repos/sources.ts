@@ -67,12 +67,18 @@ export class SourceRepo {
   ) {}
 
   /** Envanteri veritabanıyla eşitler (idempotent); mevcut kayıtları tek sorguda yükler. */
-  async seed(definitions: readonly SourceDefinition[] = SOURCE_DEFINITIONS): Promise<{ created: number; updated: number }> {
+  async seed(
+    definitions: readonly SourceDefinition[] = SOURCE_DEFINITIONS,
+  ): Promise<{ created: number; updated: number }> {
     let created = 0;
     let updated = 0;
     const now = this.clock.now().toISOString();
     const existingRows = definitions.length
-      ? await this.store.find('sources', { key: { $in: definitions.map((definition) => definition.key) } }, { limit: definitions.length })
+      ? await this.store.find(
+          'sources',
+          { key: { $in: definitions.map((definition) => definition.key) } },
+          { limit: definitions.length },
+        )
       : [];
     const existingByKey = new Map(existingRows.map((source) => [source.key, source]));
 
@@ -281,27 +287,32 @@ export class SourceRepo {
       planned: number;
     };
   }> {
-    const allSources = await this.store.find('sources', {}, { sort: [['name', 1]] });
+    // Bağımsız okumalar aynı anda yapılır: uzak veritabanında her gidiş-dönüş
+    // yüzlerce milisaniye sürer; sıralı okuma sayfayı istemci zaman aşımına taşır.
+    const [allSources, scheduledTasks] = await Promise.all([
+      this.store.find('sources', {}, { sort: [['name', 1]] }),
+      this.store.find('scheduledTasks', { kind: 'source-scrape' }, { limit: 500 }),
+    ]);
     // Demo/örnek veri kaydı gerçek bir tarama kaynağı değildir; kapsam sayılarına
     // girmez (seed:demo bunu coverageNote alanında taahhüt ediyor).
     const sources = allSources.filter((source) => !source.tags.includes('demo'));
-    const scheduledTasks = await this.store.find('scheduledTasks', { kind: 'source-scrape' }, { limit: 500 });
+    const lastRunRows = await Promise.all(
+      sources.map((source) =>
+        this.store.find('scrapeRuns', { sourceKey: source.key }, { limit: 1, sort: [['startedAt', -1]] }),
+      ),
+    );
     const scheduledIntervals = new Map(scheduledTasks.map((task) => [task.sourceKey, task.intervalMinutes]));
     const entries: SourceCoverageEntry[] = [];
     const staleThreshold = this.clock.now().getTime() - 6 * 3_600_000;
     let failing = 0;
     let stale = 0;
 
-    for (const source of sources) {
-      const lastRunRows = await this.store.find(
-        'scrapeRuns',
-        { sourceKey: source.key },
-        { limit: 1, sort: [['startedAt', -1]] },
-      );
-      const lastRun = lastRunRows[0] ?? null;
+    for (const [index, source] of sources.entries()) {
+      const lastRun = lastRunRows[index]?.[0] ?? null;
       // Son deneme değil, son gerçek başarı belirleyicidir: başarısız/atlanan
       // deneme kaynağı "yakın zamanda tarandı" gibi gösteremez.
-      const isStale = !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
+      const isStale =
+        !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
       if (source.health.consecutiveFailures > 0) failing += 1;
       if (source.enabled && isStale) stale += 1;
       entries.push({

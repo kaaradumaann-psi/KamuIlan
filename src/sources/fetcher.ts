@@ -266,6 +266,21 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
  * değil: sistem deposunu varsayılan paketle birleştirip ikisini de
  * güvenilir saymaktır (Node'un kendi önerisi: --use-system-ca).
  */
+/** Sistem sertifika deposu API'si Node 22.15 ile geldi; daha eski sürümlerde yoktur. */
+export const SYSTEM_CA_MIN_NODE = '22.15.0';
+
+export function systemCaStoreAvailable(): boolean {
+  return typeof getCACertificates === 'function';
+}
+
+/** Kullanıcıya gösterilecek TLS güven modu özeti (live-check başlığı). */
+export function describeTlsTrust(): string {
+  return systemCaStoreAvailable()
+    ? `Node ${process.version}: sistem sertifika deposu kullanılıyor (eksik zincirli resmî siteler için).`
+    : `Node ${process.version}: sistem sertifika deposu KULLANILAMIYOR. ilan.gov.tr, BDDK ve TMSF gibi siteler ` +
+        `UNABLE_TO_VERIFY_LEAF_SIGNATURE hatası verebilir. Node ${SYSTEM_CA_MIN_NODE} veya üstünü kurun.`;
+}
+
 export function loadTrustBundle(): string[] | undefined {
   try {
     if (typeof getCACertificates !== 'function') return undefined;
@@ -275,6 +290,8 @@ export function loadTrustBundle(): string[] | undefined {
     return undefined;
   }
 }
+
+let trustWarningShown = false;
 
 export class HttpClient {
   private readonly agent: Dispatcher;
@@ -293,6 +310,13 @@ export class HttpClient {
       toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) ||
       'Mozilla/5.0 (compatible; KamuIlanBot/1.0; +https://kamuilan.halilkaraduman.com.tr)';
     this.sleep = options.sleep ?? abortableSleep;
+    if (options.dispatcher === undefined && !systemCaStoreAvailable() && !trustWarningShown) {
+      trustWarningShown = true;
+      this.logger.warn(
+        { nodeVersion: process.version, requiredNodeVersion: SYSTEM_CA_MIN_NODE },
+        'Sistem sertifika deposu okunamıyor; eksik zincirli resmî siteler reddedilebilir. Node 22.15+ kurun.',
+      );
+    }
     this.agent = options.dispatcher ?? this.createAgent(loadTrustBundle());
   }
 

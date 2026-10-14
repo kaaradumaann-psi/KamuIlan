@@ -28,7 +28,7 @@
  * depoda fixture testleriyle doğrulanmıştır ancak bu ortamdan CANLI denenemez
  * (ağ erişimi kapalı). Bu yüzden envanter kaydı "scraper-built" durumundadır.
  */
-import { collapseWhitespace, makeExcerpt, normalizeTr } from '../../domain/text';
+import { collapseWhitespace, makeExcerpt, normalizeTr, stripUiChrome } from '../../domain/text';
 import { toIstanbulIso } from '../../domain/dates';
 import type { RawAnnouncement } from '../../domain';
 import { AdapterStructureError, SourceAccessError } from '../errors';
@@ -82,34 +82,6 @@ interface ParsedRow {
 }
 
 const HTML_TAG = /<[^>]+>/g;
-
-/**
- * Sayfa kabuğundan (menü, erişilebilirlik araç çubuğu, oturum düğmeleri) gelen
- * kesin arayüz ifadeleri. Bunlar ilan metni değildir; başlığa ya da gövdeye
- * karışırsa "Daha yüksek erişilebilirlik modunu aç" gibi başlıklar ve sahte kurum/birim
- * alanları üretir. Yalnızca açık arayüz ifadeleri listelenir (ilan içeriği silinmez).
- */
-const PAGE_CHROME_PHRASES: readonly string[] = [
-  'Ana içeriğe atla',
-  'Daha yüksek erişilebilirlik modunu aç',
-  'Erişilebilirlik modunu aç',
-  'Oturum Aç',
-  'SharePoint',
-  'Takip Et',
-  'Sıkça Sorulan Sorular',
-  'Kurumsal Kimlik',
-  'Bilgi Güvenliği Politikası',
-  'Teşkilat Şeması',
-];
-const PAGE_CHROME_PATTERN = new RegExp(
-  PAGE_CHROME_PHRASES.map((phrase) => phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
-  'gi',
-);
-
-/** Sayfa kabuğu ifadelerini çıkarır ve boşlukları toparlar. */
-export function stripPageChrome(text: string): string {
-  return collapseWhitespace(text.replace(PAGE_CHROME_PATTERN, ' '));
-}
 
 /** Gövde metni kullanılabilir uzunlukta mı? (İlan gövdesi için alt sınır.) */
 const MIN_USABLE_BODY = 120;
@@ -188,7 +160,7 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
   const adNo = ad.adNo !== null && ad.adNo !== undefined ? String(ad.adNo).trim() : '';
   const itemId = adNo.length > 0 ? adNo : id.length > 0 ? id : null;
   const detailId = id.length > 0 ? id : adNo;
-  const title = stripPageChrome(String(ad.title ?? ''));
+  const title = stripUiChrome(String(ad.title ?? ''));
   if (!itemId || !detailId || title.length < 8) return null;
 
   const rawHref = String(ad.urlStr ?? '').trim();
@@ -214,7 +186,7 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
     detailId,
     url: url ?? listingUrl,
     title: title.slice(0, 300),
-    institution: stripPageChrome(String(ad.advertiserName ?? '')) || null,
+    institution: stripUiChrome(String(ad.advertiserName ?? '')) || null,
     city: collapseWhitespace(String(ad.addressCityName ?? '')) || null,
     publishedAt,
     applicationEndAt: deadlineFromAdFilters(ad.adTypeFilters),
@@ -337,7 +309,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
         requestCount += 1;
         httpStatuses.push(detailResponse.status);
         const detailPayload = this.parseJson(detailResponse);
-        const fullText = stripPageChrome(collectApiText(detailPayload));
+        const fullText = stripUiChrome(collectApiText(detailPayload));
         if (fullText.length > MIN_USABLE_BODY) {
           bodyTextTruncated = fullText.length > 100_000;
           bodyText = fullText.slice(0, 100_000);

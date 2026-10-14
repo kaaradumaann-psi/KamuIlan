@@ -34,6 +34,7 @@ import { AdapterStructureError, AdapterUnavailableError } from '../sources/error
 import type { AdapterContext, SourceAdapter } from '../sources/types';
 import { queueNotificationsForJob } from '../notifications/service';
 import { applyRawAnnouncement } from './jobs-service';
+import { sanitizeRawAnnouncement } from './sanitize';
 
 export interface RunSourceOptions {
   repos: Repos;
@@ -292,7 +293,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
 
       for (const item of runResult.items) {
         try {
-          const outcome = await processItem(item, { repos, now, workerId, logger });
+          const outcome = await processItem(sanitizeRawAnnouncement(item), {
+            repos,
+            now,
+            workerId,
+            logger,
+          });
           if (outcome === 'created') totals.jobsCreated += 1;
           else if (outcome === 'updated') totals.jobsUpdated += 1;
           else if (outcome === 'merged') totals.itemsMerged += 1;

@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { getEnv } from '../src/config/env';
 import { SOURCE_DEFINITIONS, type SourceDefinition } from '../src/config/sources';
 import { requireAdapter } from '../src/sources/registry';
-import { HttpClient, FetchError } from '../src/sources/fetcher';
+import { describeTlsTrust, HttpClient, FetchError } from '../src/sources/fetcher';
 import { createLogger } from '../src/lib/logger';
 import { toIstanbulDateOnly } from '../src/domain';
 
@@ -33,7 +33,11 @@ interface LiveResult {
   notes: string[];
 }
 
-async function checkSource(source: SourceDefinition, http: HttpClient, logger: ReturnType<typeof createLogger>): Promise<LiveResult> {
+async function checkSource(
+  source: SourceDefinition,
+  http: HttpClient,
+  logger: ReturnType<typeof createLogger>,
+): Promise<LiveResult> {
   const started = Date.now();
   const adapter = requireAdapter(source.adapterKey);
   try {
@@ -88,10 +92,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  console.log(`TLS: ${describeTlsTrust()}\n`);
   const only = process.argv.find((argument) => argument.startsWith('--source='))?.split('=')[1];
-  const targets = SOURCE_DEFINITIONS.filter((source) => source.enabled && source.status !== 'disabled').filter(
-    (source) => !only || source.key === only,
-  );
+  const targets = SOURCE_DEFINITIONS.filter(
+    (source) => source.enabled && source.status !== 'disabled',
+  ).filter((source) => !only || source.key === only);
   if (targets.length === 0) {
     console.error(`✖ Doğrulanacak kaynak bulunamadı${only ? ` (--source=${only})` : ''}.`);
     process.exitCode = 1;
@@ -134,7 +139,9 @@ async function main(): Promise<void> {
   const reportPath = join(env.DATA_DIR, `live-check-${report.date}.json`);
   writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8');
 
-  console.log(`\nÖzet: ${report.summary.ok}/${report.summary.total} kaynak erişilebilir, toplam ${report.summary.items} ilan görüldü.`);
+  console.log(
+    `\nÖzet: ${report.summary.ok}/${report.summary.total} kaynak erişilebilir, toplam ${report.summary.items} ilan görüldü.`,
+  );
   console.log(`Rapor: ${reportPath}`);
   console.log(
     'Not: Bu rapor veritabanına yazmaz. Kaynak sağlığını ve ilanları görmek için worker’ı çalıştırıp ' +
@@ -142,7 +149,8 @@ async function main(): Promise<void> {
   );
   if (report.summary.failed > 0) {
     console.log('\nErişilemeyen kaynaklar:');
-    for (const result of results.filter((item) => !item.ok)) console.log(`  ✖ ${result.key}: ${result.error}`);
+    for (const result of results.filter((item) => !item.ok))
+      console.log(`  ✖ ${result.key}: ${result.error}`);
     console.log('Bu kaynaklar için durum güncellenmeli (config/sources.ts status + statusNote).');
   }
   process.exitCode = report.summary.ok === 0 ? 1 : 0;

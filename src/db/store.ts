@@ -34,12 +34,15 @@ export function describeDriver(driver: string): string {
  *
  * Tek karar noktası: `createStore` ve tanılama çıktıları (giriş ekranı, dev
  * günlüğü, kurulum betikleri) aynı sonucu görmelidir. Kural:
+ *  - `DATABASE_DRIVER=file` açıkça seçildiyse → dosya deposu (POSTGRES_URL olsa bile).
  *  - `DATABASE_DRIVER=postgres|supabase` İSE ya da POSTGRES_URL/DATABASE_URL
  *    tanımlıysa (mongo seçilmediği sürece) → Supabase/Postgres.
  *  - `DATABASE_DRIVER=mongo` ya da MONGODB_URI tanımlıysa → MongoDB.
  *  - Aksi halde geliştirme dosya deposu.
  */
 export function effectiveDriver(env: Env = getEnv()): StoragePort['driver'] {
+  // Açık `file` seçimi her şeyi geçersiz kılar: yerel çalıştırmada yanlışlıkla bulut veritabanına yazılmasın.
+  if (env.DATABASE_DRIVER === 'file') return 'file';
   const wantsPostgres = env.DATABASE_DRIVER === 'postgres' || env.DATABASE_DRIVER === 'supabase';
   if (wantsPostgres || (hasPostgresConfig(env) && env.DATABASE_DRIVER !== 'mongo')) return 'postgres';
   if (env.DATABASE_DRIVER === 'mongo' || env.MONGODB_URI) return 'mongodb';

@@ -12,7 +12,8 @@ import { createRepos } from '../src/db/repos';
 import { isStalePublication, sanePublishedDate, STALE_PUBLICATION_DAYS } from '../src/domain/dates';
 import { applyRawAnnouncement, computeStatus } from '../src/ingest/jobs-service';
 import { fixedClock } from '../src/lib/clock';
-import { stripPageChrome, stripRepeatedBoilerplate } from '../src/sources/adapters/ilan-gov-tr-api';
+import { stripRepeatedBoilerplate } from '../src/sources/adapters/ilan-gov-tr-api';
+import { stripUiChrome as stripPageChrome } from '../src/domain/text';
 import { effectiveGlobalInterval, MIN_GLOBAL_SCAN_INTERVAL_MINUTES } from '../src/worker/scheduler';
 import { sozlesmeliPersonelIlani } from './fixtures/announcements';
 

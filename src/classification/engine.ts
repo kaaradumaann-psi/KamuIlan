@@ -21,6 +21,7 @@ import {
   EMPLOYMENT_TYPE_RULES,
   POSITIVE_RULES,
   RECRUITMENT_CATEGORY_PATTERN,
+  RECRUITMENT_EVIDENCE_PATTERN,
   SOFT_NEGATIVE_RULES,
   TITLE_REJECT_RULES,
   type KeywordRule,
@@ -172,10 +173,18 @@ export function classify(input: ClassificationInput): ClassificationResult {
   else if (bodyPositives.length > 0) reasons.push(...bodyPositives.map((rule) => rule.reason));
   reasons.push(employmentReason);
 
+  // Kanıt kapısı: metinde personel alım/istihdam ifadesi yoksa puan ne olursa olsun kabul edilmez.
+  const hasRecruitmentEvidence =
+    RECRUITMENT_EVIDENCE_PATTERN.test(titleText) || RECRUITMENT_EVIDENCE_PATTERN.test(bodyText);
+
   let decision: ClassificationResult['decision'];
   let confidence: number;
 
-  if (rawScore >= ACCEPT_THRESHOLD) {
+  if (!hasRecruitmentEvidence) {
+    decision = 'reject';
+    confidence = 0.8;
+    reasons.push('İlanda personel alım/istihdam ifadesi bulunamadı — iş ilanı değil');
+  } else if (rawScore >= ACCEPT_THRESHOLD) {
     decision = 'accept';
     confidence = Math.min(0.95, 0.6 + rawScore * 0.06);
   } else if (rawScore >= REVIEW_THRESHOLD) {
