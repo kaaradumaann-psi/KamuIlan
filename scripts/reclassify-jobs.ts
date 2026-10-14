@@ -11,6 +11,8 @@
  * Yapılandırılmış veritabanını (DATABASE_DRIVER) kullanır. Supabase/Postgres üzerinde
  * çalıştırmadan önce mutlaka kuru çalıştırma çıktısını inceleyin.
  */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getEnv } from '../src/config/env';
 import { effectiveDriver, describeDriver, initStore, closeStore } from '../src/db/store';
 import { createRepos } from '../src/db/repos';
@@ -28,6 +30,19 @@ async function main(): Promise<void> {
   createRepos(store);
   const jobs = await store.find('jobs', {}, { limit: 100_000 });
   const now = new Date();
+
+  if (apply) {
+    // Yazmadan önce tam yedek: veritabanı değişikliği geri alınabilir olmalı.
+    // Yedek yazılamazsa hiçbir kayıt değiştirilmez.
+    const backupDir = join(env.DATA_DIR, 'backups');
+    mkdirSync(backupDir, { recursive: true });
+    const backupPath = join(
+      backupDir,
+      `jobs-before-reclassify-${now.toISOString().replace(/[:.]/g, '-')}.json`,
+    );
+    writeFileSync(backupPath, JSON.stringify(jobs, null, 2), { encoding: 'utf8', flag: 'wx' });
+    console.log(`Yedek yazıldı (${jobs.length} kayıt): ${backupPath}`);
+  }
 
   let acceptedBefore = 0;
   let acceptedAfter = 0;

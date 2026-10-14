@@ -9,7 +9,7 @@
 - Üretim: **Supabase** projesi (Postgres), **Cloudflare** (alan adı/barındırma),
   **Resend** hesabı (e-posta). Ayrıntı: [deployment.md](./deployment.md).
 - İsteğe bağlı: MongoDB 7 ve Redis 7 (eski kurulumlar / kuyruk için)
-- İsteğe bağlı: Playwright tarayıcıları (yalnızca Kariyer Kapısı kaynağı ve E2E testleri için)
+- Playwright Chromium: **Resmî Gazete** (HTTP engellendiğinde tarayıcı yedeği), Kariyer Kapısı ve E2E testleri için gerekir. Kurulum: `npx playwright install chromium`
 
 ## 1. Bağımlılıklar
 
@@ -17,6 +17,13 @@
 npm install
 # Playwright tarayıcılarını indirmek istemiyorsanız:
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install
+```
+
+Resmî Gazete kaynağı HTTP ile engellendiğinde (ECONNRESET / zaman aşımı) gerçek bir Chromium
+oturumuyla okunur. Bu yüzden yerel makinede Chromium kurulu olmalıdır:
+
+```bash
+npx playwright install chromium
 ```
 
 E2E testleri için tarayıcı gerekir:
