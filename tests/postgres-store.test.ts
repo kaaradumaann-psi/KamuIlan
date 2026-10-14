@@ -216,10 +216,14 @@ describe('Postgres depo sürücüsü', () => {
   });
 
   it('updateOne nokta yollu yamayı uygular, eşleşmeyen koşulda null döner', async () => {
-    const updated = await pg.updateOne('jobs', { id: 'job_pg_1' }, {
-      status: 'closing-soon',
-      'conditions.minAge': 20,
-    });
+    const updated = await pg.updateOne(
+      'jobs',
+      { id: 'job_pg_1' },
+      {
+        status: 'closing-soon',
+        'conditions.minAge': 20,
+      },
+    );
     expect(updated?.status).toBe('closing-soon');
     expect((updated as unknown as { conditions: { minAge: number } }).conditions.minAge).toBe(20);
 
@@ -377,10 +381,11 @@ describe('Postgres depo sürücüsü', () => {
       filters: { cities: ['Ankara'], keywords: ['mühendis'] },
     });
     expect(preference.userId).toBe(created.user.id);
+    expect(preference.enabled).toBe(false);
     // Şema dışı değer kaydedilemez: zod doğrulaması repo katmanında, sürücüden
     // bağımsız olarak çalışır (Postgres'te de aynı kural geçerlidir).
-    await expect(
-      repos.users.update(created.user.id, { role: 'root' as never }),
-    ).rejects.toThrow(/belge şeması geçersiz/);
+    await expect(repos.users.update(created.user.id, { role: 'root' as never })).rejects.toThrow(
+      /belge şeması geçersiz/,
+    );
   });
 });

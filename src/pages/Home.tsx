@@ -270,7 +270,10 @@ export function HomePage() {
           )}
         </Card>
 
-        <Card title="Yaklaşan son başvuru tarihleri" description="Başvurusu önümüzdeki 14 gün içinde bitenler.">
+        <Card
+          title="Yaklaşan son başvuru tarihleri"
+          description="Başvurusu önümüzdeki 14 gün içinde bitenler."
+        >
           {closing.isLoading && <LoadingCard title="Takvim yükleniyor…" />}
           {closing.isError && (
             <ErrorNotice message={errorMessage(closing.error)} onRetry={() => void closing.refetch()} />
@@ -336,18 +339,17 @@ export function HomePage() {
             ayıklarız. Emin olamadıklarımızı silmez, bir insanın gözden geçirmesine bırakırız.
           </li>
           <li>
-            <strong>Okuma:</strong> İlanın içinden tarih, kontenjan, şehir ve koşulları okuruz.
-            Okuyamadığımız yerde "belirtilmemiş" yazarız; hiçbir bilgiyi tahmin etmeyiz.
+            <strong>Okuma:</strong> İlanın içinden tarih, kontenjan, şehir ve koşulları okuruz. Okuyamadığımız
+            yerde "belirtilmemiş" yazarız; hiçbir bilgiyi tahmin etmeyiz.
           </li>
           <li>
-            <strong>Tek gösterme:</strong> Aynı ilan birden çok yerde çıkarsa size bir kez gösteririz;
-            çıktığı bütün adresleri ilanın altında sıralarız. Benzer başlıklı farklı ilanları
-            birleştirmeyiz.
+            <strong>Tek gösterme:</strong> Aynı ilan birden çok yerde çıkarsa size bir kez gösteririz; çıktığı
+            bütün adresleri ilanın altında sıralarız. Benzer başlıklı farklı ilanları birleştirmeyiz.
           </li>
           <li>
-            <strong>Haber verme:</strong> Tercihlerinize uyan yeni bir ilan bulursak ya da takip
-            ettiğiniz ilanda değişiklik olursa e-posta göndeririz. Gönderimin ulaşıp ulaşmadığını
-            da geçmiş ekranından görebilirsiniz.
+            <strong>Haber verme:</strong> Tercihlerinize uyan yeni bir ilan bulursak ya da takip ettiğiniz
+            ilanda değişiklik olursa e-posta göndeririz. Gönderimin ulaşıp ulaşmadığını da geçmiş ekranından
+            görebilirsiniz.
           </li>
         </ol>
         <InfoNote title="Bilmeniz gereken" tone="info">

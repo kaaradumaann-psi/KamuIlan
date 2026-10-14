@@ -64,7 +64,11 @@ interface CapturedMail {
 }
 
 /** Süreç içi SMTP sunucusu: kabloya çıkan iletiyi yakalar. */
-async function startSmtpCapture(): Promise<{ port: number; mails: CapturedMail[]; close: () => Promise<void> }> {
+async function startSmtpCapture(): Promise<{
+  port: number;
+  mails: CapturedMail[];
+  close: () => Promise<void>;
+}> {
   const mails: CapturedMail[] = [];
   const server = new SMTPServer({
     authOptional: true,
@@ -158,7 +162,8 @@ function preferencesFor(job: JobDoc): {
 
 describe('MIME başlık çözümlemesi (regresyon)', () => {
   it('yan yana kodlanmış kelimeleri tek boşlukla birleştirir', () => {
-    const encoded = '=?UTF-8?Q?Mu=C5=9F=27ta_s=C3=B6zle=C5=9Fmeli?= =?UTF-8?Q?_personel_al=C4=B1m_ilan=C4=B1?=';
+    const encoded =
+      '=?UTF-8?Q?Mu=C5=9F=27ta_s=C3=B6zle=C5=9Fmeli?= =?UTF-8?Q?_personel_al=C4=B1m_ilan=C4=B1?=';
     expect(decodeMimeWords(encoded)).toBe("Muş'ta sözleşmeli personel alım ilanı");
   });
 
@@ -185,7 +190,7 @@ describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → 
     if (!job) throw new Error('İlan oluşturulamadı');
 
     const userId = await seedVerifiedUser(repos);
-    await repos.notifications.upsertPreference(userId, { filters: preferencesFor(job) });
+    await repos.notifications.upsertPreference(userId, { enabled: true, filters: preferencesFor(job) });
 
     const queued = await queueNotificationsForJob({
       repos,
@@ -283,6 +288,7 @@ describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → 
 
     const userId = await seedVerifiedUser(repos, 'baska@ornek.test');
     await repos.notifications.upsertPreference(userId, {
+      enabled: true,
       filters: { ...preferencesFor(job), institutions: ['Hiçbir İlanda Olmayan Kurum'] },
     });
 
@@ -332,7 +338,7 @@ describe('e-posta teslim hattı — fixture → DB → eşleşme → outbox → 
     if (!job) throw new Error('İlan oluşturulamadı');
 
     const userId = await seedVerifiedUser(repos, 'cikmis@ornek.test');
-    await repos.notifications.upsertPreference(userId, { filters: preferencesFor(job) });
+    await repos.notifications.upsertPreference(userId, { enabled: true, filters: preferencesFor(job) });
     await repos.notifications.upsertPreference(userId, { enabled: false, paused: true });
 
     const queued = await queueNotificationsForJob({

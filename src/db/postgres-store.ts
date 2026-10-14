@@ -23,7 +23,16 @@
 import { Pool, type PoolClient } from 'pg';
 import type { CollectionName, DocumentOf } from './schemas';
 import { COLLECTION_SCHEMAS } from './schemas';
-import { applyPatch, getPath, isOperatorObject, matchesQuery, sortDocuments, type ConditionOperators, type FindOptions, type Query } from './query';
+import {
+  applyPatch,
+  getPath,
+  isOperatorObject,
+  matchesQuery,
+  sortDocuments,
+  type ConditionOperators,
+  type FindOptions,
+  type Query,
+} from './query';
 import type { IndexSpec, InsertIfAbsentResult, StoragePort } from './ports';
 import { INDEXES } from './indexes';
 
@@ -88,7 +97,12 @@ function tableName(prefix: string, collection: string): string {
 
 /** Koleksiyon adından indeks adı üretir (Postgres indeks adları 63 baytla sınırlıdır). */
 function indexIdentifier(table: string, rawName: string): string {
-  return safeIdentifier(`${table}_${rawName}`.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 60));
+  return safeIdentifier(
+    `${table}_${rawName}`
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .slice(0, 60),
+  );
 }
 
 /**
@@ -109,7 +123,12 @@ function containmentVariants(path: string, value: unknown): string[] {
   };
 
   const variants = new Set<string>();
-  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
     variants.add(build(value));
   }
   if (typeof value === 'number' && Number.isFinite(value)) variants.add(build(String(value)));
@@ -138,7 +157,9 @@ function scalarEqualityClause(field: string, values: unknown[], params: unknown[
     if (typeof value === 'string' || typeof value === 'number') {
       // `?` operatörü metin bekler; sayılar metin biçimiyle de aranmalı.
       params.push(typeof value === 'number' ? String(value) : value);
-      ors.push(`(jsonb_typeof(data -> ${quoteLiteral(field)}) = 'array' AND (data -> ${quoteLiteral(field)}) ? $${params.length}::text)`);
+      ors.push(
+        `(jsonb_typeof(data -> ${quoteLiteral(field)}) = 'array' AND (data -> ${quoteLiteral(field)}) ? $${params.length}::text)`,
+      );
     }
   }
   return ors.length > 0 ? ors.join(' OR ') : null;
@@ -231,7 +252,9 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
       else values.push(condition);
     } else {
       const operators = condition as ConditionOperators;
-      const onlyEquality = Object.keys(operators).every((operator) => operator === '$eq' || operator === '$in');
+      const onlyEquality = Object.keys(operators).every(
+        (operator) => operator === '$eq' || operator === '$in',
+      );
       if (!onlyEquality) return abandon();
       if (operators.$eq !== undefined) values.push(operators.$eq);
       if (operators.$in) values.push(...operators.$in);
@@ -371,10 +394,7 @@ export class PostgresStore implements StoragePort {
     client?: PoolClient,
   ): Promise<DocumentOf<K> | null> {
     const table = this.table(collection);
-    const query = await this.queryRunner(client)(
-      `SELECT data FROM ${table} WHERE id = $1`,
-      [id],
-    );
+    const query = await this.queryRunner(client)(`SELECT data FROM ${table} WHERE id = $1`, [id]);
     const row = query.rows[0] as { data: unknown } | undefined;
     return row ? (row.data as DocumentOf<K>) : null;
   }
@@ -388,7 +408,10 @@ export class PostgresStore implements StoragePort {
   async insertOne<K extends CollectionName>(collection: K, doc: DocumentOf<K>): Promise<DocumentOf<K>> {
     const table = this.table(collection);
     const id = String((doc as { id: string }).id);
-    await this.pool.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [id, JSON.stringify(doc)]);
+    await this.pool.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [
+      id,
+      JSON.stringify(doc),
+    ]);
     return doc;
   }
 
@@ -400,7 +423,10 @@ export class PostgresStore implements StoragePort {
       await client.query('BEGIN');
       for (const doc of docs) {
         const id = String((doc as { id: string }).id);
-        await client.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [id, JSON.stringify(doc)]);
+        await client.query(`INSERT INTO ${table} (id, data) VALUES ($1, $2::jsonb)`, [
+          id,
+          JSON.stringify(doc),
+        ]);
       }
       await client.query('COMMIT');
       return docs.length;
@@ -425,7 +451,8 @@ export class PostgresStore implements StoragePort {
     const docs = await this.selectMatching(collection, filter);
     const sorted = sortDocuments(docs, options?.sort);
     const skip = options?.skip ?? 0;
-    const limited = options?.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
+    const limited =
+      options?.limit !== undefined ? sorted.slice(skip, skip + options.limit) : sorted.slice(skip);
     return limited;
   }
 

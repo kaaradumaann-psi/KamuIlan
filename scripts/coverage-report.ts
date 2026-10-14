@@ -64,7 +64,14 @@ async function main(): Promise<void> {
       `planlanan ${coverage.summary.planned}, üst üste başarısız ${coverage.summary.failing}, bayat ${coverage.summary.stale}\n`,
   );
 
-  console.log(pad('KAYNAK', 34), pad('DURUM', 16), pad('ETKİN', 6), pad('SON BAŞARI', 20), pad('HATA', 5), 'ARALIK');
+  console.log(
+    pad('KAYNAK', 34),
+    pad('DURUM', 16),
+    pad('ETKİN', 6),
+    pad('SON BAŞARI', 20),
+    pad('HATA', 5),
+    'ARALIK',
+  );
   for (const entry of coverage.sources) {
     console.log(
       pad(entry.key, 34),
@@ -80,7 +87,9 @@ async function main(): Promise<void> {
   console.log('\nDoğrulanmış kaynakların adaptör eşleşmesi:');
   for (const definition of SOURCE_DEFINITIONS.filter((source) => source.status === 'verified')) {
     const adapter = adapters.get(definition.adapterKey);
-    console.log(`  ${adapter ? '✔' : '✖'} ${definition.key} → ${definition.adapterKey}${adapter ? ` (${adapter.method})` : ' (adaptör kayıtlı değil!)'}`);
+    console.log(
+      `  ${adapter ? '✔' : '✖'} ${definition.key} → ${definition.adapterKey}${adapter ? ` (${adapter.method})` : ' (adaptör kayıtlı değil!)'}`,
+    );
   }
 
   console.log('\nPlanlanan (henüz entegre edilmemiş) kaynaklar:');

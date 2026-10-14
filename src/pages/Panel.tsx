@@ -11,7 +11,12 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/session';
 import { EDUCATION_LEVELS, EDUCATION_LEVEL_LABELS } from '../domain/types';
 import { EMPLOYMENT_TYPE_LABELS, formatDateTime, turkishCapitalize } from '../lib/format';
-import type { NotificationHistoryResponse, PreferenceFilters, PreferencesResponse } from '../types';
+import type {
+  CandidateProfile,
+  NotificationHistoryResponse,
+  PreferenceFilters,
+  PreferencesResponse,
+} from '../types';
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
@@ -26,6 +31,14 @@ const EMPTY_FILTERS: PreferenceFilters = {
   kpssScoreTypes: [],
   kpssMinScore: null,
   minDaysUntilDeadline: null,
+};
+
+const EMPTY_PROFILE: CandidateProfile = {
+  profession: '',
+  educationLevel: null,
+  departments: [],
+  skills: [],
+  experienceYears: null,
 };
 
 function toList(value: string): string[] {
@@ -47,6 +60,8 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
     queryFn: ({ signal }) => api.get<NotificationHistoryResponse>('/api/notifications/history', undefined, signal),
   });
   const [filters, setFilters] = useState<PreferenceFilters>(EMPTY_FILTERS);
+  const [candidateProfile, setCandidateProfile] = useState<CandidateProfile>(EMPTY_PROFILE);
+  const [profilePersonalizationEnabled, setProfilePersonalizationEnabled] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +75,8 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
         kpssMinScore: current.kpssMinScore ?? null,
         minDaysUntilDeadline: current.minDaysUntilDeadline ?? null,
       });
+      setCandidateProfile({ ...EMPTY_PROFILE, ...(preferences.data.preference.candidateProfile ?? {}) });
+      setProfilePersonalizationEnabled(preferences.data.preference.profilePersonalizationEnabled ?? false);
     }
   }, [preferences.data?.preference]);
 
@@ -94,6 +111,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
 
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmClearProfile, setConfirmClearProfile] = useState(false);
   const deleteAccount = useMutation({
     mutationFn: () =>
       api.post<{ message: string }>('/api/auth/delete-account', { confirm: 'SIL', password: deletePassword }),
@@ -126,7 +144,21 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       enabled: true,
       paused: false,
       filters,
+      candidateProfile,
+      profilePersonalizationEnabled,
     });
+  };
+
+  /** Profil onayı/alanları e-posta bildirim aboneliğinden bağımsız kaydedilebilir. */
+  const saveProfileOnly = (): void => {
+    save.mutate({ candidateProfile, profilePersonalizationEnabled });
+  };
+
+  const clearProfile = (): void => {
+    setCandidateProfile({ ...EMPTY_PROFILE });
+    setProfilePersonalizationEnabled(false);
+    setConfirmClearProfile(false);
+    save.mutate({ candidateProfile: { ...EMPTY_PROFILE }, profilePersonalizationEnabled: false });
   };
 
   return (
@@ -410,6 +442,118 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
               </label>
             </div>
 
+            <fieldset className="form-col-span-2 profile-matching-settings">
+              <legend className="label">Akıllı profil eşleşmesi (isteğe bağlı)</legend>
+              <p className="text-muted-sm">
+                Mesleğinizi ve temel niteliklerinizi girerek her ilanda size özel ilgi/koşul ipuçları görün.
+                Bu ilk sürüm, profilinizle ilan metnindeki açık alanları karşılaştırır; resmî uygunluk kararı
+                vermez ve profilinizi dışarıdaki bir AI hizmetine göndermez. Kaydettiğiniz bilgiler
+                hesabınızda kalır; eşleştirme kapalıysa ilan açıklamalarında kullanılmaz. İstediğiniz zaman
+                kapatabilir veya profilinizi silebilirsiniz.
+              </p>
+              <label className="switch-row profile-consent-row">
+                <input
+                  type="checkbox"
+                  checked={profilePersonalizationEnabled}
+                  onChange={(event) => setProfilePersonalizationEnabled(event.target.checked)}
+                />
+                Profilimi ilanlara özel eşleşme açıklamalarında kullan
+              </label>
+              <div className="form-grid-2col profile-form-grid">
+                <Field
+                  label="Mesleğim / hedef unvanım"
+                  htmlFor="profile-profession"
+                  hint="ör. inşaat mühendisi, hemşire"
+                >
+                  <input
+                    id="profile-profession"
+                    className="input"
+                    maxLength={100}
+                    value={candidateProfile.profession}
+                    onChange={(event) =>
+                      setCandidateProfile({ ...candidateProfile, profession: event.target.value })
+                    }
+                  />
+                </Field>
+                <Field label="Eğitim düzeyim" htmlFor="profile-education">
+                  <select
+                    id="profile-education"
+                    className="input"
+                    value={candidateProfile.educationLevel ?? ''}
+                    onChange={(event) =>
+                      setCandidateProfile({ ...candidateProfile, educationLevel: event.target.value || null })
+                    }
+                  >
+                    <option value="">Belirtmek istemiyorum</option>
+                    {EDUCATION_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {EDUCATION_LEVEL_LABELS[level]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Mezun olduğum bölümler" htmlFor="profile-departments" hint="Virgülle ayırın.">
+                  <input
+                    id="profile-departments"
+                    className="input"
+                    value={candidateProfile.departments.join(', ')}
+                    onChange={(event) =>
+                      setCandidateProfile({ ...candidateProfile, departments: toList(event.target.value) })
+                    }
+                    placeholder="ör. İnşaat Mühendisliği"
+                  />
+                </Field>
+                <Field label="Beceriler / belgeler" htmlFor="profile-skills" hint="Virgülle ayırın.">
+                  <input
+                    id="profile-skills"
+                    className="input"
+                    value={candidateProfile.skills.join(', ')}
+                    onChange={(event) =>
+                      setCandidateProfile({ ...candidateProfile, skills: toList(event.target.value) })
+                    }
+                    placeholder="ör. AutoCAD, ilk yardım"
+                  />
+                </Field>
+                <Field label="İlgili iş deneyimim (yıl)" htmlFor="profile-experience">
+                  <input
+                    id="profile-experience"
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={50}
+                    value={candidateProfile.experienceYears ?? ''}
+                    onChange={(event) =>
+                      setCandidateProfile({
+                        ...candidateProfile,
+                        experienceYears: event.target.value === '' ? null : Number(event.target.value),
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+              <div className="profile-save-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={saveProfileOnly}
+                  disabled={save.isPending}
+                >
+                  {save.isPending ? 'Kaydediliyor…' : 'Profil tercihini ayrı kaydet'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setConfirmClearProfile(true)}
+                  disabled={save.isPending}
+                >
+                  Profil bilgilerimi sil
+                </button>
+                <span className="text-muted-sm">
+                  Profil işlemleri e-posta bildirimlerini açmaz veya değiştirmez.
+                </span>
+              </div>
+            </fieldset>
+
             <div className="form-col-span-2">
               <button type="submit" className="btn-primary" disabled={save.isPending}>
                 {save.isPending ? 'Kaydediliyor…' : 'Tercihleri kaydet ve bildirimleri aç'}
@@ -477,6 +621,17 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
             </>
           )}
         </Card>
+      )}
+
+      {confirmClearProfile && (
+        <ConfirmDialog
+          title="Profil bilgilerini sil"
+          description="Profil alanlarınız kalıcı olarak boşaltılacak ve kişiselleştirme kapatılacak. E-posta bildirim tercihleriniz değişmeyecek."
+          confirmLabel="Profilimi sil"
+          busy={save.isPending}
+          onConfirm={clearProfile}
+          onCancel={() => setConfirmClearProfile(false)}
+        />
       )}
 
       {view === 'preferences' && (

@@ -6,14 +6,21 @@
  * (local development / tests) and MongoDB (production) without conversion.
  */
 import { z } from 'zod';
-import { EDUCATION_LEVELS, EMPLOYMENT_TYPES, JOB_STATUSES, KPSS_SCORE_TYPES, SOURCE_STATUSES } from '../domain';
+import {
+  EDUCATION_LEVELS,
+  EMPLOYMENT_TYPES,
+  JOB_STATUSES,
+  KPSS_SCORE_TYPES,
+  SOURCE_STATUSES,
+} from '../domain';
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 export const isoString = () => z.string().regex(ISO, 'ISO-8601 zaman damgası bekleniyor');
 export const dateOnlyString = () => z.string().regex(DATE_ONLY, 'YYYY-AA-GG biçiminde tarih bekleniyor');
-export const idString = (prefix: string) => z.string().regex(new RegExp(`^${prefix}_[a-z0-9]+$`), `${prefix}_ kimliği bekleniyor`);
+export const idString = (prefix: string) =>
+  z.string().regex(new RegExp(`^${prefix}_[a-z0-9]+$`), `${prefix}_ kimliği bekleniyor`);
 
 export const sourceSchema = z.object({
   id: idString('src'),
@@ -22,7 +29,14 @@ export const sourceSchema = z.object({
   institution: z.string().min(2),
   homepageUrl: z.string().min(8),
   listingUrl: z.string().min(8),
-  sourceType: z.enum(['official-portal', 'official-index', 'institution-page', 'exam-authority', 'regional-restricted', 'manual']),
+  sourceType: z.enum([
+    'official-portal',
+    'official-index',
+    'institution-page',
+    'exam-authority',
+    'regional-restricted',
+    'manual',
+  ]),
   method: z.enum(['html-list', 'html-detail', 'pdf-index', 'json-api', 'manual-entry', 'browser']),
   adapterKey: z.string().min(2),
   enabled: z.boolean(),
@@ -123,15 +137,9 @@ export const jobSchema = z.object({
     specialConditions: z.array(z.string()),
   }),
   titles: z.array(z.string()),
+  /** Contact-redacted, bounded excerpt used by search, matching, extraction and detail UI. */
   textExcerpt: z.string().default(''),
-  /**
-   * Arama için normalize edilmiş ilan metni (Türkçe katlanmış, küçük harf).
-   *
-   * `textExcerpt` ham metindir: "Hemşire" yalnızca "hemşire" ile birebir
-   * eşleşir. Kullanıcı aramaları normalize edilmiş sorguyla yapıldığı için
-   * gövde metni de normalize edilmiş biçimde saklanır; aksi hâlde "hemşire",
-   * "sağlık", "şoför" gibi sözcükler gövdede hiç bulunamıyordu.
-   */
+  /** Turkish-normalized derivative of the retained excerpt; consumed by job search. */
   textNormalized: z.string().default(''),
   originalRefNo: z.string().nullable(),
   sourceKeys: z.array(z.string()).min(1),
@@ -184,8 +192,9 @@ export const jobSourceSchema = z.object({
   institution: z.string().nullable(),
   sourceCategory: z.string().nullable(),
   publishedAt: z.string().nullable(),
-  rawContentHash: z.string().min(8),
-  rawExcerpt: z.string().default(''),
+  /** Count of the bounded, normalized capture; body text itself is not retained here. */
+  capturedTextCharacterCount: z.number().int().min(0).default(0),
+  capturedTextStatus: z.enum(['captured', 'truncated', 'listing-only', 'unavailable']).default('unavailable'),
   attachments: z.array(
     z.object({
       url: z.string(),
@@ -209,7 +218,17 @@ export const jobRevisionSchema = z.object({
    */
   version: z.number().int().min(1),
   changeTypes: z.array(
-    z.enum(['new', 'content', 'deadline', 'quota', 'requirements', 'application-url', 'closed', 'withdrawn', 'source-added']),
+    z.enum([
+      'new',
+      'content',
+      'deadline',
+      'quota',
+      'requirements',
+      'application-url',
+      'closed',
+      'withdrawn',
+      'source-added',
+    ]),
   ),
   changedFields: z.array(z.string()),
   previous: z.record(z.string(), z.unknown()),
@@ -264,6 +283,15 @@ export const tokenSchema = z.object({
 });
 export type TokenDoc = z.infer<typeof tokenSchema>;
 
+export const candidateProfileSchema = z.object({
+  profession: z.string().max(100).default(''),
+  educationLevel: z.enum(EDUCATION_LEVELS).nullable().default(null),
+  departments: z.array(z.string().max(80)).max(20).default([]),
+  skills: z.array(z.string().max(80)).max(20).default([]),
+  experienceYears: z.number().int().min(0).max(50).nullable().default(null),
+});
+export type CandidateProfileDoc = z.infer<typeof candidateProfileSchema>;
+
 export const notificationPreferenceSchema = z.object({
   id: idString('npr'),
   userId: idString('usr'),
@@ -274,6 +302,15 @@ export const notificationPreferenceSchema = z.object({
   notifyOnChanges: z.boolean(),
   includeWorkerJobs: z.boolean(),
   includeAcademicJobs: z.boolean(),
+  /** Profile matching is opt-in; profile text is never sent to a third-party model. */
+  profilePersonalizationEnabled: z.boolean().default(false),
+  candidateProfile: candidateProfileSchema.default({
+    profession: '',
+    educationLevel: null,
+    departments: [],
+    skills: [],
+    experienceYears: null,
+  }),
   filters: z.object({
     keywords: z.array(z.string()),
     titles: z.array(z.string()),
@@ -310,7 +347,14 @@ export const emailOutboxSchema = z.object({
   eventId: idString('nev').nullable(),
   jobId: idString('job').nullable(),
   userId: idString('usr').nullable(),
-  kind: z.enum(['job-notification', 'digest', 'email-verification', 'password-reset', 'account-invite', 'test']),
+  kind: z.enum([
+    'job-notification',
+    'digest',
+    'email-verification',
+    'password-reset',
+    'account-invite',
+    'test',
+  ]),
   toEmail: z.string().min(5),
   subject: z.string().min(1),
   template: z.string().min(1),
@@ -354,6 +398,8 @@ export const scrapeRunSchema = z.object({
   errorCount: z.number().int().min(0),
   httpStatuses: z.array(z.number().int()),
   errors: z.array(z.string()),
+  coverageStatus: z.enum(['complete', 'partial', 'unknown']).default('unknown'),
+  coverageNote: z.string().default(''),
   result: z.string().default(''),
   workerId: z.string().min(1),
   notes: z.array(z.string()).default([]),

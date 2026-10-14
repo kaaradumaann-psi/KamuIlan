@@ -42,6 +42,14 @@ const PREFERENCES = {
     notifyOnChanges: true,
     includeWorkerJobs: true,
     includeAcademicJobs: true,
+    profilePersonalizationEnabled: false,
+    candidateProfile: {
+      profession: '',
+      educationLevel: null,
+      departments: [],
+      skills: [],
+      experienceYears: null,
+    },
     filters: {
       keywords: [],
       titles: [],
@@ -117,11 +125,81 @@ describe('panel eğitim düzeyi tercihleri', () => {
     fireEvent.click(screen.getByRole('button', { name: /Tercihleri kaydet/ }));
 
     await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
-    const [, body] = putMock.mock.calls[0] as unknown as [string, { filters: { educationLevels: string[] } }];
+    const [, body] = putMock.mock.calls[0] as unknown as [
+      string,
+      {
+        filters: { educationLevels: string[] };
+        profilePersonalizationEnabled: boolean;
+      },
+    ];
+    expect(body.profilePersonalizationEnabled).toBe(false);
     expect(body.filters.educationLevels).toContain('ortaogretim');
     expect(body.filters.educationLevels).toContain('lisans');
     // Sunucunun reddettiği/takma ad değerler gönderilmez.
     expect(body.filters.educationLevels).not.toContain('lise');
     expect(body.filters.educationLevels).not.toContain('belirtilmemis');
+  });
+
+  it('profil kullanımı açıkça seçilmeden opt-out kalır; açılınca profil alanlarını kaydeder', async () => {
+    renderPanel();
+    const optIn = (await screen.findByLabelText(
+      /Profilimi ilanlara özel eşleşme açıklamalarında kullan/,
+    )) as HTMLInputElement;
+    expect(optIn.checked).toBe(false);
+
+    fireEvent.click(optIn);
+    fireEvent.change(screen.getByLabelText(/Mesleğim \/ hedef unvanım/), { target: { value: 'hemşire' } });
+    fireEvent.change(screen.getByLabelText(/Beceriler \/ belgeler/), {
+      target: { value: 'ilk yardım, triyaj' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Profil tercihini ayrı kaydet/ }));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const [, body] = putMock.mock.calls[0] as unknown as [
+      string,
+      {
+        enabled?: boolean;
+        profilePersonalizationEnabled: boolean;
+        candidateProfile: { profession: string; skills: string[] };
+      },
+    ];
+    expect(body.enabled).toBeUndefined();
+    expect(body.profilePersonalizationEnabled).toBe(true);
+    expect(body.candidateProfile.profession).toBe('hemşire');
+    expect(body.candidateProfile.skills).toEqual(['ilk yardım', 'triyaj']);
+  });
+
+  it('profili ayrıca siler ve eşleştirmeyi kapatır, e-posta tercihlerine dokunmaz', async () => {
+    renderPanel();
+    fireEvent.click(await screen.findByLabelText(/Profilimi ilanlara özel eşleşme açıklamalarında kullan/));
+    fireEvent.change(screen.getByLabelText(/Mesleğim \/ hedef unvanım/), { target: { value: 'mimar' } });
+    fireEvent.click(screen.getByRole('button', { name: /Profil bilgilerimi sil/ }));
+    expect(await screen.findByRole('heading', { name: 'Profil bilgilerini sil' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Profilimi sil' }));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const [, body] = putMock.mock.calls[0] as unknown as [
+      string,
+      {
+        enabled?: boolean;
+        profilePersonalizationEnabled: boolean;
+        candidateProfile: {
+          profession: string;
+          educationLevel: string | null;
+          departments: string[];
+          skills: string[];
+          experienceYears: number | null;
+        };
+      },
+    ];
+    expect(body.enabled).toBeUndefined();
+    expect(body.profilePersonalizationEnabled).toBe(false);
+    expect(body.candidateProfile).toEqual({
+      profession: '',
+      educationLevel: null,
+      departments: [],
+      skills: [],
+      experienceYears: null,
+    });
   });
 });

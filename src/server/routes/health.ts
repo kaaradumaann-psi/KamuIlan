@@ -6,7 +6,13 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { APP_VERSION, BRANDING, CLASSIFICATION_VERSION, DEDUPE_VERSION, EXTRACTION_VERSION } from '../../config/app';
+import {
+  APP_VERSION,
+  BRANDING,
+  CLASSIFICATION_VERSION,
+  DEDUPE_VERSION,
+  EXTRACTION_VERSION,
+} from '../../config/app';
 import { describeEnv, getEnv } from '../../config/env';
 import type { Repos } from '../../db/repos';
 import { maskEmail } from '../../domain/text';
@@ -139,7 +145,8 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
       ).length;
       const warnings: string[] = [];
       if (!health.ok) warnings.push('Veritabanına erişilemiyor.');
-      if (coverage.summary.failing > 0) warnings.push(`${coverage.summary.failing} kaynak üst üste başarısız.`);
+      if (coverage.summary.failing > 0)
+        warnings.push(`${coverage.summary.failing} kaynak üst üste başarısız.`);
       if (coverage.summary.stale > 0) {
         warnings.push(`${coverage.summary.stale} kaynağın uzun süredir başarılı taraması yok.`);
       }

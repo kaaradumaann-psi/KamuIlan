@@ -112,7 +112,11 @@ describe('giriş sonrası geçiş', () => {
 
     // Kapı eski oturum bilgisiyle geri atarsa bu başlık hiç gelmez (regresyon).
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Kamu personel alım ilanları' }, { timeout: 5_000 }),
+      await screen.findByRole(
+        'heading',
+        { level: 1, name: 'Kamu personel alım ilanları' },
+        { timeout: 5_000 },
+      ),
     ).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Giriş yap' })).toBeNull());
   });

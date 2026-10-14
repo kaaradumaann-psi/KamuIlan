@@ -10,7 +10,11 @@ import { fixedClock } from '../src/lib/clock';
 
 const NOW = new Date('2026-10-14T09:00:00+03:00');
 
-function sourceDefinition(key: string, status: 'verified' | 'scraper-built', intervalMinutes: number): SourceDefinition {
+function sourceDefinition(
+  key: string,
+  status: 'verified' | 'scraper-built',
+  intervalMinutes: number,
+): SourceDefinition {
   return {
     key,
     name: key,

@@ -86,6 +86,12 @@ export interface PublicJobDetail extends PublicJobSummary {
   uncertainties: string[];
   provenance: 'scraped' | 'sample' | 'manual';
   firstSeenAt: string;
+  capturedNotice: {
+    sourceKey: string;
+    sourceName: string | null;
+    characterCount: number;
+    status: 'captured' | 'truncated';
+  } | null;
   sources: {
     sourceKey: string;
     sourceName: string | null;
@@ -201,6 +207,8 @@ export interface SourceCoverageEntry {
     itemsFound: number;
     errorCount: number;
     result: string;
+    coverageStatus: 'complete' | 'partial' | 'unknown';
+    coverageNote: string;
   } | null;
 }
 
@@ -257,6 +265,14 @@ export interface SessionResponse {
   setup?: SessionSetupInfo;
 }
 
+export interface CandidateProfile {
+  profession: string;
+  educationLevel: string | null;
+  departments: string[];
+  skills: string[];
+  experienceYears: number | null;
+}
+
 export interface PreferenceFilters {
   keywords: string[];
   titles: string[];
@@ -280,6 +296,8 @@ export interface NotificationPreference {
   notifyOnChanges: boolean;
   includeWorkerJobs: boolean;
   includeAcademicJobs: boolean;
+  profilePersonalizationEnabled: boolean;
+  candidateProfile: CandidateProfile;
   filters: PreferenceFilters;
   createdAt: string;
   updatedAt: string;
@@ -397,6 +415,8 @@ export interface ScrapeRunSummary {
   errorCount: number;
   errors: string[];
   httpStatuses: number[];
+  coverageStatus: 'complete' | 'partial' | 'unknown';
+  coverageNote: string;
   result: string;
   notes: string[];
   workerId: string;

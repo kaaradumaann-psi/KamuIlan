@@ -13,8 +13,9 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
 
 - **Kapsam eksiktir ve bu açıkça gösterilir.** Arayüz her zaman son başarılı
   taramayı, kaynak durumunu ve hangi kurumların henüz entegre edilmediğini yazar.
-- **Doğrulanmamış kaynak "entegre" sayılmaz.** Canlı doğrulanmış kaynaklar
-  `verified`, adaptörü yazılmış ama doğrulanmamışlar ayrı bir sayaçta gösterilir.
+- **Kaynak etiketi canlı sağlık kanıtı değildir.** `verified`, envanterdeki
+  tarihsel doğrulama kaydını ifade eder; güncel erişim, ilan üretimi veya tam
+  kapsam anlamına gelmez. Güncel sağlık ve tek taramanın kapsamı ayrı izlenir.
 - **Veri uydurulmaz.** Çıkarılamayan alanlar "belirtilmemiş" kalır; her alanın
   hangi kanıttan geldiği (liste sayfası / ilan metni) kayıtlıdır.
 - **Engel aşılmaz.** CAPTCHA, oturum duvarı veya coğrafi WAF engeli varsa kaynak
@@ -45,8 +46,10 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
    denetim kaydı (RBAC korumalı). Kapsam şu an **27 kayıtlı kaynak**tır: merkezî
    kaynaklara ek olarak bakanlıklar, başkanlıklar ve düzenleyici kurumlar genel
    kurum adaptörüyle taranır; canlı doğrulaması yapılmamış olanlar arayüzde
-   "adaptörü yazılmış" olarak işaretlenir. Yalnızca 4 toplu grup (üniversiteler,
-   üniversite hastaneleri, belediyeler) merkezî kaynaklarla dolaylı kapsanır.
+   "adaptörü yazılmış" olarak işaretlenir. Envanter etiketi bugünkü tarama
+   sağlığı veya ilan kapsamını kanıtlamaz. Devlet üniversiteleri, üniversite
+   hastaneleri ve belediye grupları bazı merkezî portallardan dolaylı gelebilir;
+   bu dolaylı kapsama eksiksiz kurum/ilan envanteri sayılmaz.
 
 ## Hızlı başlangıç
 
@@ -109,9 +112,10 @@ Docker ile: `cd infra/docker && docker compose up --build`
 
 ## Mimari ve belgeler
 
-- [Mühendislik raporu](./docs/muhendislik-raporu.md) — istenenler ↔ yapılanlar, uçtan uca akış, doğrulama sonuçları
-- [Uçtan uca denetim raporu](./docs/denetim-raporu-2026-10-13.md) — bulunan hatalar, düzeltmeler ve kanıtlar
-- [Doğrulama kaydı](./docs/dogrulama-2026-10-13.md) — kaynak doğrulamaları ve koşum sonuçları
+- [Mühendislik ve denetim raporu — 14 Ekim 2026](./docs/muhendislik-raporu-2026-10-14.md) — kronoloji, bulgular, kontroller, araştırma ve takip planı
+- [Arşiv: mühendislik raporu](./docs/muhendislik-raporu.md) — önceki doğrulama anlık görüntüsü
+- [Arşiv: uçtan uca denetim — 13 Ekim 2026](./docs/denetim-raporu-2026-10-13.md)
+- [Arşiv: doğrulama kaydı — 13 Ekim 2026](./docs/dogrulama-2026-10-13.md)
 - [Mimari](./docs/architecture.md) — katmanlar, uçtan uca akış, kararlar
 - [Kurulum ayrıntıları](./docs/setup.md) — Supabase/Cloudflare/Resend anahtarları, davet akışı
 - [Kaynaklar ve kapsam](./docs/sources.md) — hangi kaynak doğrulandı, hangisi bekliyor
@@ -136,12 +140,14 @@ ayar yalnızca test içindir, üretimde kaynak temsiline saygı için 30–360 d
 
 ## Arayüz tasarımı
 
-Arayüz, psikolog ve MMPI çalışma alanlarıyla **aynı tasarım katmanlarını** kullanır:
-`src/styles/screen.css`, `site.css`, `coherence.css`, `theme.css`, `workspace.css`,
-`dashboard.css`, `mobile.css`, `responsive.css` ve `auth.css` bu repolarda birebir
-kopyadır; Kamuİlan'a özgü yüzeyler `kamuilan.css` içindedir. Kabuk (sol gezinme,
-üst başlık, alt bilgi, dar ekran menüsü) referans uygulamalarla aynı sınıf
-sözlüğünü kullanır. Yardımcı sınıf üreten CSS eklentisi kullanılmaz.
+Arayüz, psikolog ve MMPI çalışma alanlarının katmanlı CSS yaklaşımından
+esinlenir; Kamuİlan'a özgü yüzeyler `kamuilan.css` içindedir. Bayt düzeyindeki
+karşılaştırma 14 Ekim 2026'da yalnız `psikolog` deposunun `main`
+(`9ec1d9f393f3470ff8ea0d42372a62d0e3e0c135`) sürümüne karşı doğrulandı: dokuz
+paylaşılan katman aynıydı. MMPI-566 `Repo123` deposunun `main`
+(`4b28579f93d3e76bb54be963f4427fef66782dd1`) sürümünde ise aynı dokuz dosyanın
+üçü aynı, altısı farklıydı. Yerel tasarım testi bu depodaki katmanları ve sınıf
+kurallarını denetler; iki dış depoyla sürekli eşzamanlılık garantisi vermez.
 
 ## Teknoloji
 
@@ -159,7 +165,10 @@ ve E2E akışı: [docs/testing.md](./docs/testing.md).
 
 ## Lisans ve kullanım
 
-Kişisel/istihdam bilgisi toplama aracıdır. Kaynakların kullanım koşullarına,
-`robots.txt` kurallarına ve hız sınırlarına uyulması; engellerin (CAPTCHA, oturum
-duvarı, coğrafi kısıt) aşılmaması esastır. İlanlar yeniden yayımlanmaz; her kayıt
-resmî kaynağına bağlantı verir.
+Kişisel/istihdam bilgisi toplama aracıdır. Kaynakların kullanım koşulları,
+`robots.txt` kuralları ve hız sınırları kaynak ekleme öncesinde elle
+incelenmelidir; bu sürüm istekte `robots.txt` kurallarını otomatik uygulamaz.
+Engeller (CAPTCHA, oturum duvarı, coğrafi kısıt) aşılmaz. Tam ilan gövdesi
+kamu API'sinde sunulmaz; uzun gövdelerden sınırlı, yaygın e-posta/telefon biçimleri maskelenmiş
+bir alıntı gösterilebilir. Her kayıt resmî kaynağına bağlantı verir. Maskeleme
+sezgiseldir; tüm kişisel verilerin yakalandığı garantisi değildir.

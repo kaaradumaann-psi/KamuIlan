@@ -63,14 +63,22 @@ export class UserRepo {
   }
 
   async update(id: string, patch: Partial<UserDoc>): Promise<UserDoc | null> {
-    const updated = await this.store.updateOne('users', { id }, { ...patch, updatedAt: this.clock.now().toISOString() });
+    const updated = await this.store.updateOne(
+      'users',
+      { id },
+      { ...patch, updatedAt: this.clock.now().toISOString() },
+    );
     if (updated) validateDocument('users', updated);
     return updated;
   }
 
   async markEmailVerified(id: string): Promise<void> {
     const now = this.clock.now().toISOString();
-    await this.store.updateOne('users', { id }, { emailVerified: true, emailVerifiedAt: now, updatedAt: now });
+    await this.store.updateOne(
+      'users',
+      { id },
+      { emailVerified: true, emailVerifiedAt: now, updatedAt: now },
+    );
   }
 
   async recordLogin(id: string): Promise<void> {
@@ -89,27 +97,55 @@ export class UserRepo {
     if (!user) return { user: null, sessionsRevoked: 0 };
 
     const anonymizedEmail = `silinmis-${sha256Hex(id).slice(0, 16)}@example.invalid`;
-    const updated = await this.store.updateOne('users', { id }, {
-      email: anonymizedEmail,
-      emailNormalized: anonymizedEmail,
-      displayName: null,
-      passwordHash: sha256Hex(`${id}:erased:${now}`),
-      passwordSalt: sha256Hex(`${id}:salt`).slice(0, 32),
-      status: 'deleted',
-      emailVerified: false,
-      emailVerifiedAt: null,
-      deletedAt: now,
-      updatedAt: now,
-    });
+    const updated = await this.store.updateOne(
+      'users',
+      { id },
+      {
+        email: anonymizedEmail,
+        emailNormalized: anonymizedEmail,
+        displayName: null,
+        passwordHash: sha256Hex(`${id}:erased:${now}`),
+        passwordSalt: sha256Hex(`${id}:salt`).slice(0, 32),
+        status: 'deleted',
+        emailVerified: false,
+        emailVerifiedAt: null,
+        deletedAt: now,
+        updatedAt: now,
+      },
+    );
 
     const sessions = await this.store.find('sessions', { userId: id });
     for (const session of sessions) {
       await this.store.updateOne('sessions', { id: session.id }, { revokedAt: now });
     }
     await this.store.deleteMany('tokens', { userId: id });
-    await this.store.updateMany('notificationPreferences', { userId: id }, { enabled: false, paused: true, updatedAt: now });
-    await this.store.updateMany('emailOutbox', { userId: id, status: 'pending' }, { status: 'suppressed', updatedAt: now });
-    await this.store.updateMany('savedJobs', { userId: id }, { userId: `erased_${sha256Hex(id).slice(0, 20)}` });
+    await this.store.updateMany(
+      'notificationPreferences',
+      { userId: id },
+      {
+        enabled: false,
+        paused: true,
+        profilePersonalizationEnabled: false,
+        candidateProfile: {
+          profession: '',
+          educationLevel: null,
+          departments: [],
+          skills: [],
+          experienceYears: null,
+        },
+        updatedAt: now,
+      },
+    );
+    await this.store.updateMany(
+      'emailOutbox',
+      { userId: id, status: 'pending' },
+      { status: 'suppressed', updatedAt: now },
+    );
+    await this.store.updateMany(
+      'savedJobs',
+      { userId: id },
+      { userId: `erased_${sha256Hex(id).slice(0, 20)}` },
+    );
 
     return { user: updated, sessionsRevoked: sessions.length };
   }
@@ -196,7 +232,11 @@ export class UserRepo {
     if (!doc) return null;
     if (doc.usedAt) return null;
     if (Date.parse(doc.expiresAt) <= this.clock.now().getTime()) return null;
-    const updated = await this.store.updateOne('tokens', { id: doc.id, usedAt: null }, { usedAt: this.clock.now().toISOString() });
+    const updated = await this.store.updateOne(
+      'tokens',
+      { id: doc.id, usedAt: null },
+      { usedAt: this.clock.now().toISOString() },
+    );
     if (!updated) return null;
     return updated;
   }

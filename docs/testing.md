@@ -19,15 +19,18 @@ değişiklikleri geçici dizinlerde yapılır.
 
 ### Tasarım sözleşmesi testi
 
-`tests/design-system.test.ts`, arayüzün psikolog/MMPI tasarım diliyle
-uyumunu **otomatik** denetler. Elle gözle denetim yerine bu test kullanılır:
+`tests/design-system.test.ts`, bu deponun yerel tasarım sözleşmesini otomatik
+olarak denetler. 14.10.2026 karşılaştırmasında dokuz katman `psikolog/main`
+ile eşleşti; MMPI-566 `Repo123/main` içinde altı dosya farklıydı. Test dış
+GitHub depolarını çağırmadığı için gelecekteki çapraz-depo eşitliğini kanıtlamaz:
 
-1. `src/main.tsx` içindeki stil içe aktarma sırası referans depolarla aynıdır
-   (`screen → auth → dashboard → site → mobile → theme → coherence →
-workspace → kamuilan → responsive`).
-2. Paylaşılan 9 katman bayt bayt aynıdır; SHA-256 karma değerleri
-   `tests/fixtures/design-parity.json` içinde tutulur. Bir katman
-   değiştirilirse test bilinçli güncelleme ister.
+1. `src/main.tsx` içindeki yerel stil sırası ve `responsive.css`'in sonda olması
+   denetlenir (`screen → auth → dashboard → site → mobile → theme → coherence →
+   workspace → kamuilan → responsive`); dış depolarla sıra/uygulama parity'si
+   otomatik ölçülmez.
+2. Dokuz yerel katman, `tests/fixtures/design-parity.json` içindeki sabit
+   SHA-256 tabanıyla eşleştirilir. Bu taban psikolog deposuyla 14.10.2026
+   snapshot'ında eşleşiyordu; altı dosyanın Repo123'ten ayrışması bilinmektedir.
 3. Arayüzde `src/styles/*.css` içinde tanımlı olmayan sınıf kullanılamaz
    (yazım hatasıyla sessizce biçimsiz kalan öğe kalmaz).
 4. Yardımcı (utility) sınıf kullanılamaz: `flex`, `gap-2`, `text-sm`,

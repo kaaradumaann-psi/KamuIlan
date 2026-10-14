@@ -2,15 +2,15 @@
 
 ## 1. Sistem sağlığı
 
-| Ne | Nereden |
-| --- | --- |
-| Genel durum | `GET /api/health` → `status`, `warnings`, `database`, `scans`, `workers`, `queue`, `sources` |
-| Kaynak bazlı durum | `GET /api/sources`, `GET /api/sources/:key/status` |
-| Worker kalp atışı | Yönetim → Özet (`workers`) veya `workerHeartbeats` koleksiyonu |
-| Zamanlama gecikmesi | `scans.lastSuccessAt`, `minutesSinceSuccess`, `scheduleLagWarning` (Yönetim → Kuyruk) |
-| Kuyruk | Yönetim → Kuyruk & kilitler: bekleyen/aktif/ölü işler, süresi geçmiş kilitler |
-| E-posta hattı | Yönetim → E-posta kuyruğu: `pending/sending/accepted/failed/dead/suppressed` |
-| İnceleme kuyruğu | Yönetim → İnceleme kuyruğu (sınıflandırma, tekilleştirme, çıkarım) |
+| Ne                  | Nereden                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| Genel durum         | `GET /api/health` → `status`, `warnings`, `database`, `scans`, `workers`, `queue`, `sources` |
+| Kaynak bazlı durum  | `GET /api/sources`, `GET /api/sources/:key/status`                                           |
+| Worker kalp atışı   | Yönetim → Özet (`workers`) veya `workerHeartbeats` koleksiyonu                               |
+| Zamanlama gecikmesi | `scans.lastSuccessAt`, `minutesSinceSuccess`, `scheduleLagWarning` (Yönetim → Kuyruk)        |
+| Kuyruk              | Yönetim → Kuyruk & kilitler: bekleyen/aktif/ölü işler, süresi geçmiş kilitler                |
+| E-posta hattı       | Yönetim → E-posta kuyruğu: `pending/sending/accepted/failed/dead/suppressed`                 |
+| İnceleme kuyruğu    | Yönetim → İnceleme kuyruğu (sınıflandırma, tekilleştirme, çıkarım)                           |
 
 `degraded` durumu genellikle kaynak kaynaklıdır (ör. coğrafi kısıtlı kaynak veya
 ağ erişimi olmayan geliştirme ortamı). `warnings` alanı hangi kaynağın hangi
@@ -18,16 +18,16 @@ nedenle sorunlu olduğunu yazar.
 
 ## 2. Rutin bakım
 
-| Görev | Aralık | Komut / yer |
-| --- | --- | --- |
-| İndeks kontrolü | Dağıtım sonrası | `npm run db:indexes` |
-| Kaynak envanteri + görevler | Dağıtım sonrası | `npm run db:migrate` |
-| Kapsam raporu | Haftalık | `npm run sources:report` (`--json` CI için) |
-| Süresi geçmiş kilit/oturum/hız sınırı temizliği | Günlük | Worker otomatik yapar (bakım işi) |
-| 7 günden eski worker kalp atışı kayıtları | Günlük | Worker otomatik yapar (geliştirmede yeniden başlatmalar yanlış alarm üretmesin) |
-| Son başvuru durumlarının yenilenmesi | 12 saatte bir | Worker ("deadline-refresh" görevi) |
-| Kapsam denetimi | Günlük | Worker ("coverage-audit" görevi) |
-| Yedek | Günlük | aşağıya bakın |
+| Görev                                           | Aralık          | Komut / yer                                                                     |
+| ----------------------------------------------- | --------------- | ------------------------------------------------------------------------------- |
+| İndeks kontrolü                                 | Dağıtım sonrası | `npm run db:indexes`                                                            |
+| Kaynak envanteri + görevler                     | Dağıtım sonrası | `npm run db:migrate`                                                            |
+| Kapsam raporu                                   | Haftalık        | `npm run sources:report` (`--json` CI için)                                     |
+| Süresi geçmiş kilit/oturum/hız sınırı temizliği | Günlük          | Worker otomatik yapar (bakım işi)                                               |
+| 7 günden eski worker kalp atışı kayıtları       | Günlük          | Worker otomatik yapar (geliştirmede yeniden başlatmalar yanlış alarm üretmesin) |
+| Son başvuru durumlarının yenilenmesi            | 12 saatte bir   | Worker ("deadline-refresh" görevi)                                              |
+| Kapsam denetimi                                 | Günlük          | Worker ("coverage-audit" görevi)                                                |
+| Yedek                                           | Günlük          | aşağıya bakın                                                                   |
 
 Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çalıştır" veya
 `POST /api/admin/maintenance/:kind`.
@@ -151,14 +151,19 @@ Geri yüklemede dosyayı yerine kopyalayın; uygulama açılışta indeksleri ye
 
 ## 7. Olay müdahalesi (runbook)
 
-| Belirti | İlk adım | Kalıcı çözüm |
-| --- | --- | --- |
-| API yanıt vermiyor | `GET /api/health`, süreç günlüğü | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et |
-| Taramalar durdu | Yönetim → Kuyruk, kalp atışı | Worker'ı yeniden başlat; `SCHEDULER_ENABLED` değerini kontrol et |
-| E-postalar gitmiyor | Yönetim → E-posta kuyruğu `lastError` | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al |
-| İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et | Doğrulanmamış adrese gönderim yapılmaz (bilinçli) |
-| Aynı ilan iki kayıt | İnceleme kuyruğu → birleştirme | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez |
-| Yanlış ilan kabul edilmiş | İnceleme kuyruğu → reddet | Sınıflandırma kuralını güncelle + test ekle (`tests/classification.test.ts`) |
+| Belirti                          | İlk adım                                                | Kalıcı çözüm                                                                       |
+| -------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| API yanıt vermiyor               | `GET /api/health`, süreç günlüğü                        | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et                       |
+| Zamanlanmış taramalar durdu      | `/api/health/worker`, `/api/health/config`, Yönetim → Kuyruk | Worker heartbeat'ini ve `SCHEDULER_ENABLED` ayarını kontrol et; kuyrukta kalan işleri ayrıca izle |
+| E-postalar gitmiyor              | Yönetim → E-posta kuyruğu `lastError`                   | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al                             |
+| İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et | Doğrulanmamış adrese gönderim yapılmaz (bilinçli)                                  |
+| Aynı ilan iki kayıt              | İnceleme kuyruğu → birleştirme                          | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez |
+| Yanlış ilan kabul edilmiş        | İnceleme kuyruğu → reddet                               | Sınıflandırma kuralını güncelle + test ekle (`tests/classification.test.ts`)       |
+
+`SCHEDULER_ENABLED=0`, yalnızca zamanı gelen görevlerin kuyruğa eklenmesini
+bekletir. Worker heartbeat'i sürer; önceden kuyruğa alınmış işler ve e-posta
+outbox'ı işlenmeye devam eder (`EMAIL_PROVIDER` taşıyıcıyı belirler). Bütün worker
+faaliyetlerini durdurmak için worker sürecini durdurun.
 
 ## 8. Günlük ve gizlilik
 

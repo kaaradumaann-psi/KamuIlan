@@ -20,6 +20,8 @@ export interface ScrapeRunTotals {
   httpStatuses: number[];
   errors: string[];
   notes: string[];
+  coverageStatus: ScrapeRunDoc['coverageStatus'];
+  coverageNote: string;
 }
 
 export const EMPTY_TOTALS: ScrapeRunTotals = {
@@ -34,6 +36,8 @@ export const EMPTY_TOTALS: ScrapeRunTotals = {
   httpStatuses: [],
   errors: [],
   notes: [],
+  coverageStatus: 'unknown',
+  coverageNote: 'Kapsam bu taramada bildirilmedi.',
 };
 
 /** Sorgu sonucunun ilk kaydı (yoksa null). */
@@ -80,6 +84,8 @@ export class ScrapeRunRepo {
       errorCount: 0,
       httpStatuses: [],
       errors: [],
+      coverageStatus: 'unknown',
+      coverageNote: '',
       result: '',
       workerId: input.workerId,
       notes: [],
@@ -118,6 +124,8 @@ export class ScrapeRunRepo {
         errorCount: totals.errors.length,
         httpStatuses: totals.httpStatuses.slice(0, 50),
         errors: totals.errors.slice(0, 20),
+        coverageStatus: totals.coverageStatus,
+        coverageNote: totals.coverageNote,
         result,
         notes: totals.notes.slice(0, 20),
       },
@@ -152,6 +160,8 @@ export class ScrapeRunRepo {
           httpStatuses: run.httpStatuses,
           errors: [...run.errors, reason].slice(0, 20),
           notes: run.notes,
+          coverageStatus: run.coverageStatus ?? 'unknown',
+          coverageNote: run.coverageNote ?? 'Çalışma yarıda kaldığı için kapsam doğrulanmadı.',
         },
         'failed',
         reason,
@@ -185,6 +195,8 @@ export class ScrapeRunRepo {
       errorCount: 0,
       httpStatuses: [],
       errors: [],
+      coverageStatus: 'unknown',
+      coverageNote: 'Tarama atlandığı için kapsam doğrulanmadı.',
       result: reason,
       workerId,
       notes: [],

@@ -2,15 +2,14 @@ import { MockAgent } from 'undici';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEnv } from '../src/config/env';
 import { toHeaderSafeAscii } from '../src/lib/headerSafe';
+import { createPublicOnlyLookup, isPublicRoutableAddress } from '../src/sources/network-safety';
 import {
-  derToPem,
   describeFetchFailure,
-  extractCaIssuerUrls,
   FetchError,
   HostRateLimiter,
   HttpClient,
   loadTrustBundle,
-  tlsChainErrorCode,
+  assertSafeUrl,
 } from '../src/sources/fetcher';
 
 const ORIGIN = 'https://www.resmigazete.gov.tr';
@@ -49,7 +48,9 @@ describe('HttpClient ağ davranışı', () => {
     mock
       .get(ORIGIN)
       .intercept({ path: '/ilanlar/test.htm', method: 'GET' })
-      .reply(200, '<html><body>İLAN</body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      .reply(200, '<html><body>İLAN</body></html>', {
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
     const client = makeClient(mock);
     const response = await client.fetchText(`${ORIGIN}/ilanlar/test.htm`, {
       allowedHosts: ALLOWED,
@@ -79,6 +80,52 @@ describe('HttpClient ağ davranışı', () => {
     ).rejects.toMatchObject({ retryable: false, message: expect.stringContaining('iptal') });
   });
 
+  it('yeniden deneme beklemesi sırasında iptal edilince sonraki HTTP denemesini başlatmaz', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock.get(ORIGIN).intercept({ path: '/backoff.htm', method: 'GET' }).reply(503, 'geçici hata');
+    agents.push(mock);
+    const controller = new AbortController();
+    let enteredBackoff!: () => void;
+    const backoffStarted = new Promise<void>((resolve) => {
+      enteredBackoff = resolve;
+    });
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async (_ms, signal) => {
+        enteredBackoff();
+        await new Promise<void>((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(signal.reason ?? new Error('aborted'));
+            return;
+          }
+          signal?.addEventListener(
+            'abort',
+            () => reject(signal.reason ?? new Error('aborted')),
+            { once: true },
+          );
+        });
+      },
+      dispatcher: mock,
+      rateLimiter: new HostRateLimiter(),
+    });
+    clients.push(client);
+
+    const pending = client.fetchText(`${ORIGIN}/backoff.htm`, {
+      allowedHosts: ALLOWED,
+      retries: 1,
+      signal: controller.signal,
+    });
+    await backoffStarted;
+    controller.abort(new Error('scan cancelled during retry backoff'));
+
+    await expect(pending).rejects.toMatchObject({
+      status: null,
+      retryable: false,
+      message: expect.stringContaining('iptal edildi'),
+    });
+  });
+
   it('ağ düzeyi hatada undici neden kodunu hata mesajına katar (status null)', async () => {
     const mock = new MockAgent();
     mock.disableNetConnect();
@@ -97,6 +144,41 @@ describe('HttpClient ağ davranışı', () => {
     expect(caught).toBeInstanceOf(FetchError);
     expect((caught as FetchError).status).toBeNull();
     expect((caught as Error).message).toContain('UND_ERR_CONNECT_TIMEOUT');
+  });
+
+  it('429/503 Retry-After değerinden önce yeniden denemez', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    const requestMatcher = { path: '/retry-after.htm', method: 'GET' } as const;
+    mock
+      .get(ORIGIN)
+      .intercept(requestMatcher)
+      .reply(429, 'rate limited', { headers: { 'retry-after': '2' } });
+    mock
+      .get(ORIGIN)
+      .intercept(requestMatcher)
+      .reply(200, 'ok', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    agents.push(mock);
+    const sleeps: number[] = [];
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      dispatcher: mock,
+      rateLimiter: new HostRateLimiter(),
+    });
+    clients.push(client);
+
+    const response = await client.fetchText(`${ORIGIN}/retry-after.htm`, {
+      allowedHosts: ALLOWED,
+      retries: 1,
+      minIntervalMs: 0,
+    });
+
+    expect(response.status).toBe(200);
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(2_000);
   });
 
   it('404 retryable olmayan FetchError üretir', async () => {
@@ -134,37 +216,69 @@ describe('HostRateLimiter', () => {
   });
 });
 
-describe('AIA ara sertifika kovalaması yardımcıları', () => {
-  it('tlsChainErrorCode yalnızca zincir eksikliği kodlarını tanır', () => {
-    const chain = Object.assign(new Error('fetch failed'), {
-      cause: Object.assign(new Error('unable to verify the first certificate'), {
-        code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
-      }),
+describe('SSRF ve DNS çözümleme güvenliği', () => {
+  it.each([
+    ['8.8.8.8', true],
+    ['93.184.216.34', true],
+    ['10.1.2.3', false],
+    ['100.64.0.1', false],
+    ['127.0.0.1', false],
+    ['169.254.169.254', false],
+    ['192.0.2.8', false],
+    ['224.0.0.1', false],
+    ['2001:4860:4860::8888', true],
+    ['fd00::1', false],
+    ['fe80::1', false],
+    ['2001:db8::1', false],
+    ['::ffff:127.0.0.1', false],
+  ])('%s public-address kararı doğru', (address, expected) => {
+    expect(isPublicRoutableAddress(address)).toBe(expected);
+  });
+
+  it('DNS yanıtında tek bir özel IP varsa genel IP ile birlikte dahi tüm hostu reddeder', async () => {
+    const lookup = createPublicOnlyLookup((_hostname, _options, callback) =>
+      callback(null, [
+        { address: '93.184.216.34', family: 4 },
+        { address: '127.0.0.1', family: 4 },
+      ]),
+    );
+    const result = await new Promise<{ code: string | undefined; addresses: string[] }>((resolve) => {
+      lookup('mixed.example.test', { all: true }, (error, address) => {
+        resolve({
+          code: (error as NodeJS.ErrnoException | null)?.code,
+          addresses: Array.isArray(address) ? address.map((entry) => entry.address) : [address],
+        });
+      });
     });
-    expect(tlsChainErrorCode(chain)).toBe('UNABLE_TO_VERIFY_LEAF_SIGNATURE');
-    expect(tlsChainErrorCode(Object.assign(new Error('boom'), { code: 'ECONNRESET' }))).toBeNull();
-    expect(tlsChainErrorCode(new Error('CERT_HAS_EXPIRED'))).toBeNull();
-    expect(tlsChainErrorCode('metin')).toBeNull();
+    expect(result).toEqual({ code: 'EACCES', addresses: [] });
   });
 
-  it('extractCaIssuerUrls AIA biçimlerinden adresleri çıkarır', () => {
-    expect(extractCaIssuerUrls({ 'CA Issuers': 'URI:http://ca.example.com/inter.cer' })).toEqual([
-      'http://ca.example.com/inter.cer',
-    ]);
-    expect(
-      extractCaIssuerUrls({ 'CA Issuers': ['URI:https://ca.example.com/a.pem', 'URI:http://ca.example.com/b.cer'] }),
-    ).toEqual(['https://ca.example.com/a.pem', 'http://ca.example.com/b.cer']);
-    expect(extractCaIssuerUrls(undefined)).toEqual([]);
-    // OCSP adresi sertifika indirme adresi değildir; alınmaz.
-    expect(extractCaIssuerUrls({ 'OCSP - URI': 'http://ocsp.example.com' })).toEqual([]);
+  it('DNS yanıtındaki public adresi doğrulayıp döndürür', async () => {
+    const lookup = createPublicOnlyLookup((_hostname, _options, callback) =>
+      callback(null, [{ address: '93.184.216.34', family: 4 }]),
+    );
+    const result = await new Promise<{ address: string | string[]; family?: number }>((resolve, reject) => {
+      lookup('public.example.test', { all: false }, (error, address, family) => {
+        if (error) reject(error);
+        else
+          resolve({
+            address: Array.isArray(address) ? address.map((entry) => entry.address) : address,
+            family,
+          });
+      });
+    });
+    expect(result).toEqual({ address: '93.184.216.34', family: 4 });
   });
 
-  it('derToPem 64 sütunlu PEM üretir', () => {
-    const pem = derToPem(Buffer.alloc(100, 7));
-    expect(pem.startsWith('-----BEGIN CERTIFICATE-----\n')).toBe(true);
-    expect(pem.endsWith('\n-----END CERTIFICATE-----')).toBe(true);
-    const body = pem.split('\n').slice(1, -1);
-    expect(body.every((line) => line.length <= 64)).toBe(true);
+  it('IP literal, kullanıcı bilgisi ve yalnızca alt alan adıyla eşleşen allowlist reddedilir', () => {
+    expect(() => assertSafeUrl('https://8.8.8.8/path')).toThrow(FetchError);
+    expect(() => assertSafeUrl('https://user:secret@www.ilan.gov.tr/path', ['www.ilan.gov.tr'])).toThrow(
+      FetchError,
+    );
+    expect(() => assertSafeUrl('https://www.ilan.gov.tr/path', ['ilan.gov.tr'])).toThrow(FetchError);
+    expect(assertSafeUrl('https://www.ilan.gov.tr/path', ['www.ilan.gov.tr']).hostname).toBe(
+      'www.ilan.gov.tr',
+    );
   });
 });
 

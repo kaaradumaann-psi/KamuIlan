@@ -18,28 +18,63 @@ import {
   sourceStatusLabel,
 } from '../lib/format';
 import type { SourceListResponse } from '../types';
-import { Card, DataTable, EmptyState, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
+import {
+  Card,
+  DataTable,
+  EmptyState,
+  ErrorNotice,
+  InfoNote,
+  LoadingCard,
+  StatCard,
+  Tag,
+} from '../components/ui';
 import { Icon } from '../components/Icon';
 
 /** Son tarama sonucu, statik doğrulama bilgisinden ayrı gösterilir. */
 function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
   switch (source.lastRun?.status) {
     case 'success':
-      return <Tag tone="success" icon="check">son tarama başarılı</Tag>;
+      return (
+        <Tag tone="success" icon="check">
+          son tarama başarılı
+        </Tag>
+      );
     case 'partial':
-      return <Tag tone="warning" icon="info">son tarama kısmi</Tag>;
+      return (
+        <Tag tone="warning" icon="info">
+          son tarama kısmi
+        </Tag>
+      );
     case 'failed':
-      return <Tag tone="danger" icon="alert">son tarama sorunlu</Tag>;
+      return (
+        <Tag tone="danger" icon="alert">
+          son tarama sorunlu
+        </Tag>
+      );
     case 'skipped':
     case 'locked':
-      return <Tag tone="warning" icon="info">son tarama atlandı</Tag>;
+      return (
+        <Tag tone="warning" icon="info">
+          son tarama atlandı
+        </Tag>
+      );
     case 'queued':
       return <Tag tone="info">tarama sırada</Tag>;
     case 'running':
       return <Tag tone="info">tarama çalışıyor</Tag>;
     default:
-      if (source.verified) return <Tag tone="info" icon="check">yöntemi doğrulandı</Tag>;
-      if (source.built) return <Tag tone="warning" icon="info">uyarlayıcı hazır</Tag>;
+      if (source.verified)
+        return (
+          <Tag tone="info" icon="check">
+            yöntemi doğrulandı
+          </Tag>
+        );
+      if (source.built)
+        return (
+          <Tag tone="warning" icon="info">
+            uyarlayıcı hazır
+          </Tag>
+        );
       return <Tag tone="neutral">{sourceStatusLabel(source.status)}</Tag>;
   }
 }
@@ -57,9 +92,9 @@ export function SourcesPage(): ReactNode {
           <span className="kicker">İlan kaynakları</span>
           <h1 className="page-title">İlanları nereden alıyoruz?</h1>
           <p className="info-lede">
-            Her ilanı bulamayabiliriz; bunu saklamıyoruz. Aşağıda etkin tanımlı kaynakları, her birinin
-            son tarama sonucunu ve son başarılı tarama zamanını görürsünüz. Yöntemin doğrulanmış olması,
-            worker'ın şu anda çalıştığı anlamına gelmez.
+            Her ilanı bulamayabiliriz; bunu saklamıyoruz. Aşağıda etkin tanımlı kaynakları, her birinin son
+            tarama sonucunu ve son başarılı tarama zamanını görürsünüz. Yöntemin doğrulanmış olması, worker'ın
+            şu anda çalıştığı anlamına gelmez.
           </p>
         </div>
       </header>
@@ -116,8 +151,8 @@ export function SourcesPage(): ReactNode {
                 son tarama kaydı yoksa düzenli okuma yapıldığı iddia edilmez.
               </li>
               <li>
-                <strong>Uyarlayıcı hazır:</strong> Kaynak için kod hazır, ancak canlı doğrulama/başarılı tarama
-                kanıtı henüz yok.
+                <strong>Uyarlayıcı hazır:</strong> Kaynak için kod hazır, ancak canlı doğrulama/başarılı
+                tarama kanıtı henüz yok.
               </li>
               <li>
                 <strong>Henüz başlamadı:</strong> Bu kurumlara doğrudan bakmıyoruz; ilanları başka
@@ -136,7 +171,13 @@ export function SourcesPage(): ReactNode {
           >
             <DataTable
               caption="Kaynak listesi ve son tarama durumu"
-              head={['Kaynak', 'Durum', 'Planlanan aralık', 'Son başarılı tarama / son deneme', 'Sorun var mı']}
+              head={[
+                'Kaynak',
+                'Durum',
+                'Planlanan aralık',
+                'Son başarılı tarama / son deneme',
+                'Sorun var mı',
+              ]}
             >
               {query.data.sources.map((source) => (
                 <tr key={source.key}>
@@ -161,16 +202,30 @@ export function SourcesPage(): ReactNode {
                     ) : source.lastRun ? (
                       <>
                         <span>Henüz başarılı tarama yok</span>
-                        <span className="cell-subtitle">Son deneme: {formatDateTime(source.lastRun.startedAt)}</span>
+                        <span className="cell-subtitle">
+                          Son deneme: {formatDateTime(source.lastRun.startedAt)}
+                        </span>
                       </>
                     ) : (
                       <span className="cell-subtitle">Henüz tarama yapılmadı</span>
                     )}
                     {source.lastRun && (
-                      <span className="cell-subtitle">
-                        Son sonuç: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
-                        {formatNumber(source.lastRun.itemsFound)} ilan · {formatDuration(source.health.avgDurationMs)}
-                      </span>
+                      <>
+                        <span className="cell-subtitle">
+                          Son sonuç: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
+                          {formatNumber(source.lastRun.itemsFound)} ilan ·{' '}
+                          {formatDuration(source.health.avgDurationMs)}
+                        </span>
+                        <span className="cell-subtitle">
+                          Liste kapsamı:{' '}
+                          {source.lastRun.coverageStatus === 'complete'
+                            ? 'bu taramada tamamlandı'
+                            : source.lastRun.coverageStatus === 'partial'
+                              ? 'kısmi'
+                              : 'bilinmiyor'}
+                          {source.lastRun.coverageNote ? ` — ${source.lastRun.coverageNote}` : ''}
+                        </span>
+                      </>
                     )}
                     {source.health.successRuns + source.health.failureRuns > 0 && (
                       <span className="cell-subtitle">
@@ -198,7 +253,11 @@ export function SourcesPage(): ReactNode {
             description="Bu kurumların ilanları şimdilik başka kaynaklardan geliyor; kendi sayfalarına doğrudan bakmaya başlamadık."
           >
             {query.data.planned.length === 0 ? (
-              <EmptyState icon="check" title="Başlanmamış kurum kalmadı" description="Bildiğimiz kurumların tamamı listede." />
+              <EmptyState
+                icon="check"
+                title="Başlanmamış kurum kalmadı"
+                description="Bildiğimiz kurumların tamamı listede."
+              />
             ) : (
               <ul className="report-list">
                 {query.data.planned.map((planned) => (
@@ -207,13 +266,20 @@ export function SourcesPage(): ReactNode {
                       <strong>{planned.name}</strong>
                       <span className="cell-subtitle">{planned.institution}</span>
                       {planned.indirectCoverage && (
-                        <span className="cell-subtitle">Şimdilik şuradan geliyor: {planned.indirectCoverage}</span>
+                        <span className="cell-subtitle">
+                          Şimdilik şuradan geliyor: {planned.indirectCoverage}
+                        </span>
                       )}
                       <span className="cell-subtitle">{planned.note}</span>
                     </div>
                     <div className="report-list-meta">
                       {planned.candidateUrl ? (
-                        <a className="board-text-link" href={planned.candidateUrl} target="_blank" rel="noreferrer noopener">
+                        <a
+                          className="board-text-link"
+                          href={planned.candidateUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
                           Kurumun sayfası <Icon name="external" size={13} />
                         </a>
                       ) : (

@@ -1,4 +1,13 @@
-# Kamuİlan — Mühendislik Raporu
+# Kamuİlan — Mühendislik Raporu (önceki doğrulama anlık görüntüsü)
+
+> Bu belge önceki denetim turunun tarihli kayıtlarını ve o turda raporlanan
+> komut sonuçlarını korur. Bu oturumda bu eski sonuçlar yeniden doğrulanmış
+> sayılmaz. **Düzeltme:** aşağıdaki tasarım satırındaki dokuz CSS dosyasının
+> psikolog ve MMPI depolarının ikisiyle de birebir olduğu iddiası desteklenmiyor;
+> 14.10.2026 karşılaştırmasında `psikolog` deposuyla 9/9, MMPI-566 `Repo123` ile
+> yalnız 3/9 dosya aynıydı. Güncel, kapsamı ve kanıtı belirtilmiş kayıt için
+> [14 Ekim 2026 mühendislik/denetim raporuna](./muhendislik-raporu-2026-10-14.md)
+> bakın.
 
 **Ürün:** Kamuİlan — kamu personel alım ilanı toplama, doğrulama ve bildirim platformu
 **Alan adı:** `kamuilan.halilkaraduman.com.tr` (Cloudflare)
@@ -394,20 +403,20 @@ Ayrıntılı tablo: `docs/setup.md` § Ortam değişkenleri.
 
 ## 10. Aşamalı teslimat günlüğü
 
-| Aşama | İçerik                                                                         | Durum |
-| ----- | ------------------------------------------------------------------------------ | ----- |
-| 1     | Depo iskeleti, yapılandırma, ortam doğrulaması, veri modeli                    | ✅    |
-| 2     | Depo katmanı (dosya + MongoDB + PostgreSQL/Supabase), indeksler                | ✅    |
-| 3     | Kaynak adaptörleri + ağ katmanı (SSRF, geri çekilme, koşullu istek)            | ✅    |
-| 4     | Sınıflandırma + çıkarım (PDF dahil)                                            | ✅    |
-| 5     | Boru hattı: tekilleştirme, sürümleme, inceleme kuyruğu                         | ✅    |
-| 6     | Zamanlama, kilit, heartbeat, bakım işleri                                      | ✅    |
-| 7     | E-posta: tercihler, outbox, Resend/SMTP, şablonlar, çıkış                      | ✅    |
-| 8     | API: genel uçlar, kimlik, yönetim, OpenAPI                                     | ✅    |
-| 9     | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı) | ✅    |
-| 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                              | ✅    |
-| 11    | Giriş/oturum uçtan uca düzeltmeleri + hesap araçları (`user:create`)            | ✅    |
-| 12    | Uçtan uca denetim: arama, tarih/saat, güvenlik, arayüz ([rapor](./denetim-raporu-2026-10-13.md)) | ✅    |
+| Aşama | İçerik                                                                                                                                                             | Durum |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| 1     | Depo iskeleti, yapılandırma, ortam doğrulaması, veri modeli                                                                                                        | ✅    |
+| 2     | Depo katmanı (dosya + MongoDB + PostgreSQL/Supabase), indeksler                                                                                                    | ✅    |
+| 3     | Kaynak adaptörleri + ağ katmanı (SSRF, geri çekilme, koşullu istek)                                                                                                | ✅    |
+| 4     | Sınıflandırma + çıkarım (PDF dahil)                                                                                                                                | ✅    |
+| 5     | Boru hattı: tekilleştirme, sürümleme, inceleme kuyruğu                                                                                                             | ✅    |
+| 6     | Zamanlama, kilit, heartbeat, bakım işleri                                                                                                                          | ✅    |
+| 7     | E-posta: tercihler, outbox, Resend/SMTP, şablonlar, çıkış                                                                                                          | ✅    |
+| 8     | API: genel uçlar, kimlik, yönetim, OpenAPI                                                                                                                         | ✅    |
+| 9     | Arayüz: kamu portalı, panel, yönetim, bilgi sayfaları (psikolog/MMPI tasarımı)                                                                                     | ✅    |
+| 10    | Testler, dokümantasyon, Docker, CI, kapsam raporu                                                                                                                  | ✅    |
+| 11    | Giriş/oturum uçtan uca düzeltmeleri + hesap araçları (`user:create`)                                                                                               | ✅    |
+| 12    | Uçtan uca denetim: arama, tarih/saat, güvenlik, arayüz ([rapor](./denetim-raporu-2026-10-13.md))                                                                   | ✅    |
 | 13    | Sıfırdan tam tarama: etiketlerin tek kaynağa indirilmesi, sessiz hataların kapatılması, engelli erişilebilirlik düzeltmesi ([§14](./denetim-raporu-2026-10-13.md)) | ✅    |
 
 ---

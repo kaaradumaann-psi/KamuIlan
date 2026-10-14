@@ -31,7 +31,9 @@ const isWindows = process.platform === 'win32';
 /** Yerel posta sunucusunun adresi (dev:smtp ile aynı portu dinler). */
 function isLocalMailHost(host: string): boolean {
   const normalized = host.trim().toLowerCase();
-  return normalized === '' || normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
+  return (
+    normalized === '' || normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1'
+  );
 }
 
 function spawnNpm(args: string[]): ChildProcess {
@@ -136,12 +138,16 @@ async function main(): Promise<void> {
   // Tanılama: hesabın HANGİ veritabanına yazıldığı burada ve giriş ekranında
   // aynı biçimde görünür (yanlış veritabanına hesap eklemek girişte 401 verir).
   const driver = effectiveDriver(env);
-  console.log(`[dev] veritabanı: ${describeDriver(driver)}` + (driver === 'file' ? ` (${env.DATA_DIR})` : ''));
+  console.log(
+    `[dev] veritabanı: ${describeDriver(driver)}` + (driver === 'file' ? ` (${env.DATA_DIR})` : ''),
+  );
   console.log('[dev] veritabanı bakımı çalıştırılıyor (kaynak envanteri + görevler)…');
   await new Promise<void>((resolve, reject) => {
     const migrate = spawnNpm(['run', 'db:migrate']);
     migrate.on('error', reject);
-    migrate.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`db:migrate başarısız (${code})`))));
+    migrate.on('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`db:migrate başarısız (${code})`)),
+    );
   }).catch((error: unknown) => {
     console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
@@ -154,7 +160,9 @@ async function main(): Promise<void> {
     // göndermeye çalışırsa bağlantı hazır olmalıdır.
     run('smtp', ['run', 'dev:smtp']);
   } else {
-    console.log(`[dev] SMTP_HOST tanımlı (${env.SMTP_HOST}:${env.SMTP_PORT}); yerel posta sunucusu başlatılmadı.`);
+    console.log(
+      `[dev] SMTP_HOST tanımlı (${env.SMTP_HOST}:${env.SMTP_PORT}); yerel posta sunucusu başlatılmadı.`,
+    );
   }
 
   run('api', ['run', 'dev:api']);
@@ -197,7 +205,7 @@ async function main(): Promise<void> {
   • API dokümanı  http://localhost:${env.PORT}/api/docs
   • Posta kutusu  ${localMail ? `http://localhost:${env.DEV_MAIL_VIEWER_PORT} (SMTP 127.0.0.1:${env.SMTP_PORT})` : '(harici SMTP kullanılıyor)'}
   • Kapsam raporu npm run sources:report
-  • İlk yönetici  ADMIN_EMAIL=siz@ornek.com ADMIN_PASSWORD="güçlü-parola" npm run seed:admin
+  • İlk yönetici  ADMIN_EMAIL ve benzersiz ADMIN_PASSWORD değerlerini ortamda ayarlayıp npm run seed:admin
 Kapatmak için Ctrl+C.
 `);
 }

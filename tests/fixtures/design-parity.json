@@ -1,5 +1,5 @@
 {
-  "_comment": "Kamuİlan'ın paylaştığı tasarım katmanlarının SHA-256 karma değerleri. Kaynak: kaaradumaann-psi/psikolog (ve MMPI deposuyla aynı sırada). Bu dosya yalnızca katmanlar bilinçli olarak güncellendiğinde değiştirilir.",
+  "_comment": "Kamuİlan'ın yerel tasarım sözleşmesi için SHA-256 tabanı. Dokuz dosya kaaradumaann-psi/psikolog main ile 14.10.2026 karşılaştırmasında aynıdır; MMPI-566 Repo123'te altı dosya farklıdır. Test ağ çağrısı yapmaz ve dış depoların güncel eşitliğini denetlemez.",
   "source": "kaaradumaann-psi/psikolog → src/styles/",
   "sharedLayers": {
     "screen.css": "a641dfcd295fd620add4de501e8a23b4537428ddd24f27c09db621436efa22ea",

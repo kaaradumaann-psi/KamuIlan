@@ -70,7 +70,7 @@ async function prepareUserWithJob(repos: Repos, email = 'abone@ornek.test') {
     passwordSalt: 'test-salt-value',
     emailVerified: true,
   });
-  await repos.notifications.upsertPreference(user.id, { filters: {} });
+  await repos.notifications.upsertPreference(user.id, { enabled: true, filters: {} });
 
   const outcome = await applyRawAnnouncement(sozlesmeliPersonelIlani(), {
     repos,

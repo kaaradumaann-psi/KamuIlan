@@ -49,7 +49,12 @@ async function main(): Promise<void> {
 
   await app.listen({ port, host });
   logger.info(
-    { url: `http://${host}:${port}`, docs: `http://${host}:${port}/api/docs`, version: APP_VERSION, app: BRANDING.name },
+    {
+      url: `http://${host}:${port}`,
+      docs: `http://${host}:${port}/api/docs`,
+      version: APP_VERSION,
+      app: BRANDING.name,
+    },
     'API hazır',
   );
 }

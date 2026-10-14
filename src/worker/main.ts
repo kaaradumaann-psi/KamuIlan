@@ -96,7 +96,7 @@ export function isDirectWorkerExecution(entry = process.argv[1]): boolean {
 
 if (isDirectWorkerExecution()) {
   startWorker().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     // Üretimde sessizce çıkmak yok: hata basılır ve süreç hata kodu ile biter.
     process.stderr.write(`Worker başlatılamadı: ${message}\n`);
     process.exitCode = 1;

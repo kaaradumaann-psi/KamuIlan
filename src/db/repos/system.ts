@@ -50,7 +50,12 @@ export class LockRepo {
     const taken = await this.store.updateOne(
       'locks',
       { id: existing.id, owner: existing.owner, expiresAt: existing.expiresAt },
-      { owner, acquiredAt: nowIso, expiresAt: new Date(now.getTime() + ttlMs).toISOString(), heartbeatAt: nowIso },
+      {
+        owner,
+        acquiredAt: nowIso,
+        expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+        heartbeatAt: nowIso,
+      },
     );
     return taken !== null;
   }
@@ -59,7 +64,10 @@ export class LockRepo {
     const updated = await this.store.updateOne(
       'locks',
       { key, owner },
-      { expiresAt: new Date(this.clock.now().getTime() + ttlMs).toISOString(), heartbeatAt: this.clock.now().toISOString() },
+      {
+        expiresAt: new Date(this.clock.now().getTime() + ttlMs).toISOString(),
+        heartbeatAt: this.clock.now().toISOString(),
+      },
     );
     return updated !== null;
   }
@@ -84,7 +92,10 @@ export class RateLimitRepo {
     private readonly clock: Clock = systemClock,
   ) {}
 
-  async hit(bucket: string, windowSeconds: number): Promise<{ count: number; windowStart: string; resetAt: string }> {
+  async hit(
+    bucket: string,
+    windowSeconds: number,
+  ): Promise<{ count: number; windowStart: string; resetAt: string }> {
     const now = this.clock.now();
     const windowStartMs = Math.floor(now.getTime() / (windowSeconds * 1000)) * windowSeconds * 1000;
     const windowStart = new Date(windowStartMs).toISOString();
@@ -94,7 +105,11 @@ export class RateLimitRepo {
 
     const existing = await this.store.findOne('rateLimits', { bucket: hashedBucket, windowStart });
     if (existing) {
-      const updated = await this.store.updateOne('rateLimits', { id: existing.id }, { count: existing.count + 1 });
+      const updated = await this.store.updateOne(
+        'rateLimits',
+        { id: existing.id },
+        { count: existing.count + 1 },
+      );
       return { count: updated?.count ?? existing.count + 1, windowStart, resetAt };
     }
 
@@ -193,14 +208,18 @@ export class ScheduledTaskRepo {
     run: { runId: string; intervalMinutes: number; dequeuedAt?: string | null; misses?: number },
   ): Promise<void> {
     const now = this.clock.now();
-    await this.store.updateOne('scheduledTasks', { id }, {
-      lastRunAt: now.toISOString(),
-      lastEnqueuedRunId: run.runId,
-      lastDequeuedAt: run.dequeuedAt ?? null,
-      misses: run.misses ?? 0,
-      nextRunAt: addMilliseconds(now.toISOString(), run.intervalMinutes * 60_000),
-      updatedAt: now.toISOString(),
-    });
+    await this.store.updateOne(
+      'scheduledTasks',
+      { id },
+      {
+        lastRunAt: now.toISOString(),
+        lastEnqueuedRunId: run.runId,
+        lastDequeuedAt: run.dequeuedAt ?? null,
+        misses: run.misses ?? 0,
+        nextRunAt: addMilliseconds(now.toISOString(), run.intervalMinutes * 60_000),
+        updatedAt: now.toISOString(),
+      },
+    );
   }
 
   async setInterval(id: string, intervalMinutes: number): Promise<void> {
@@ -218,7 +237,11 @@ export class ScheduledTaskRepo {
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    await this.store.updateOne('scheduledTasks', { id }, { enabled, updatedAt: this.clock.now().toISOString() });
+    await this.store.updateOne(
+      'scheduledTasks',
+      { id },
+      { enabled, updatedAt: this.clock.now().toISOString() },
+    );
   }
 }
 
@@ -275,16 +298,24 @@ export class BuiltinQueueRepo {
     const claimed: QueueJobDoc[] = [];
     for (const candidate of candidates) {
       if (claimed.length >= limit) break;
-      if (candidate.status === 'active' && candidate.lockedUntil && Date.parse(candidate.lockedUntil) > now.getTime()) {
+      if (
+        candidate.status === 'active' &&
+        candidate.lockedUntil &&
+        Date.parse(candidate.lockedUntil) > now.getTime()
+      ) {
         continue;
       }
-      const updated = await this.store.updateOne('queueJobs', { id: candidate.id, status: candidate.status }, {
-        status: 'active',
-        lockedBy: workerId,
-        lockedUntil: new Date(now.getTime() + leaseMs).toISOString(),
-        attempts: candidate.attempts + 1,
-        updatedAt: nowIso,
-      });
+      const updated = await this.store.updateOne(
+        'queueJobs',
+        { id: candidate.id, status: candidate.status },
+        {
+          status: 'active',
+          lockedBy: workerId,
+          lockedUntil: new Date(now.getTime() + leaseMs).toISOString(),
+          attempts: candidate.attempts + 1,
+          updatedAt: nowIso,
+        },
+      );
       if (updated) claimed.push(updated);
     }
     return claimed;
@@ -292,13 +323,17 @@ export class BuiltinQueueRepo {
 
   async complete(id: string): Promise<void> {
     const now = this.clock.now().toISOString();
-    await this.store.updateOne('queueJobs', { id }, {
-      status: 'completed',
-      completedAt: now,
-      lockedBy: null,
-      lockedUntil: null,
-      updatedAt: now,
-    });
+    await this.store.updateOne(
+      'queueJobs',
+      { id },
+      {
+        status: 'completed',
+        completedAt: now,
+        lockedBy: null,
+        lockedUntil: null,
+        updatedAt: now,
+      },
+    );
   }
 
   /** Başarısız iş: yeniden deneme zamanı verilir; deneme sınırı dolduysa `dead` (DLQ). */
@@ -307,14 +342,18 @@ export class BuiltinQueueRepo {
     if (!current) return null;
     const exhausted = current.attempts >= current.maxAttempts;
     const now = this.clock.now().toISOString();
-    return this.store.updateOne('queueJobs', { id }, {
-      status: retryAt && !exhausted ? 'pending' : 'dead',
-      lastError: error.slice(0, 500),
-      runAt: retryAt ?? now,
-      lockedBy: null,
-      lockedUntil: null,
-      updatedAt: now,
-    });
+    return this.store.updateOne(
+      'queueJobs',
+      { id },
+      {
+        status: retryAt && !exhausted ? 'pending' : 'dead',
+        lastError: error.slice(0, 500),
+        runAt: retryAt ?? now,
+        lockedBy: null,
+        lockedUntil: null,
+        updatedAt: now,
+      },
+    );
   }
 
   async stats(): Promise<Record<QueueJobDoc['status'], number>> {
@@ -335,13 +374,17 @@ export class BuiltinQueueRepo {
 
   async requeue(id: string): Promise<QueueJobDoc | null> {
     const now = this.clock.now().toISOString();
-    return this.store.updateOne('queueJobs', { id, status: 'dead' }, {
-      status: 'pending',
-      attempts: 0,
-      runAt: now,
-      lastError: null,
-      updatedAt: now,
-    });
+    return this.store.updateOne(
+      'queueJobs',
+      { id, status: 'dead' },
+      {
+        status: 'pending',
+        attempts: 0,
+        runAt: now,
+        lastError: null,
+        updatedAt: now,
+      },
+    );
   }
 }
 
@@ -363,13 +406,17 @@ export class HeartbeatRepo {
     const now = this.clock.now().toISOString();
     const existing = await this.store.findOne('workerHeartbeats', { workerId: input.workerId });
     if (existing) {
-      await this.store.updateOne('workerHeartbeats', { workerId: input.workerId }, {
-        lastHeartbeatAt: now,
-        status: input.status,
-        processedJobs: input.processedJobs,
-        lastError: input.lastError ?? null,
-        pid: process.pid,
-      });
+      await this.store.updateOne(
+        'workerHeartbeats',
+        { workerId: input.workerId },
+        {
+          lastHeartbeatAt: now,
+          status: input.status,
+          processedJobs: input.processedJobs,
+          lastError: input.lastError ?? null,
+          pid: process.pid,
+        },
+      );
       return;
     }
     const doc: WorkerHeartbeatDoc = {
@@ -414,11 +461,7 @@ export class HeartbeatRepo {
     );
     let updated = 0;
     for (const worker of stale) {
-      const result = await this.store.updateOne(
-        'workerHeartbeats',
-        { id: worker.id },
-        { status: 'stopped' },
-      );
+      const result = await this.store.updateOne('workerHeartbeats', { id: worker.id }, { status: 'stopped' });
       if (result) updated += 1;
     }
     return updated;
@@ -490,7 +533,12 @@ export class SavedJobRepo {
       await this.store.deleteOne('savedJobs', { id: existing.id });
       return { saved: false };
     }
-    const doc: SavedJobDoc = { id: createId('sav'), userId, jobId, createdAt: this.clock.now().toISOString() };
+    const doc: SavedJobDoc = {
+      id: createId('sav'),
+      userId,
+      jobId,
+      createdAt: this.clock.now().toISOString(),
+    };
     validateDocument('savedJobs', doc);
     await this.store.insertIfAbsent('savedJobs', doc);
     return { saved: true };

@@ -347,7 +347,10 @@ function RunsTab(): ReactNode {
         <ErrorNotice message={errorMessage(query.error)} onRetry={() => void query.refetch()} />
       )}
       {query.data?.failing.length ? (
-        <Card title="Hata bildirimleri" description="Site yapısı değiştiğinde ya da ulaşılamadığında burada görünür.">
+        <Card
+          title="Hata bildirimleri"
+          description="Site yapısı değiştiğinde ya da ulaşılamadığında burada görünür."
+        >
           <ul className="summary-list">
             {query.data.failing.map((run) => (
               <li key={run.id} className="text-danger-sm">
@@ -473,9 +476,8 @@ function ReviewTab(): ReactNode {
         </label>
         {query.data && (
           <p className="text-muted-sm">
-            İncelenecek: {formatNumber(query.data.counts.total)} (ilgililik{' '}
-            {query.data.counts.classification}, aynı ilan olabilir {query.data.counts.dedupe}, bilgi okunamadı{' '}
-            {query.data.counts.extraction})
+            İncelenecek: {formatNumber(query.data.counts.total)} (ilgililik {query.data.counts.classification}
+            , aynı ilan olabilir {query.data.counts.dedupe}, bilgi okunamadı {query.data.counts.extraction})
           </p>
         )}
       </div>

@@ -18,7 +18,9 @@ describe('errorMessage', () => {
     expect(errorMessage(apiError(401, 'unauthorized', 'E-posta veya parola hatalı.'))).toBe(
       'E-posta veya parola hatalı.',
     );
-    expect(errorMessage(apiError(401, 'unauthorized', 'Parola doğrulanamadı.'))).toBe('Parola doğrulanamadı.');
+    expect(errorMessage(apiError(401, 'unauthorized', 'Parola doğrulanamadı.'))).toBe(
+      'Parola doğrulanamadı.',
+    );
   });
 
   it('mesajsız 401 için genel oturum metnine düşer', () => {

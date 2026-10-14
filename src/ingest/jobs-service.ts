@@ -5,16 +5,16 @@
  * Bu modül iş mantığının tek adresidir: hem zamanlanmış tarama hem yönetici
  * panelinden manuel kayıt hem de testler aynı yolu kullanır.
  */
-import { createId } from '../domain/ids';
-import { escapeRegExp, makeExcerpt, normalizeTr } from '../domain/text';
-import { sha256Hex } from '../domain/ids';
+import { createId, sha256Hex } from '../domain/ids';
+import { jobContentFingerprint } from '../domain/job-content-fingerprint';
+import { collapseWhitespace, escapeRegExp, makeExcerpt, normalizeTr, redactContactDetails } from '../domain/text';
 import { toIstanbulDateOnly } from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
 import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
 import { classify } from '../classification/engine';
 import { extract, type ExtractedJob } from '../extraction/engine';
-import type { JobDoc, JobRevisionDoc, SourceDoc } from '../db/schemas';
+import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
 import { DEDUPE_THRESHOLDS, decideDedupe, matchBySourceIdentity } from './dedupe';
 import type { DedupeCandidateJob, DedupeDecision } from './dedupe';
@@ -35,6 +35,52 @@ export interface IngestOptions {
   now?: Date;
 }
 
+const CAPTURED_NOTICE_LIMIT = 100_000;
+
+function capturedTextFields(
+  raw: RawAnnouncement,
+): Pick<JobSourceDoc, 'capturedTextCharacterCount' | 'capturedTextStatus'> {
+  if (raw.bodyTextSource === 'listing') {
+    return { capturedTextCharacterCount: 0, capturedTextStatus: 'listing-only' };
+  }
+  if (!raw.bodyText) {
+    return {
+      capturedTextCharacterCount: 0,
+      capturedTextStatus: raw.rawExcerpt ? 'listing-only' : 'unavailable',
+    };
+  }
+  const cleanedText = collapseWhitespace(redactContactDetails(raw.bodyText));
+  const boundedText = makeExcerpt(cleanedText, CAPTURED_NOTICE_LIMIT);
+  const truncated =
+    raw.bodyTextTruncated === true ||
+    raw.bodyText.length > CAPTURED_NOTICE_LIMIT ||
+    cleanedText.length > CAPTURED_NOTICE_LIMIT;
+  return {
+    capturedTextCharacterCount: boundedText.length,
+    capturedTextStatus: truncated ? 'truncated' : 'captured',
+  };
+}
+
+function sourceLinkDocument(raw: RawAnnouncement, jobId: string, nowIso: string): JobSourceDoc {
+  const capture = capturedTextFields(raw);
+  return {
+    id: createId('jsrc'),
+    jobId,
+    sourceKey: raw.sourceKey,
+    sourceItemId: raw.sourceItemId,
+    url: normalizeUrl(raw.url),
+    title: raw.title,
+    institution: raw.institution ?? null,
+    sourceCategory: raw.sourceCategory ?? null,
+    publishedAt: raw.publishedAt ?? null,
+    ...capture,
+    attachments: raw.attachments,
+    active: true,
+    firstSeenAt: nowIso,
+    lastSeenAt: nowIso,
+  };
+}
+
 /** Başvuru penceresine göre ilan durumu. */
 export function computeStatus(params: {
   applicationStartAt: string | null;
@@ -44,7 +90,8 @@ export function computeStatus(params: {
 }): JobStatus {
   const today = toIstanbulDateOnly(params.now);
   if (params.applicationEndDate && params.applicationEndDate < today) return 'closed';
-  if (params.applicationStartAt && new Date(params.applicationStartAt).getTime() > params.now.getTime()) return 'upcoming';
+  if (params.applicationStartAt && new Date(params.applicationStartAt).getTime() > params.now.getTime())
+    return 'upcoming';
   // Saat YALNIZCA metinde gerçekten yazılıysa kesin kabul edilir. Çıkarım
   // motoru saati bilinmeyen tarihlerde 00:00 yazar; bu "gün başı" damgasını
   // kesin sanmak, son başvuru günü BUGÜN olan ilanı gece yarısından sonra
@@ -66,7 +113,8 @@ export function computeStatus(params: {
 /** Metinde geri çekme/iptal sinyali var mı? */
 export function detectWithdrawalSignal(title: string, body: string): 'withdrawn' | 'correction' | null {
   const text = normalizeTr(`${title} ${body.slice(0, 400)}`);
-  if (/\bilan\s+iptal|\biptal\s+edilmi[şs]|\bgeri\s+[çc]ekil|\by[üu]r[üu]rl[üu]kten\s+kald[ıi]r/.test(text)) return 'withdrawn';
+  if (/\bilan\s+iptal|\biptal\s+edilmi[şs]|\bgeri\s+[çc]ekil|\by[üu]r[üu]rl[üu]kten\s+kald[ıi]r/.test(text))
+    return 'withdrawn';
   if (/\bduzeltme\s+ilan|\bd[üu]zeltme/.test(text)) return 'correction';
   return null;
 }
@@ -94,7 +142,7 @@ export function buildJobDocument(
     },
     links: raw.links ?? [],
     attachments: raw.attachments,
-    bodySource: raw.bodyText ? 'detail' : 'listing',
+    bodySource: raw.bodyTextSource ?? (raw.bodyText ? 'detail' : 'listing'),
   });
 
   const attachments = dedupeAttachments(raw.attachments);
@@ -114,6 +162,7 @@ export function buildJobDocument(
   const textExcerpt = makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 2_500);
 
   const employmentType: EmploymentType = classification.employmentType;
+  const quota = extraction.quota ?? raw.quota ?? null;
 
   return {
     title,
@@ -127,7 +176,7 @@ export function buildJobDocument(
     city: extraction.city ?? raw.city ?? null,
     cityNormalized: normalizeTr(extraction.city ?? raw.city ?? ''),
     district: extraction.district ?? raw.district ?? null,
-    quota: extraction.quota ?? raw.quota ?? null,
+    quota,
     applicationStartAt,
     applicationEndAt,
     applicationEndDate: extraction.applicationEndDate,
@@ -144,7 +193,10 @@ export function buildJobDocument(
     // Gövde metni aramada da bulunsun: normalleştirilmiş kopya saklanır.
     textNormalized: normalizeTr(textExcerpt),
     originalRefNo:
-      extraction.referenceNo ?? raw.referenceNo ?? extractReferenceFromTitle(raw.sourceItemId) ?? extractReferenceFromTitle(title),
+      extraction.referenceNo ??
+      raw.referenceNo ??
+      extractReferenceFromTitle(raw.sourceItemId) ??
+      extractReferenceFromTitle(title),
     sourceKeys: [raw.sourceKey],
     primarySourceKey: raw.sourceKey,
     classification: { ...classification, classifiedAt: options.now.toISOString() },
@@ -154,7 +206,7 @@ export function buildJobDocument(
     uncertainties: extraction.uncertainties,
     provenance: options.provenance,
     lastVerifiedAt: null,
-    contentHash: sha256Hex(`${title}|${raw.bodyText ?? ''}|${applicationEndAt ?? ''}|${extraction.quota ?? ''}`),
+    contentHash: jobContentFingerprint({ title, textExcerpt, applicationEndAt, quota }),
     dedupeKey: sha256Hex(`${raw.sourceKey}|${raw.sourceItemId}`),
   };
 }
@@ -241,8 +293,10 @@ export function detectChanges(previous: JobDoc, next: Partial<JobDoc>): ChangeSe
   if (changedFields.includes('quota')) summaryParts.push('kontenjan değişti');
   if (changedFields.includes('requirements')) summaryParts.push('başvuru şartları değişti');
   if (changedFields.includes('applicationUrl')) summaryParts.push('başvuru bağlantısı değişti');
-  if (changedFields.includes('status')) summaryParts.push(`durum "${previous.status}" → "${next.status}" olarak değişti`);
-  if (changedFields.includes('textExcerpt') || changedFields.includes('title')) summaryParts.push('ilan metni güncellendi');
+  if (changedFields.includes('status'))
+    summaryParts.push(`durum "${previous.status}" → "${next.status}" olarak değişti`);
+  if (changedFields.includes('textExcerpt') || changedFields.includes('title'))
+    summaryParts.push('ilan metni güncellendi');
 
   return {
     changeTypes: changeTypes.length > 0 ? changeTypes : ['content'],
@@ -274,7 +328,7 @@ export async function applyRawAnnouncement(
       body: raw.bodyText ?? raw.rawExcerpt ?? '',
       sourceCategory: raw.sourceCategory ?? null,
       sourceKey: raw.sourceKey,
-      documentTextMissing: !raw.bodyText || raw.bodyText.length < 100,
+      documentTextMissing: !raw.bodyText || raw.bodyText.length < 100 || raw.bodyTextSource === 'listing',
     });
 
   const withdrawal = detectWithdrawalSignal(raw.title, raw.bodyText ?? '');
@@ -344,7 +398,13 @@ export async function applyRawAnnouncement(
       applicationEndDate: document.applicationEndDate,
       textExcerpt: document.textExcerpt,
     },
-    existingLink ? { jobId: existingLink.jobId, sourceKey: existingLink.sourceKey, sourceItemId: existingLink.sourceItemId } : null,
+    existingLink
+      ? {
+          jobId: existingLink.jobId,
+          sourceKey: existingLink.sourceKey,
+          sourceItemId: existingLink.sourceItemId,
+        }
+      : null,
   );
 
   const decision =
@@ -510,23 +570,7 @@ async function createJob(
     return mergeIntoExistingJob(raw, ctx, { ...decision, jobId: inserted.job.id }, document);
   }
 
-  await ctx.repos.jobs.addSourceLink({
-    id: createId('jsrc'),
-    jobId: job.id,
-    sourceKey: raw.sourceKey,
-    sourceItemId: raw.sourceItemId,
-    url: normalizeUrl(raw.url),
-    title: raw.title,
-    institution: raw.institution ?? null,
-    sourceCategory: raw.sourceCategory ?? null,
-    publishedAt: raw.publishedAt ?? null,
-    rawContentHash: sha256Hex(raw.bodyText ?? raw.rawExcerpt ?? raw.title),
-    rawExcerpt: makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 1_500),
-    attachments: raw.attachments,
-    active: true,
-    firstSeenAt: nowIso,
-    lastSeenAt: nowIso,
-  });
+  await ctx.repos.jobs.addSourceLink(sourceLinkDocument(raw, job.id, nowIso));
 
   await ctx.repos.jobs.addRevision({
     id: createId('rev'),
@@ -618,28 +662,23 @@ async function mergeIntoExistingJob(
 
   const link = await ctx.repos.jobs.findLinkBySourceItem(raw.sourceKey, raw.sourceItemId);
   if (link) {
-    await ctx.repos.jobs.touchSourceLink(link.id, { lastSeenAt: nowIso, title: raw.title, active: true });
-  } else {
-    await ctx.repos.jobs.addSourceLink({
-      id: createId('jsrc'),
-      jobId,
-      sourceKey: raw.sourceKey,
-      sourceItemId: raw.sourceItemId,
-      url: normalizeUrl(raw.url),
-      title: raw.title,
-      institution: raw.institution ?? null,
-      sourceCategory: raw.sourceCategory ?? null,
-      publishedAt: raw.publishedAt ?? null,
-      rawContentHash: sha256Hex(raw.bodyText ?? raw.rawExcerpt ?? raw.title),
-      rawExcerpt: makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 1_500),
-      attachments: raw.attachments,
-      active: true,
-      firstSeenAt: nowIso,
+    const capture = capturedTextFields(raw);
+    const hasNewCapturedText =
+      capture.capturedTextStatus === 'captured' || capture.capturedTextStatus === 'truncated';
+    await ctx.repos.jobs.touchSourceLink(link.id, {
       lastSeenAt: nowIso,
+      title: raw.title,
+      active: true,
+      ...(hasNewCapturedText ? { ...capture, attachments: raw.attachments } : {}),
     });
+  } else {
+    await ctx.repos.jobs.addSourceLink(sourceLinkDocument(raw, jobId, nowIso));
     if (!changes.changeTypes.includes('source-added')) changes.changeTypes.push('source-added');
     changes.changedFields.push('sourceKeys');
-    changes.summary = changes.summary === 'İlan içeriği güncellendi' ? 'İlan ikinci bir kaynakta yayımlandı' : changes.summary;
+    changes.summary =
+      changes.summary === 'İlan içeriği güncellendi'
+        ? 'İlan ikinci bir kaynakta yayımlandı'
+        : changes.summary;
   }
 
   let revisionCreated = false;
@@ -703,7 +742,10 @@ async function applyWithdrawal(
     changedFields: ['status'],
     previous: { status: previous.status },
     current: { status: updated?.status ?? previous.status },
-    summary: withdrawal === 'withdrawn' ? 'İlan resmî olarak geri çekildi/iptal edildi.' : 'İlan için düzeltme duyurusu yayımlandı.',
+    summary:
+      withdrawal === 'withdrawn'
+        ? 'İlan resmî olarak geri çekildi/iptal edildi.'
+        : 'İlan için düzeltme duyurusu yayımlandı.',
     sourceKey: raw.sourceKey,
     createdAt: nowIso,
   });

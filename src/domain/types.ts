@@ -82,7 +82,8 @@ export type SourceType =
   | 'regional-restricted'
   | 'manual';
 
-export type SourceMethod = 'html-list' | 'html-detail' | 'pdf-index' | 'json-api' | 'manual-entry' | 'browser';
+export type SourceMethod =
+  'html-list' | 'html-detail' | 'pdf-index' | 'json-api' | 'manual-entry' | 'browser';
 
 /** Honest, verifiable integration status used by the admin coverage report. */
 export const SOURCE_STATUSES = [
@@ -126,7 +127,7 @@ export interface JobRequirements {
   kpssMinScore?: number;
   kpssYear?: number;
   minAge?: number;
-  maxAge?: number
+  maxAge?: number;
   certificates: string[];
   minExperienceYears?: number;
   foreignLanguages: string[];
@@ -140,8 +141,12 @@ export interface RawAnnouncement {
   sourceItemId: string;
   url: string;
   title: string;
-  /** Full plain text of the announcement body/attachment when available. */
+  /** Plain text of the announcement body/attachment when available. */
   bodyText?: string;
+  /** Which source page supplied bodyText; listing snippets are not full notices. */
+  bodyTextSource?: 'detail' | 'listing' | 'document';
+  /** True when the adapter hit its extraction/storage cap. */
+  bodyTextTruncated?: boolean;
   institution?: string;
   publishedAt?: string;
   applicationStartAt?: string;
@@ -157,7 +162,7 @@ export interface RawAnnouncement {
   attachments: JobAttachment[];
   /** Category/heading the source itself used (used as a classification signal). */
   sourceCategory?: string;
-  /** Raw html/text excerpt kept for evidence, never rendered as HTML. */
+  /** Bounded plain-text excerpt kept for evidence; not rendered as HTML and contact-redacted on storage. */
   rawExcerpt?: string;
   extractionConfidence: number;
   notes?: string[];

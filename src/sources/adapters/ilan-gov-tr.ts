@@ -7,15 +7,23 @@
  *
  * Yöntem: HTML listesi + detay sayfası (detay isteği sayısı bütçeyle sınırlıdır).
  */
-import { blockElementText, elementText, loadHtml, readableText } from '../../lib/html';
+import { makeExcerpt, normalizeTr } from '../../domain/text';
+import {
+  blockElementText,
+  elementText,
+  loadHtml,
+  readableAnnouncementText,
+  readableText,
+} from '../../lib/html';
 import { cleanTitle, extractReferenceNumbers, parseListingDate } from '../listing-utils';
 import { PROVINCES } from '../../domain';
-import { normalizeUrl } from '../../domain/urls';
+import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
+import { assertSafeUrl, describeFetchFailure, FetchError, type FetchResponse } from '../fetcher';
 import { describeBrowserFailure, renderPageHtml } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 
-const MAX_PAGES = 5;
+const MAX_PAGES = 20;
 const MAX_ITEMS = 40;
 const ITEM_ID_PATTERN = /\/ilan\/(\d+)/;
 
@@ -30,7 +38,7 @@ interface Row {
 }
 
 export class IlanGovTrAdapter implements SourceAdapter {
-  constructor(private readonly renderListing?: (url: string) => Promise<string>) {}
+  constructor(private readonly renderListing?: (url: string, signal?: AbortSignal) => Promise<string>) {}
 
   readonly key = 'ilan-gov-tr';
   readonly label = 'ilan.gov.tr — personel alımı';
@@ -57,73 +65,138 @@ export class IlanGovTrAdapter implements SourceAdapter {
     let requestCount = 0;
     const rows: Row[] = [];
     let notModified = false;
-
-    // Liste düz HTTP ile boş gelip tarayıcıya düşüldüyse kalan sayfalar da
-    // tarayıcıyla izlenir (13.10.2026 canlı koşum: sayfa 1 tarayıcıdan 12 kart
-    // getirdi ancak sayfalama yapılamadığı için gerisi okunamadı).
     let browserMode = false;
+    let coverageStatus: 'complete' | 'partial' | 'unknown' = 'unknown';
+    let coverageNote = 'Sayfa kapsamı doğrulanamadı.';
+    const pageItemIds = new Set<string>();
 
     for (let page = 1; page <= MAX_PAGES; page += 1) {
       const url = new URL(source.listingUrl);
       if (page > 1) url.searchParams.set('currentPage', String(page));
 
+      let pageRows: Row[];
+      let emptyPageConfirmed = false;
       if (browserMode) {
-        const rendered = await this.renderRows(url.toString(), notes);
+        const rendered = await this.renderRows(url.toString(), notes, source.allowedHosts, ctx.signal);
         requestCount += 1;
-        if (rendered === null) break;
-        notes.push(`Sayfa ${page}: ${rendered.length} ilan satırı (tarayıcı).`);
-        if (rendered.length === 0) break;
-        rows.push(...rendered);
-        if (new Set(rows.map((row) => row.itemId)).size < rows.length) break; // tekrar eden sayfa = son
-        continue;
+        if (rendered === null) {
+          coverageStatus = 'partial';
+          coverageNote = `Tarayıcıyla sayfa ${page} okunamadı; kalan sayfalar doğrulanmadı.`;
+          break;
+        }
+        pageRows = rendered;
+      } else {
+        let response: FetchResponse;
+        requestCount += 1;
+        try {
+          response = await http.fetchText(url.toString(), {
+            allowedHosts: source.allowedHosts,
+            minIntervalMs: source.minRequestIntervalMs,
+          });
+        } catch (error) {
+          if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+          if (page === 1) throw error;
+          coverageStatus = 'partial';
+          coverageNote = `Sayfa ${page} alınamadı (${describeFetchFailure(error)}); önceki sayfalar işlendi.`;
+          notes.push(coverageNote);
+          break;
+        }
+        httpStatuses.push(response.status);
+        if (page === 1 && response.notModified) {
+          notModified = true;
+          coverageStatus = 'unknown';
+          coverageNote = 'Liste 304 döndürdü; bu çalışmada sayfalar tek tek gezilmedi.';
+          notes.push('Liste içeriği değişmedi (ETag/Last-Modified) — ayrıntı isteği yapılmadı.');
+          break;
+        }
+        const html = response.decoded?.text ?? response.body.toString('utf8');
+        pageRows = parseListing(html, url.toString(), source.allowedHosts);
+        emptyPageConfirmed = pageRows.length === 0 && isClearlyEmptyListingPage(html);
+        if (page === 1 && pageRows.length === 0 && !emptyPageConfirmed) {
+          // Liste JS ile doluyor olabilir (düz HTTP kabuk döndürür): tarayıcı yedeği.
+          requestCount += 1;
+          const recovered = await this.recoverWithBrowser(
+            url.toString(),
+            notes,
+            source.allowedHosts,
+            ctx.signal,
+          );
+          if (recovered.length > 0) {
+            pageRows = recovered;
+            browserMode = true;
+          } else {
+            const excerpt = readableText(loadHtml(html), 'body', 200);
+            notes.push(`Sayfa özeti: "${makeExcerpt(excerpt, 200)}"`);
+            coverageStatus = 'unknown';
+            coverageNote =
+              'İlk liste sayfasında ilan satırı okunamadı; kaynak yapısı veya sayfalama bilinmiyor.';
+            break;
+          }
+        }
       }
 
-      const response = await http.fetchText(url.toString(), {
-        allowedHosts: source.allowedHosts,
-        minIntervalMs: source.minRequestIntervalMs,
-      });
-      requestCount += 1;
-      httpStatuses.push(response.status);
-      if (page === 1 && response.notModified) {
-        notModified = true;
-        notes.push('Liste içeriği değişmedi (ETag/Last-Modified) — ayrıntı isteği yapılmadı.');
-        break;
-      }
-      const html = response.decoded?.text ?? response.body.toString('utf8');
-      const pageRows = parseListing(html, source.listingUrl);
-      notes.push(`Sayfa ${page}: ${pageRows.length} ilan satırı.`);
+      notes.push(`Sayfa ${page}: ${pageRows.length} ilan satırı${browserMode ? ' (tarayıcı)' : ''}.`);
       if (pageRows.length === 0) {
-        if (page === 1) {
-          // Liste JS ile doluyor olabilir (düz HTTP kabuk döndürür): tarayıcı yedeği.
-          const recovered = await this.recoverWithBrowser(url.toString(), notes);
-          if (recovered.length > 0) {
-            rows.push(...recovered);
-            requestCount += 1;
-            browserMode = true;
-            continue;
-          }
-          const excerpt = readableText(loadHtml(html), 'body', 200);
-          notes.push(`Sayfa özeti: "${excerpt.slice(0, 200)}"`);
-        }
+        coverageStatus = emptyPageConfirmed ? 'complete' : 'unknown';
+        coverageNote = emptyPageConfirmed
+          ? page === 1
+            ? 'İlk sayfanın ilan listesi açıkça boş durumunu bildirdi.'
+            : `${page - 1} dolu sayfa gezildi; sonraki sayfanın ilan listesi açıkça boş durumunu bildirdi.`
+          : 'Sayfa satır döndürmedi ancak boş liste durumu doğrulanamadı; kapsam bilinmiyor.';
         break;
       }
-      const before = rows.length;
+
+      const duplicatePage = pageRows.some((row) => pageItemIds.has(row.itemId));
+      if (duplicatePage) {
+        coverageStatus = 'unknown';
+        coverageNote = `Sayfa ${page} önceki sayfalardaki ilan kimliklerini tekrarladı; sayfa parametresinin etkisi doğrulanamadı.`;
+        notes.push(coverageNote);
+        break;
+      }
+      for (const row of pageRows) pageItemIds.add(row.itemId);
       rows.push(...pageRows);
-      if (new Set(rows.map((row) => row.itemId)).size < rows.length) break; // tekrar eden sayfa = son
-      if (rows.length === before) break;
+
+      if (page === MAX_PAGES) {
+        coverageStatus = 'partial';
+        coverageNote = `${MAX_PAGES} sayfalık üst sınıra ulaşıldı; daha ileri sayfalar bu çalışmada taranmadı.`;
+      }
     }
 
-    // Sayfa tekrarı (portal currentPage'i yok sayarsa) aynı kartı iki kez
-    // getirebilir; kayıtlar kimliğe göre tekilleştirilir.
     const uniqueRows = [...new Map(rows.map((row) => [row.itemId, row])).values()];
-    const seen = new Set<string>(ctx.knownItemIds ?? []);
-    const fresh = uniqueRows.filter((row) => !seen.has(row.itemId)).slice(0, MAX_ITEMS);
+    const known = new Set<string>(ctx.knownItemIds ?? []);
+    const knownWithDetail = new Set<string>(ctx.knownItemIdsWithDetail ?? []);
+    const internalDetailRows = uniqueRows.filter((row) => /IlanDetay\?i=/i.test(row.url));
+    const freshDetailRows = internalDetailRows.filter((row) => !known.has(row.itemId));
+    const pendingDetailRows = internalDetailRows.filter(
+      (row) => known.has(row.itemId) && !knownWithDetail.has(row.itemId),
+    );
+    const detailRows = [...freshDetailRows, ...pendingDetailRows].slice(
+      0,
+      Math.min(ctx.maxDetailFetches, MAX_ITEMS),
+    );
+    const externalFreshRows = uniqueRows.filter(
+      (row) => !/IlanDetay\?i=/i.test(row.url) && !known.has(row.itemId),
+    );
+    const selectedExternalRows = externalFreshRows.slice(0, Math.max(0, MAX_ITEMS - detailRows.length));
+    const selectedRows = [...detailRows, ...selectedExternalRows];
     const items: RawAnnouncement[] = [];
+    let failedDetailFetches = 0;
+    let detailsWithoutUsableText = 0;
 
-    for (const row of fresh) {
-      const detail = await this.readDetail(ctx, row);
-      requestCount += detail.requests;
-      httpStatuses.push(...detail.statuses);
+    for (const row of selectedRows) {
+      const hasInternalDetail = /IlanDetay\?i=/i.test(row.url);
+      const detail = hasInternalDetail ? await this.readDetail(ctx, row) : null;
+      if (detail) {
+        requestCount += detail.requests;
+        httpStatuses.push(...detail.statuses);
+        if (detail.failure) {
+          failedDetailFetches += 1;
+          notes.push(`Detay isteği başarısız (${row.url}): ${detail.failure}`);
+        } else if (!detail.bodyText) {
+          detailsWithoutUsableText += 1;
+          notes.push(`Detay sayfası kullanılabilir ilan metni vermedi (${row.url}).`);
+        }
+      }
       items.push({
         sourceKey: source.key,
         sourceItemId: row.itemId,
@@ -132,41 +205,99 @@ export class IlanGovTrAdapter implements SourceAdapter {
         institution: row.institution ?? source.institution,
         ...(row.publishedAt ? { publishedAt: row.publishedAt } : {}),
         sourceCategory: 'personel alımı',
-        ...(detail.bodyText ? { bodyText: detail.bodyText } : {}),
-        ...(detail.bodyText ? { rawExcerpt: detail.bodyText.slice(0, 400) } : {}),
-        attachments: detail.attachments,
-        ...(detail.applicationUrl ? { applicationUrl: detail.applicationUrl } : {}),
+        ...(detail?.bodyText ? { bodyText: detail.bodyText, bodyTextSource: 'detail' as const } : {}),
+        ...(detail?.bodyTextTruncated ? { bodyTextTruncated: true } : {}),
+        ...(detail?.bodyText ? { rawExcerpt: detail.bodyText.slice(0, 400) } : {}),
+        attachments: detail?.attachments ?? [],
+        ...(detail?.applicationUrl ? { applicationUrl: detail.applicationUrl } : {}),
         ...(row.refNo ? { referenceNo: row.refNo } : {}),
         ...(row.city ? { city: row.city } : {}),
-        extractionConfidence: 0.6,
+        extractionConfidence: detail?.bodyText ? 0.8 : 0.45,
       });
     }
 
-    if (fresh.length === 0 && uniqueRows.length > 0) {
-      notes.push('Yeni ilan yok (tümü daha önce görülmüş) — idempotent tarama.');
+    if (selectedRows.length === 0 && uniqueRows.length > 0) {
+      notes.push(
+        'Yeni ilan yok; yeni kayıt veya daha önce eksik kalan detay metni bulunamadı — idempotent tarama.',
+      );
     }
-    notes.push(`Listede ${uniqueRows.length} ilan, işlenen ${items.length}.`);
+    const deferredDetails = Math.max(
+      0,
+      freshDetailRows.length + pendingDetailRows.length - detailRows.length,
+    );
+    const deferredExternalRows = Math.max(0, externalFreshRows.length - selectedExternalRows.length);
+    notes.push(`Listede ${uniqueRows.length} benzersiz ilan, bu çalışmada ${items.length} kayıt işlendi.`);
+    if (deferredDetails > 0)
+      notes.push(
+        `${deferredDetails} ilan detayı sonraki taramalara bırakıldı (detay bütçesi ${ctx.maxDetailFetches}).`,
+      );
+    if (deferredExternalRows > 0)
+      notes.push(
+        `${deferredExternalRows} dış bağlantılı ilan çıktı sınırı nedeniyle sonraki taramaya bırakıldı (kayıt sınırı ${MAX_ITEMS}).`,
+      );
 
-    return { items, requestCount, notes, etag: null, lastModified: null, notModified, httpStatuses };
+    const detailCoverageNotes: string[] = [];
+    if (failedDetailFetches > 0) detailCoverageNotes.push(`${failedDetailFetches} detay isteği başarısız oldu.`);
+    if (detailsWithoutUsableText > 0)
+      detailCoverageNotes.push(`${detailsWithoutUsableText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`);
+    if (deferredDetails > 0)
+      detailCoverageNotes.push(`${deferredDetails} iç ilan detayı bütçe nedeniyle sonraki taramaya ertelendi.`);
+    if (deferredExternalRows > 0)
+      detailCoverageNotes.push(`${deferredExternalRows} dış bağlantılı ilan kayıt sınırı nedeniyle sonraki taramaya ertelendi.`);
+
+    const finalCoverageStatus = detailCoverageNotes.length > 0 ? 'partial' : coverageStatus;
+    const finalCoverageNote = [
+      `Sayfa kapsamı: ${coverageStatus === 'complete' ? 'tam' : coverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${coverageNote}`,
+      ...detailCoverageNotes,
+    ].join(' ');
+    notes.push(
+      `Toplam kapsam: ${finalCoverageStatus === 'complete' ? 'tam' : finalCoverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${finalCoverageNote}`,
+    );
+
+    return {
+      items,
+      requestCount,
+      notes,
+      etag: null,
+      lastModified: null,
+      notModified,
+      coverage: { status: finalCoverageStatus, note: finalCoverageNote },
+      httpStatuses,
+    };
   }
 
   /** Sayfayı tarayıcıyla açıp satırları ayrıştırır; hata olursa not düşüp null döner. */
-  private async renderRows(url: string, notes: string[]): Promise<Row[] | null> {
+  private async renderRows(
+    url: string,
+    notes: string[],
+    allowedHosts: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<Row[] | null> {
     try {
-      const render = this.renderListing ?? ((target: string) => renderPageHtml(target));
-      return parseListing(await render(url), url);
+      const safeUrl = assertSafeUrl(url, allowedHosts).toString();
+      const render =
+        this.renderListing ??
+        ((target: string, abortSignal?: AbortSignal) =>
+          renderPageHtml(target, { allowedHosts, signal: abortSignal }));
+      return parseListing(await render(safeUrl, signal), safeUrl, allowedHosts);
     } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
       notes.push(`Tarayıcı sayfası açılamadı: ${describeBrowserFailure(error)}`);
       return null;
     }
   }
 
   /** Düz HTTP listesi boşsa sayfayı tarayıcıyla açıp aynı ayrıştırıcıyı koşar. */
-  private async recoverWithBrowser(url: string, notes: string[]): Promise<Row[]> {
-    const rows = await this.renderRows(url, notes);
-    if (rows === null) return [];
-    notes.push(`Liste HTTP ile boş geldi; tarayıcı ile ${rows.length} ilan satırı bulundu.`);
-    return rows;
+  private async recoverWithBrowser(
+    url: string,
+    notes: string[],
+    allowedHosts: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<Row[]> {
+    const rows = await this.renderRows(url, notes, allowedHosts, signal);
+    const recovered = rows ?? [];
+    notes.push(`Liste HTTP ile boş geldi; tarayıcı ile ${recovered.length} ilan satırı bulundu.`);
+    return recovered;
   }
 
   private async readDetail(
@@ -174,10 +305,12 @@ export class IlanGovTrAdapter implements SourceAdapter {
     row: Row,
   ): Promise<{
     bodyText: string | null;
+    bodyTextTruncated: boolean;
     attachments: RawAnnouncement['attachments'];
     applicationUrl: string | null;
     requests: number;
     statuses: number[];
+    failure: string | null;
   }> {
     const { http, source } = ctx;
     try {
@@ -188,8 +321,13 @@ export class IlanGovTrAdapter implements SourceAdapter {
       });
       const html = response.decoded?.text ?? response.body.toString('utf8');
       const $ = loadHtml(html);
-      const body =
-        readableText($, 'article, .ad-detail, .ilan-detay, main', 20_000) || readableText($, 'body', 20_000);
+      const body = readableAnnouncementText(
+        $,
+        ['article', '.ad-detail', '.ilan-detay', 'main', '.icerik', '.content', '#content', 'body'],
+        100_001,
+      );
+      const truncated = body.length > 100_000;
+      const capturedText = body.slice(0, 100_000);
       const links = $('a[href]')
         .toArray()
         .map((element) => ({
@@ -212,28 +350,50 @@ export class IlanGovTrAdapter implements SourceAdapter {
               : 'excel') as 'pdf' | 'doc' | 'excel',
         }));
 
-      const applicationCandidates = links.filter((link) =>
-        /kariyerkapisi\.gov\.tr|esube\.iskur\.gov\.tr|turkiye\.gov\.tr/i.test(link.url),
-      );
+      const applicationCandidates = links.filter((link) => isOfficialApplicationUrl(link.url));
       const application =
         applicationCandidates.find((link) => /ba[sş]vuru/i.test(link.text)) ?? applicationCandidates[0];
 
       return {
-        bodyText: body.length > 80 ? body : null,
+        bodyText: capturedText.length > 80 ? capturedText : null,
+        bodyTextTruncated: truncated,
         attachments,
         applicationUrl: application?.url ?? null,
         requests: 1,
         statuses: [response.status],
+        failure: null,
       };
-    } catch {
+    } catch (error) {
+      if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
       // Detay alınamazsa liste bilgisiyle devam edilir; eksik alanlar "belirtilmemiş" kalır.
-      return { bodyText: null, attachments: [], applicationUrl: null, requests: 1, statuses: [] };
+      return {
+        bodyText: null,
+        bodyTextTruncated: false,
+        attachments: [],
+        applicationUrl: null,
+        requests: 1,
+        statuses: error instanceof FetchError && error.status !== null ? [error.status] : [],
+        failure: describeFetchFailure(error),
+      };
     }
   }
 }
 
+function isClearlyEmptyListingPage(html: string): boolean {
+  const $ = loadHtml(html);
+  const text = normalizeTr($.root().text());
+  const hasItemLink = $('a[href]')
+    .toArray()
+    .some((element) => ITEM_ID_PATTERN.test($(element).attr('href') ?? ''));
+  const hasExplicitEmptyMessage =
+    /ilan bulunmamakt|aktif ilan yok|kayit bulunamadi|sonuc bulunamadi|sonuc yok/.test(text);
+  // A rendered list container can also be empty because markup or JS parsing
+  // failed. Require explicit no-results text before declaring a page exhausted.
+  return !hasItemLink && hasExplicitEmptyMessage;
+}
+
 /** Liste sayfasından ilan satırlarını çıkarır (yapı değişirse boş liste döner → hata kaydı). */
-function parseListing(html: string, baseUrl: string): Row[] {
+function parseListing(html: string, baseUrl: string, allowedHosts: readonly string[]): Row[] {
   const $ = loadHtml(html);
   const rows: Row[] = [];
   const seen = new Set<string>();
@@ -244,8 +404,14 @@ function parseListing(html: string, baseUrl: string): Row[] {
     if (!match?.[1]) continue;
     const itemId = match[1];
     if (seen.has(itemId)) continue;
-    const url = normalizeUrl(href, baseUrl);
-    if (!url) continue;
+    const normalizedUrl = normalizeUrl(href, baseUrl);
+    if (!normalizedUrl) continue;
+    let url: string;
+    try {
+      url = assertSafeUrl(normalizedUrl, allowedHosts).toString();
+    } catch {
+      continue;
+    }
 
     // Blok sınırları korunarak okunur: kurum / il / tarih kartın ayrı
     // bloklarında durur ve ancak satır satır ayrıştırılabilir.

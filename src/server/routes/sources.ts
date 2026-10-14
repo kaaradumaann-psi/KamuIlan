@@ -31,22 +31,26 @@ export function registerSourceRoutes(app: FastifyInstance, repos: Repos): void {
     };
   });
 
-  app.get('/api/sources/:key/status', { schema: { tags: ['sources'], summary: 'Tek kaynağın ayrıntılı durumu' } }, async (request) => {
-    const params = z.object({ key: z.string().min(2).max(80) }).parse(request.params);
-    const source = await repos.sources.getByKey(params.key);
-    if (!source) throw ApiError.notFound('Kaynak bulunamadı.');
-    const [lastRun, runs, jobCount] = await Promise.all([
-      repos.runs.lastRun(source.key),
-      repos.runs.list({ sourceKey: source.key }, 20),
-      repos.store.count('jobSources', { sourceKey: source.key }),
-    ]);
-    return {
-      source: toPublicSource(source),
-      status: toSourceStatus(source, lastRun),
-      jobCount,
-      lastRun: lastRun ? toRunSummary(lastRun) : null,
-      recentRuns: runs.map(toRunSummary),
-      inspectedAt: repos.clock.now().toISOString(),
-    };
-  });
+  app.get(
+    '/api/sources/:key/status',
+    { schema: { tags: ['sources'], summary: 'Tek kaynağın ayrıntılı durumu' } },
+    async (request) => {
+      const params = z.object({ key: z.string().min(2).max(80) }).parse(request.params);
+      const source = await repos.sources.getByKey(params.key);
+      if (!source) throw ApiError.notFound('Kaynak bulunamadı.');
+      const [lastRun, runs, jobCount] = await Promise.all([
+        repos.runs.lastRun(source.key),
+        repos.runs.list({ sourceKey: source.key }, 20),
+        repos.store.count('jobSources', { sourceKey: source.key }),
+      ]);
+      return {
+        source: toPublicSource(source),
+        status: toSourceStatus(source, lastRun),
+        jobCount,
+        lastRun: lastRun ? toRunSummary(lastRun) : null,
+        recentRuns: runs.map(toRunSummary),
+        inspectedAt: repos.clock.now().toISOString(),
+      };
+    },
+  );
 }

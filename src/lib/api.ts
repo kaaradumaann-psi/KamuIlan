@@ -146,10 +146,14 @@ function safeJson(text: string): unknown {
 export const api = {
   get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal): Promise<T> =>
     apiRequest<T>(path, { query, ...(signal ? { signal } : {}) }),
-  post: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'POST', body: body ?? {} }),
-  put: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'PUT', body: body ?? {} }),
-  patch: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'PATCH', body: body ?? {} }),
-  del: <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>(path, { method: 'DELETE', body: body ?? {} }),
+  post: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'POST', body: body ?? {} }),
+  put: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'PUT', body: body ?? {} }),
+  patch: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'PATCH', body: body ?? {} }),
+  del: <T>(path: string, body?: unknown): Promise<T> =>
+    apiRequest<T>(path, { method: 'DELETE', body: body ?? {} }),
 };
 
 /**
@@ -177,7 +181,10 @@ export function errorMessage(error: unknown): string {
   }
   // Ağ hatası: fetch reddedildiğinde tarayıcı İngilizce "Failed to fetch" verir.
   // Kullanıcıya ne yapacağını söyle (API süreci kapalı olabilir).
-  if (error instanceof TypeError || (error instanceof Error && /failed to fetch|networkerror|load failed/i.test(error.message))) {
+  if (
+    error instanceof TypeError ||
+    (error instanceof Error && /failed to fetch|networkerror|load failed/i.test(error.message))
+  ) {
     return 'Sunucuya ulaşılamadı. Bağlantınızı ve çalışan API sürecini kontrol edin (geliştirmede: npm run dev).';
   }
   if (error instanceof Error) return error.message;

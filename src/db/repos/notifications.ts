@@ -38,6 +38,14 @@ export const EMPTY_FILTERS: PreferenceFilters = {
   minDaysUntilDeadline: null,
 };
 
+export const EMPTY_CANDIDATE_PROFILE: NotificationPreferenceDoc['candidateProfile'] = {
+  profession: '',
+  educationLevel: null,
+  departments: [],
+  skills: [],
+  experienceYears: null,
+};
+
 /** (kullanıcı, ilan, tür, sürüm) → benzersiz anahtar. */
 export function eventIdempotencyKey(input: {
   userId: string;
@@ -61,14 +69,28 @@ export class NotificationRepo {
   ) {}
 
   async getPreference(userId: string): Promise<NotificationPreferenceDoc | null> {
-    return this.store.findOne('notificationPreferences', { userId });
+    const preference = await this.store.findOne('notificationPreferences', { userId });
+    if (!preference) return null;
+    // Legacy records predate profile matching; default them to opt-out and do
+    // not treat missing data as consent or as an empty-list schema failure.
+    return {
+      ...preference,
+      profilePersonalizationEnabled: preference.profilePersonalizationEnabled ?? false,
+      candidateProfile: { ...EMPTY_CANDIDATE_PROFILE, ...(preference.candidateProfile ?? {}) },
+    };
   }
 
   /** Tercih yoksa varsayılanlarla oluşturur; varsa yalnızca verilen alanları günceller. */
   async upsertPreference(
     userId: string,
-    input: Partial<Omit<NotificationPreferenceDoc, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'filters'>> & {
+    input: Partial<
+      Omit<
+        NotificationPreferenceDoc,
+        'id' | 'userId' | 'createdAt' | 'updatedAt' | 'filters' | 'candidateProfile'
+      >
+    > & {
       filters?: Partial<PreferenceFilters>;
+      candidateProfile?: Partial<NotificationPreferenceDoc['candidateProfile']>;
     },
   ): Promise<NotificationPreferenceDoc> {
     const now = this.clock.now().toISOString();
@@ -76,7 +98,19 @@ export class NotificationRepo {
 
     if (existing) {
       const filters: PreferenceFilters = { ...existing.filters, ...(input.filters ?? {}) };
-      const patch = { ...input, filters, updatedAt: now };
+      const candidateProfile = {
+        ...EMPTY_CANDIDATE_PROFILE,
+        ...existing.candidateProfile,
+        ...(input.candidateProfile ?? {}),
+      };
+      const patch = {
+        ...input,
+        filters,
+        candidateProfile,
+        profilePersonalizationEnabled:
+          input.profilePersonalizationEnabled ?? existing.profilePersonalizationEnabled ?? false,
+        updatedAt: now,
+      };
       const updated = await this.store.updateOne('notificationPreferences', { userId }, patch);
       if (!updated) throw new Error('Bildirim tercihi güncellenemedi.');
       validateDocument('notificationPreferences', updated);
@@ -86,13 +120,17 @@ export class NotificationRepo {
     const doc: NotificationPreferenceDoc = {
       id: createId('npr'),
       userId,
-      enabled: input.enabled ?? true,
+      // A profile-only update or pause request must never subscribe someone by default.
+      // Email is opt-in; the Panel sends `enabled: true` only after an explicit user action.
+      enabled: input.enabled ?? false,
       paused: input.paused ?? false,
       mode: input.mode ?? 'instant',
       onlyNewJobs: input.onlyNewJobs ?? true,
       notifyOnChanges: input.notifyOnChanges ?? true,
       includeWorkerJobs: input.includeWorkerJobs ?? true,
       includeAcademicJobs: input.includeAcademicJobs ?? true,
+      profilePersonalizationEnabled: input.profilePersonalizationEnabled ?? false,
+      candidateProfile: { ...EMPTY_CANDIDATE_PROFILE, ...(input.candidateProfile ?? {}) },
       filters: { ...EMPTY_FILTERS, ...(input.filters ?? {}) },
       createdAt: now,
       updatedAt: now,
@@ -144,11 +182,19 @@ export class NotificationRepo {
     return { event: result.document, created: result.inserted };
   }
 
-  async markEvent(eventId: string, status: NotificationEventDoc['status'], reason?: string | null): Promise<void> {
-    await this.store.updateOne('notificationEvents', { id: eventId }, {
-      status,
-      suppressionReason: reason ?? null,
-    });
+  async markEvent(
+    eventId: string,
+    status: NotificationEventDoc['status'],
+    reason?: string | null,
+  ): Promise<void> {
+    await this.store.updateOne(
+      'notificationEvents',
+      { id: eventId },
+      {
+        status,
+        suppressionReason: reason ?? null,
+      },
+    );
   }
 
   async listEventsForUser(userId: string, limit = 50): Promise<NotificationEventDoc[]> {

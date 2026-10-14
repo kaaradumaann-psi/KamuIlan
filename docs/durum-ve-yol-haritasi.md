@@ -1,4 +1,11 @@
-# Kamuİlan — Durum ve Yol Haritası
+# Kamuİlan — Durum ve Yol Haritası (tarihsel anlık görüntü)
+
+> Bu durum tablosu 13 Ekim 2026 tarihinde kaydedilmiştir; mevcut çalışma ağacı
+> için güncel doğrulama sayılmaz. **Düzeltme:** CSS eşitliği için bu snapshot'taki
+> test yalnız `psikolog` deposuna dayalıydı; 14.10.2026 karşılaştırmasında
+> MMPI-566 `Repo123` ile altı katman farklı bulundu. Güncel denetim, kanıt ve
+> ertesi gün planı için [14 Ekim 2026 raporuna](./muhendislik-raporu-2026-10-14.md)
+> bakın.
 
 **Son güncelleme:** 13 Ekim 2026
 **Kapsam:** Bugüne kadar yapılan her şey, canlı kanıt durumu, eksikler ve

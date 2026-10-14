@@ -133,6 +133,18 @@ beforeAll(async () => {
     provenance: 'sample',
   });
   await repos.savedJobs.toggle(userId, jobId);
+  await repos.notifications.upsertPreference(userId, {
+    // Profil eşleştirmesi e-posta bildirimleri kapalıyken de çalışmalıdır.
+    enabled: false,
+    profilePersonalizationEnabled: true,
+    candidateProfile: {
+      profession: 'hemşire',
+      educationLevel: null,
+      departments: [],
+      skills: [],
+      experienceYears: null,
+    },
+  });
   await repos.heartbeats.beat({
     workerId: 'kamuilan-test',
     role: 'worker',
@@ -208,6 +220,14 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
     );
     expect((await screen.findAllByText(/Sözleşmeli Personel Alım İlanı/)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Başvuru kontrol listesi/)).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Profilinle ilan eşleşmesi' })).toBeTruthy();
+    expect(await screen.findByText(/Meslek\/unvanınız “hemşire”/)).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Kaynak metni' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Sınırlı ilan alıntısı' })).toBeTruthy();
+    expect(
+      (payloads.get('/api/notifications/preferences') as { preference: { enabled: boolean } }).preference
+        .enabled,
+    ).toBe(false);
   });
 
   it('kaynaklar', async () => {

@@ -50,7 +50,9 @@ export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE):
   const driver = effectiveDriver(env);
   if (driver === 'postgres') {
     if (!hasPostgresConfig(env)) {
-      throw new Error('DATABASE_DRIVER=postgres/supabase için POSTGRES_URL (Supabase bağlantı dizesi) zorunludur.');
+      throw new Error(
+        'DATABASE_DRIVER=postgres/supabase için POSTGRES_URL (Supabase bağlantı dizesi) zorunludur.',
+      );
     }
     return new PostgresStore({
       connectionString: postgresUrl(env),

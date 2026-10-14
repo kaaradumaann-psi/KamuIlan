@@ -55,6 +55,8 @@ export interface SourceCoverageEntry {
     itemsFound: number;
     errorCount: number;
     result: string;
+    coverageStatus: 'complete' | 'partial' | 'unknown';
+    coverageNote: string;
   } | null;
 }
 
@@ -179,7 +181,11 @@ export class SourceRepo {
 
   async update(key: string, patch: Partial<SourceDoc>): Promise<SourceDoc | null> {
     const { id: _id, key: _key, createdAt: _createdAt, ...rest } = patch;
-    const updated = await this.store.updateOne('sources', { key }, { ...rest, updatedAt: this.clock.now().toISOString() });
+    const updated = await this.store.updateOne(
+      'sources',
+      { key },
+      { ...rest, updatedAt: this.clock.now().toISOString() },
+    );
     if (updated) validateDocument('sources', updated, 'skip');
     return updated;
   }
@@ -207,7 +213,11 @@ export class SourceRepo {
    * üretimi bu damgayla sınırlanır (bkz. pipeline SOURCE_WARNING_REPEAT_MS).
    */
   async recordWarning(key: string, at: string): Promise<SourceDoc | null> {
-    const updated = await this.store.updateOne('sources', { key }, { 'health.lastWarningAt': at, updatedAt: at });
+    const updated = await this.store.updateOne(
+      'sources',
+      { key },
+      { 'health.lastWarningAt': at, updatedAt: at },
+    );
     if (updated) validateDocument('sources', updated);
     return updated;
   }
@@ -237,11 +247,14 @@ export class SourceRepo {
       'health.consecutiveSkips': update.success ? 0 : update.skipped ? health.consecutiveSkips + 1 : 0,
       'health.lastSuccessAt': update.success ? update.lastRunAt : health.lastSuccessAt,
       'health.lastErrorAt': update.success ? health.lastErrorAt : now,
-      'health.lastErrorMessage': update.success ? null : (update.errorMessage ?? health.lastErrorMessage ?? 'Bilinmeyen hata'),
+      'health.lastErrorMessage': update.success
+        ? null
+        : (update.errorMessage ?? health.lastErrorMessage ?? 'Bilinmeyen hata'),
       'health.lastScheduleDelayMs': update.scheduleDelayMs ?? health.lastScheduleDelayMs,
       'health.etag': update.etag !== undefined ? update.etag : health.etag,
       'health.lastModified': update.lastModified !== undefined ? update.lastModified : health.lastModified,
-      'health.lastContentHash': update.contentHash !== undefined ? update.contentHash : health.lastContentHash,
+      'health.lastContentHash':
+        update.contentHash !== undefined ? update.contentHash : health.lastContentHash,
       'health.emptyStreak': update.contentUnchanged
         ? health.emptyStreak
         : update.discoveredCount === 0 && update.success
@@ -313,6 +326,8 @@ export class SourceRepo {
               itemsFound: lastRun.itemsFound,
               errorCount: lastRun.errorCount,
               result: lastRun.result,
+              coverageStatus: lastRun.coverageStatus ?? 'unknown',
+              coverageNote: lastRun.coverageNote ?? 'Eski tarama kaydı; kapsam bilinmiyor.',
             }
           : null,
       });

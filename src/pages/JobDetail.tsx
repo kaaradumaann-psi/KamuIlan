@@ -10,6 +10,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api';
+import { useAuth } from '../lib/session';
+import { explainProfileMatch } from '../lib/profile-match';
 import {
   deadlineLabel,
   educationLabel,
@@ -22,14 +24,39 @@ import {
   jobStatusLabel,
   turkishCapitalize,
 } from '../lib/format';
-import type { PublicJobDetail } from '../types';
+import type { PreferencesResponse, PublicJobDetail } from '../types';
 import { Card, EmptyState, ErrorNotice, InfoNote, LoadingCard, Tag, DefinitionList } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { SaveJobButton } from '../components/SaveJobButton';
 import { downloadDeadlineIcs } from '../lib/calendar';
 
+function evidenceHint(job: PublicJobDetail, field: string): string | undefined {
+  const source = job.fieldSources[field];
+  if (!source || source.kind === 'unstated') return undefined;
+  const origin =
+    source.kind === 'listing'
+      ? 'Kaynak liste sayfası'
+      : source.kind === 'document'
+        ? 'Kaynak belgesi'
+        : source.kind === 'link'
+          ? 'İlan bağlantısı'
+          : 'İlan metni';
+  return source.snippet
+    ? `${origin} kanıtı: “${source.snippet}”`
+    : `Kaynak: ${origin.toLocaleLowerCase('tr-TR')}.`;
+}
+
 export function JobDetailPage(): ReactNode {
   const { id = '' } = useParams();
+  const { user } = useAuth();
+  const preferences = useQuery({
+    queryKey: ['preferences'],
+    queryFn: ({ signal }) =>
+      api.get<PreferencesResponse>('/api/notifications/preferences', undefined, signal),
+    enabled: Boolean(user),
+    staleTime: 60_000,
+    retry: 0,
+  });
   const query = useQuery({
     queryKey: ['job', id],
     queryFn: ({ signal }) => api.get<PublicJobDetail>(`/api/jobs/${encodeURIComponent(id)}`, undefined, signal),
@@ -66,6 +93,26 @@ export function JobDetailPage(): ReactNode {
   }
 
   const requirements = job.requirements;
+  const personalization = preferences.data?.preference;
+  const profileMatch = personalization?.profilePersonalizationEnabled
+    ? explainProfileMatch(job, personalization.candidateProfile)
+    : null;
+  const profileSignalLabel =
+    profileMatch?.signal === 'high'
+      ? 'Güçlü sinyal'
+      : profileMatch?.signal === 'medium'
+        ? 'Orta sinyal'
+        : profileMatch?.signal === 'low'
+          ? 'Sınırlı sinyal'
+          : 'Yeterli veri yok';
+  const profileSignalTone =
+    profileMatch?.signal === 'high'
+      ? 'success'
+      : profileMatch?.signal === 'medium'
+        ? 'info'
+        : profileMatch?.signal === 'low'
+          ? 'warning'
+          : 'neutral';
 
   return (
     <article className="page-stack">
@@ -143,24 +190,79 @@ export function JobDetailPage(): ReactNode {
         </div>
       </header>
 
+      {personalization?.profilePersonalizationEnabled &&
+        (profileMatch ? (
+          <Card
+            title="Profilinle ilan eşleşmesi"
+            description="İlan metni ve çıkarılmış koşullardaki ortak işaretleri gösterir; resmî uygunluk veya işe alınma olasılığı değildir."
+            className="profile-match-card"
+          >
+            <div className="profile-match-summary">
+              <Tag tone={profileSignalTone}>{profileSignalLabel}</Tag>
+              <span className="text-muted-sm">
+                Sinyal, yalnızca karşılaştırılabilen alanlara göre hesaplanır.
+              </span>
+            </div>
+            {profileMatch.reasons.length > 0 && (
+              <div>
+                <h3>Örtüşen bilgiler</h3>
+                <ul className="profile-match-list">
+                  {profileMatch.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {profileMatch.caveats.length > 0 && (
+              <div>
+                <h3>Kontrol edilmesi gerekenler</h3>
+                <ul className="profile-match-list profile-match-caveats">
+                  {profileMatch.caveats.map((caveat) => (
+                    <li key={caveat}>{caveat}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <p className="text-muted-sm">
+              Karşılaştırma bu tarayıcıda yapılır; profiliniz haricî bir AI hizmetine gönderilmez. İlanın
+              resmî metnini ve tüm kadro koşullarını başvuru öncesi kontrol edin.
+            </p>
+            <Link to="/panel">Profil ve gizlilik ayarlarını düzenle</Link>
+          </Card>
+        ) : (
+          <InfoNote title="Profil eşleşmesi için profil bilgisi gerekli">
+            Meslek, eğitim veya beceri bilgilerinizi <Link to="/panel">Panelim’de</Link> ekleyebilirsiniz.
+            İstediğiniz zaman kişiselleştirmeyi kapatabilirsiniz.
+          </InfoNote>
+        ))}
+
       {job.uncertainties.length > 0 && (
         <InfoNote tone="warning" title="Kesin olmayan bilgiler">
           {job.uncertainties.join(' ')}
         </InfoNote>
       )}
 
-      <Card title="Temel bilgiler" description="Bu bilgiler ilanın kendisinden alınır; yazmayan yerde belirtilmemiş görürsünüz.">
+      <Card
+        title="Temel bilgiler"
+        description="Bu bilgiler ilanın kendisinden alınır; yazmayan yerde belirtilmemiş görürsünüz."
+      >
         <DefinitionList
           items={[
-            { term: 'Kontenjan', value: formatNumber(job.quota) },
+            { term: 'Kontenjan', value: formatNumber(job.quota), hint: evidenceHint(job, 'quota') },
             {
               term: 'İl / İlçe',
               value: [job.city, job.district].filter(Boolean).join(' / ') || 'belirtilmemiş',
+              hint: evidenceHint(job, 'city'),
             },
-            { term: 'Unvan(lar)', value: job.titles.length > 0 ? job.titles.join(', ') : 'belirtilmemiş' },
+            {
+              term: 'Unvan(lar)',
+              value: job.titles.length > 0 ? job.titles.join(', ') : 'belirtilmemiş',
+              hint: evidenceHint(job, 'titles'),
+            },
             {
               term: 'Başvuru başlangıcı',
               value: job.applicationStartAt ? formatDateMaybeTime(job.applicationStartAt) : 'belirtilmemiş',
+              hint: evidenceHint(job, 'applicationStartAt'),
             },
             {
               term: 'Son başvuru',
@@ -171,8 +273,13 @@ export function JobDetailPage(): ReactNode {
                 : job.applicationEndDate
                   ? formatDateOnly(job.applicationEndDate)
                   : 'belirtilmemiş',
+              hint: evidenceHint(job, 'applicationEndDate') ?? evidenceHint(job, 'applicationEndAt'),
             },
-            { term: 'Yayım tarihi', value: job.publishedAt ? formatDate(job.publishedAt) : 'belirtilmemiş' },
+            {
+              term: 'Yayım tarihi',
+              value: job.publishedAt ? formatDate(job.publishedAt) : 'belirtilmemiş',
+              hint: evidenceHint(job, 'publishedAt'),
+            },
             { term: 'Resmî ilan no', value: job.originalRefNo ?? 'belirtilmemiş' },
             { term: 'Başvuru yöntemi', value: job.applicationMethod ?? 'belirtilmemiş' },
             { term: 'Burada ilk görülme', value: formatDateTime(job.firstSeenAt) },
@@ -233,11 +340,13 @@ export function JobDetailPage(): ReactNode {
                 requirements.educationLevels.length > 0
                   ? requirements.educationLevels.map((level) => educationLabel(level)).join(', ')
                   : 'belirtilmemiş',
+              hint: evidenceHint(job, 'educationLevels'),
             },
             {
               term: 'Bölüm / program',
               value:
                 requirements.departments.length > 0 ? requirements.departments.join(', ') : 'belirtilmemiş',
+              hint: evidenceHint(job, 'departments'),
             },
             {
               term: 'KPSS',
@@ -331,8 +440,35 @@ export function JobDetailPage(): ReactNode {
         </ul>
       </Card>
 
-      <Card title="İlan metninden özet" description="İlanın kendi metninden bir bölüm; tamamı resmî adreste.">
-        <p className="job-excerpt">{job.textExcerpt || 'Metin alınamadı.'}</p>
+      <Card
+        title="Kaynak metni"
+        description="Kaynak metni yalnızca sunucu tarafındaki sınıflandırma ve alan çıkarımı için işlenir; tam ilan gövdesi bu herkese açık sayfada yayımlanmaz."
+      >
+        {job.capturedNotice ? (
+          <p className="text-muted-sm">
+            Kaynak: {job.capturedNotice.sourceName ?? job.capturedNotice.sourceKey} ·{' '}
+            {job.capturedNotice.status === 'truncated'
+              ? `İç yakalama ${formatNumber(job.capturedNotice.characterCount)} karakterde sınırlandı; güncel ve eksiksiz metin resmî bağlantıdadır.`
+              : 'Metin alan çıkarımı için yakalandı; burada yeniden yayımlanmaz.'}
+          </p>
+        ) : (
+          <InfoNote tone="warning" title="Kaynak metni yakalanamadı">
+            Bu taramada ilan detay metni okunamadı. Çıkarılan koşulları ve güncel tam metni resmî ilan bağlantısından doğrulayın.
+          </InfoNote>
+        )}
+      </Card>
+
+      <Card
+        title="Sınırlı ilan alıntısı"
+        description="Gövde metni en çok 400 karakterlik bir alıntıyla sınırlıdır; daha kısa duyuruların tamamı yeniden yayımlanmaz."
+      >
+        {job.textExcerpt ? (
+          <p className="job-excerpt">{job.textExcerpt}</p>
+        ) : (
+          <InfoNote tone="info" title="Kısa metin burada gösterilmiyor">
+            Kısa duyurunun tam içeriğini yeniden yayımlamamak için alıntı gösterilmez. Tam ve güncel metin resmî ilan bağlantısındadır.
+          </InfoNote>
+        )}
       </Card>
 
       <InfoNote title="Kesin bilgi kaynağındadır">

@@ -7,23 +7,52 @@
  * AIS (ais.osym.gov.tr) giriş gerektirdiği için kapsam dışıdır ve kapsam
  * raporunda bu şekilde belirtilir.
  *
- * Yöntem: HTML listesi (tek sayfa) + duyuru detayı. PDF bağlantıları ek olarak
- * kaydedilir; PDF metni hattaki PDF çıkarıcı ile okunur.
+ * Yöntem: HTML listesi (sayfalama göstergesi varsa izlenir) + duyuru detayı.
+ * PDF/Word bağlantıları ek olarak kaydedilir; bu adaptör ek dosya içeriğini
+ * indirmez veya OCR/PDF metin çıkarımı yapmaz.
  */
-import type { AnyNode } from 'domhandler';
-import { elementText, loadHtml, readableText } from '../../lib/html';
+import { elementText, loadHtml, readableAnnouncementText } from '../../lib/html';
 import { cleanTitle, parseListingDate } from '../listing-utils';
-import { normalizeUrl } from '../../domain/urls';
+import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
+import { detectNextPage } from '../pagination';
+import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 
 const SLUG_PATTERN = /^\/[a-z0-9][a-z0-9-]{8,}$/i;
 const MAX_ITEMS = 25;
+const MAX_LIST_PAGES = 10;
 
 interface Candidate {
-  element: AnyNode;
+  itemId: string;
   url: string;
-  text: string;
+  title: string;
+  publishedAt: string | null;
+}
+
+function parseCandidates(html: string, baseUrl: string, allowedHosts: readonly string[]): Candidate[] {
+  const $ = loadHtml(html);
+  const candidates = new Map<string, Candidate>();
+  $('a[href]').each((_index, element) => {
+    const node = $(element);
+    const url = normalizeUrl(node.attr('href') ?? '', baseUrl);
+    if (!url) return;
+    let path: string;
+    try {
+      const safeUrl = assertSafeUrl(url, allowedHosts);
+      path = safeUrl.pathname;
+    } catch {
+      return;
+    }
+    if (!SLUG_PATTERN.test(path)) return;
+    const itemId = path.replace(/^\//, '').replace(/\/$/, '');
+    const title = cleanTitle(elementText(node, 300));
+    if (title.length < 15 || candidates.has(itemId)) return;
+    const rowText = elementText(node.closest('li, tr, article, div'), 600);
+    const publishedAt = parseListingDate(/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}/.exec(rowText)?.[0] ?? null);
+    candidates.set(itemId, { itemId, url: assertSafeUrl(url, allowedHosts).toString(), title, publishedAt });
+  });
+  return [...candidates.values()];
 }
 
 export class OsymAdapter implements SourceAdapter {
@@ -61,6 +90,10 @@ export class OsymAdapter implements SourceAdapter {
         items: [],
         requestCount,
         notes: ['Duyuru listesi değişmedi (ETag/Last-Modified).'],
+        coverage: {
+          status: 'unknown',
+          note: '304 yanıtı içeriğin değişmediğini gösterir; bu çalışmada sayfalar yeniden gezilmedi.',
+        },
         etag: listing.etag,
         lastModified: listing.lastModified,
         notModified: true,
@@ -68,59 +101,154 @@ export class OsymAdapter implements SourceAdapter {
       };
     }
 
-    const html = listing.decoded?.text ?? listing.body.toString('utf8');
-    const $ = loadHtml(html);
-    const candidates: Candidate[] = $('a[href]')
-      .toArray()
-      .map((element) => ({
-        element: element as AnyNode,
-        url: normalizeUrl($(element).attr('href') ?? '', source.listingUrl),
-        text: elementText($(element), 300),
-      }))
-      .filter((candidate): candidate is Candidate => candidate.url !== null)
-      .filter((candidate) => {
-        try {
-          return SLUG_PATTERN.test(new URL(candidate.url).pathname);
-        } catch {
-          return false;
+    const firstHtml = listing.decoded?.text ?? listing.body.toString('utf8');
+    const candidatesById = new Map<string, Candidate>();
+    const visitedPages = new Set<string>();
+    let currentUrl = source.listingUrl;
+    let currentHtml = firstHtml;
+    let sawPagination = false;
+    let coverageStatus: 'complete' | 'partial' | 'unknown' = 'unknown';
+    let coverageNote = 'ÖSYM liste kapsamı bu çalışmada doğrulanamadı.';
+
+    for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+      const normalizedPageUrl = normalizeUrl(currentUrl) ?? currentUrl;
+      if (visitedPages.has(normalizedPageUrl)) {
+        coverageStatus = 'unknown';
+        coverageNote = 'Sayfalama daha önce gezilen URL’ye döndü; tekrar döngüsü engellendi.';
+        break;
+      }
+      visitedPages.add(normalizedPageUrl);
+
+      const pageCandidates = parseCandidates(currentHtml, currentUrl, source.allowedHosts);
+      notes.push(`Sayfa ${page}: ${pageCandidates.length} duyuru bağlantısı.`);
+      const repeated = pageCandidates.some((candidate) => candidatesById.has(candidate.itemId));
+      for (const candidate of pageCandidates) {
+        if (!candidatesById.has(candidate.itemId)) candidatesById.set(candidate.itemId, candidate);
+      }
+      if (repeated) {
+        coverageStatus = 'unknown';
+        coverageNote = `Sayfa ${page} önceki ilan kimliklerini tekrarladı; sayfa parametresinin etkisi doğrulanamadı.`;
+        break;
+      }
+
+      const navigation = detectNextPage(currentHtml, currentUrl);
+      sawPagination ||= navigation.detected;
+      if (!navigation.nextUrl) {
+        coverageStatus = navigation.endConfirmed ? 'complete' : 'unknown';
+        coverageNote = navigation.endConfirmed
+          ? `${visitedPages.size} sayfa gezildi ve kaynak sayfalama denetimi son sayfayı doğruladı.`
+          : sawPagination
+            ? `${visitedPages.size} sayfa gezildi ancak son sayfa işareti doğrulanamadı; kapsam bilinmiyor.`
+            : 'Duyuru sayfasında doğrulanabilir sonraki/son sayfa işareti bulunmadı; kapsam bilinmiyor.';
+        break;
+      }
+      if (page >= MAX_LIST_PAGES) {
+        coverageStatus = 'partial';
+        coverageNote = `${MAX_LIST_PAGES} sayfalık üst sınıra ulaşıldı; sonraki sayfa taranmadı.`;
+        break;
+      }
+
+      const normalizedNextUrl = normalizeUrl(navigation.nextUrl, currentUrl) ?? navigation.nextUrl;
+      let nextUrl: string;
+      try {
+        nextUrl = assertSafeUrl(normalizedNextUrl, source.allowedHosts).toString();
+      } catch {
+        coverageStatus = 'unknown';
+        coverageNote =
+          'Sonraki sayfa bağlantısı kaynak host allowlistesi dışına çıktığı için izlenmedi; kapsam bilinmiyor.';
+        break;
+      }
+      if (visitedPages.has(nextUrl)) {
+        coverageStatus = 'unknown';
+        coverageNote = 'Kaynağın sonraki sayfa bağlantısı daha önce gezilen URL’ye döndü.';
+        break;
+      }
+      try {
+        const nextPage = await http.fetchText(nextUrl, {
+          allowedHosts: source.allowedHosts,
+          minIntervalMs: source.minRequestIntervalMs,
+        });
+        requestCount += 1;
+        httpStatuses.push(nextPage.status);
+        if (nextPage.notModified) {
+          coverageStatus = 'unknown';
+          coverageNote = 'Sonraki sayfa için 304 alındı; o sayfanın duyuruları bu çalışmada doğrulanamadı.';
+          break;
         }
-      });
+        currentUrl = nextUrl;
+        currentHtml = nextPage.decoded?.text ?? nextPage.body.toString('utf8');
+      } catch (error) {
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+        coverageStatus = 'partial';
+        coverageNote = `Sonraki sayfa alınamadı (${error instanceof Error ? error.message : String(error)}); önceki sayfalar işlendi.`;
+        notes.push(coverageNote);
+        break;
+      }
+    }
 
-    const seen = new Set<string>(ctx.knownItemIds ?? []);
+    const discovered = [...candidatesById.values()];
+    const known = new Set<string>(ctx.knownItemIds ?? []);
+    const knownWithDetail = new Set<string>(ctx.knownItemIdsWithDetail ?? []);
+    const fresh = discovered.filter((candidate) => !known.has(candidate.itemId));
+    const pendingDetail = discovered.filter(
+      (candidate) => known.has(candidate.itemId) && !knownWithDetail.has(candidate.itemId),
+    );
+    const selected = [...fresh, ...pendingDetail].slice(0, Math.min(MAX_ITEMS, ctx.maxDetailFetches));
     const items: RawAnnouncement[] = [];
+    let failedDetailFetches = 0;
+    let detailsWithoutUsableText = 0;
 
-    for (const candidate of candidates) {
-      if (items.length >= MAX_ITEMS) break;
-      const slug = new URL(candidate.url).pathname.replace(/^\//, '');
-      if (seen.has(slug)) continue;
-      const title = cleanTitle(candidate.text);
-      if (title.length < 15) continue;
-
-      const rowText = elementText($(candidate.element).closest('li, tr, article, div'), 600);
-      const publishedAt = parseListingDate(/\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}/.exec(rowText)?.[0] ?? null);
+    for (const candidate of selected) {
       const detail = await this.readDetail(ctx, candidate.url);
       requestCount += detail.requests;
       httpStatuses.push(...detail.statuses);
+      if (detail.failure) {
+        failedDetailFetches += 1;
+        notes.push(`Detay isteği başarısız (${candidate.url}): ${detail.failure}`);
+      } else if (!detail.bodyText) {
+        detailsWithoutUsableText += 1;
+        notes.push(`Detay sayfası kullanılabilir duyuru metni vermedi (${candidate.url}).`);
+      }
 
       items.push({
         sourceKey: source.key,
-        sourceItemId: slug,
+        sourceItemId: candidate.itemId,
         url: candidate.url,
-        title,
+        title: candidate.title,
         institution: 'ÖSYM',
-        ...(publishedAt ? { publishedAt } : {}),
+        ...(candidate.publishedAt ? { publishedAt: candidate.publishedAt } : {}),
         sourceCategory: 'sınav duyurusu',
-        ...(detail.bodyText ? { bodyText: detail.bodyText } : {}),
+        ...(detail.bodyText ? { bodyText: detail.bodyText, bodyTextSource: 'detail' as const } : {}),
+        ...(detail.bodyTextTruncated ? { bodyTextTruncated: true } : {}),
         ...(detail.bodyText ? { rawExcerpt: detail.bodyText.slice(0, 400) } : {}),
         attachments: detail.attachments,
         ...(detail.applicationUrl ? { applicationUrl: detail.applicationUrl } : {}),
         extractionConfidence: 0.55,
       });
-      seen.add(slug);
     }
 
-    notes.push(`Duyuru listesinden ${items.length} yeni kayıt işlendi.`);
-    if (items.length === 0) notes.push('Yeni duyuru yok (tümü daha önce görülmüş olabilir).');
+    const deferred = Math.max(0, fresh.length + pendingDetail.length - selected.length);
+    notes.push(
+      `Duyuru listesinden ${items.length} kayıt işlendi (${discovered.length} benzersiz duyuru bulundu).`,
+    );
+    if (items.length === 0) notes.push('Yeni duyuru yok ve detay metni eksik kayıt kalmadı.');
+    if (deferred > 0)
+      notes.push(`${deferred} duyuru sonraki taramalara bırakıldı (detay bütçesi ${ctx.maxDetailFetches}).`);
+
+    const detailCoverageNotes: string[] = [];
+    if (failedDetailFetches > 0) detailCoverageNotes.push(`${failedDetailFetches} detay isteği başarısız oldu.`);
+    if (detailsWithoutUsableText > 0)
+      detailCoverageNotes.push(`${detailsWithoutUsableText} detay sayfasından kullanılabilir duyuru metni çıkarılamadı.`);
+    if (deferred > 0)
+      detailCoverageNotes.push(`${deferred} duyuru detay bütçesi nedeniyle sonraki taramaya ertelendi.`);
+    const finalCoverageStatus = detailCoverageNotes.length > 0 ? 'partial' : coverageStatus;
+    const finalCoverageNote = [
+      `Sayfa kapsamı: ${coverageStatus === 'complete' ? 'tam' : coverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${coverageNote}`,
+      ...detailCoverageNotes,
+    ].join(' ');
+    notes.push(
+      `Toplam kapsam: ${finalCoverageStatus === 'complete' ? 'tam' : finalCoverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${finalCoverageNote}`,
+    );
 
     return {
       items,
@@ -129,6 +257,7 @@ export class OsymAdapter implements SourceAdapter {
       etag: listing.etag,
       lastModified: listing.lastModified,
       notModified: false,
+      coverage: { status: finalCoverageStatus, note: finalCoverageNote },
       httpStatuses,
     };
   }
@@ -138,10 +267,12 @@ export class OsymAdapter implements SourceAdapter {
     url: string,
   ): Promise<{
     bodyText: string | null;
+    bodyTextTruncated: boolean;
     attachments: RawAnnouncement['attachments'];
     applicationUrl: string | null;
     requests: number;
     statuses: number[];
+    failure: string | null;
   }> {
     try {
       const response = await ctx.http.fetchText(url, {
@@ -151,10 +282,19 @@ export class OsymAdapter implements SourceAdapter {
       });
       const html = response.decoded?.text ?? response.body.toString('utf8');
       const $ = loadHtml(html);
-      const text = readableText($, 'main, article, .icerik, .content', 20_000) || readableText($, 'body', 20_000);
+      const text = readableAnnouncementText(
+        $,
+        ['article', 'main', '.icerik', '.content', '#content', 'body'],
+        100_001,
+      );
+      const truncated = text.length > 100_000;
+      const capturedText = text.slice(0, 100_000);
       const links = $('a[href]')
         .toArray()
-        .map((element) => ({ text: elementText($(element), 200), url: normalizeUrl($(element).attr('href') ?? '', url) }))
+        .map((element) => ({
+          text: elementText($(element), 200),
+          url: normalizeUrl($(element).attr('href') ?? '', url),
+        }))
         .filter((link): link is { text: string; url: string } => link.url !== null);
 
       const attachments = links
@@ -165,17 +305,28 @@ export class OsymAdapter implements SourceAdapter {
           label: link.text.slice(0, 160) || 'Duyuru belgesi',
           kind: (/\.pdf(\?|$)/i.test(link.url) ? 'pdf' : 'doc') as 'pdf' | 'doc',
         }));
-      const application = links.find((link) => /kariyerkapisi\.gov\.tr|ais\.osym\.gov\.tr|turkiye\.gov\.tr/i.test(link.url));
+      const application = links.find((link) => isOfficialApplicationUrl(link.url));
 
       return {
-        bodyText: text.length > 80 ? text : null,
+        bodyText: capturedText.length > 80 ? capturedText : null,
+        bodyTextTruncated: truncated,
         attachments,
         applicationUrl: application?.url ?? null,
         requests: 1,
         statuses: [response.status],
+        failure: null,
       };
-    } catch {
-      return { bodyText: null, attachments: [], applicationUrl: null, requests: 1, statuses: [] };
+    } catch (error) {
+      if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+      return {
+        bodyText: null,
+        bodyTextTruncated: false,
+        attachments: [],
+        applicationUrl: null,
+        requests: 1,
+        statuses: error instanceof FetchError && error.status !== null ? [error.status] : [],
+        failure: describeFetchFailure(error),
+      };
     }
   }
 }

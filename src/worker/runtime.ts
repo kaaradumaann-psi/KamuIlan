@@ -106,8 +106,9 @@ export class WorkerRuntime {
     this.coverageWarnings = options.coverageWarnings ?? true;
     this.liveFetch = options.liveFetch;
     this.adapterOverride = options.adapterOverride;
-    this.transport =
-      options.transport ?? (this.env.SCHEDULER_ENABLED ? createEmailTransport(this.env).transport : null);
+    // Scheduling controls task creation only; it must not silently disable an
+    // already-queued notification delivery. EMAIL_PROVIDER owns mail transport.
+    this.transport = options.transport ?? createEmailTransport(this.env).transport;
   }
 
   /** Tek tik. Testlerde doğrudan çağrılır; üretimde `run()` döngü kurar. */
@@ -125,7 +126,9 @@ export class WorkerRuntime {
       warnings: [],
     };
 
-    const schedule = await schedulerTick(this.repos, this.queue, { now, logger: this.logger });
+    const schedule = this.env.SCHEDULER_ENABLED
+      ? await schedulerTick(this.repos, this.queue, { now, logger: this.logger })
+      : { due: 0, enqueued: 0, duplicates: 0, misses: 0 };
     result.scheduler = {
       due: schedule.due,
       enqueued: schedule.enqueued,

@@ -7,10 +7,13 @@
  *  3. Kaynak envanterini (src/config/sources.ts) veritabanına yazar/günceller.
  *  4. Eksik zamanlanmış görevleri oluşturur (worker kapatıldıysa yeniden üretir).
  *  5. Süresi geçmiş kilit/oturum kayıtlarını temizler.
- *  6. Aramada eksik kalan `textNormalized` alanını mevcut ilanlar için doldurur
- *     (eski kayıtlarda gövde metni aramada bulunamıyordu).
+ *  6. Job-source kayıtlarındaki `capturedText`/`rawExcerpt` gövdelerini ve
+ *     kullanılmayan `rawContentHash` değerlerini temizler; durum/sayı metadata'sı kalır.
+ *  7. Mevcut ilan alıntılarını sınırlar ve iletişim bilgisini redakte eder,
+ *     `textNormalized` alanını güvenli alıntıdan üretir, eski içerik hash'lerini
+ *     yeniden hesaplar; inceleme alıntıları ve sürüm anlık görüntülerini temizler.
  *
- * Veri silmez; yalnızca ekler/günceller. Rapor basar.
+ * Gövde/alinti içerikleri rapora yazılmaz; yalnızca sayısal sonuçlar basılır.
  */
 import { initStore, closeStore } from '../src/db/store';
 import { createRepos } from '../src/db/repos';
@@ -18,7 +21,8 @@ import { ensureScheduledTasks } from '../src/worker/scheduler';
 import { createLogger } from '../src/lib/logger';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
 import { getEnv } from '../src/config/env';
-import { normalizeTr } from '../src/domain/text';
+import { migrateCapturedTextMetadata } from '../src/db/migrations/captured-text-metadata';
+import { migrateJobTextMinimization } from '../src/db/migrations/job-text-minimization';
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -27,10 +31,24 @@ async function main(): Promise<void> {
   const repos = createRepos(store);
 
   const indexes = await store.ensureIndexes();
-  console.log(`• indeksler: ${indexes.length} tanım kontrol edildi (yeni: ${indexes.filter((index) => index.created).length})`);
+  console.log(
+    `• indeksler: ${indexes.length} tanım kontrol edildi (yeni: ${indexes.filter((index) => index.created).length})`,
+  );
+
+  const captureMigration = await migrateCapturedTextMetadata(store);
+  console.log(
+    `• kaynak gövdesi: ${captureMigration.scanned} kaynak bağı incelendi; ${captureMigration.capturedBodiesCleared} yakalanmış gövde, ${captureMigration.rawExcerptsCleared} kullanılmayan alıntı ve ${captureMigration.rawContentHashesCleared} gövde özeti temizlendi; ${captureMigration.countsBackfilled} karakter sayısı ve ${captureMigration.statusesBackfilled} durum tamamlandı`,
+  );
+
+  const jobTextMigration = await migrateJobTextMinimization(store);
+  console.log(
+    `• ilan metni: ${jobTextMigration.jobsScanned} ilan incelendi/${jobTextMigration.jobsUpdated} güncellendi; alıntı ${jobTextMigration.excerptsSanitized}, arama kopyası ${jobTextMigration.searchCopiesRebuilt}, alan izleri ${jobTextMigration.fieldSnippetsSanitized}, hash ${jobTextMigration.hashesRebuilt}; ${jobTextMigration.reviewItemsScanned} inceleme kaydı/${jobTextMigration.reviewExcerptsSanitized} alıntı, ${jobTextMigration.revisionsScanned} sürüm/${jobTextMigration.revisionSnapshotsSanitized} anlık görüntü temizlendi`,
+  );
 
   const seed = await repos.sources.seed(SOURCE_DEFINITIONS);
-  console.log(`• kaynak envanteri: ${seed.created} eklendi, ${seed.updated} güncellendi (toplam ${SOURCE_DEFINITIONS.length})`);
+  console.log(
+    `• kaynak envanteri: ${seed.created} eklendi, ${seed.updated} güncellendi (toplam ${SOURCE_DEFINITIONS.length})`,
+  );
 
   const tasks = await ensureScheduledTasks(repos, logger, env.SCAN_INTERVAL_MINUTES);
   console.log(
@@ -39,22 +57,12 @@ async function main(): Promise<void> {
 
   const expiredLocks = await repos.locks.purgeExpired();
   const expiredSessions = await repos.users.purgeExpiredSessions();
-  const expiredRateLimits = await repos.rateLimits.purgeOlderThan(new Date(Date.now() - 3_600_000).toISOString());
-  console.log(`• temizlik: ${expiredLocks} süresi geçmiş kilit, ${expiredSessions} oturum, ${expiredRateLimits} hız sınırı kaydı`);
-
-  // Gövde araması: normalleştirilmiş metin alanı boş olan kayıtları tamamla.
-  const missingSearchText = await store.find(
-    'jobs',
-    { $or: [{ textNormalized: { $exists: false } }, { textNormalized: '' }] },
-    { limit: 5_000 },
+  const expiredRateLimits = await repos.rateLimits.purgeOlderThan(
+    new Date(Date.now() - 3_600_000).toISOString(),
   );
-  let backfilled = 0;
-  for (const job of missingSearchText) {
-    if (!job.textExcerpt) continue;
-    await repos.jobs.updateJob(job.id, { textNormalized: normalizeTr(job.textExcerpt) });
-    backfilled += 1;
-  }
-  console.log(`• arama metni: ${backfilled} ilan için tamamlandı (eksik: ${missingSearchText.length})`);
+  console.log(
+    `• temizlik: ${expiredLocks} süresi geçmiş kilit, ${expiredSessions} oturum, ${expiredRateLimits} hız sınırı kaydı`,
+  );
 
   const summary = await repos.runs.summary();
   console.log(

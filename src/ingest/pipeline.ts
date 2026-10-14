@@ -12,7 +12,14 @@
  *    SMTP erişilemese de tarama tamamlanır.
  */
 import { getEnv } from '../config/env';
-import { findSourceDefinition, type SourceDefinition, type SourceGroup, type SourceMethod, type SourceStatus, type SourceType } from '../config/sources';
+import {
+  findSourceDefinition,
+  type SourceDefinition,
+  type SourceGroup,
+  type SourceMethod,
+  type SourceStatus,
+  type SourceType,
+} from '../config/sources';
 import type { RawAnnouncement } from '../domain';
 import { sha256Hex } from '../domain/ids';
 import type { JobDoc, ScrapeRunDoc, SourceDoc } from '../db/schemas';
@@ -58,6 +65,8 @@ export interface RunSourceResult {
   revisionsCreated: number;
   notificationsQueued: number;
   durationMs: number;
+  coverageStatus: 'complete' | 'partial' | 'unknown';
+  coverageNote: string;
   notes: string[];
   errors: string[];
   locked: boolean;
@@ -106,13 +115,25 @@ export function resolveAdapterSource(doc: SourceDoc): SourceDefinition {
 export function detailFetchBudget(method: string): number {
   if (method === 'browser') return 5;
   if (method === 'pdf-index') return 25;
-  return 25;
+  // Each item may trigger multiple DB writes after this request; keep HTML
+  // source runs within the configured timeout and drain detail backlogs over
+  // subsequent scans instead of silently abandoning later pages.
+  return 8;
 }
 
 /** Daha önce görülmüş kaynak içi kimlikler (pahalı indirmeleri atlamak için). */
 export async function loadKnownItemIds(repos: Repos, sourceKey: string): Promise<Set<string>> {
   const links = await repos.store.find('jobSources', { sourceKey }, { limit: KNOWN_ITEMS_LOOKBACK });
   return new Set(links.map((link) => link.sourceItemId));
+}
+
+export async function loadKnownItemIdsWithDetail(repos: Repos, sourceKey: string): Promise<Set<string>> {
+  const links = await repos.store.find('jobSources', { sourceKey }, { limit: KNOWN_ITEMS_LOOKBACK });
+  return new Set(
+    links
+      .filter((link) => link.capturedTextStatus === 'captured' || link.capturedTextStatus === 'truncated')
+      .map((link) => link.sourceItemId),
+  );
 }
 
 async function withTimeout<T>(
@@ -148,7 +169,11 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
 
   const acquired = await repos.locks.acquire(lockKey, workerId, lockTtl);
   if (!acquired) {
-    await repos.runs.markSkipped(source.key, workerId, 'Bu kaynak başka bir worker tarafından taranıyor (kilit alınamadı).');
+    await repos.runs.markSkipped(
+      source.key,
+      workerId,
+      'Bu kaynak başka bir worker tarafından taranıyor (kilit alınamadı).',
+    );
     logger.warn({ sourceKey: source.key, workerId }, 'kaynak zaten taranıyor; çift tarama engellendi');
     return {
       runId: '',
@@ -164,6 +189,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       revisionsCreated: 0,
       notificationsQueued: 0,
       durationMs: 0,
+      coverageStatus: 'unknown',
+      coverageNote: 'Kilit alınamadığı için kaynak kapsamı kontrol edilmedi.',
       notes: ['Kilit alınamadı: başka bir tarama sürüyor.'],
       errors: [],
       locked: true,
@@ -182,6 +209,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const startedAt = repos.clock.now().getTime();
   let status: ScrapeRunDoc['status'] = 'success';
   let resultMessage = '';
+  let coverageStatus: ScrapeRunDoc['coverageStatus'] = 'unknown';
+  let coverageNote = 'Adaptör bu çalışmada sayfa/arşiv kapsamı bildirmedi; tam kapsam doğrulanamıyor.';
   let fatalError: Error | null = null;
   let contentUnchanged = false;
   let adapterNotes: string[] = [];
@@ -200,32 +229,45 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   try {
     if (liveScanDisabled) {
       status = 'skipped';
+      coverageNote = 'Canlı kaynak erişimi kapalı olduğu için bu çalışmada kapsam doğrulanmadı.';
       resultMessage = 'Canlı kaynak erişimi kapalı (SOURCE_LIVE_FETCH=0); ilan taraması yapılmadı.';
       adapterNotes = [resultMessage];
     } else {
       const adapter = options.adapter ?? requireAdapter(source.adapterKey);
       const definition = resolveAdapterSource(source);
-      const knownItemIds = await loadKnownItemIds(repos, source.key);
+      const [knownItemIds, knownItemIdsWithDetail] = await Promise.all([
+        loadKnownItemIds(repos, source.key),
+        loadKnownItemIdsWithDetail(repos, source.key),
+      ]);
 
       const ctx: AdapterContext = {
         source: definition,
         http,
         logger: logger.child({ sourceKey: source.key }),
         liveFetch,
+        signal: requestAbort.signal,
         fetchedAt: now,
         knownItemIds,
+        knownItemIdsWithDetail,
         maxDetailFetches: detailFetchBudget(source.method),
       };
 
-      const runResult = await withTimeout(
-        adapter.run(ctx),
-        timeoutMs,
-        `${adapter.label} taraması`,
-        () => requestAbort.abort(),
+      const runResult = await withTimeout(adapter.run(ctx), timeoutMs, `${adapter.label} taraması`, () =>
+        requestAbort.abort(),
       );
       totals.itemsFound = runResult.items.length;
       totals.httpStatuses = (runResult.httpStatuses ?? []).slice(0, 50);
-      adapterNotes = runResult.notes.slice(0, 20);
+      adapterNotes = runResult.notes.slice(0, 18);
+      coverageStatus = runResult.coverage?.status ?? 'unknown';
+      coverageNote =
+        runResult.coverage?.note ??
+        'Adaptör bu çalışmada sayfa/arşiv kapsamı bildirmedi; tam kapsam doğrulanamıyor.';
+      adapterNotes.push(
+        `Kapsam: ${coverageStatus === 'complete' ? 'tam olarak doğrulandı' : coverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${coverageNote}`,
+      );
+      totals.coverageStatus = coverageStatus;
+      totals.coverageNote = coverageNote;
+      if (coverageStatus === 'partial') status = 'partial';
       etag = runResult.etag;
       lastModified = runResult.lastModified;
 
@@ -249,7 +291,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
             totals.itemsAccepted += 1;
             totals.revisionsCreated += 1;
           }
-          if (outcome === 'created' || outcome === 'updated' || outcome === 'merged' || outcome === 'review') {
+          if (
+            outcome === 'created' ||
+            outcome === 'updated' ||
+            outcome === 'merged' ||
+            outcome === 'review'
+          ) {
             notificationCounts.queued += await notify(item, outcome, {
               repos,
               logger,
@@ -268,19 +315,27 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         // Görülen kayıt kümesinin parmak izi: aynı ilanlar tekrar geldi mi?
         contentHash =
           runResult.items.length > 0
-            ? sha256Hex(runResult.items.map((item) => item.sourceItemId).sort().join('|'))
+            ? sha256Hex(
+                runResult.items
+                  .map((item) => item.sourceItemId)
+                  .sort()
+                  .join('|'),
+              )
             : null;
       }
 
       if (totals.errors.length > 0) {
         status = 'partial';
-        resultMessage = `${totals.errors.length} ilan işlenemedi, ${totals.itemsFound - totals.errors.length} ilan işlendi.`;
+        resultMessage = `${totals.errors.length} ilan işlenemedi, ${totals.itemsFound - totals.errors.length} ilan işlendi. Kapsam: ${coverageNote}`;
       } else if (contentUnchanged) {
         // 304 doğrulanmış bir kontrol olsa da yeni ilan içeriği üretmez.
+      } else if (coverageStatus === 'partial') {
+        resultMessage = `Tarama kapsamı kısmi. ${coverageNote} ${totals.itemsFound} ilan işlendi; sonraki taramada devam edilecek.`;
       } else {
         resultMessage = `${totals.itemsFound} ilan bulundu, ${totals.jobsCreated} yeni kayıt, ${totals.itemsMerged} birleştirme, ${totals.itemsReview} inceleme.`;
+        if (coverageStatus === 'unknown') resultMessage += ` Kapsam doğrulanamadı: ${coverageNote}`;
         if (totals.itemsFound === 0) {
-          resultMessage = 'Kaynak erişildi ancak yeni ilan bulunamadı.';
+          resultMessage = `Kaynak erişildi ancak yeni ilan bulunamadı. Kapsam: ${coverageNote}`;
         }
       }
     }
@@ -304,6 +359,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   }
 
   totals.notes = adapterNotes;
+  totals.coverageStatus = coverageStatus;
+  totals.coverageNote = coverageNote;
   const finished = await repos.runs.finish(run.id, totals, status, resultMessage);
   const durationMs = repos.clock.now().getTime() - startedAt;
 
@@ -314,7 +371,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       durationMs,
       discoveredCount: totals.itemsFound,
       acceptedCount: totals.itemsAccepted,
-      errorMessage: fatalError ? fatalError.message : totals.errors[0] ?? null,
+      errorMessage: fatalError ? fatalError.message : (totals.errors[0] ?? null),
       scheduleDelayMs: finished?.scheduleDelayMs ?? null,
       etag: contentUnchanged && etag === null ? undefined : etag,
       lastModified: contentUnchanged && lastModified === null ? undefined : lastModified,
@@ -344,6 +401,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
     revisionsCreated: totals.revisionsCreated,
     notificationsQueued: notificationCounts.queued,
     durationMs,
+    coverageStatus,
+    coverageNote,
     notes: totals.notes,
     errors: totals.errors,
     locked: false,
@@ -439,7 +498,8 @@ async function warnOnRepeatedFailures(input: {
   // dakika aynı kaydı yazmak denetim kaydını ve logu okunamaz hale getirirdi.
   const lastWarningAt = current?.health.lastWarningAt ?? null;
   const due =
-    lastWarningAt === null || Date.parse(lastWarningAt) < repos.clock.now().getTime() - SOURCE_WARNING_REPEAT_MS;
+    lastWarningAt === null ||
+    Date.parse(lastWarningAt) < repos.clock.now().getTime() - SOURCE_WARNING_REPEAT_MS;
 
   const message = skipped
     ? `${source.name} kaynağı ${failures} kez üst üste toplanamadı (atlandı): ${fatalError.message}`
@@ -458,6 +518,11 @@ async function warnOnRepeatedFailures(input: {
     action: skipped ? 'source.skipping' : 'source.failing',
     targetType: 'source',
     targetId: source.key,
-    meta: { failures, skipped, error: fatalError.message, lastSuccessAt: current?.health.lastSuccessAt ?? null },
+    meta: {
+      failures,
+      skipped,
+      error: fatalError.message,
+      lastSuccessAt: current?.health.lastSuccessAt ?? null,
+    },
   });
 }
