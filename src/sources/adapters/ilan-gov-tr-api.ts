@@ -39,6 +39,8 @@ const API_BASE_PATH = '/api/api/services/app';
 const PAGE_SIZE = 100;
 const MAX_LIST_ITEMS = 300;
 const MAX_ITEMS = 40;
+/** Terim başına en fazla sayfa (her sayfa PAGE_SIZE kayıt). */
+const MAX_PAGES_PER_TERM = 5;
 
 /** Arama terimleri: ilan.gov.tr metin araması "q" dizisi alır (canlı doğrulı). */
 const SEARCH_TERMS: readonly string[] = [
@@ -63,7 +65,13 @@ interface ApiAd {
 }
 
 interface ParsedRow {
+  /** Kayıt kimliği (resmî ilan no varsa adNo, yoksa id). Kalıcı tekil anahtar. */
   itemId: string;
+  /**
+   * GetAdDetail'in beklediği kimlik: upstream `rg-ilan-botu` ile aynı şekilde
+   * `id` alanı. adNo ile detay istemek doğrulanmış sözleşmeden sapmadır.
+   */
+  detailId: string;
   url: string;
   title: string;
   institution: string | null;
@@ -113,8 +121,9 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
   const id = String(ad.id ?? '').trim();
   const adNo = ad.adNo !== null && ad.adNo !== undefined ? String(ad.adNo).trim() : '';
   const itemId = adNo.length > 0 ? adNo : id.length > 0 ? id : null;
+  const detailId = id.length > 0 ? id : adNo;
   const title = collapseWhitespace(String(ad.title ?? ''));
-  if (!itemId || title.length < 8) return null;
+  if (!itemId || !detailId || title.length < 8) return null;
 
   const rawHref = String(ad.urlStr ?? '').trim();
   const candidate = rawHref.startsWith('http')
@@ -136,6 +145,7 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
 
   return {
     itemId,
+    detailId,
     url: url ?? listingUrl,
     title: title.slice(0, 300),
     institution: collapseWhitespace(String(ad.advertiserName ?? '')) || null,
@@ -178,10 +188,13 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
     let requestCount = 0;
     const rowsByItem = new Map<string, ParsedRow>();
     let totalNumFound = 0;
+    /** Sayfa sınırına takılıp numFound'a ulaşılamayan terimler (kapsam eksik). */
+    const truncatedTerms: string[] = [];
 
     for (const term of SEARCH_TERMS) {
       let skipCount = 0;
-      for (let page = 1; page <= 5; page += 1) {
+      let termExhausted = false;
+      for (let page = 1; page <= MAX_PAGES_PER_TERM; page += 1) {
         if (rowsByItem.size >= MAX_LIST_ITEMS) break;
         let payload: unknown;
         try {
@@ -222,8 +235,12 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
 
         // Offset sayfalama: boş sayfa ya da numFound'a ulaşma sonu kanıtlar.
         skipCount += PAGE_SIZE;
-        if (ads.length < PAGE_SIZE || skipCount >= numFound) break;
+        if (ads.length < PAGE_SIZE || skipCount >= numFound) {
+          termExhausted = true;
+          break;
+        }
       }
+      if (!termExhausted && rowsByItem.size < MAX_LIST_ITEMS) truncatedTerms.push(term);
       if (rowsByItem.size >= MAX_LIST_ITEMS) break;
     }
 
@@ -244,7 +261,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
       let bodyTextTruncated = false;
       try {
         const detailResponse = await http.fetchText(
-          `${apiBase}/AdDetail/GetAdDetail?id=${encodeURIComponent(row.itemId)}&isKiwiAd=false`,
+          `${apiBase}/AdDetail/GetAdDetail?id=${encodeURIComponent(row.detailId)}&isKiwiAd=false`,
           {
             allowedHosts: source.allowedHosts,
             minIntervalMs: source.minRequestIntervalMs,
@@ -306,14 +323,17 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
       coverageNotes.push(`${detailsWithoutUsableText} detay yanıtından kullanılabilir metin çıkarılamadı.`);
     if (deferred > 0) coverageNotes.push(`${deferred} kayıt detay bütçesi nedeniyle ertelendi.`);
     const capped = rowsByItem.size >= MAX_LIST_ITEMS;
-    const status = coverageNotes.length > 0 ? ('partial' as const) : ('complete' as const);
-    const coverageNote = [
-      capped
-        ? `${MAX_LIST_ITEMS} kayıtlık havuz sınırına ulaşıldı; aramanın tamamı bu çalışmada alınmadı.`
-        : `Tüm arama terimlerinde offset sayfaları sonuna kadar gezildi (AdsByFilter numFound doğrulaması). ` +
-          'Metin araması tabanlı kapsam: arama terimleriyle eşleşen ilanların tamamı; terim dışı ilanlar kapsam dışıdır.',
-      ...coverageNotes,
-    ].join(' ');
+    if (truncatedTerms.length > 0)
+      coverageNotes.push(
+        `${truncatedTerms.length} arama teriminde numFound'a ulaşılamadı (sayfa sınırı ${MAX_PAGES_PER_TERM}): ` +
+          truncatedTerms.join(', ') + '.',
+      );
+    if (capped) coverageNotes.unshift(`${MAX_LIST_ITEMS} kayıtlık havuz sınırına ulaşıldı; aramanın tamamı bu çalışmada alınmadı.`);
+    const complete = !capped && truncatedTerms.length === 0 && coverageNotes.length === 0;
+    const coverageNote = complete
+      ? 'Tüm arama terimlerinde offset sayfaları sonuna kadar gezildi (AdsByFilter numFound doğrulaması). ' +
+        'Metin araması tabanlı kapsam: arama terimleriyle eşleşen ilanların tamamı; terim dışı ilanlar kapsam dışıdır.'
+      : coverageNotes.join(' ');
 
     return {
       items,
@@ -322,7 +342,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
       etag: null,
       lastModified: null,
       notModified: false,
-      coverage: { status: capped ? 'partial' : status, note: coverageNote },
+      coverage: { status: complete ? 'complete' : 'partial', note: coverageNote },
       httpStatuses,
     };
   }

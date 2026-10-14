@@ -223,7 +223,7 @@ describe('ilan.gov.tr JSON API adaptörü', () => {
     expect(item?.bodyTextSource).toBe('detail');
   });
 
-  it('GetAdDetail isteğini adNo ile yapar ve arşivlenmiş ilanları atlar', async () => {
+  it('GetAdDetail isteğini upstream ile aynı şekilde id ile yapar (adNo değil)', async () => {
     const { http, calls } = fakeJsonHttp((url) => {
       if (url === `${API_BASE}/Ad/AdsByFilter`)
         return adsPayload(
@@ -237,7 +237,28 @@ describe('ilan.gov.tr JSON API adaptörü', () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.sourceItemId).toBe('ILN-2026-7002');
     const detailCall = calls.find((call) => call.url.includes('/AdDetail/GetAdDetail'));
-    expect(detailCall?.url).toContain('id=ILN-2026-7002');
+    // rg-ilan-botu sözleşmesi: detay kimliği `id` alanıdır; resmî ilan no (adNo) kayıt anahtarıdır.
+    expect(detailCall?.url).toContain('id=x7002');
+    expect(detailCall?.url).not.toContain('ILN-2026-7002');
+    expect(result.items[0]?.referenceNo).toBe('ILN-2026-7002');
+  });
+
+  it('sayfa sınırına takılıp numFound\'a ulaşılamayan terim kapsamı complete yapmaz', async () => {
+    // Her sayfa 100 kayıt döner (aynı adNo'lar: havuz sınırı devreye girmez),
+    // numFound 600 → 5 sayfa sonra sayfa sınırı dolar ama arşiv tükenmemiştir.
+    const { http } = fakeJsonHttp((url) => {
+      if (url === `${API_BASE}/Ad/AdsByFilter`)
+        return adsPayload(
+          Array.from({ length: 100 }, (_, index) => ad({ adNo: `ILN-2026-3${index}`, id: `id-3${index}` })),
+          600,
+        );
+      return { result: { text: 'Detay metni '.repeat(30) } };
+    });
+
+    const result = await new IlanGovTrApiAdapter().run(contextFor(ilanApiSource, http, 100));
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toMatch(/numFound'a ulaşılamadı/);
+    expect(result.coverage?.note).not.toMatch(/sonuna kadar gezildi/);
   });
 
   it('bilinen kayıtları yinelenmez, detaysız bilinenleri yeniden dener', async () => {
