@@ -401,7 +401,13 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                 onChange={(event) => save.mutate({ mode: event.target.value })}
               >
                 <option value="instant">Anında (yeni ilan bulununca)</option>
-                <option value="daily-digest">Günlük özet</option>
+                {/* Günlük özet henüz gönderilmiyor (toplayıcı görevi yok). Yalnızca bu moddaki
+                    mevcut tercihler için durumu gösterilir; yeni seçim sunulmaz. */}
+                {preference?.mode === 'daily-digest' && (
+                  <option value="daily-digest" disabled>
+                    Günlük özet (henüz kullanılamıyor; bildirimler anında gönderilir)
+                  </option>
+                )}
               </select>
             </Field>
 

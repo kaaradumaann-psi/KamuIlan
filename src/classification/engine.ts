@@ -280,6 +280,15 @@ export function classify(input: ClassificationInput): ClassificationResult {
     decision = 'reject';
     confidence = 0.8;
     reasons.push('İlanda personel alım/istihdam ifadesi bulunamadı — iş ilanı değil');
+  } else if (rawScore >= ACCEPT_THRESHOLD && titlePositives.length === 0 && categoryPositive.length === 0) {
+    // Başlıkta (ve kaynak kategorisinde) personel alımı kanıtı yok: puan yalnızca gövde ifadelerinden
+    // geliyor. Haber, duyuru veya kurum sayfası gövdesindeki "başvuru/kontenjan" dili tek başına kabul
+    // sebebi değildir; normal ilan listesine girmesin, inceleme kuyruğuna düşsün.
+    decision = 'review';
+    confidence = 0.5;
+    reasons.push(
+      'Başlıkta personel alımı ifadesi yok; yalnızca ilan metnindeki ifadelerle kabul edilemez — inceleme gerekir',
+    );
   } else if (rawScore >= ACCEPT_THRESHOLD) {
     decision = 'accept';
     confidence = Math.min(0.95, 0.6 + rawScore * 0.06);
