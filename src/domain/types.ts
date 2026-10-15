@@ -194,6 +194,27 @@ export const CONTENT_TYPES = [
 ] as const;
 export type ContentType = (typeof CONTENT_TYPES)[number];
 
+/**
+ * LLM sınıflandırma kapısının ham kararı (Türkçe model çıktısının eşlenmiş hâli).
+ * `ilan`: yeni personel alımı · `surec`: alım süreci duyurusu · `ilan-degil`: başka içerik türü ·
+ * `belirsiz`: model de emin değil (kayıt incelemede kalır).
+ */
+export const LLM_VERDICTS = ['ilan', 'surec', 'ilan-degil', 'belirsiz'] as const;
+export type LlmVerdict = (typeof LLM_VERDICTS)[number];
+
+/** Kabul edilen bir sınıflandırmaya eşlik eden LLM denetim izi (kanıt doğrulaması geçmiş). */
+export interface ClassificationLlmAudit {
+  model: string;
+  promptVersion: string;
+  verdict: LlmVerdict;
+  confidence: number;
+  /** Modelin gösterdiği kanıt kaynak metinde birebir doğrulandı mı? */
+  evidenceVerified: boolean;
+  /** Karar önbellekten mi geldi (yeni API çağrısı yapılmadı)? */
+  cacheHit: boolean;
+  analyzedAt: string;
+}
+
 export interface ClassificationResult {
   decision: ClassificationDecision;
   kind: ClassificationKind;
@@ -205,6 +226,8 @@ export interface ClassificationResult {
   version: string;
   /** Deterministik içerik türü (eski kayıtlarda yoktur). */
   contentType?: ContentType;
+  /** Yalnızca LLM kapısı karara katıldığında vardır (eski kayıtlarda yoktur). */
+  llm?: ClassificationLlmAudit;
 }
 
 export interface JobClassification extends ClassificationResult {

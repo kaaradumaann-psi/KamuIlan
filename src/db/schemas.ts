@@ -7,10 +7,12 @@
  */
 import { z } from 'zod';
 import {
+  CONTENT_TYPES,
   EDUCATION_LEVELS,
   EMPLOYMENT_TYPES,
   JOB_STATUSES,
   KPSS_SCORE_TYPES,
+  LLM_VERDICTS,
   SOURCE_STATUSES,
 } from '../domain';
 
@@ -170,6 +172,20 @@ export const jobSchema = z.object({
     negativeSignals: z.array(z.string()),
     version: z.string(),
     classifiedAt: isoString(),
+    /** LLM sınıflandırma kapısı karara katıldıysa denetim izi (eski kayıtlarda yoktur). */
+    llm: z
+      .object({
+        model: z.string().min(1),
+        promptVersion: z.string().min(1),
+        verdict: z.enum(LLM_VERDICTS),
+        confidence: z.number().min(0).max(1),
+        evidenceVerified: z.boolean(),
+        cacheHit: z.boolean(),
+        analyzedAt: isoString(),
+      })
+      .optional(),
+    /** Deterministik içerik türü (eski kayıtlarda yoktur). */
+    contentType: z.enum(CONTENT_TYPES).optional(),
   }),
   extractionConfidence: z.number().min(0).max(1),
   /** Alan bazlı kaynak izi: her alanın hangi katmandan geldiği (ilan detayında gösterilir). */
@@ -595,6 +611,41 @@ export const workerHeartbeatSchema = z.object({
 });
 export type WorkerHeartbeatDoc = z.infer<typeof workerHeartbeatSchema>;
 
+/**
+ * LLM sınıflandırma kapısı telemetrisi ve önbelleği.
+ *
+ * Her analiz denemesi (başarılı, geçersiz çıktı, hata, zaman aşımı) buraya yazılır:
+ *  - `cacheKey` (model + istem sürümü + içerik özeti): aynı içerik için API çağrısı tekrarlanmaz.
+ *  - Model/istem sürümü değiştiğinde anahtar değişir → kontrollü yeniden değerlendirme.
+ *  - Token, gecikme ve hata ölçümleri yönetici panelindeki LLM özetini besler.
+ *  - İlan metni BURAYA YAZILMAZ (yalnızca içerik özeti); KVKK ve sır sızıntısı riski azaltılır.
+ */
+export const llmAnalysisSchema = z.object({
+  id: idString('lma'),
+  cacheKey: z.string().min(16),
+  contentKey: z.string().min(16),
+  sourceKey: z.string().min(2),
+  url: z.string().min(8),
+  model: z.string().min(1),
+  promptVersion: z.string().min(1),
+  status: z.enum(['ok', 'invalid', 'error', 'timeout']),
+  cacheHit: z.boolean(),
+  verdict: z.enum(LLM_VERDICTS).nullable(),
+  contentType: z.enum(CONTENT_TYPES).nullable(),
+  confidence: z.number().min(0).max(1).nullable(),
+  employmentType: z.enum(EMPLOYMENT_TYPES).nullable(),
+  /** Modelin özeti (en fazla 400 karakter); inceleme kuyruğu ve önbellek yeniden eşlemesi kullanır. */
+  summary: z.string().max(400).nullable(),
+  /** Doğrulanmış kanıt alıntısı (kısa); önbellek isabetinde kararın YENİDEN doğrulanması için saklanır. */
+  evidence: z.string().max(300).nullable(),
+  latencyMs: z.number().int().min(0),
+  promptTokens: z.number().int().min(0).nullable(),
+  completionTokens: z.number().int().min(0).nullable(),
+  error: z.string().max(300).nullable(),
+  createdAt: isoString(),
+});
+export type LlmAnalysisDoc = z.infer<typeof llmAnalysisSchema>;
+
 export const COLLECTION_SCHEMAS = {
   sources: sourceSchema,
   jobs: jobSchema,
@@ -617,6 +668,7 @@ export const COLLECTION_SCHEMAS = {
   locks: lockSchema,
   rateLimits: rateLimitSchema,
   workerHeartbeats: workerHeartbeatSchema,
+  llmAnalyses: llmAnalysisSchema,
 } as const;
 
 export type CollectionName = keyof typeof COLLECTION_SCHEMAS;
