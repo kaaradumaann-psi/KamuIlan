@@ -38,6 +38,22 @@ const csv = (value: string): string[] =>
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 
+/**
+ * Maliyet varsayımı alanı: boş → `null` (hiç tahmin üretme), sayı → USD/Mtok.
+ * Geçersiz değer sessizce yok sayılmaz; yapılandırma hatası olarak patlar.
+ */
+function usdPerMtokField(name: string) {
+  return z.string().default('').transform((value): number | null => {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10_000) {
+      throw new Error(`${name} 0 ile 10000 arasında bir sayı ya da boş olmalıdır (USD / milyon token).`);
+    }
+    return parsed;
+  });
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_DISPLAY_NAME: z.string().min(1).default('Kamuİlan'),
@@ -253,6 +269,16 @@ const envSchema = z.object({
   LLM_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   /** Geçici sağlayıcı hatalarında (429/5xx/zaman aşımı) ek deneme sayısı. */
   LLM_RETRY_MAX: z.coerce.number().int().min(0).max(3).default(1),
+  /**
+   * MALİYET TAHMİNİ İÇİN OPERATÖR GİRDİSİ — sağladığımız fiyat DEĞİLDİR.
+   *
+   * Milyon token başına USD. Boş bırakılırsa (varsayılan) sistem hiçbir maliyet rakamı
+   * üretmez; yalnızca ölçülen token/gecikme raporlanır. Sağlayıcı fiyatları canlı
+   * doğrulanmadan buraya yazılan değer varsayımdır ve rapor "tahmin" etiketiyle çıkar.
+   */
+  LLM_COST_USD_PER_MTOK_INPUT: usdPerMtokField('LLM_COST_USD_PER_MTOK_INPUT'),
+  LLM_COST_USD_PER_MTOK_OUTPUT: usdPerMtokField('LLM_COST_USD_PER_MTOK_OUTPUT'),
+
   /** Geliştirme posta görüntüleyicisinin portu (scripts/dev-smtp-server.ts). */
   DEV_MAIL_VIEWER_PORT: z.coerce.number().int().min(1).max(65_535).default(1080),
 

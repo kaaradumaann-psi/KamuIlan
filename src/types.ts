@@ -404,7 +404,7 @@ export interface AdminOverview {
   }[];
   workerWarning: string | null;
   auditEntries: number;
-  /** LLM sınıflandırma kapısı telemetrisi (ingest hattı). */
+  /** LLM sınıflandırma kapısı telemetrisi (ingest hattı). Sunucu kaynağı: `LlmOverviewStats`. */
   llm: {
     enabled: boolean;
     model: string | null;
@@ -418,6 +418,24 @@ export interface AdminOverview {
       avgLatencyMs: number | null;
       promptTokens: number;
       completionTokens: number;
+      /** Ölçüm özeti (src/ai/classifier.ts `LlmTelemetryStats` ile birebir tutulur). */
+      analyses: number;
+      ok: number;
+      error: number;
+      timeout: number;
+      apiCalls: number;
+      cacheHitRate: number | null;
+      errorRate: number | null;
+      latency: {
+        count: number;
+        avgMs: number | null;
+        p50Ms: number | null;
+        p95Ms: number | null;
+        maxMs: number | null;
+      };
+      tokens: { prompt: number; completion: number; reportedShare: number | null };
+      /** Fiyat doğrulanmadıysa `usd` null döner; panel "raporlanmadı" yazar (tahmin uydurulmaz). */
+      cost: { usd: number | null; note: string };
     };
     totals: { analyses: number; ok: number; invalid: number; error: number; timeout: number };
   };
