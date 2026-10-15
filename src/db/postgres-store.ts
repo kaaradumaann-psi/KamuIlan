@@ -290,11 +290,13 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
  *     Supabase'in sertifikası genel bir CA tarafından imzalandığı için ek dosya
  *     gerektirmez; bu dal eski davranışın (doğrulamasız bağlantı) yerini alır.
  *
- * Bağlantı dizesindeki `sslmode`/`sslrootcert` parametreleri sürücüde bundan
- * ÖNCE gelir (pg, connectionString'i ayrıştırıp seçenekleri geçerli kılar);
- * yani operatör URL üzerinden açıkça yazdıysa o tercih kazanır. Sürücü
- * davranışı `tests/postgres-tls-config.test.ts` içinde kaynak üzerinden
- * doğrulanmıştır.
+ * Bağlantı dizesindeki `sslmode`/`sslrootcert` gibi TLS parametreleri burada
+ * yorumlanmaz; onlar `postgresUrl()` (src/config/env.ts) içinde REDDEDİLİR.
+ * Nedeni: pg, URL'yi buradaki açık `ssl` nesnesinin ÜZERİNE yazar; URL'deki
+ * `sslmode=disable`, `verify` kararını sessizce ezip TLS'i kapatabilirdi.
+ * Tek yetkili, bu fonksiyona gelen `mode`/`caCertificate` değerleridir
+ * (POSTGRES_SSL_MODE / POSTGRES_SSL_CA_FILE). Sürücü davranışı
+ * `tests/postgres-tls-config.test.ts` içinde doğrulanmıştır.
  */
 export type PostgresTlsMode = 'disable' | 'no-verify' | 'verify';
 
