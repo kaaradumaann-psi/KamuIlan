@@ -152,7 +152,9 @@ test.describe('mobil görünüm (390px)', () => {
     await expectHeading(page, 'Kamu personel alım ilanları');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
-    await page.getByRole('button', { name: /^Filtreler( \d+)?$/ }).click();
+    // Filtresiz girişte panel açık başlar (JobsPage: panelOpen = aktif filtre yoksa true);
+    // düğme bu yüzden "Filtreleri gizle" adını taşır. Etiket doğrudan görünür olmalı.
+    await expect(page.getByRole('button', { name: 'Filtreleri gizle', exact: true })).toBeVisible();
     await expect(page.getByLabel('İl', { exact: true })).toBeVisible();
   });
 });
