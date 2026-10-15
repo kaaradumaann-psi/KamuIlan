@@ -109,18 +109,34 @@ gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
 1. **Gerçek etiketli küme yok.** `tests/fixtures/eval/labeled-set.json` 17 kayıttır; gövdeler
    sentetik, başlıklar kullanıcı spesifikasyonundan. Gerçek precision/recall raporlanmadı.
    `npm run eval:classification` gerçek örnek (`origin: "real"`) eklenince gerçek metrik verir.
+   Bu boşluğu kapatmanın aracı eklendi: `npm run eval:build-set` depodaki gerçek kayıtlardan
+   **salt okunur** etiketleme sayfası üretir (makine tahmini `machineSuggestion`da ayrı durur,
+   `expectedContentType` boştur), `--import` doldurulmuş sayfayı doğrular ve **yalnızca
+   `--apply`** kümeye yazar. İnsan etiketi olmayan, provenansı `human` olmayan veya
+   `labeledBy/labeledAt` boş olan kayıt kabul edilmez; kapsam hedefinin altındaki kategoriler
+   `EKSİK KATEGORİLER` olarak yazılır. Plan/hedefler: `docs/eval-gercek-veri.md`.
+   Bu denetimde üretilen gerçek insan etiketi sayısı: **0** (ağ erişimi yok, bkz. madde 3).
 2. **Haber sınıfı zayıf.** Başlığında haber ipucu olmayan ve kurala bağlanmayan redler `other`
    olarak etiketlenir. Etiketli kümede haber recall'u ölçüldü (bkz. eval çıktısı). Bu, yanlış ilan
    kabulü değildir, ama haber ayrımı eksiktir.
 3. **Canlı kaynaklar bu turda doğrulanamadı.** Sandbox yalnızca github/npm/pypi'ye erişebilir.
    YÖK, ilan.gov.tr, İŞKUR ve diğer kurum sayfaları için canlı sonuç yoktur; `verified` etiketleri
    tarihsel kanıttır.
-4. **LLM ingest hattında yok.** Gerekçe ve koşullar: `docs/llm-karari.md`.
+4. **LLM ingest hattında SINIRLI kullanılır.** Deterministik motor kabul/red kararlarını verir;
+   LLM kapısı YALNIZCA `review` (belirsiz) kayıtlarda, kanıtı kaynak metinde birebir doğrulandığında
+   çalışır ve başarısızlıkta kayıt incelemede kalır. Varsayılan KAPALIDIR (`LLM_CLASSIFIER_ENABLED=0`).
+   Gerekçe ve koşullar: `docs/llm-karari.md`.
 5. **Günlük özet gönderilmiyor.** Panelde yeni seçim sunulmuyor; bu moddaki mevcut tercihler
    "henüz kullanılamıyor" olarak gösterilir, bildirimler anında gönderilir.
-6. **Veritabanı TLS doğrulaması varsayılan olarak kapalı.** `POSTGRES_SSL_CA_FILE` tanımlanınca
-   doğrulama açılır. Tanımlı değilse uyarı verilir. Varsayılanı değiştirmek için Supabase CA
-   sertifikası gerekir.
+6. **Veritabanı TLS doğrulaması artık varsayılan olarak AÇIKTIR** (15.10.2026 değişikliği).
+   `POSTGRES_SSL_MODE` boşken ve CA dosyası verilmediğinde sunucu sertifikası Node'un gömülü +
+   işletim sisteminin kök depolarıyla doğrulanır; Supabase'in sertifikası genel bir CA ile imzalı
+   olduğu için ek dosya gerekmez. Doğrulamayı kapatmanın tek yolu açık tercihtir
+   (`POSTGRES_SSL_MODE=no-verify` ya da `disable`); üretimde `npm run env:check` bu iki durumda
+   bağlantıyı ENGELLER, geliştirmede uyarı verir. `POSTGRES_SSL_CA_FILE` okunamazsa hata yükselir,
+   sessizce doğrulamasıza düşülmez. Kanıt: `tests/postgres-tls-config.test.ts` (self-signed
+   sertifikaya karşı GERÇEK TLS el sıkışması). Yerel/Docker Postgres için `POSTGRES_SSL=false`
+   (=`disable`) gerekir; `infra/docker/docker-compose.yml` bunu zaten veriyordu.
 7. **Kuru çalıştırma sonuçları değişti.** Kabul kuralı güncellendi; 14 Ekim rakamları eski olabilir.
    Yeni kuru çalıştırma gerekir (`docs/veri-duzeltme-plani.md`).
 8. **Ana metin ve menü temizliği genel değildir.** Menü metni sorunu için kullanıcıdan örnek

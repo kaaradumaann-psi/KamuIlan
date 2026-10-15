@@ -22,6 +22,7 @@
  * mevcut kaydı döner (iki worker aynı ilanı işlese bile çift kayıt oluşmaz).
  */
 import { Pool, type PoolClient } from 'pg';
+import { loadCaStore } from '../lib/tls-trust';
 import type { CollectionName, DocumentOf } from './schemas';
 import { COLLECTION_SCHEMAS } from './schemas';
 import {
@@ -65,6 +66,12 @@ interface PostgresStoreOptions {
   /** Supabase'de önerilen bağlantı havuzu boyutu. */
   maxConnections?: number;
   ssl?: boolean;
+  /**
+   * TLS doğrulama kipi. `verify` (varsayılan): sunucu sertifikası doğrulanır;
+   * `no-verify` ve `disable` YALNIZCA açık operatör tercihiyle gelir ve ortam
+   * denetiminde uyarı/engelleme üretir.
+   */
+  sslMode?: PostgresTlsMode;
   /** PEM CA sertifikası. Verilirse sunucu sertifikası bu CA ile doğrulanır. */
   caCertificate?: string;
   /** Tablo ön eki: aynı Supabase projesinde birden fazla ortam çalıştırılabilir. */
@@ -273,16 +280,53 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
 }
 
 /**
- * TLS yapılandırması. CA verilmişse doğrulama AÇIK. CA yoksa mevcut bağlantı (doğrulamasız)
- * korunur; bu durum ortam denetiminde uyarı olarak raporlanır ve kapatılması önerilir.
+ * TLS yapılandırması (güvenli varsayılan: DOĞRULAMA AÇIK).
+ *
+ * Sıra:
+ *  1. `mode: 'disable'` → TLS hiç kullanılmaz (yalnızca açık tercih; yerel Postgres).
+ *  2. `mode: 'no-verify'` → eldiven imzalı sertifika kabulü (AÇIK risk kabulü; panel/CLI uyarır).
+ *  3. CA verildiyse → sunucu sertifikası yalnızca bu CA ile doğrulanır.
+ *  4. CA yoksa → Node'un varsayılan + işletim sisteminin kök depolarıyla doğrulanır.
+ *     Supabase'in sertifikası genel bir CA tarafından imzalandığı için ek dosya
+ *     gerektirmez; bu dal eski davranışın (doğrulamasız bağlantı) yerini alır.
+ *
+ * Bağlantı dizesindeki `sslmode`/`sslrootcert` parametreleri sürücüde bundan
+ * ÖNCE gelir (pg, connectionString'i ayrıştırıp seçenekleri geçerli kılar);
+ * yani operatör URL üzerinden açıkça yazdıysa o tercih kazanır. Sürücü
+ * davranışı `tests/postgres-tls-config.test.ts` içinde kaynak üzerinden
+ * doğrulanmıştır.
  */
+export type PostgresTlsMode = 'disable' | 'no-verify' | 'verify';
+
+export type PostgresSslConfig =
+  | false
+  | { ca: string; rejectUnauthorized: true }
+  | { ca: string[]; rejectUnauthorized: true }
+  /** Sistem kök deposu okunamıyorsa Node'un kendi varsayılan (gömülü) deposu kullanılır. */
+  | { rejectUnauthorized: true }
+  | { rejectUnauthorized: false };
+
 export function sslConfigFor(
   caCertificate?: string,
-): { ca: string; rejectUnauthorized: true } | { rejectUnauthorized: false } {
+  options: { mode?: PostgresTlsMode; systemCaStore?: string[] } = {},
+): PostgresSslConfig {
+  const mode = options.mode ?? 'verify';
+  if (mode === 'disable') return false;
+  if (mode === 'no-verify') return { rejectUnauthorized: false };
   if (caCertificate && caCertificate.trim().length > 0) {
     return { ca: caCertificate, rejectUnauthorized: true };
   }
-  return { rejectUnauthorized: false };
+  // `systemCaStore` verilmemişse gerçek sistem deposu okunur; açıkça `undefined`
+  // verildiğinde (ör. Node sistem deposunu desteklemiyor) gömülü kökler kullanılır.
+  const systemCaStore = 'systemCaStore' in options ? options.systemCaStore : loadCaStore();
+  return systemCaStore
+    ? { ca: systemCaStore, rejectUnauthorized: true }
+    : { rejectUnauthorized: true };
+}
+
+/** Bu yapılandırma sunucu sertifikasını DOĞRULUYOR mu? (tanı/uyarı metinleri kullanır) */
+export function verifiesServerCertificate(config: PostgresSslConfig): boolean {
+  return config !== false && config.rejectUnauthorized === true;
 }
 
 export class PostgresStore implements StoragePort {
@@ -299,7 +343,9 @@ export class PostgresStore implements StoragePort {
       new Pool({
         connectionString: options.connectionString,
         max: options.maxConnections ?? 10,
-        ...(options.ssl === false ? {} : { ssl: sslConfigFor(options.caCertificate) }),
+        ...(options.ssl === false
+          ? {}
+          : { ssl: sslConfigFor(options.caCertificate, { mode: options.sslMode }) }),
       });
   }
 

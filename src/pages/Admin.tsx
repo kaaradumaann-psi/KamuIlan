@@ -245,6 +245,23 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
                 {formatNumber(data.llm.last24h.completionTokens)} çıktı · toplam kayıt:{' '}
                 {formatNumber(data.llm.totals.analyses)} ({formatNumber(data.llm.totals.ok)} geçerli)
               </li>
+              <li>
+                Gecikme yüzdelikleri: p50{' '}
+                {data.llm.last24h.latency.p50Ms !== null ? formatDuration(data.llm.last24h.latency.p50Ms) : '—'} · p95{' '}
+                {data.llm.last24h.latency.p95Ms !== null ? formatDuration(data.llm.last24h.latency.p95Ms) : '—'} · en
+                yüksek{' '}
+                {data.llm.last24h.latency.maxMs !== null ? formatDuration(data.llm.last24h.latency.maxMs) : '—'} · hata
+                oranı {data.llm.last24h.errorRate === null ? '—' : `%${(data.llm.last24h.errorRate * 100).toFixed(1)}`} ·
+                önbellek isabeti{' '}
+                {data.llm.last24h.cacheHitRate === null ? '—' : `%${(data.llm.last24h.cacheHitRate * 100).toFixed(0)}`}
+              </li>
+              <li>
+                Maliyet:{' '}
+                {data.llm.last24h.cost.usd === null
+                  ? 'raporlanmadı'
+                  : `~$${data.llm.last24h.cost.usd.toFixed(4)} (TAHMİN)`}{' '}
+                <span className="cell-note"> · {data.llm.last24h.cost.note}</span>
+              </li>
             </ul>
           ) : (
             <InfoNote tone="info">

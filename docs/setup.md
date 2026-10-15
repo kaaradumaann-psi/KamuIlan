@@ -86,8 +86,9 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 | `DATABASE_DRIVER=supabase`           | bu dosya                                                   | `postgres` de aynı sürücüdür; `supabase` okunurluk için takma ad |
 | `POSTGRES_URL`                       | Supabase → Project Settings → Database → Connection string | Sunucu tarafı; havuz bağlantısı önerilir (port 6543)             |
 | `DATABASE_URL`                       | alternatif ad                                              | Bazı sağlayıcılar bu adı verir; ikisinden biri yeterlidir        |
-| `POSTGRES_SSL=true`                  | —                                                          | Supabase TLS ister; `false` yalnızca yerel test için             |
-| `POSTGRES_SSL_CA_FILE`               | —                                                          | Supabase CA PEM yolu. Tanımlanınca sunucu sertifikası doğrulanır; boşsa doğrulama kapalıdır ve uyarı verilir |
+| `POSTGRES_SSL=true`                  | —                                                          | Supabase TLS ister; `false` TLS'i tümüyle kapatır (yalnızca yerel test) |
+| `POSTGRES_SSL_CA_FILE`               | —                                                          | Kök CA PEM yolu. Tanımlanınca sertifika YALNIZCA o CA ile doğrulanır; okunamazsa bağlantı hatası verilir (doğrulamasıza düşürülmez) |
+| `POSTGRES_SSL_MODE`                  | `''` (boş)                                                 | `verify` (varsayılan) \| `no-verify` \| `disable`. Doğrulamayı kapatmanın tek yolu; üretimde `no-verify`/`disable` `env:check`'i durdurur |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API                                             | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır      |
 | `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → API                                             | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz   |
 | `APP_DOMAIN`                         | —                                                          | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı)      |

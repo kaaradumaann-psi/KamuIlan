@@ -120,6 +120,28 @@ const TC_ID_PATTERN = /\b[1-9]\d{10}\b/g;
 const INJECTION_CUE_PATTERN =
   /yok\s+say|talimatlar[ıi]n|onceki\s+talimat|previous\s+instructions?|ignore\s+(?:all|previous|above|the)|disregard|system\s+prompt|sistem\s+(?:istemi|mesaji)|sen\s+bir\s+(?:yapay\s+zeka|asistan)|you\s+are\s+(?:a|an)\s|new\s+instructions?|as\s+an?\s+ai\b/;
 
+/**
+ * Model çıktısı doğrulanamadığında kaydedilen neden.
+ *
+ * Ham hata mesajı KULLANILMAZ: `JSON.parse` hataları ayrıştırılan metnin bir ön ekini
+ * mesaja gömer (ör. `Unexpected token 's', "sk-live-…"...`) ve Zod'un `invalid_union`
+ * gibi mesajları aldığı değeri yazabilir. Telemetri satırına model metninden bir parça
+ * (ve dolayısıyla anahtar/KVKK kalıntısı) sızmaması için yalnızca YAPI bilgisi yazılır:
+ * kaç alan hangi kodla reddedildi.
+ */
+export function describeModelOutputError(error: unknown): string {
+  const issues = (error as { issues?: { path: (string | number)[]; code?: string }[] } | null)?.issues;
+  if (Array.isArray(issues)) {
+    const summary = issues
+      .slice(0, 6)
+      .map((issue) => `${issue.path.join('.') || '(kök)'}:${issue.code ?? 'geçersiz'}`)
+      .join(', ');
+    return `şema ihlali (${issues.length} alan): ${summary}`;
+  }
+  if (error instanceof SyntaxError) return 'geçersiz JSON (ham içerik güvenlik nedeniyle kaydedilmiyor)';
+  return `doğrulama hatası: ${error instanceof Error ? error.name : 'bilinmiyor'}`;
+}
+
 /** Kanıt metni talimat benzeri ifade içeriyor mu? (içeriyorsa karar doğrulanmaz) */
 export function evidenceLooksLikeInjection(evidence: string): boolean {
   return INJECTION_CUE_PATTERN.test(normalizeTr(evidence));
@@ -582,14 +604,19 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     messages: { role: string; content: string }[],
   ): Promise<
     | { ok: true; content: string; usage: { promptTokens: number | null; completionTokens: number | null }; latencyMs: number }
-    | { ok: false; reason: string; status: 'error' | 'timeout'; latencyMs: number }
+    | { ok: false; reason: string; status: 'error' | 'timeout'; latencyMs: number; attempts: number }
   > {
     const maxAttempts = 1 + Math.max(0, env.LLM_RETRY_MAX);
+    // Hata yolunda da GECİKME ÖLÇÜLÜR: "sağlayıcı hatası bedava" değildir — kuyruk +
+    // deneme süreleri dahil toplam süre, gecikme yüzdelerinin (p50/p95) gerçek kalması için gerekir.
+    const overallStartedAt = Date.now();
+    let attempts = 0;
     let lastFailure: { reason: string; status: 'error' | 'timeout' } = {
       reason: 'Sağlayıcı çağrısı yapılmadı',
       status: 'error',
     };
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      attempts += 1;
       if (attempt > 0) {
         await new Promise((resolve) => setTimeout(resolve, retryBackoffMs * attempt));
       }
@@ -616,7 +643,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       };
       if (!result.retryable) break;
     }
-    return { ok: false, ...lastFailure, latencyMs: 0 };
+    return { ok: false, ...lastFailure, latencyMs: Date.now() - overallStartedAt, attempts };
   }
 
   return {
@@ -829,7 +856,8 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           latencyMs: call.latencyMs,
           promptTokens: call.usage.promptTokens,
           completionTokens: call.usage.completionTokens,
-          error: `Model çıktısı şemaya uymuyor: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300),
+          // Ham ayrıştırma mesajı model metninden bir parça taşıyabilir; yapı özeti yazılır.
+          error: `Model çıktısı doğrulanamadı — ${describeModelOutputError(error)}`.slice(0, 300),
           summary: null,
           employmentType: null,
           evidence: null,
@@ -963,24 +991,157 @@ export interface LlmOverviewStats {
   model: string | null;
   promptVersion: string;
   dailyCallLimit: number;
-  last24h: {
+  last24h: LlmTelemetryStats & {
     calls: number;
     cacheHits: number;
     invalid: number;
     errors: number;
     avgLatencyMs: number | null;
+    /** Düz takma adlar (arayüz sözleşmesi); `tokens.prompt/completion` ile aynı değerler. */
     promptTokens: number;
     completionTokens: number;
   };
   totals: { analyses: number; ok: number; invalid: number; error: number; timeout: number };
 }
 
+/** Sağlayıcı fiyatı varsayımı (operatör girdisi). Boş = maliyet rakamı ÜRETİLMEZ. */
+export interface LlmCostAssumptions {
+  inputUsdPerMtok: number | null;
+  outputUsdPerMtok: number | null;
+  configured: boolean;
+}
+
+export function llmCostAssumptions(env: Env): LlmCostAssumptions {
+  const inputUsdPerMtok = env.LLM_COST_USD_PER_MTOK_INPUT;
+  const outputUsdPerMtok = env.LLM_COST_USD_PER_MTOK_OUTPUT;
+  return {
+    inputUsdPerMtok,
+    outputUsdPerMtok,
+    configured: inputUsdPerMtok !== null || outputUsdPerMtok !== null,
+  };
+}
+
+/** Ölçülmüş kullanım üzerinden MALİYET TAHMİNİ (fiyatlar doğrulanmadıysa null döner). */
+export function estimateLlmCostUsd(
+  tokens: { prompt: number; completion: number },
+  assumptions: LlmCostAssumptions,
+): { usd: number | null; note: string } {
+  if (!assumptions.configured) {
+    return {
+      usd: null,
+      note: 'maliyet raporlanmadı: sağlayıcı fiyatı doğrulanmadı (LLM_COST_USD_PER_MTOK_* boş)',
+    };
+  }
+  const usd =
+    ((assumptions.inputUsdPerMtok ?? 0) * tokens.prompt + (assumptions.outputUsdPerMtok ?? 0) * tokens.completion) /
+    1_000_000;
+  return {
+    usd,
+    note:
+      `TAHMİN — operatörün girdiği fiyat varsayımıyla hesaplandı ` +
+      `(girdi ${assumptions.inputUsdPerMtok ?? 0} USD/Mtok, çıktı ${assumptions.outputUsdPerMtok ?? 0} USD/Mtok); ` +
+      'sağlayıcı fiyat listesi canlı doğrulanmadı',
+  };
+}
+
+export interface LlmTelemetryStats {
+  analyses: number;
+  ok: number;
+  invalid: number;
+  error: number;
+  timeout: number;
+  /** Gerçek API çağrıları (önbellek isabeti olmayan kayıtlar). */
+  apiCalls: number;
+  cacheHits: number;
+  cacheHitRate: number | null;
+  /** Sağlayıcı hatası + zaman aşımı + doğrulanamayan çıktı payı (çağrı başına). */
+  errorRate: number | null;
+  latency: { count: number; avgMs: number | null; p50Ms: number | null; p95Ms: number | null; maxMs: number | null };
+  tokens: {
+    prompt: number;
+    completion: number;
+    /** Token kullanımı bildirilen çağrı oranı (her sağlayıcı döndürmez; dönüşmezse maliyet tahmini zayıflar). */
+    reportedShare: number | null;
+  };
+  cost: { usd: number | null; note: string };
+}
+
+function percentile(sorted: readonly number[], fraction: number): number | null {
+  if (sorted.length === 0) return null;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
+  return sorted[index] ?? null;
+}
+
+/**
+ * `llmAnalyses` telemetrisinden ölçüm özeti çıkarır (salt okunur).
+ *
+ * Yönetici paneli ve `npm run eval:classification -- --llm` AYNI fonksiyonu kullanır;
+ * böylece paneldeki sayılarla değerlendirme raporu birbirinden farklı tanım üretmez.
+ * Ham ilan metni burada değildir (yalnızca sayaçlar ve özet alanlar).
+ */
+export async function llmTelemetryStats(
+  repos: Repos,
+  env: Env,
+  options: { sinceIso?: string; limit?: number } = {},
+): Promise<LlmTelemetryStats> {
+  const rows: LlmAnalysisDoc[] = await repos.store.find('llmAnalyses', {}, {
+    limit: options.limit ?? 5_000,
+    sort: [['createdAt', -1]],
+  });
+  return computeLlmTelemetry(rows, env, { sinceIso: options.sinceIso });
+}
+
+/**
+ * Saf özetleme: `llmAnalyses` satırlarından ölçüm tablosu. Panel ve betikler
+ * aynı tanımı kullansın diye hesap burada, veri erişimi dışında tutulur.
+ */
+export function computeLlmTelemetry(
+  rows: readonly LlmAnalysisDoc[],
+  env: Env,
+  options: { sinceIso?: string } = {},
+): LlmTelemetryStats {
+  const scoped = options.sinceIso ? rows.filter((row) => row.createdAt >= options.sinceIso!) : [...rows];
+  const apiCalls = scoped.filter((row) => !row.cacheHit);
+  const latencies = apiCalls.map((row) => row.latencyMs).sort((a, b) => a - b);
+  const failures = apiCalls.filter((row) => row.status !== 'ok');
+  const withTokens = apiCalls.filter((row) => row.promptTokens !== null || row.completionTokens !== null);
+  const tokens = {
+    prompt: scoped.reduce((sum, row) => sum + (row.promptTokens ?? 0), 0),
+    completion: scoped.reduce((sum, row) => sum + (row.completionTokens ?? 0), 0),
+  };
+  return {
+    analyses: scoped.length,
+    ok: scoped.filter((row) => row.status === 'ok').length,
+    invalid: scoped.filter((row) => row.status === 'invalid').length,
+    error: scoped.filter((row) => row.status === 'error').length,
+    timeout: scoped.filter((row) => row.status === 'timeout').length,
+    apiCalls: apiCalls.length,
+    cacheHits: scoped.length - apiCalls.length,
+    cacheHitRate: scoped.length > 0 ? (scoped.length - apiCalls.length) / scoped.length : null,
+    errorRate: apiCalls.length > 0 ? failures.length / apiCalls.length : null,
+    latency: {
+      count: latencies.length,
+      avgMs:
+        latencies.length > 0 ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length) : null,
+      p50Ms: percentile(latencies, 0.5),
+      p95Ms: percentile(latencies, 0.95),
+      maxMs: latencies.length > 0 ? (latencies.at(-1) ?? null) : null,
+    },
+    tokens: {
+      ...tokens,
+      reportedShare: apiCalls.length > 0 ? withTokens.length / apiCalls.length : null,
+    },
+    cost: estimateLlmCostUsd(tokens, llmCostAssumptions(env)),
+  };
+}
+
 export async function llmOverviewStats(repos: Repos, env: Env, now: Date): Promise<LlmOverviewStats> {
   const rows: LlmAnalysisDoc[] = await repos.store.find('llmAnalyses', {}, { limit: 5_000, sort: [['createdAt', -1]] });
   const dayAgo = now.getTime() - 24 * 3_600_000;
+  // `recent` yalnızca panelin "son 24 saat" satırındaki ek alanlar için; özet tek yerden hesaplanır.
+
   const recent = rows.filter((row) => Date.parse(row.createdAt) >= dayAgo);
   const apiCalls = recent.filter((row) => !row.cacheHit);
-  const latencies = apiCalls.map((row) => row.latencyMs);
   const totals = {
     analyses: rows.length,
     ok: rows.filter((row) => row.status === 'ok').length,
@@ -988,20 +1149,21 @@ export async function llmOverviewStats(repos: Repos, env: Env, now: Date): Promi
     error: rows.filter((row) => row.status === 'error').length,
     timeout: rows.filter((row) => row.status === 'timeout').length,
   };
+  const last24 = computeLlmTelemetry(rows, env, { sinceIso: new Date(dayAgo).toISOString() });
   return {
     enabled: env.LLM_CLASSIFIER_ENABLED,
     model: llmClassifierConfig(env)?.model ?? null,
     promptVersion: LLM_PROMPT_VERSION,
     dailyCallLimit: env.LLM_DAILY_CALL_LIMIT,
     last24h: {
+      ...last24,
       calls: apiCalls.length,
       cacheHits: recent.length - apiCalls.length,
       invalid: recent.filter((row) => row.status === 'invalid').length,
       errors: recent.filter((row) => row.status === 'error' || row.status === 'timeout').length,
-      avgLatencyMs:
-        latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null,
-      promptTokens: recent.reduce((sum, row) => sum + (row.promptTokens ?? 0), 0),
-      completionTokens: recent.reduce((sum, row) => sum + (row.completionTokens ?? 0), 0),
+      avgLatencyMs: last24.latency.avgMs,
+      promptTokens: last24.tokens.prompt,
+      completionTokens: last24.tokens.completion,
     },
     totals,
   };
