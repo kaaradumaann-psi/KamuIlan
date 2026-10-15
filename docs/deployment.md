@@ -3,7 +3,7 @@
 ## Özet kontrol listesi
 
 - [ ] `NODE_ENV=production`, `APP_SECRET` en az 32 karakter rastgele değer (sır yöneticisi)
-- [ ] `DATABASE_DRIVER=supabase` + `POSTGRES_URL` (Supabase bağlantı dizesi, `POSTGRES_SSL=true`)
+- [ ] `DATABASE_DRIVER=supabase` + `POSTGRES_URL` (Supabase bağlantı dizesi, `POSTGRES_SSL=true`; `POSTGRES_SSL_MODE` boş ya da `verify`)
 - [ ] `APP_DOMAIN=kamuilan.halilkaraduman.com.tr` + `APP_BASE_URL` (e-posta bağlantıları buradan üretilir)
 - [ ] E-posta: `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, **doğrulanmış** `EMAIL_FROM`
 - [ ] `REDIS_URL` (isteğe bağlı; çok örnekli worker için önerilir)

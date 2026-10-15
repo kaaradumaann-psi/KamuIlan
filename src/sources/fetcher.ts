@@ -13,7 +13,12 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { request, Agent, type Dispatcher } from 'undici';
-import { getCACertificates } from 'node:tls';
+import {
+  loadCaStore as tlsLoadCaStore,
+  systemCaStoreAvailable as tlsTrustStoreAvailable,
+  describeTlsTrust as tlsTrustDescribe,
+  SYSTEM_CA_MIN_NODE as TLS_TRUST_SYSTEM_CA_MIN_NODE,
+} from '../lib/tls-trust';
 import { isIP } from 'node:net';
 import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
@@ -259,36 +264,23 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Bazı resmî sitelerin (ilan.gov.tr, BDDK, TMSF) sertifika zinciri, kökü
- * Node'un gömülü Mozilla listesinde olmayan (ör. ulusal) bir CA'ya çıkar;
- * tarayıcı Windows deposundaki kökü kullanabildiği için açılır, Node
- * UNABLE_TO_VERIFY_LEAF_SIGNATURE ile reddeder. Çözüm doğrulamayı kapatmak
- * değil: sistem deposunu varsayılan paketle birleştirip ikisini de
- * güvenilir saymaktır (Node'un kendi önerisi: --use-system-ca).
+ * Sertifika zinciri güven deposu (bkz. `src/lib/tls-trust.ts`). Doğrulama
+ * ilkesi tek kaynaktan gelir: HTTP istemcisi ve Postgres sürücüsü aynı kök
+ * deposunu kullanır; hiçbir yerde doğrulama sessizce kapatılmaz.
  */
-/** Sistem sertifika deposu API'si Node 22.15 ile geldi; daha eski sürümlerde yoktur. */
-export const SYSTEM_CA_MIN_NODE = '22.15.0';
+export const SYSTEM_CA_MIN_NODE = TLS_TRUST_SYSTEM_CA_MIN_NODE;
 
 export function systemCaStoreAvailable(): boolean {
-  return typeof getCACertificates === 'function';
+  return tlsTrustStoreAvailable();
 }
 
 /** Kullanıcıya gösterilecek TLS güven modu özeti (live-check başlığı). */
 export function describeTlsTrust(): string {
-  return systemCaStoreAvailable()
-    ? `Node ${process.version}: sistem sertifika deposu kullanılıyor (eksik zincirli resmî siteler için).`
-    : `Node ${process.version}: sistem sertifika deposu KULLANILAMIYOR. ilan.gov.tr, BDDK ve TMSF gibi siteler ` +
-        `UNABLE_TO_VERIFY_LEAF_SIGNATURE hatası verebilir. Node ${SYSTEM_CA_MIN_NODE} veya üstünü kurun.`;
+  return tlsTrustDescribe();
 }
 
 export function loadTrustBundle(): string[] | undefined {
-  try {
-    if (typeof getCACertificates !== 'function') return undefined;
-    const merged = new Set<string>([...getCACertificates('default'), ...getCACertificates('system')]);
-    return merged.size > 0 ? [...merged] : undefined;
-  } catch {
-    return undefined;
-  }
+  return tlsLoadCaStore();
 }
 
 let trustWarningShown = false;

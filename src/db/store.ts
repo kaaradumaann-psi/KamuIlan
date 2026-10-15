@@ -8,13 +8,33 @@ import { readFileSync } from 'node:fs';
  * Üçü de aynı `StoragePort` sözleşmesini uygular, bu yüzden iş mantığı değişmez.
  */
 import { join } from 'node:path';
-import { getEnv, hasPostgresConfig, postgresUrl, type Env } from '../config/env';
+import { getEnv, hasPostgresConfig, postgresTlsMode, postgresUrl, type Env } from '../config/env';
 import { FileStore } from './file-store';
 import { MongoStore } from './mongo-store';
 import { PostgresStore } from './postgres-store';
 import type { StoragePort } from './ports';
 
 export const DEFAULT_STORE_FILE = 'kamuilan.json';
+
+/**
+ * CA dosyasını okur. Okunamazsa hata yükseltilir: yanlış yol, doğrulamasız
+ * bağlantıya SESİZCE düşürülmez (güvenliğin sessiz iptali en tehlikeli arıza biçimidir).
+ */
+function readCaFileOrThrow(path: string): string {
+  try {
+    const contents = readFileSync(path, 'utf8');
+    if (!contents.includes('BEGIN CERTIFICATE')) {
+      throw new Error(`CA dosyası PEM sertifika içermiyor: ${path}`);
+    }
+    return contents;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `POSTGRES_SSL_CA_FILE okunamadı (${reason}). Doğrulamasız bağlantıya düşülmedi; ` +
+        'dosya yolunu düzeltin ya da CA dosyası kaldırmak için bilinçli olarak POSTGRES_SSL_MODE=no-verify verin.',
+    );
+  }
+}
 
 /**
  * Depo sürücüsünün insan okunur adı.
@@ -58,11 +78,14 @@ export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE):
         'DATABASE_DRIVER=postgres/supabase için POSTGRES_URL (Supabase bağlantı dizesi) zorunludur.',
       );
     }
+    // CA dosyası okunamazsa SESİZCE doğrulamasıza düşülmez: hata yükselir.
+    // (Yanlış yolu doğrulamasız bağlantıyla ödüllendirmek, en riskli hata biçimidir.)
+    const caCertificate = env.POSTGRES_SSL_CA_FILE ? readCaFileOrThrow(env.POSTGRES_SSL_CA_FILE) : undefined;
     return new PostgresStore({
       connectionString: postgresUrl(env),
       maxConnections: env.POSTGRES_MAX_CONNECTIONS,
-      ssl: env.POSTGRES_SSL,
-      caCertificate: env.POSTGRES_SSL_CA_FILE ? readFileSync(env.POSTGRES_SSL_CA_FILE, 'utf8') : undefined,
+      sslMode: postgresTlsMode(env),
+      caCertificate,
     });
   }
   if (driver === 'mongodb') {

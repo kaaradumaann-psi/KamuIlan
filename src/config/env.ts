@@ -8,6 +8,7 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { z } from 'zod';
+import { systemCaStoreAvailable } from '../lib/tls-trust';
 import { envFileSource, loadEnvFile } from './load-env';
 
 /**
@@ -94,10 +95,23 @@ const envSchema = z.object({
     .default('1')
     .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
   /**
-   * Veritabanı TLS sertifika zinciri (PEM dosyasının yolu). Tanımlanırsa sunucu sertifikası bu
-   * CA ile DOĞRULANIR. Tanımlı değilse mevcut davranış sürer (doğrulama kapalı) ve uyarı verilir.
+   * Veritabanı TLS sertifika zinciri (PEM dosyasının yolu). Tanımlanırsa sunucu sertifikası
+   * YALNIZCA bu CA ile doğrulanır. Tanımlı değilse doğrulama Node'un varsayılan + işletim
+   * sisteminin kök depolarıyla yapılır (Supabase genel CA ile imzalı olduğu için ek dosya
+   * gerekmez). Doğrulamayı kapatmanın tek yolu POSTGRES_SSL_MODE'dur.
    */
   POSTGRES_SSL_CA_FILE: z.string().default(''),
+  /**
+   * TLS doğrulama kipi. Boş bırakılırsa `POSTGRES_SSL` ile geriye dönük uyum korunur:
+   *  - `''` (varsayılan): `POSTGRES_SSL=1` → `verify`, `POSTGRES_SSL=0` → `disable`.
+   *  - `verify`   : sunucu sertifikası doğrulanır (CA verilmişse o CA, yoksa sistem depoları).
+   *  - `no-verify`: TLS kullanılır ama sertifika doğrulanmaz — açık risk kabulü; üretimde
+   *                 `env:check` bunu ENGELLEME sayar, geliştirme/testte uyarı verir.
+   *  - `disable`  : TLS hiç kullanılmaz (yalnızca yerel/güvenili ağ Postgres'i).
+   * `disable` ve `no-verify` sessiz varsayılan DEĞİLDİR; bağlantı dizesindeki `sslmode` yazarsa o kazanır.
+   */
+  POSTGRES_SSL_MODE: z.enum(['', 'verify', 'no-verify', 'disable']).default(''),
+
   POSTGRES_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(100).default(10),
   /** Supabase proje bilgileri (migration/edge işleri ve panel bağlantıları için). */
   SUPABASE_URL: z.string().default(''),
@@ -304,6 +318,20 @@ export function postgresUrl(env: Env): string {
   return env.POSTGRES_URL || env.DATABASE_URL;
 }
 
+/**
+ * Etkin TLS doğrulama kipi (tek karar noktası; hem depo hem `env:check` bunu kullanır).
+ *
+ * `POSTGRES_SSL_MODE` yazıldıysa o geçerlidir. Yoksa eski `POSTGRES_SSL` bayrağı
+ * geriye dönük olarak yorumlanır: `POSTGRES_SSL=0` → `no-verify` (eski davranışın
+ * bilinçli kabulü), aksi hâlde `verify` — yani doğrulama artık AÇIK varsayılandır.
+ */
+export function postgresTlsMode(env: Env): 'verify' | 'no-verify' | 'disable' {
+  if (env.POSTGRES_SSL_MODE) return env.POSTGRES_SSL_MODE;
+  // POSTGRES_SSL=0 eski kurulumlarda "TLS hiç kullanılmasın" demekti; anlamı korunur.
+  // Doğrulama yapıp TLS kullanmamak isteniyorsa açıkça POSTGRES_SSL_MODE=no-verify yazılır.
+  return env.POSTGRES_SSL ? 'verify' : 'disable';
+}
+
 export interface EnvironmentInspection {
   ok: boolean;
   problems: string[];
@@ -356,11 +384,30 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
       problems.push('Üretimde LLM_BASE_URL https:// ile başlamalıdır (kişisel profil verisi taşınır).');
     }
   }
-  if (hasPostgresConfig(env) && env.POSTGRES_SSL && !env.POSTGRES_SSL_CA_FILE) {
-    warnings.push(
-      'Veritabanı bağlantısında sunucu sertifikası doğrulanmıyor (POSTGRES_SSL_CA_FILE tanımlı değil). ' +
-        'Supabase CA sertifikasının yolunu POSTGRES_SSL_CA_FILE ile belirtin.',
-    );
+  const postgresConfigured = hasPostgresConfig(env);
+  if (postgresConfigured) {
+    const tlsMode = postgresTlsMode(env);
+    if (tlsMode === 'verify') {
+      if (!env.POSTGRES_SSL_CA_FILE && !systemCaStoreAvailable()) {
+        warnings.push(
+          'Veritabanı TLS doğrulaması Node\'un gömülü kökleriyle yapılıyor ama sistem sertifika deposu okunamıyor ' +
+            `(Node ${process.version}); özel/ulusal CA kullanan bir Supabase sertifikasında bağlantı reddedilebilir. ` +
+            'Kök CA dosyasını POSTGRES_SSL_CA_FILE ile gösterin.',
+        );
+      }
+    } else {
+      const reason =
+        tlsMode === 'disable'
+          ? 'TLS tamamen kapalı (POSTGRES_SSL=0 ya da POSTGRES_SSL_MODE=disable): veritabanı trafiği şifrelenmiyor'
+          : 'sunucu sertifikası doğrulanmıyor (POSTGRES_SSL_MODE=no-verify)';
+      const message =
+        `Veritabanı bağlantısında ${reason}. Bu, ağ üzerindekilerin şifrelenmemiş trafiği ya da ` +
+        'kimlik doğrulama bilgilerini ele geçirebildiği bir aracı-orta (MITM) riskidir; Supabase için ' +
+        'ek dosya gerekmez — POSTGRES_SSL_MODE=verify (varsayılan) bırakın ya da CA yolunu ' +
+        'POSTGRES_SSL_CA_FILE ile gösterin.';
+      if (env.NODE_ENV === 'production') problems.push(`Üretimde ${message}`);
+      else warnings.push(message);
+    }
   }
   if (env.TELEGRAM_BOT_TOKEN) {
     if (!env.TELEGRAM_BOT_USERNAME) {
@@ -453,6 +500,10 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
         : env.MONGODB_URI
           ? 'mongodb'
           : `file:${env.DATA_DIR}`,
+    // Veritabanı TLS doğrulaması: 'verify' varsayılandır; kapatmak açık tercihtir.
+    dbTls: hasPostgresConfig(env)
+      ? `${postgresTlsMode(env)}${env.POSTGRES_SSL_CA_FILE ? ' (CA dosyası)' : ''}`
+      : 'yok (postgres tanımlı değil)',
     redis: env.REDIS_URL ? 'tanımlı' : 'yok (yerleşik kuyruk)',
     // E-posta yolu: hangi taşıyıcının seçileceğini maskeli olarak özetler.
     email:
