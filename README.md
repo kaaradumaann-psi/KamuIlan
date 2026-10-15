@@ -30,7 +30,10 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
 2. **Sınıflandırır** — deterministik kural motoru: kadrolu memur, sözleşmeli,
    kamu işçisi, akademik, kariyer meslekleri, kuruma özgü sınavlı, diğer.
    İhale/sonuç/tebliğ/atama/yönetmelik/burs-staj ilanları reddedilir; belirsiz
-   kayıtlar **silinmez**, inceleme kuyruğuna gider.
+   kayıtlar **silinmez**, inceleme kuyruğuna gider. İsteğe bağlı **LLM sınıflandırma
+   kapısı** (`LLM_CLASSIFIER_ENABLED=1`) yalnızca belirsiz kayıtlarda devreye girer:
+   modelin kararı ancak kanıtı kaynak metninde birebir doğrulanırsa uygulanır;
+   sağlayıcı hatasında kayıt incelemede kalır (bkz. `docs/llm-karari.md`).
 3. **Çıkarır** — unvan, kurum, birim, kontenjan, il/ilçe, başvuru başlangıç/bitiş,
    yöntem, resmî bağlantı, başvuru bağlantısı, ekler, eğitim düzeyi, bölüm,
    KPSS türü/taban puanı, yaş, sertifika, deneyim, yabancı dil, özel koşullar.
@@ -115,6 +118,8 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | `npm run seed:demo` | Örnek veri (`provenance: 'sample'`) |
 | `npm run fixtures:pdf` / `fixtures:capture` | Test fixture üretimi / canlı yakalama |
 | `npm run env:check` | Ortam değişkeni doğrulaması (eksik/tehlikeli ayar uyarıları) |
+| `npm run eval:classification [-- --llm]` | Etiketlenmiş kümeyle sınıflandırma ölçümü (LLM'li mod gerçek çağrı yapar) |
+| `npm run llm:review-assist [-- --report r.json]` | İnceleme kuyruğu için LLM öneri raporu (kuru çalıştırma; DB'ye yazmaz) |
 | `npm run telegram:webhook -- info\|set\|delete` | Telegram webhook durumu / kurulumu / kaldırılması (https zorunlu) |
 
 ## Mimari ve belgeler

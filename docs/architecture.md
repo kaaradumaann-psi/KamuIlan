@@ -44,7 +44,12 @@ infra/           docker-compose + Dockerfile + MongoDB başlangıç betiği
    üstel geri çekilme ile yeniden dener.
 3. **Sınıflandırma**: kural motoru her kaydı `accept` / `reject` / `review`
    olarak etiketler; karar, tür, gerekçe, eşleşen kurallar ve sürüm kaydedilir.
-   Belirsiz kayıtlar SİLİNMEZ, inceleme kuyruğuna gider.
+   Belirsiz kayıtlar SİLİNMEZ, inceleme kuyruğuna gider. `review` kayıtlarda
+   (yalnızca `LLM_CLASSIFIER_ENABLED=1` iken) **LLM sınıflandırma kapısı** ikinci
+   aşama denetimi yapar: modelin kararı ancak kanıt kaynak metinde birebir
+   doğrulanır VE deterministik kalıplarla eşleşirse uygulanır; aksi her durumda
+   (hata, geçersiz çıktı, doğrulanamayan kanıt) kayıt incelemede kalır
+   (`src/ai/classifier.ts`, ayrıntı: `docs/llm-karari.md`).
 4. **Alan çıkarımı**: başlık ve gövde metninden yapılandırılmış alanlar çıkarılır;
    her alan `listing` / `detail` / `unstated` kaynağıyla işaretlenir, çıkarılamayan
    alan `null` kalır (uydurma yok) ve belirsizlik listesine yazılır.
@@ -119,3 +124,9 @@ infra/           docker-compose + Dockerfile + MongoDB başlangıç betiği
 - **Kaynak sağlığı:** `lastHttpStatus`, `lastErrorType`, `lastExtractionAt`, `unexpectedZero` alanları
   mevcut `sources.health` belgesinde tutulur (yeni koleksiyon yok).
 - **Değerlendirme:** `npm run eval:classification` etiketli kümeyi çalıştırır (`src/classification/eval.ts`).
+- **LLM sınıflandırma kapısı (ingest):** `src/ai/classifier.ts` — deterministik motorun `review`
+  dediği kayıtlarda kanıt doğrulamalı ikinci aşama. Önbellek + telemetri `llmAnalyses`
+  koleksiyonunda (içerik özeti, model, istem sürümü, token, gecikme, hata; ham ilan metni YAZILMAZ).
+  Bütçe: `LLM_MAX_CALLS_PER_RUN` (koşu), `LLM_DAILY_CALL_LIMIT` (günlük), `LLM_MAX_CONCURRENCY`.
+  Panel: Yönetici → Genel bakış → "LLM sınıflandırma kapısı" kartı; İnceleme sekmesinde kayıt
+  başına "yapay zekâ ön görüşü". Kuru çalıştırma aracı: `npm run llm:review-assist`.
