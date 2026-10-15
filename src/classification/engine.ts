@@ -336,6 +336,7 @@ export function classify(input: ClassificationInput): ClassificationResult {
     kind: result.kind,
     rules: result.rules,
     normalizedTitle: normalizeForClassification(input.title ?? ''),
+    normalizedSourceCategory: normalizeForClassification(input.sourceCategory ?? ''),
   });
   return { ...result, contentType };
 }

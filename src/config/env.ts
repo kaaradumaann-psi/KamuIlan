@@ -124,7 +124,12 @@ const envSchema = z.object({
    *  - `no-verify`: TLS kullanılır ama sertifika doğrulanmaz — açık risk kabulü; üretimde
    *                 `env:check` bunu ENGELLEME sayar, geliştirme/testte uyarı verir.
    *  - `disable`  : TLS hiç kullanılmaz (yalnızca yerel/güvenili ağ Postgres'i).
-   * `disable` ve `no-verify` sessiz varsayılan DEĞİLDİR; bağlantı dizesindeki `sslmode` yazarsa o kazanır.
+   * `disable` ve `no-verify` sessiz varsayılan DEĞİLDİR. Bağlantı dizesi (URL) içinde
+   * TLS parametresi (`sslmode`, `ssl`, `sslrootcert`…) KULLANILAMAZ: pg, URL'yi açık
+   * `ssl` nesnesinin ÜZERİNE yazar; `sslmode=disable` yazan bir URL, buradaki `verify`
+   * kararını sessizce ezip TLS'i kapatabilirdi. Bu parametreler `postgresUrl()` içinde
+   * REDDEDİLİR (bkz. `postgresUrlTlsConflicts`); tek yetkili `POSTGRES_SSL_MODE` ve
+   * `POSTGRES_SSL_CA_FILE`dir.
    */
   POSTGRES_SSL_MODE: z.enum(['', 'verify', 'no-verify', 'disable']).default(''),
 
@@ -339,9 +344,66 @@ export function hasPostgresConfig(env: Env): boolean {
   return Boolean(env.POSTGRES_URL || env.DATABASE_URL);
 }
 
-/** Etkin Postgres bağlantı dizesi. */
+/**
+ * Bağlantı dizesinde bulunmasına İZİN VERİLMEYEN TLS parametreleri.
+ *
+ * Gerekçe (canlı kanıt, pg 8.x): `pg`'nin `ConnectionParameters`'ı, havuza verilen
+ * açık `ssl` nesnesini `parse(connectionString)` sonucuyla EZER. Yani
+ * `POSTGRES_URL=...?sslmode=disable` + `POSTGRES_SSL_MODE=verify` birleşimi,
+ * doğrulama AÇIK sanılırken TLS'i tamamen kapatır; `sslrootcert` de
+ * `POSTGRES_SSL_CA_FILE` ile verilen CA'yı sessizce değiştirir. Sessiz güvenlik
+ * düşüşü yerine açık ret: operatör parametreyi URL'den kaldırır, TLS kararını
+ * yalnızca `POSTGRES_SSL_MODE` / `POSTGRES_SSL_CA_FILE` ile verir.
+ */
+export const POSTGRES_URL_FORBIDDEN_TLS_PARAMS: readonly string[] = [
+  'sslmode',
+  'ssl',
+  'sslrootcert',
+  'sslcert',
+  'sslkey',
+  'sslnegotiation',
+  'uselibpqcompat',
+];
+
+/**
+ * URL'deki yasak TLS parametrelerinin adlarını döner (değerleri ASLA dönmez;
+ * bağlantı dizesi sırdır). URL ayrıştırılamazsa boş döner — biçim hatasını
+ * pg'nin kendi açık hatası verir, burada gizlenmez.
+ */
+export function postgresUrlTlsConflicts(url: string): string[] {
+  if (!url) return [];
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [];
+  }
+  const found = new Set<string>();
+  for (const key of parsed.searchParams.keys()) {
+    const normalized = key.toLowerCase();
+    if (POSTGRES_URL_FORBIDDEN_TLS_PARAMS.includes(normalized)) found.add(normalized);
+  }
+  return [...found];
+}
+
+/**
+ * Etkin Postgres bağlantı dizesi.
+ *
+ * URL içinde yasak TLS parametresi varsa HATA fırlatır (fail-closed): sessizce
+ * yoksaymak, yukarıda açıklanan ezme davranışını canlı bırakırdı. Hata metni
+ * parametre ADLARINI içerir, URL'nin kendisini/değerleri içermez.
+ */
 export function postgresUrl(env: Env): string {
-  return env.POSTGRES_URL || env.DATABASE_URL;
+  const url = env.POSTGRES_URL || env.DATABASE_URL;
+  const conflicts = postgresUrlTlsConflicts(url);
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Postgres bağlantı dizesinde TLS parametresi kullanılamaz (${conflicts.join(', ')}): ` +
+        'bu parametreler POSTGRES_SSL_MODE/POSTGRES_SSL_CA_FILE kararını sessizce ezer. ' +
+        'Parametreyi bağlantı dizesinden kaldırın; TLS kararını POSTGRES_SSL_MODE ile verin.',
+    );
+  }
+  return url;
 }
 
 /**
@@ -412,6 +474,17 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
   }
   const postgresConfigured = hasPostgresConfig(env);
   if (postgresConfigured) {
+    // URL'deki TLS parametresi, aşağıdaki kip denetiminin tamamını anlamsız kılar
+    // (pg URL'yi açık ssl nesnesinin üzerine yazar). env:check'te de görünür olmalı;
+    // bağlantı kurulurken postgresUrl() aynı nedenle hata fırlatır.
+    const urlConflicts = postgresUrlTlsConflicts(env.POSTGRES_URL || env.DATABASE_URL);
+    if (urlConflicts.length > 0) {
+      problems.push(
+        `Postgres bağlantı dizesinde TLS parametresi var (${urlConflicts.join(', ')}): ` +
+          'POSTGRES_SSL_MODE kararını sessizce ezer. Parametreyi URL\'den kaldırın; ' +
+          'TLS kararını yalnızca POSTGRES_SSL_MODE/POSTGRES_SSL_CA_FILE ile verin.',
+      );
+    }
     const tlsMode = postgresTlsMode(env);
     if (tlsMode === 'verify') {
       if (!env.POSTGRES_SSL_CA_FILE && !systemCaStoreAvailable()) {

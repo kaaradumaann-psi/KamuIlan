@@ -51,7 +51,11 @@ export async function loginAsAdmin(page: Page): Promise<void> {
   await page.getByLabel('E-posta').fill(email);
   await page.getByLabel('Parola').fill(secret);
   await page.getByRole('button', { name: 'Giriş yap', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Çıkış', exact: true })).toBeVisible({ timeout: 30_000 });
+  // Başarı kanıtı: oturumlu uygulama kabuğu (.portal-layout) DOM'a girer; bu
+  // kabuk yalnızca oturum varken çizilir (RequireAuthGate). "Çıkış" düğmesi
+  // KULLANILMAZ: dar ekranda üst çubuk alanı gizlidir, mobil menüdeki Çıkış
+  // ise yalnızca menü açıkken DOM'dadır (CI'da mobil testler burada takıldı).
+  await expect(page.locator('.portal-layout')).toBeAttached({ timeout: 30_000 });
 }
 
 /** Türkçe başlık için basit yerelleştirilmiş karşılaştırma. */

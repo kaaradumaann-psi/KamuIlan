@@ -20,7 +20,15 @@ import * as tls from 'node:tls';
 import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { sslConfigFor, verifiesServerCertificate, type PostgresSslConfig } from '../src/db/postgres-store';
-import { describeEnv, getEnv, inspectEnvironment, postgresTlsMode, resetEnvCache } from '../src/config/env';
+import {
+  describeEnv,
+  getEnv,
+  inspectEnvironment,
+  postgresTlsMode,
+  postgresUrl,
+  postgresUrlTlsConflicts,
+  resetEnvCache,
+} from '../src/config/env';
 
 const CA_PEM_HEADER = '-----BEGIN CERTIFICATE-----';
 
@@ -103,6 +111,42 @@ describe('ortam doğrulaması (env:check ve süreç başlangıcı)', () => {
     expect(postgresTlsMode(getEnv({ ...base, POSTGRES_SSL: '0' }))).toBe('disable');
     expect(postgresTlsMode(getEnv({ ...base }))).toBe('verify');
     expect(postgresTlsMode(getEnv({ ...base, POSTGRES_SSL_MODE: 'no-verify' }))).toBe('no-verify');
+  });
+
+  it('URL içindeki sslmode=disable, verify kararını EZEMEZ: bağlantı kurulmadan reddedilir', () => {
+    // pg, connectionString'i açık ssl nesnesinin üzerine yazar; bu URL kabul
+    // edilseydi TLS sessizce kapanırdı. Fail-closed davranış kilitlenir.
+    const env = getEnv({ ...base, NODE_ENV: 'development' });
+    const poisoned = { ...env, POSTGRES_URL: 'postgres://u:p@db.example:5432/kamuilan?sslmode=disable' };
+    expect(postgresUrlTlsConflicts(poisoned.POSTGRES_URL)).toEqual(['sslmode']);
+    expect(() => postgresUrl(poisoned)).toThrow(/TLS parametresi kullanılamaz \(sslmode\)/);
+    // Hata metni bağlantı dizesinin kendisini (sırrı) içermez.
+    let message = '';
+    try {
+      postgresUrl(poisoned);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).not.toContain('u:p@');
+    expect(message).not.toContain('db.example');
+  });
+
+  it('sslmode=require / ssl / sslrootcert / uselibpqcompat da reddedilir; env:check bunu sorun sayar', () => {
+    for (const param of ['sslmode=require', 'ssl=0', 'sslrootcert=/tmp/ca.pem', 'uselibpqcompat=true&sslmode=require']) {
+      const env = getEnv({ ...base, NODE_ENV: 'development' });
+      const poisoned = { ...env, POSTGRES_URL: `postgres://u:p@db.example:5432/kamuilan?${param}` };
+      expect(() => postgresUrl(poisoned)).toThrow(/TLS parametresi kullanılamaz/);
+      const inspection = inspectEnvironment(poisoned);
+      expect(inspection.problems.join(' ')).toMatch(/bağlantı dizesinde TLS parametresi var/);
+      expect(inspection.ok).toBe(false);
+    }
+  });
+
+  it('TLS parametresiz URL aynen döner; ilgisiz sorgu parametreleri engellenmez', () => {
+    const env = getEnv({ ...base, NODE_ENV: 'development' });
+    const clean = { ...env, POSTGRES_URL: 'postgres://u:p@db.example:5432/kamuilan?connect_timeout=10' };
+    expect(postgresUrlTlsConflicts(clean.POSTGRES_URL)).toEqual([]);
+    expect(postgresUrl(clean)).toBe(clean.POSTGRES_URL);
   });
 
   it('postgres tanımlı değilse TLS denetimi hiçbir sorun/uyarı üretmez (dosya deposu)', () => {
