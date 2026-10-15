@@ -639,6 +639,9 @@ async function printPostChecks(values: Record<string, string>, filePath: string)
               '  ! Sunucuya şu an ulaşılamıyor: YAPILANDIRMA geçerli, ağ/erişim denetimi yapılamadı. ' +
                 'Başka bir ağdan/VPN ile `npm run db:tls-doctor` çalıştırın.',
             );
+          } else if (cause === 'not-probed') {
+            // Sondaj bilinçli olarak atlandı: yapılandırma yazıldı, zincir görülmedi.
+            console.log('  ! Canlı sondaj yapılmadı: zincir doğrulaması bu çalışmada denetlenmedi (npm run db:tls-doctor).');
           } else if (cause === 'ca-file-unusable') {
             console.error('  ✖ CA dosyası kullanılamıyor: doğrulama bu dosyayla çalışmaz (dosya yazıldı ama düzeltilmeli).');
             process.exitCode = 1;

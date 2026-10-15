@@ -22,11 +22,13 @@ import { inspectCaFile, formatCaFileIssues, describeCertShort, loadTrustedCaCert
 import { envFileSource } from '../src/config/load-env';
 import {
   getEnv,
+  parseEnvWithoutValidation,
   hasPostgresConfig,
   postgresCaMergeSystem,
   postgresTlsMode,
   postgresUrl,
   postgresUrlTlsConflicts,
+  type Env,
 } from '../src/config/env';
 import {
   describePostgresEndpoint,
@@ -98,14 +100,31 @@ async function main(): Promise<void> {
 
   /* 2) .env ve etkin kararlar. */
   console.log('[2/6] Yapılandırma (.env)');
-  let env;
+  let env: Env;
   try {
     env = getEnv();
   } catch (error) {
-    console.error(`  ✖ Ortam okunamadı: ${error instanceof Error ? error.message : String(error)}`);
-    console.error('\nTanılama devam edemiyor: önce .env hatalarını düzeltin.');
-    process.exitCode = 1;
-    return;
+    // Fail-closed doğrulama sunucu/worker başlangıcını DURDURMALI (doğru davranış),
+    // ama TANILAMA ARACINI durdurmamalı: eksik CA dosyası gibi sorunları çözecek
+    // olan tam olarak bu betiktir. Eskiden burada "önce .env'i düzeltin" deyip
+    // çıkıyordu; oysa .env'i düzeltmenin yolunu söyleyen araç buydu (kısır döngü).
+    // Doğrulanmamış ayrıştırmayla devam edilir; bağlantı denemesi hiçbir dalda
+    // sertifika doğrulamasını kapatmaz.
+    const message = error instanceof Error ? error.message : String(error);
+    const tolerant = parseEnvWithoutValidation();
+    if (!tolerant.ok) {
+      console.error(`  ✖ Ortam okunamadı: ${message}`);
+      console.error(`    Ayrıştırma da başarısız: ${tolerant.issues.join('; ')}`);
+      console.error('\nTanılama devam edemiyor: npm run env:setup ile değerleri düzeltin.');
+      process.exitCode = 1;
+      return;
+    }
+    env = tolerant.env;
+    console.log('  ⚠ Ortam DOĞRULAMASI başarısız; tanılama doğrulanmamış değerlerle sürdürülüyor.');
+    console.log(`    Neden: ${message.split('\n').join('\n    ')}`);
+    console.log('    Bu yapılandırmayla sunucu/worker BAŞLAMAZ (fail-closed) — doğru olan da bu.');
+    console.log('    Tanılama doğrulamayı hiçbir dalda kapatmaz; onarım adımları aşağıda.\n');
+    problems.push(`Ortam doğrulaması başarısız: ${message.replace(/\n\s*/g, ' ')}`);
   }
   console.log(`  .env dosyası: ${envFileSource() ?? 'okunmadı (yalnızca ortam değişkenleri)'}`);
   console.log(`  Çalışma dizini: ${process.cwd()}`);
@@ -164,6 +183,22 @@ async function main(): Promise<void> {
     if (!report.exists) {
       console.log('  Denenen yollar:');
       for (const candidate of report.candidates) console.log(`    - ${candidate}`);
+      // En sık gerçek durum: yol .env'e yazılmış ama dosya hiç oluşturulmamış.
+      // Kullanıcıya üç somut çıkış yolu verilir (hangisinin uygun olduğuna
+      // [5/6] sondajındaki zincir ve parmak izleri karar verir).
+      console.log('  ✖ Dosya YOK: .env yolu bildiriyor ama diskte değil. Onarım seçenekleri:');
+      console.log('    A) Sunucunun sunduğu zinciri bu yola yazın, SONRA [5/6] dökümündeki kök');
+      console.log('       parmak izini sağlayıcının yayımladığı kökle karşılaştırın:');
+      console.log(`         npm run db:tls-doctor -- --save-chain ${report.requestedPath}`);
+      if (mode === 'no-verify' || mode === 'disable') {
+        console.log('       UYARI: POSTGRES_SSL_MODE şu an doğrulamayı kapatıyor; önce kipi verify');
+        console.log('              yapın, yoksa araya giren (proxy) zincirini kaydedebilirsiniz.');
+      }
+      console.log('    B) Sağlayıcının resmî kökünü indirip aynı yola koyun');
+      console.log('       (Supabase: Project Settings → Database → CA certificate; docs/database-tls.md).');
+      console.log('    C) CA dosyası kullanmak istemiyorsanız anahtarı .env dosyasından kaldırın; güven');
+      console.log('       sistem kökleri + Node gömülü kökleri + NODE_EXTRA_CA_CERTS ile kurulur:');
+      console.log('         npm run env:setup -- --only POSTGRES_SSL_CA_FILE');
     }
     console.log(`  Sertifika sayısı: ${report.certificates.length}`);
     for (const cert of report.certificates) {

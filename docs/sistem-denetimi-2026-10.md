@@ -429,7 +429,7 @@ Uygulanan düzeltmeler:
 
 | # | Düzeltme | Dosya |
 | --- | --- | --- |
-| 1 | Google kökü otomatik olarak OpenAI uyumlu `/openai` ucuna çevrilir (idempotent; tam uç verilmişse aynen kullanılır; yerel `:generateContent` yolu sürüm köküne indirgenir) | `src/ai/llm.ts` → `chatCompletionsEndpoint()` |
+| 1 | **(GÜNCELLENDİ — bkz. §9.7)** Google kökü birincil `generateContent` API'sine yönlendirilir: `POST {kök}/models/{model}:generateContent` + `x-goog-api-key`. OpenAI uyumluluk kabuğu (`…/v1beta/openai/chat/completions`) her anahtar/bölge/model için çalışmıyor ve canlıda 404 döndü | `src/ai/llm.ts` → `resolveLlmEndpoint()`, `buildGeminiRequestBody()`, `parseGeminiResponse()` |
 | 2 | Sağlayıcı hata gerekçesi artık **hangi uca hangi modelle** gidildiğini ve ilk denenecek adımı yazar (404/401/403/400/429/413 ayrı ayrı); API anahtarı asla yazılmaz | `src/ai/llm.ts` → `statusHint()` |
 | 3 | Uç/model uyuşmazlığı (OpenAI ucuna Gemini, Google ucuna GPT) `env:check` çıktısında uyarı olarak görünür — engelleyici değil, yanlış pozitif olabilir | `src/config/env.ts`, `describeLlmEndpointRisk()` |
 | 4 | Yeni tanı komutu: tek gerçek çağrı yapar, ucu/modeli/anahtarı (yalnızca uzunluğu)/kotaları/maliyet ayarını ve canlı çağrı sonucunu raporlar; hata durumunda sıralı kontrol listesi basar | `scripts/llm-doctor.ts` → `npm run llm:doctor` (`--offline`, `--json`) |
@@ -534,3 +534,78 @@ npm run test:live
 Terminal Türkçe karakterleri bozuyorsa: `chcp 65001`. PowerShell betikleri
 engelliyorsa: `cmd` içinde `npm.cmd …` ya da
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+---
+
+## 9.7 Gemini bağlantı hatasının kök nedeni ve kalıcı düzeltmesi (2026-10-16, ikinci tur)
+
+### Kanıt (operatörün kendi makinesinde, aynı API anahtarıyla)
+
+| İstek | Sonuç |
+| --- | --- |
+| `GET /v1beta/models` | 200 |
+| `GET /v1beta/openai/models` | 200 — `models/gemini-2.5-flash` listede VAR |
+| `POST /v1beta/openai/chat/completions` | **HTTP 404** |
+| `npm run llm:doctor` | **HTTP 404** (paneldeki %100 hata · 0 token'ın kaynağı) |
+
+**Kök neden:** anahtar ve model geçerli; hata **uçta**. Google'ın
+`/v1beta/openai/…` katmanı birincil API değil, kısmî bir OpenAI uyumluluk
+kabuğudur; her anahtar/bölge/model kombinasyonu için `chat/completions`
+sunmaz. "Model listede görünüyor" sohbet ucunun çalıştığını kanıtlamaz: liste
+ucu ile sohbet ucu farklı yönlendiricilerdir. Eski istemci Google kökünü
+otomatik olarak bu kabuğa çeviriyordu (§9.1 satır 1'in ilk hâli), dolayısıyla
+kapı her kayıtta 404 aldı.
+
+**Neden panelde sadece "Sağlayıcı HTTP 404 döndü" yazıyordu:** istemci 2xx
+olmayan yanıtların gövdesini okumuyordu. Google 404'te açıklayıcı bir JSON
+hata gövdesi döndürür (`error.message`); bu bilgi atılıyordu. Doktor da
+"liste çalışıyor ama sohbet 404 ⇒ sorun uçta" çıkarımını otomatik yapmıyordu.
+
+### Düzeltme
+
+| # | Ne | Nerede |
+| --- | --- | --- |
+| 1 | İki taşıyıcılı uç çözümü: Google kökü → `POST {kök}/models/{model}:generateContent` + `x-goog-api-key`; diğer kökler → `{kök}/chat/completions` + `Authorization: Bearer` (bayt düzeyinde aynı eski davranış) | `src/ai/llm.ts` → `resolveLlmEndpoint()`, `googleApiVersionPath()`, `isGoogleAiHost()` |
+| 2 | Sistem mesajı `systemInstruction.parts[]`, roller `user`/`model`, ardışık aynı rol birleştirilir, `generationConfig.{temperature,maxOutputTokens}`, JSON modu `responseMimeType: application/json` | `src/ai/llm.ts` → `buildGeminiRequestBody()` |
+| 3 | Yanıt eşlemesi: `candidates[0].content.parts[].text` birleştirilir; token'lar `usageMetadata.promptTokenCount` / `candidatesTokenCount` (yoksa `totalTokenCount`); boş yanıta `finishReason`/`finishMessage`/`promptFeedback.blockReason` gerekçesi yazılır | `src/ai/llm.ts` → `parseGeminiResponse()` |
+| 4 | **Sağlayıcı mesajı artık gerekçeye taşınır** (iki taşıyıcıda da): `error.message` ayıklanır, anahtar metinden çıkarılır, 240 karakterle sınırlanır; durum koduna göre ipucu eklenir (401/403 anahtar-yetki, 404 uç-model, 429 kota, 5xx sağlayıcı) | `src/ai/llm.ts` → `providerErrorMessage()`, `statusHint()` |
+| 5 | Yeniden deneme politikası değişmedi: 429/5xx/zaman aşımı geçici, 400/401/403/404 kalıcı → kota tüketmez | `callChatCompletion()` |
+| 6 | Doktor taşıyıcıyı, tam istek adresini, istenen model kimliğini ve anahtar başlığını yazar; `--compat`/`--native` ile taşıyıcı zorlanır; başarısız çağrıda **model listesi denetimi** yapar ("listedeyse sorun uçta", listede değilse benzer model önerir) ve karşı taşıyıcı komutunu verir | `scripts/llm-doctor.ts` → `probeModelList()`, `DoctorReport.modelList` |
+| 7 | Ortam uyarıları: Google kökünde `google/` önekli model "Gemini yerel API bu öneki kabul etmez"; Google olmayan kökte `gemini-…` modeli "kök/uyumlu biçim gerekli" | `src/ai/llm.ts` → `describeLlmEndpointRisk()` |
+
+Değişmeyenler: `LlmResult` sözleşmesi, `classifier.ts`/`suggest.ts`/panel,
+önbellek-telemetri-kota katmanı, Supabase bağlantısı, diğer sağlayıcıların
+davranışı. **Yeni bağımlılık yok** (yalnızca yerleşik `fetch`). Anahtar hiçbir
+yeni yerde loglanmaz; URL'ye yazılmaz.
+
+### Testler ve doğrulama durumu
+
+`tests/llm-gemini.test.ts` (40 test): uç çözümü (`/openai` kökü, yapıştırılmış
+`:generateContent` ucu, sürüm yolları v1/v1alpha/v1internal), model
+normalizasyonu, gövde dönüşümü (sistem/kullanıcı/asistan, boş sistem,
+önbelleksiz tek mesaj, `maxOutputTokens` yokken anahtarın çıkmaması), yanıt
+ayrıştırma (çok parça, boş aday, `blockReason`, `MAX_TOKENS`, `SAFETY`,
+bozuk JSON), başarı + token aktarımı, 400/401/403/404/429/503 sınıflandırması
+ve gerekçe metinleri, anahtar sızmama denetimi (gerekçe/telemetri/URL), zaman
+aşımı, ağ hatası, JSON modu, gerçek soketli Google biçimli taklit sunucu (hem
+yerel hem kabuk ucu) ve **kuyruk uçtan uca denetimi**: 404'te kayıt `review`da
+kalır + `llmAnalyses.status='error'` + `summary().errors=1`; başarıda `review →
+accept(kind:'job')` + `contentType='personnel_recruitment'` + token'lar; 429
+yeniden denenir, 404 denenmez.
+
+Doğrulanamayan tek adım: **gerçek `generativelanguage.googleapis.com` çağrısı.**
+Denetim ortamının genel internet erişimi yok (yalnızca github/npm/pypi
+açık) ve `/etc/hosts` salt okunur olduğu için Google ana makine adı
+yerelleştirilemedi. Bu yüzden canlı uçtan uca doğrulama operatörde:
+
+```bat
+npm run llm:doctor              :: yerel generateContent taşıyıcısı
+npm run llm:doctor -- --compat  :: aynı 404'ü eski kabukla karşılaştırın
+```
+
+Beklenen: `Taşıyıcı: gemini-native`, `İstek ucu:
+https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+`✓ Canlı çağrı başarılı: HTTP 200 … (N girdi / M çıktı token)`. İstek/yanıt
+alan adları Google'ın birincil API biçimine göredir; resmî belgeye bu
+ortamdan erişilemediği için alan adları canlı çağrıyla teyit edilmelidir
+(doktor, beklenmeyen bir gövdede sağlayıcının kendi mesajını yazar).

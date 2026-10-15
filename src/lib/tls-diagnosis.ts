@@ -93,6 +93,7 @@ const KNOWN_PROVIDER_MARKERS = [
 
 export type TlsCause =
   | 'tls-unsupported'
+  | 'not-probed'
   | 'unreachable'
   | 'ca-file-unusable'
   | 'hostname-mismatch'
@@ -156,10 +157,43 @@ export function diagnoseTls(input: DiagnoseInput, options: DiagnoseOptions = {})
   }
 
   if (!probe) {
-    return finish('unreachable', 'POSTGRES_URL çözümlenemedi; tanılama yapılamadı.', findings, [
-      'POSTGRES_URL değerini Supabase → Project Settings → Database → Connection string ile karşılaştırın.',
-      'Bağlantı dizesine sslmode/sslrootcert gibi TLS parametresi YAZMAYIN; bu uygulama TLS kararını POSTGRES_SSL_MODE ile verir.',
-    ], trust);
+    // `probe === null` iki farklı durumdur ve karıştırılmaz:
+    //  - endpoint yok  → bağlantı dizesi çözümlenemedi (unreachable),
+    //  - endpoint var  → canlı sondaj HİÇ YAPILMADI (--no-probe ya da TLS kapalı).
+    //    İkincisinde "ulaşılamadı" demek yanlıştır: sunucuya hiç bağlanılmadı.
+    if (!endpoint) {
+      return finish('unreachable', 'POSTGRES_URL çözümlenemedi; tanılama yapılamadı.', findings, [
+        'POSTGRES_URL değerini Supabase → Project Settings → Database → Connection string ile karşılaştırın.',
+        'Bağlantı dizesine sslmode/sslrootcert gibi TLS parametresi YAZMAYIN; bu uygulama TLS kararını POSTGRES_SSL_MODE ile verir.',
+      ], trust);
+    }
+
+    const skipped = [
+      ...findings,
+      'Canlı sondaj yapılmadı: sunucunun sunduğu zincir bu çalışmada DENETLENMEDİ.',
+    ];
+    if (input.mode === 'disable') {
+      return finish(
+        'not-probed',
+        'TLS kapalı (POSTGRES_SSL_MODE=disable): sunucuya bağlanılmadı, zincir doğrulaması yapılmıyor.',
+        skipped,
+        [
+          'Yönetilen bir veritabanı (Supabase, RDS, Azure) için POSTGRES_SSL_MODE=verify yazın.',
+          'Kararı değiştirdikten sonra zinciri canlı denetleyin: npm run db:tls-doctor',
+        ],
+        trust,
+      );
+    }
+    return finish(
+      'not-probed',
+      'Canlı sondaj atlandı (--no-probe): yalnızca yapılandırma denetlendi.',
+      skipped,
+      [
+        'Sunucunun sunduğu zinciri görmek için sondajı açın: npm run db:tls-doctor (--no-probe bayrağı olmadan).',
+        'Yapılandırmanın tutarlı görünmesi doğrulamanın GEÇTİĞİNİ kanıtlamaz; son adımda ✔ satırını bekleyin.',
+      ],
+      trust,
+    );
   }
 
   if (probe.failure === 'tls-unsupported') {

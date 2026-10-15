@@ -3,9 +3,10 @@
  *
  * 2026-10-16 canlı panel: "Yapay zekâ ön görüşü — model denetimine ulaşılamadı /
  * Sağlayıcı HTTP 404 döndü", LLM ölçümleri %100 hata · 0 token. Kök neden
- * yapılandırmaydı: istemci `${LLM_BASE_URL}/chat/completions` çağırırken
- * Google'ın yerel kökü bu yolu bilmez. Bu dosya uç kurulumunu, uç/model
- * uyuşmazlığı uyarısını ve hata gerekçesinin operatöre yol göstermesini kilitler.
+ * yapılandırmaydı: istemci `${LLM_BASE_URL}/chat/completions` çağırıyordu.
+ * Bu dosya OpenAI uyumlu uç kurulumunu, uç/model uyuşmazlığı uyarısını ve hata
+ * gerekçesinin operatöre yol göstermesini kilitler. Google kökünün yerel
+ * `generateContent` taşıyıcısı `tests/llm-gemini.test.ts` dosyasında kanıtlanır.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -87,9 +88,10 @@ describe('callChatCompletion hata gerekçesi', () => {
     expect(result.status).toBe(404);
     expect(result.retryable).toBe(false);
     expect(result.reason).toContain('HTTP 404');
-    expect(result.reason).toContain('/v1beta/openai/chat/completions');
-    expect(result.reason).toContain('test-model');
-    expect(result.reason).toContain('LLM_BASE_URL');
+    // Google kökü yerel API'ye yönlendirilir: gerekçe GERÇEK isteğin adresini taşır.
+    expect(result.reason).toContain('/v1beta/models/test-model:generateContent');
+    expect(result.reason).toContain('Gemini yerel API');
+    expect(result.reason).toContain('llm:doctor');
     expect(result.reason).not.toContain(config.apiKey);
   });
 

@@ -702,10 +702,43 @@ describe('ortam denetimi: CA dosyası doğrulaması env:check’e yansır', () =
 });
 
 describe('tanı yardımcıları', () => {
-  it('sondaj yapılamazsa genel "ulaşılamadı" tanısı üretilir', () => {
+  it('sondaj ATLANDIYSA "ulaşılamadı" denmez: not-probed tanısı üretilir', () => {
     const diagnosis = diagnoseTls({
       probe: null,
       endpoint: describePostgresEndpoint('postgres://kullanici@db.example:5432/postgres'),
+      caFileReport: null,
+      fileAnchors: [],
+      mergeSystem: false,
+      mode: 'verify',
+    });
+    expect(diagnosis.cause).toBe('not-probed');
+    expect(diagnosis.headline).toContain('--no-probe');
+    expect(diagnosis.headline).not.toContain('çözümlenemedi');
+    expect(diagnosis.findings.join('\n')).toContain('DENETLENMEDİ');
+    // Doğrulamayı kapatma önerisi YOK.
+    expect([...diagnosis.actions, ...diagnosis.findings].join('\n')).not.toMatch(
+      /no-verify|NODE_TLS_REJECT_UNAUTHORIZED=0/i,
+    );
+  });
+
+  it('TLS kapalıyken sondaj atlanırsa neden kiptir, ağ değildir', () => {
+    const diagnosis = diagnoseTls({
+      probe: null,
+      endpoint: describePostgresEndpoint('postgres://kullanici@db.example:5432/postgres'),
+      caFileReport: null,
+      fileAnchors: [],
+      mergeSystem: false,
+      mode: 'disable',
+    });
+    expect(diagnosis.cause).toBe('not-probed');
+    expect(diagnosis.headline).toContain('POSTGRES_SSL_MODE=disable');
+    expect(diagnosis.actions.join('\n')).toContain('POSTGRES_SSL_MODE=verify');
+  });
+
+  it('uç nokta çözümlenemiyorsa unreachable tanısı korunur', () => {
+    const diagnosis = diagnoseTls({
+      probe: null,
+      endpoint: null,
       caFileReport: null,
       fileAnchors: [],
       mergeSystem: false,
