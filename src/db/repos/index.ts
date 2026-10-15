@@ -11,6 +11,7 @@ import { OutboxRepo } from './outbox';
 import { ReviewRepo } from './review';
 import { ScrapeRunRepo } from './runs';
 import { SourceRepo } from './sources';
+import { TelegramRepo } from './telegram';
 import {
   AuditRepo,
   BuiltinQueueRepo,
@@ -39,6 +40,7 @@ export interface Repos {
   heartbeats: HeartbeatRepo;
   audit: AuditRepo;
   savedJobs: SavedJobRepo;
+  telegram: TelegramRepo;
 }
 
 export function createRepos(store: StoragePort, clock: Clock = systemClock): Repos {
@@ -59,6 +61,7 @@ export function createRepos(store: StoragePort, clock: Clock = systemClock): Rep
     heartbeats: new HeartbeatRepo(store, clock),
     audit: new AuditRepo(store, clock),
     savedJobs: new SavedJobRepo(store, clock),
+    telegram: new TelegramRepo(store, clock),
   };
 }
 
@@ -73,5 +76,5 @@ export function setRepos(repos: Repos | null): void {
   singleton = repos;
 }
 
-export { JobRepo, NotificationRepo, OutboxRepo, ReviewRepo, ScrapeRunRepo, SourceRepo, UserRepo };
+export { JobRepo, NotificationRepo, OutboxRepo, ReviewRepo, ScrapeRunRepo, SourceRepo, TelegramRepo, UserRepo };
 export * from './system';

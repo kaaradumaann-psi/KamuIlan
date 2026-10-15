@@ -119,21 +119,32 @@ export function JobDetailPage(): ReactNode {
     <article className="page-stack">
       <header className="detail-head card-elevated">
         <div className="detail-head-tags">
-          <Tag tone="accent">{employmentTypeLabel(job.employmentType)}</Tag>
-          <Tag tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}>
-            {jobStatusLabel(job.status)}
-          </Tag>
-          <Tag
-            tone={
-              job.deadline.state === 'closing-soon'
-                ? 'warning'
-                : job.deadline.state === 'closed'
-                  ? 'neutral'
-                  : 'info'
-            }
-          >
-            {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
-          </Tag>
+          {job.kind === 'process' ? (
+            <Tag tone="info">Süreç duyurusu (yeni ilan değil)</Tag>
+          ) : (
+            <Tag tone="accent">{employmentTypeLabel(job.employmentType)}</Tag>
+          )}
+          {/* Süreç duyurusunda başvuru durumu ve son başvuru etiketi gösterilmez: "açık" yanılgısı yaratır. */}
+          {job.kind !== 'process' && (
+            <>
+              <Tag
+                tone={job.status === 'active' ? 'success' : job.status === 'upcoming' ? 'info' : 'neutral'}
+              >
+                {jobStatusLabel(job.status)}
+              </Tag>
+              <Tag
+                tone={
+                  job.deadline.state === 'closing-soon'
+                    ? 'warning'
+                    : job.deadline.state === 'closed'
+                      ? 'neutral'
+                      : 'info'
+                }
+              >
+                {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
+              </Tag>
+            </>
+          )}
           {job.provenance === 'sample' && <Tag tone="warning">örnek veri (gerçek ilan değil)</Tag>}
         </div>
 
@@ -164,7 +175,7 @@ export function JobDetailPage(): ReactNode {
             </span>
           )}
           <SaveJobButton jobId={job.id} />
-          {job.applicationEndDate && (
+          {job.applicationEndDate && job.kind !== 'process' && (
             <button
               type="button"
               className="btn-secondary"
@@ -225,8 +236,8 @@ export function JobDetailPage(): ReactNode {
               </div>
             )}
             <p className="text-muted-sm">
-              Karşılaştırma bu tarayıcıda yapılır; profiliniz haricî bir AI hizmetine gönderilmez. İlanın
-              resmî metnini ve tüm kadro koşullarını başvuru öncesi kontrol edin.
+              Karşılaştırma bu tarayıcıda yapılır; bu karşılaştırma için profiliniz hiçbir hizmete
+              gönderilmez. İlanın resmî metnini ve tüm kadro koşullarını başvuru öncesi kontrol edin.
             </p>
             <Link to="/panel">Profil ve gizlilik ayarlarını düzenle</Link>
           </Card>

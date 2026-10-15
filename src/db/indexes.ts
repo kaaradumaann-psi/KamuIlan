@@ -53,6 +53,11 @@ export const INDEXES: readonly IndexSpec[] = [
   { collection: 'emailOutbox', name: 'status_next_attempt', keys: [['status', 1], ['nextAttemptAt', 1]] },
   { collection: 'emailOutbox', name: 'user_created', keys: [['userId', 1], ['createdAt', -1]] },
 
+  // Telegram bağlantıları
+  { collection: 'telegramLinks', name: 'uniq_user', keys: [['userId', 1]], unique: true },
+  { collection: 'telegramLinks', name: 'chat_id', keys: [['chatId', 1]] },
+  { collection: 'emailOutbox', name: 'channel_status', keys: [['channel', 1], ['status', 1]] },
+
   // Tarama kayıtları
   { collection: 'scrapeRuns', name: 'source_started', keys: [['sourceKey', 1], ['startedAt', -1]] },
   { collection: 'scrapeRuns', name: 'status', keys: [['status', 1]] },

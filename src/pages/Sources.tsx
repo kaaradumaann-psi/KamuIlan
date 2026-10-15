@@ -66,7 +66,7 @@ function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
       if (source.verified)
         return (
           <Tag tone="info" icon="check">
-            yöntemi doğrulandı
+            tarihsel doğrulama
           </Tag>
         );
       if (source.built)
@@ -92,9 +92,9 @@ export function SourcesPage(): ReactNode {
           <span className="kicker">İlan kaynakları</span>
           <h1 className="page-title">İlanları nereden alıyoruz?</h1>
           <p className="info-lede">
-            Her ilanı bulamayabiliriz; bunu saklamıyoruz. Aşağıda etkin tanımlı kaynakları, her birinin son
-            tarama sonucunu ve son başarılı tarama zamanını görürsünüz. Yöntemin doğrulanmış olması, worker'ın
-            şu anda çalıştığı anlamına gelmez.
+            Hangi resmî kaynaklara baktığımızı, her birinin son tarama sonucunu ve son başarılı taramasını
+            burada görürsünüz. Bir kaynağın yönteminin doğrulanmış olması, şu anda taranıyor olduğu anlamına
+            gelmez.
           </p>
         </div>
       </header>
@@ -155,6 +155,13 @@ export function SourcesPage(): ReactNode {
                 tarama kanıtı henüz yok.
               </li>
               <li>
+                <strong>Son tarama sorunlu:</strong> Son denemede kaynağa ulaşılamadı ya da sayfa okunamadı.
+                Önceki ilanlar silinmez; kaynak düzelince yeniden taranır.
+              </li>
+              <li>
+                <strong>Elle takip ediliyor:</strong> Bu kaynak otomatik taranmaz; ilanları elle girilir.
+              </li>
+              <li>
                 <strong>Henüz başlamadı:</strong> Bu kurumlara doğrudan bakmıyoruz; ilanları başka
                 kaynaklardan kısmen gelebilir.
               </li>
@@ -213,34 +220,34 @@ export function SourcesPage(): ReactNode {
                       <>
                         <span className="cell-subtitle">
                           Son sonuç: {RUN_STATUS_LABELS[source.lastRun.status] ?? source.lastRun.status} ·{' '}
-                          {formatNumber(source.lastRun.itemsFound)} ilan ·{' '}
+                          {formatNumber(source.lastRun.itemsFound)} ilan · ortalama süre{' '}
                           {formatDuration(source.health.avgDurationMs)}
                         </span>
                         <span className="cell-subtitle">
-                          Liste kapsamı:{' '}
+                          Sayfa kapsamı:{' '}
                           {source.lastRun.coverageStatus === 'complete'
-                            ? 'bu taramada tamamlandı'
+                            ? 'bu taramada tam'
                             : source.lastRun.coverageStatus === 'partial'
                               ? 'kısmi'
-                              : 'bilinmiyor'}
+                              : 'doğrulanamadı'}
                           {source.lastRun.coverageNote ? ` — ${source.lastRun.coverageNote}` : ''}
                         </span>
                       </>
                     )}
                     {source.health.successRuns + source.health.failureRuns > 0 && (
                       <span className="cell-subtitle">
-                        Kontroller: {formatNumber(source.health.successRuns)}/
-                        {formatNumber(source.health.successRuns + source.health.failureRuns)} başarılı
+                        Son {formatNumber(source.health.successRuns + source.health.failureRuns)} denemenin{' '}
+                        {formatNumber(source.health.successRuns)} tanesi başarılı
                       </span>
                     )}
                   </td>
                   <td data-label="Sorun var mı">
                     {source.health.consecutiveFailures > 0 ? (
                       <span className="cell-error">
-                        {source.health.consecutiveFailures} denemedir ulaşılamıyor
+                        Son {formatNumber(source.health.consecutiveFailures)} denemede ulaşılamadı
                       </span>
                     ) : (
-                      <span className="cell-subtitle">yok</span>
+                      <span className="cell-subtitle">Sorun yok</span>
                     )}
                   </td>
                 </tr>
@@ -283,7 +290,7 @@ export function SourcesPage(): ReactNode {
                           Kurumun sayfası <Icon name="external" size={13} />
                         </a>
                       ) : (
-                        <Tag>adresi yok</Tag>
+                        <span className="cell-subtitle">Kurumun sayfası kayıtlı değil</span>
                       )}
                     </div>
                   </li>

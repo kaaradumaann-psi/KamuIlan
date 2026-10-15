@@ -269,6 +269,13 @@
     gap: 6px;
   }
 
+  .job-card-note {
+    margin: 0;
+    color: var(--slate-500);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
   .job-card-meta {
     list-style: none;
     margin: 0;
@@ -2184,4 +2191,49 @@
   .link-row .cell-mono {
     overflow-wrap: anywhere;
   }
+}
+
+/* Telegram kartı: kart içi düzen (semantik sınıflar, yardımcı sınıf değil). */
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.inline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.code-block {
+  display: inline-block;
+  padding: 0.4rem 0.7rem;
+  border-radius: 8px;
+  background: var(--surface-sunken, #f1f5f9);
+  border: 1px solid var(--border, #e2e8f0);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  word-break: break-all;
+  user-select: all;
+}
+
+/* Panel: yapay zekâ destekli "Bana uygun ilanlar" listesi. */
+.ai-suggestion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.ai-suggestion-item {
+  padding-block: 0.85rem;
+  border-top: 1px solid var(--hairline, #e2e8f0);
+}
+
+.ai-suggestion-item:first-child {
+  border-top: 0;
+  padding-top: 0.25rem;
 }

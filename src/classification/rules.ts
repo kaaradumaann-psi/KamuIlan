@@ -16,6 +16,7 @@
  * başlıklarında uygulanır.
  */
 import type { EmploymentType } from '../domain';
+import { SITE_CHROME_TITLE_PATTERN } from '../domain/text';
 
 export interface KeywordRule {
   id: string;
@@ -240,6 +241,66 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
       /\b(?:genel\s+basvuru(?:lar)?(?:\s+(?:ilan|duyuru|ilanlari))?|ozgecmis\s+havuz\w*|cv\s+havuz\w*|talent\s+pool)/,
     weight: 0,
   },
+  {
+    id: 'ret-baslik.basin-konferans-rapor',
+    reason: 'Başlık basın duyurusu, konferans, sempozyum, rapor ya da eğitim programı — iş ilanı değil',
+    pattern:
+      /\b(?:basin\s+(?:duyuru|aciklama|bulten)\w*|konferans\w*|sempozyum\w*|kongre\w*|calistay\w*|seminer\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|izleme\s+ve\s+degerlendirme|degerlendirme\s+raporu|faaliyet\s+raporu|arastirma\s+programlari)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.yer-degistirme-satis',
+    reason: 'Başlık yer değiştirme, gayrimenkul satışı ya da çerez bildirimi — iş ilanı değil',
+    pattern:
+      /\b(?:yer\s+degistirme\w*|satis\s+ilan\w*|satis\s+duyur\w*|gayrimenkul\s+satis\w*|cerez\w*|cookie\w*)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.sinav-metni-kura',
+    reason: 'Başlık sınav metni, sınav yeri/tarihi, kura ya da çağrı listesi — yeni alım ilanı değil',
+    pattern:
+      /\b(?:sinav\s+metin\w*|sinav\s+yeri\w*|sinav\s+tarih\w*|cagrilacak\s+adaylar|noter\s+kura\w*|kura\s+duyur\w*)/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.ogrenci-kabul-tercih',
+    reason: 'Başlık öğrenci kabulü, yerleştirme ya da tercih duyurusu — personel alımı değil',
+    pattern:
+      /\b(?:ogrenci\s+secme|ogrenci\s+kabul\w*|dikey\s+gecis|ek\s+yerlestirme|yerlestirme\s+sonuc\w*|tercih\w*|rektor\s+adayligi|yks\b)/,
+    weight: 0,
+  },
+  {
+    // Sayfa kabuğu: menü, erişilebilirlik, çerez metni. Kaynak adaptörü bunları
+    // bağlantı olarak almışsa (örn. İçişleri "Sizlere daha iyi hizmet…") kayıt olmamalı.
+    id: 'ret-baslik.sayfa-arayuzu',
+    reason: 'Başlık sayfa menüsü, erişilebilirlik ya da çerez metni — ilan değil',
+    pattern: SITE_CHROME_TITLE_PATTERN,
+    weight: 0,
+  },
+  {
+    // Kategori/liste sayfası: "Kamu Memur Alım İlanları", "Kurumdışı Kamu İşçi Alım ..."
+    // (normalizasyon noktaları boşluğa çevirir, bu yüzden `...` kısaltması da düşer).
+    id: 'ret-baslik.kategori-sayfasi',
+    reason: 'Başlık ilan kategorisi/liste sayfası — tek bir ilan değil',
+    pattern:
+      /\b(?:kamu|kurumdisi)\s+(?:memur|isci|personel)\s+alim\w*(?:\s+ilanlari)?$|\balim\w*\s+ilanlari$/,
+    weight: 0,
+  },
+  {
+    // Yalnızca birim/daire adı: "PERSONEL DAİRESİ BAŞKANLIĞI", "… ETÜT VE PROJELENDİRME DAİRESİ BAŞKANLIĞI".
+    // Kurum dizinindeki birim bağlantısıdır; alım/sınav/ilan kelimesi taşımayan başlık ilan sayılmaz.
+    id: 'ret-baslik.sadece-birim-adi',
+    reason: 'Başlık yalnızca bir birim/daire adı — ilan başlığı değil',
+    pattern:
+      /^(?!.*\b(?:alim|sinav|ilan|duyur|basvuru|sozlesmeli|giris|kadro|uzman|memur|isci|kura|sonuc|istihdam|kontenjan|tercih|yeterlik|gorevde)\w*)(?:.*\s)?(?:daire\s+baskanligi|genel\s+mudurlugu|baskanligi|mudurlugu)$/,
+    weight: 0,
+  },
+  {
+    id: 'ret-baslik.proje-cagri',
+    reason: 'Başlık proje/hibe çağrısı ya da destek programı — iş ilanı değil',
+    pattern: /\b(?:proje\s+cagri\w*|cagrisi\s+acildi|cagri\s+acildi|hibe\s+programi\w*|destek\s+programi\w*)/,
+    weight: 0,
+  },
 ];
 
 /**
@@ -322,6 +383,62 @@ export const SOFT_NEGATIVE_RULES: readonly KeywordRule[] = [
  * Kaynak kategori adı personel alımı kategorisi ise ek güven verir.
  * (Örn. ilan.gov.tr "Kamu-Akademik Personel", "Kamu Personel Alım ve Sınavları")
  */
+/**
+ * Kabul için zorunlu kanıt: metinde (başlık veya gövde) açık bir personel
+ * alım/istihdam ifadesi olmalı. Kaynak kategorisi, sayfa kenar metni ve
+ * genel kamu kelimeleri tek başına yeterli değildir.
+ */
+export const RECRUITMENT_EVIDENCE_PATTERN =
+  /\b(?:personel\s+alim\w*|alim\s+ilan\w*|alim\s+yapil\w*|alim\s+duyur\w*|isci\s+alim\w*|memur\s+alim\w*|sozlesmeli\s+(?:\w+\s+){0,3}personel|sozlesmeli\s+personel|kadro\w*|istihdam\w*|giris\s+sinavi|uzman\s+yardimci\w*|alinacak\w*|alinmak\s+uzere|alinacaktir|basvuru\s+(?:yapabilir|yapilacak|sarti))/;
+
+/**
+ * Süreç duyuruları: gerçek bir personel alımının kura, sınav, mülakat, sonuç gibi
+ * devam eden aşamaları. Yeni iş ilanı değildir; ayrı `kind: 'process'` kategorisinde
+ * akışta tutulur. Başlıkta hem personel bağlamı hem süreç sinyali zorunludur.
+ */
+export const PROCESS_TITLE_CONTEXT_PATTERN =
+  /\b(?:personel\w*|alim\w*|isci\w*|memur\w*|sozlesmeli\w*|kadro\w*|istihdam\w*|uzman\s+yardimci\w*)\b/;
+
+export const PROCESS_TITLE_SIGNAL_PATTERN =
+  /\b(?:kura\w*|cagrilacak\s+adaylar|sinav\s+(?:yeri|tarih|metin|sonuc|takvim|kilavuz)\w*|sozlu\s+sinav\w*|uygulamali\s+sinav\w*|mulakat\w*|sonuc\w*|kazanan\w*|yedek\s+liste\w*|asil\s+ve\s+yedek\w*|yedek\s+aday\w*|nihai\s+liste\w*)/;
+
+/** Bu ifadelerden biri varsa başlık süreç duyurusu sayılmaz (kurum içi, eğitim, yer değiştirme vb.). */
+export const PROCESS_TITLE_EXCLUDE_PATTERN =
+  /\b(?:yer\s+degistirme\w*|gorevde\s+yukselme\w*|unvan\s+degisiklig\w*|satis\w*|ihale\w*|basin\w*|konferans\w*|tercih\w*|ek\s+yerlestirme|dikey\s+gecis|yks\b|ogrenci\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|rektor\w*|cerez\w*|kira\w*|proje\s+cagri\w*|arastirma\s+programlari)/;
+
+/**
+ * Süreç duyurusu olduğunda bu başlık ret kuralları atlanır. Sonuç, sınav/kura ve
+ * yerleştirme ifadeleri yalnızca personel bağlamı + süreç sinyali + dışlama yokken süreç
+ * sayılır. `ogrenci-kabul-tercih` kuralının öğrenci/YKS/tercih terimleri PROCESS_TITLE_EXCLUDE_PATTERN
+ * içinde olduğundan, bu kuralın süreç için atlanması öğrenci yerleştirmelerini açmaz.
+ * Diğer ret kuralları (yer değiştirme, basın, satış, ihale vb.) aynen geçerlidir.
+ */
+export const PROCESS_BYPASS_RULE_IDS: ReadonlySet<string> = new Set([
+  'ret-baslik.sonuc-duyurusu',
+  'ret-baslik.sinav-metni-kura',
+  'ret-baslik.ogrenci-kabul-tercih',
+]);
+
+/**
+ * Kurum içi görevde yükselme sınavı ve tercih duyuruları (mevcut personel). Yeni personel
+ * alımı değildir; süreç duyurusu olarak akışta kalır, bildirim üretmez. Yalnızca "görevde
+ * yükselme" ifadesi ile sınav/tercih sinyali birlikte geçen başlıklar bu kapsamdadır; yer
+ * değiştirme, öğrenci, basın vb. dışlamalar aynen geçerlidir.
+ */
+export const INTERNAL_PROMOTION_CONTEXT_PATTERN = /\bgorevde\s+yukselme\w*/;
+export const INTERNAL_PROMOTION_SIGNAL_PATTERN = /\b(?:sinav\w*|tercih\w*)\b/;
+export const INTERNAL_PROMOTION_EXCLUDE_PATTERN =
+  /\b(?:yer\s+degistirme\w*|satis\w*|ihale\w*|basin\w*|konferans\w*|ogrenci\w*|yks\b|ek\s+yerlestirme|dikey\s+gecis|rektor\w*|cerez\w*|kira\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|arastirma\s+programlari|proje\s+cagri\w*)/;
+
+/**
+ * Gövdede gerçek başvuru sonuçlarının duyurulduğunu gösteren dar kanıt: sayfa başlığında
+ * "Başvuru Sonuçları" ve sonuç listesine işaret eden "sınava katılma" ifadesi birlikte
+ * geçmeli. Genel bir "sonuç" kelimesi süreç sayılmaz.
+ */
+export const RESULTS_HEADING_PATTERN = /\bbasvuru\s+sonuclari\b/;
+export const RESULTS_LIST_CUE_PATTERN = /\bsinava\s+katilma\w*/;
+export const RESULTS_HEADING_WINDOW = 500;
+
 export const RECRUITMENT_CATEGORY_PATTERN =
   /\b(?:kamu\s*-?\s*akademik\s+personel|personel\s+alim|alim\s+ve\s+sinav|akademik\s+personel\s+alim|kamu\s+personel)/;
 

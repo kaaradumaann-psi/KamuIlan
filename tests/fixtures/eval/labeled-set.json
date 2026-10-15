@@ -1,0 +1,141 @@
+{
+  "description": "Sınıflandırma değerlendirme seti. origin: 'spec-title' = kullanıcı spesifikasyonundaki başlık (gövde sentetik); 'synthetic' = sentetik gövde; 'real' = gerçek ilan sayfası. Yalnızca 'real' örneklerden gerçek precision/recall raporlanır. Bu dosyada henüz gerçek örnek yoktur.",
+  "records": [
+    {
+      "id": "neg-suriye-egitim",
+      "origin": "spec-title",
+      "title": "Türkiye’nin Suriye’deki eğitim desteği yeni döneme taşınıyor",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-koc-bitlis",
+      "origin": "spec-title",
+      "title": "Koç Üniversitesi ile Bitlis Eren Üniversitesi kardeş oldu",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-egitim-anlayisi",
+      "origin": "spec-title",
+      "title": "Üniversitelerde yeni eğitim anlayışı: Daha az ders, daha fazla uygulama",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-tto",
+      "origin": "spec-title",
+      "title": "Yükseköğretim Kurulundan Teknoloji Transfer Ofislerine üretim tesisi kurma ve işletme yetkisi",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-ozvar-sinav",
+      "origin": "spec-title",
+      "title": "Yükseköğretim Kurulu Başkanı Özvar'dan üniversitelere sınav uyarısı",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-ozvar-mufredat",
+      "origin": "spec-title",
+      "title": "Yükseköğretim Kurulu Başkanı Özvar'dan üniversitelere müfredat çağrısı",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-ozvar-buhari",
+      "origin": "spec-title",
+      "title": "Yükseköğretim Kurulu Başkanı Özvar'dan İmam Buhârî'nin ilmî mirasının yaşatılması mesajı",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-ozvar-izmir",
+      "origin": "spec-title",
+      "title": "Yükseköğretim Kurulu Başkanı Özvar'dan İzmir'de Terörsüz Türkiye mesajı",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "news"
+    },
+    {
+      "id": "neg-yks-ek-yerlestirme",
+      "origin": "spec-title",
+      "title": "2026-YKS Ek Yerleştirme Tercihleri Başladı",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "student_admission"
+    },
+    {
+      "id": "neg-oncelikli-alan",
+      "origin": "spec-title",
+      "title": "Öncelikli Alanlardaki Doktora Programlarına Öğrenci Seçme Sınavı",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "student_admission"
+    },
+    {
+      "id": "neg-saglik-lisans",
+      "origin": "spec-title",
+      "title": "2026 Sağlık Lisans Tamamlama Başvuru ve Tercih İşlemleri",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "student_admission"
+    },
+    {
+      "id": "neg-hindistan-program",
+      "origin": "spec-title",
+      "title": "Hindistan Teknik ve Ekonomik İşbirliği Eğitim Programı kapsamındaki uzmanlık eğitimleri",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "education_program"
+    },
+    {
+      "id": "neg-uni-izleme-rapor",
+      "origin": "spec-title",
+      "title": "Üniversite İzleme ve Değerlendirme Raporu",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "report_or_publication"
+    },
+    {
+      "id": "neg-konferans",
+      "origin": "spec-title",
+      "title": "Uluslararası Kirletmeden Üretmek Mümkün konferansı",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "event"
+    },
+    {
+      "id": "neg-arastirma-basvuru",
+      "origin": "spec-title",
+      "title": "Uluslararası araştırma programlarına başvuru duyurusu",
+      "sourceCategory": "Duyurular",
+      "bodyKind": "news",
+      "expectedContentType": "other"
+    },
+    {
+      "id": "pos-meb-bilisim-alim",
+      "origin": "spec-title",
+      "title": "Millî Eğitim Bakanlığı Sözleşmeli Bilişim Personeli Alımı",
+      "sourceCategory": "Personel Alımı",
+      "bodyKind": "recruitment",
+      "expectedContentType": "personnel_recruitment"
+    },
+    {
+      "id": "proc-meb-bilisim-sinav",
+      "origin": "spec-title",
+      "title": "Sözleşmeli Bilişim Personeli Sözlü/Uygulama Sınavına Çağrılacak Adaylar Hakkında Duyuru",
+      "sourceCategory": "Haberler",
+      "bodyKind": "news",
+      "expectedContentType": "personnel_process_announcement"
+    }
+  ]
+}

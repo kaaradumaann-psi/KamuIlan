@@ -71,6 +71,9 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   unknown: 'Durum belirsiz',
 };
 
+/** Süreç duyurusunun (kura, sınav, sonuç) gösterilecek durum etiketi. Başvuru durumu değildir. */
+export const PROCESS_STATUS_LABEL = 'Süreç duyurusu';
+
 export const CLASSIFICATION_DECISIONS = ['accept', 'reject', 'review'] as const;
 export type ClassificationDecision = (typeof CLASSIFICATION_DECISIONS)[number];
 
@@ -170,14 +173,38 @@ export interface RawAnnouncement {
   notes?: string[];
 }
 
+/**
+ * `job`: personel alım ilanı. `process`: gerçek bir alımın kura/sınav/mülakat/sonuç
+ * duyurusu (ayrı kategori, akışta tutulur). Yalnızca `decision === 'accept'` için anlamlıdır.
+ */
+export const CLASSIFICATION_KINDS = ['job', 'process'] as const;
+export type ClassificationKind = (typeof CLASSIFICATION_KINDS)[number];
+
+/** İçerik türü: sınıflandırmanın nedeni olarak içeriğin ne olduğu (bkz. classification/content-type.ts). */
+export const CONTENT_TYPES = [
+  'personnel_recruitment',
+  'personnel_process_announcement',
+  'student_admission',
+  'education_program',
+  'news',
+  'event',
+  'report_or_publication',
+  'other',
+  'uncertain',
+] as const;
+export type ContentType = (typeof CONTENT_TYPES)[number];
+
 export interface ClassificationResult {
   decision: ClassificationDecision;
+  kind: ClassificationKind;
   employmentType: EmploymentType;
   confidence: number;
   reasons: string[];
   rules: string[];
   negativeSignals: string[];
   version: string;
+  /** Deterministik içerik türü (eski kayıtlarda yoktur). */
+  contentType?: ContentType;
 }
 
 export interface JobClassification extends ClassificationResult {

@@ -179,15 +179,24 @@ describe('kabul hattı — kayıt ve sürümleme', () => {
     expect(links[0]?.capturedTextStatus).toBe('captured');
   });
 
-  it('ihale ve sonuç duyurularını reddeder, ilan oluşturmaz', async () => {
+  it('ihale duyurusunu reddeder, ilan oluşturmaz', async () => {
     const repos = await makeRepos();
     const ihale = await apply(repos, ihaleIlani());
-    const sonuc = await apply(repos, sonucDuyurusu());
 
     expect(ihale.action).toBe('rejected');
-    expect(sonuc.action).toBe('rejected');
     expect(await repos.store.count('jobs', {})).toBe(0);
     expect(await repos.review.countOpen()).toEqual({ total: 0, classification: 0, dedupe: 0, extraction: 0 });
+  });
+
+  it('personel alımı sonuç duyurusunu süreç duyurusu olarak kabul eder (iş ilanı değil)', async () => {
+    const repos = await makeRepos();
+    const sonuc = await apply(repos, sonucDuyurusu());
+
+    expect(sonuc.action).toBe('created');
+    const jobs = await repos.store.find('jobs', {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.classification.kind).toBe('process');
+    expect(jobs[0]?.classification.decision).toBe('accept');
   });
 
   it('belirsiz kaydı inceleme kuyruğuna koyar, sessizce silmez', async () => {

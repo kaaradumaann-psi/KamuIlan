@@ -8,7 +8,7 @@
 import { createId, sha256Hex } from '../domain/ids';
 import { jobContentFingerprint } from '../domain/job-content-fingerprint';
 import { collapseWhitespace, escapeRegExp, makeExcerpt, normalizeTr, redactContactDetails } from '../domain/text';
-import { toIstanbulDateOnly } from '../domain/dates';
+import { isStalePublication, plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
 import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
@@ -110,10 +110,18 @@ export function computeStatus(params: {
   applicationStartAt: string | null;
   applicationEndAt: string | null;
   applicationEndDate: string | null;
+  /** Yayım tarihi (YYYY-MM-DD). Son başvuru yoksa eski ilan kapalı sayılır. */
+  publishedAt?: string | null;
   now: Date;
 }): JobStatus {
   const today = toIstanbulDateOnly(params.now);
-  if (params.applicationEndDate && params.applicationEndDate < today) return 'closed';
+  // Yanlış çıkarılmış son başvuru (1991, yayından önce) "kapandı" yapmasın; mevcut satırlar için de geçerli.
+  const deadline = plausibleApplicationEnd({
+    endAt: params.applicationEndAt,
+    endDate: params.applicationEndDate,
+    publishedAt: params.publishedAt,
+  });
+  if (deadline.applicationEndDate && deadline.applicationEndDate < today) return 'closed';
   if (params.applicationStartAt && new Date(params.applicationStartAt).getTime() > params.now.getTime())
     return 'upcoming';
   // Saat YALNIZCA metinde gerçekten yazılıysa kesin kabul edilir. Çıkarım
@@ -121,17 +129,27 @@ export function computeStatus(params: {
   // kesin sanmak, son başvuru günü BUGÜN olan ilanı gece yarısından sonra
   // "Kapandı" yapıyordu (kullanıcı "son gün" diyor, sistem "kapandı" diyordu).
   // Son başvuru günü, gün bitene kadar açıktır.
-  const endAtHasExplicitTime =
-    params.applicationEndAt !== null && !params.applicationEndAt.includes('T00:00:00');
-  if (
-    endAtHasExplicitTime &&
-    params.applicationEndAt &&
-    new Date(params.applicationEndAt).getTime() < params.now.getTime()
-  ) {
+  const endAt = deadline.applicationEndAt;
+  const endAtHasExplicitTime = endAt !== null && !endAt.includes('T00:00:00');
+  if (endAtHasExplicitTime && endAt && new Date(endAt).getTime() < params.now.getTime()) {
     return 'closed';
   }
-  if (!params.applicationEndDate && !params.applicationEndAt && !params.applicationStartAt) return 'unknown';
+  // Son başvuru tarihi hiç yoksa ve ilan çok eskiyse (ör. 2008/2018 yayımlı), açık sayılmaz:
+  // bu tür kayıtlar yalnızca eski bir duyurunun arşiv kopyasıdır.
+  const hasNoDeadline = !deadline.applicationEndDate && !endAt;
+  if (hasNoDeadline && isStalePublication(sanePublishedDate(params.publishedAt, today), today)) return 'closed';
+  // Son başvuru tarihi bilinmiyorsa "başvuru açık" denmez: başlangıç geçmiş olsa bile durum belirsizdir.
+  if (hasNoDeadline) return 'unknown';
   return 'active';
+}
+
+/** Durum gerekçesi (panelde ve detayda gösterilir). Boşsa gerekçe yazılmaz. */
+export function statusReasonFor(status: JobStatus, params: { applicationEndDate: string | null; applicationEndAt: string | null; publishedAt: string | null; now: Date }): string {
+  if (status === 'unknown') return 'Tarih bilgisi bulunamadı';
+  if (status === 'closed' && !params.applicationEndDate && !params.applicationEndAt) {
+    return 'Yayımından uzun süre geçti ve son başvuru tarihi belirtilmemiş.';
+  }
+  return '';
 }
 
 /** Metinde geri çekme/iptal sinyali var mı? */
@@ -173,10 +191,15 @@ export function buildJobDocument(
 
   const applicationEndAt = extraction.applicationEndAt ?? null;
   const applicationStartAt = extraction.applicationStartAt ?? null;
+  const publishedAt = sanePublishedDate(
+    extraction.publishedAt ?? raw.publishedAt ?? null,
+    toIstanbulDateOnly(options.now),
+  );
   const status = computeStatus({
     applicationStartAt,
     applicationEndAt,
     applicationEndDate: extraction.applicationEndDate,
+    publishedAt,
     now: options.now,
   });
 
@@ -196,7 +219,12 @@ export function buildJobDocument(
     unit: extraction.unit,
     employmentType,
     status,
-    statusReason: status === 'unknown' ? 'Tarih bilgisi bulunamadı' : '',
+    statusReason: statusReasonFor(status, {
+      applicationEndDate: extraction.applicationEndDate ?? null,
+      applicationEndAt,
+      publishedAt,
+      now: options.now,
+    }),
     city: extraction.city ?? raw.city ?? null,
     cityNormalized: normalizeTr(extraction.city ?? raw.city ?? ''),
     district: extraction.district ?? raw.district ?? null,
@@ -204,7 +232,7 @@ export function buildJobDocument(
     applicationStartAt,
     applicationEndAt,
     applicationEndDate: extraction.applicationEndDate,
-    publishedAt: extraction.publishedAt ?? raw.publishedAt ?? null,
+    publishedAt,
     detailUrl,
     normalizedUrl: detailUrl,
     applicationUrl: raw.applicationUrl ? normalizeUrl(raw.applicationUrl) : extraction.applicationUrl,
@@ -681,6 +709,13 @@ async function mergeIntoExistingJob(
     applicationStartAt: merged.applicationStartAt ?? null,
     applicationEndAt: merged.applicationEndAt ?? null,
     applicationEndDate: merged.applicationEndDate ?? null,
+    publishedAt: sanePublishedDate(merged.publishedAt ?? null, toIstanbulDateOnly(ctx.now)),
+    now: ctx.now,
+  });
+  merged.statusReason = statusReasonFor(merged.status, {
+    applicationEndDate: merged.applicationEndDate ?? null,
+    applicationEndAt: merged.applicationEndAt ?? null,
+    publishedAt: merged.publishedAt ?? null,
     now: ctx.now,
   });
   if (previous.status === 'cancelled') merged.status = 'cancelled';

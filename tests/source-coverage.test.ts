@@ -105,4 +105,38 @@ describe('kaynak kapsam özeti', () => {
       await store.close();
     }
   });
+  it('kapsam özeti kaynak başına son tarama sorgularını aynı anda çalıştırır (uzak veritabanında sıralı gecikme birikmez)', async () => {
+    const base = new FileStore(mkdtempSync(join(tmpdir(), 'kamuilan-source-latency-')));
+    await base.init();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const delayedStore = new Proxy(base, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target) as unknown;
+        if (property === 'find' && typeof value === 'function') {
+          return async (...args: unknown[]) => {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            inFlight -= 1;
+            return (value as (...a: unknown[]) => unknown).apply(target, args);
+          };
+        }
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    try {
+      const repos = createRepos(delayedStore as typeof base, fixedClock(NOW));
+      await repos.sources.seed(
+        Array.from({ length: 8 }, (_, index) => sourceDefinition(`paralel-${index}`, 'verified', 60)),
+      );
+      inFlight = 0;
+      maxInFlight = 0;
+      const coverage = await repos.sources.coverage();
+      expect(coverage.sources).toHaveLength(8);
+      expect(maxInFlight).toBeGreaterThan(1);
+    } finally {
+      await base.close();
+    }
+  });
 });

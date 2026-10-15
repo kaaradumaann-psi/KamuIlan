@@ -79,6 +79,20 @@ export const sourceSchema = z.object({
     lastModified: z.string().nullable(),
     lastContentHash: z.string().nullable(),
     emptyStreak: z.number().int().min(0),
+    /** Son taramanın HTTP durumu (bilinmiyorsa null). */
+    lastHttpStatus: z.number().int().nullable().default(null),
+    /** Son hata türü: unavailable | structure | fetch | item | other; hata yoksa null. */
+    lastErrorType: z.enum(['unavailable', 'structure', 'fetch', 'item', 'other']).nullable().default(null),
+    /** Son başarılı içerik çıkarma zamanı: ham kayıt bulunup işlendiği son tarama. */
+    lastExtractionAt: z.string().nullable().default(null),
+    /** Son taramada reddedilen ve incelemeye giden kayıt sayıları. */
+    lastRejectedCount: z.number().int().min(0).default(0),
+    lastReviewCount: z.number().int().min(0).default(0),
+    /**
+     * Beklenmeyen sıfır: başarılı erişime rağmen 0 ham kayıt; önceki tarama
+     * kayıt döndürmüşse ya da üst üste 3+ sıfır ise işaretlenir (yapı değişimi olabilir).
+     */
+    unexpectedZero: z.boolean().default(false),
   }),
   createdAt: isoString(),
   updatedAt: isoString(),
@@ -147,6 +161,8 @@ export const jobSchema = z.object({
   primarySourceKey: z.string().min(2),
   classification: z.object({
     decision: z.enum(['accept', 'reject', 'review']),
+    /** Eski kayıtlarda yok; varsayılan `job`. */
+    kind: z.enum(['job', 'process']).default('job'),
     employmentType: z.enum(EMPLOYMENT_TYPES),
     confidence: z.number().min(0).max(1),
     reasons: z.array(z.string()),
@@ -306,7 +322,7 @@ export type SessionDoc = z.infer<typeof sessionSchema>;
 export const tokenSchema = z.object({
   id: idString('tok'),
   userId: idString('usr'),
-  type: z.enum(['email-verify', 'password-reset', 'unsubscribe']),
+  type: z.enum(['email-verify', 'password-reset', 'unsubscribe', 'telegram-link']),
   tokenHash: z.string().min(16),
   createdAt: isoString(),
   expiresAt: isoString(),
@@ -333,8 +349,13 @@ export const notificationPreferenceSchema = z.object({
   notifyOnChanges: z.boolean(),
   includeWorkerJobs: z.boolean(),
   includeAcademicJobs: z.boolean(),
-  /** Profile matching is opt-in; profile text is never sent to a third-party model. */
+  /** İlan sayfasında profil eşleştirmesi (kural tabanlı, dış hizmet yok). Yapay zekâ bundan bağımsızdır. */
   profilePersonalizationEnabled: z.boolean().default(false),
+  /**
+   * Yapay zekâ destekli öneriler için AÇIK RIZA zamanı (ISO). Null = rıza yok.
+   * Rıza olmadan profil hiçbir harici hizmete gönderilmez.
+   */
+  aiConsentAt: z.string().nullable().default(null),
   candidateProfile: candidateProfileSchema.default({
     profession: '',
     educationLevel: null,
@@ -375,6 +396,8 @@ export type NotificationEventDoc = z.infer<typeof notificationEventSchema>;
 
 export const emailOutboxSchema = z.object({
   id: idString('eml'),
+  /** Teslim kanalı. Eski kayıtlar 'email' kabul edilir. */
+  channel: z.enum(['email', 'telegram']).default('email'),
   eventId: idString('nev').nullable(),
   jobId: idString('job').nullable(),
   userId: idString('usr').nullable(),
@@ -407,6 +430,26 @@ export const emailOutboxSchema = z.object({
   updatedAt: isoString(),
 });
 export type EmailOutboxDoc = z.infer<typeof emailOutboxSchema>;
+
+/**
+ * Telegram hesap bağlantısı (kullanıcı başına en çok bir kayıt).
+ * chatId: Telegram özel sohbet kimliği (yalnızca bot ile özel sohbet kabul edilir).
+ * status: active (gönderim açık), stopped (kullanıcı /dur dedi), blocked (Telegram
+ * botu engellendi / sohbet artık yok), unlinked (bağlantı kaldırıldı; kayıt izi için tutulur).
+ */
+export const telegramLinkSchema = z.object({
+  id: idString('tgl'),
+  userId: idString('usr'),
+  chatId: z.string().min(1).max(32),
+  telegramUsername: z.string().max(64).nullable(),
+  status: z.enum(['active', 'stopped', 'blocked', 'unlinked']),
+  linkedAt: isoString(),
+  statusChangedAt: isoString(),
+  lastError: z.string().max(300).nullable(),
+  createdAt: isoString(),
+  updatedAt: isoString(),
+});
+export type TelegramLinkDoc = z.infer<typeof telegramLinkSchema>;
 
 export const scrapeRunSchema = z.object({
   id: idString('run'),
@@ -564,6 +607,7 @@ export const COLLECTION_SCHEMAS = {
   notificationPreferences: notificationPreferenceSchema,
   notificationEvents: notificationEventSchema,
   emailOutbox: emailOutboxSchema,
+  telegramLinks: telegramLinkSchema,
   scrapeRuns: scrapeRunSchema,
   reviewQueue: reviewQueueSchema,
   auditLogs: auditLogSchema,

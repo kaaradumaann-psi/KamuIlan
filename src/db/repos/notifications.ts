@@ -75,6 +75,7 @@ export class NotificationRepo {
     // not treat missing data as consent or as an empty-list schema failure.
     return {
       ...preference,
+      aiConsentAt: preference.aiConsentAt ?? null,
       profilePersonalizationEnabled: preference.profilePersonalizationEnabled ?? false,
       candidateProfile: { ...EMPTY_CANDIDATE_PROFILE, ...(preference.candidateProfile ?? {}) },
     };
@@ -130,6 +131,7 @@ export class NotificationRepo {
       includeWorkerJobs: input.includeWorkerJobs ?? true,
       includeAcademicJobs: input.includeAcademicJobs ?? true,
       profilePersonalizationEnabled: input.profilePersonalizationEnabled ?? false,
+      aiConsentAt: input.aiConsentAt ?? null,
       candidateProfile: { ...EMPTY_CANDIDATE_PROFILE, ...(input.candidateProfile ?? {}) },
       filters: { ...EMPTY_FILTERS, ...(input.filters ?? {}) },
       createdAt: now,

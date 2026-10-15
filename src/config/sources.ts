@@ -104,12 +104,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.ilan.gov.tr/',
     adapterKey: 'ilan-gov-tr',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      '13.10.2026 canlı koşumunda ilan.gov.tr sayfası açıldı; bu tarihsel kanıt mevcut kodun güncel canlı sağlığını göstermez. Güncel HttpClient AIA sertifikası indirmez; TLS doğrulamasını açık tutup desteklenen Node sürümlerinde varsayılan + sistem CA depolarını kullanır. Güncel HTML liste ayrıştırması ve sayfalama için yeniden canlı doğrulama gerekir.',
-    lastVerifiedAt: VERIFIED_AT,
+      'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      `${VERIFIED_AT} tarihsel canlı doğrulama: personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
+      '14.10.2026 canlı koşumunda bu adres TLS zinciri hatasıyla okunamadı. Aşağıdaki gözlemler ' +
+      `tarihseldir (${VERIFIED_AT} ve 13.10.2026): personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
       'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü. ' +
       '13.10.2026 tarihsel koşumlarda düz HTTP ve tarayıcı yolları incelendi; beş sayfada 60 satır görülüp 40 kayıt işlendi. ' +
       'Bu gözlemler o tarihteki yapıya/koda aittir; güncel erişim, TLS yolu, parser ve tam kapsamı kanıtlamaz.',
@@ -353,12 +354,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.saglik.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 25 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
+      '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Sağlık personeli (sözleşmeli sağlık personeli, sürekli işçi) alım duyuruları.',
     enabled: true,
     intervalMinutes: 360,
@@ -553,12 +554,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.dsi.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 25 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
+      '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Mühendis, tekniker ve işçi alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -578,12 +579,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.kgm.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 21 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
+      '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Karayolları personel ve işçi alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -603,12 +604,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.tkgm.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 11 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
+      '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Tapu ve kadastro personel alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -678,12 +679,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.bddk.org.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      '13.10.2026 kullanıcı ağı canlı koşumu 25 ham kayıt bildirdi; o koşumdaki AIA yolu güncel fetcher kodunda yoktur. TLS doğrulaması açık; desteklenen Node sürümlerinde varsayılan + sistem CA depoları birleştirilir. Güncel canlı yeniden doğrulama gerekir.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      'Tarihsel iddia (13.10.2026): önceki kod yolunda 25 ham kayıt raporlandı. Bu çalıştırma yeniden üretilmedi; AIA indirme kodu artık mevcut değil ve güncel erişim kanıtı sayılmaz.',
+      '14.10.2026 canlı koşumu: TLS zinciri hatası nedeniyle sayfa okunamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'BDDK uzman yardımcısı ve kariyer meslek alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -728,12 +729,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.epdk.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 25 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
+      '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'EPDK uzman yardımcısı alımları.',
     enabled: true,
     intervalMinutes: 360,
@@ -778,12 +779,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.tmsf.org.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'scraper-built',
     statusNote:
-      '13.10.2026 kullanıcı ağı canlı koşumu 4 ham kayıt bildirdi; o koşumdaki AIA yolu güncel fetcher kodunda yoktur. TLS doğrulaması açık; desteklenen Node sürümlerinde varsayılan + sistem CA depoları birleştirilir. Güncel canlı yeniden doğrulama gerekir.',
-    lastVerifiedAt: '2026-10-13',
+      'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
+    lastVerifiedAt: null,
     verificationEvidence:
-      'Tarihsel iddia (13.10.2026): önceki kod yolunda 4 ham kayıt raporlandı. Bu çalıştırma yeniden üretilmedi; AIA indirme kodu artık mevcut değil ve güncel erişim kanıtı sayılmaz.',
+      '14.10.2026 canlı koşumu: TLS zinciri hatası nedeniyle sayfa okunamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'TMSF fon uzman yardımcısı alımları.',
     enabled: true,
     intervalMinutes: 360,

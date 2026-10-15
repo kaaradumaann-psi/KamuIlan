@@ -92,6 +92,19 @@ export class RateLimitRepo {
     private readonly clock: Clock = systemClock,
   ) {}
 
+  /** Salt okunur: penceredeki sayaç (artırmadan). Kota gösterimi için. */
+  async peek(bucket: string, windowSeconds: number): Promise<number> {
+    const now = this.clock.now();
+    const windowStart = new Date(
+      Math.floor(now.getTime() / (windowSeconds * 1000)) * windowSeconds * 1000,
+    ).toISOString();
+    const existing = await this.store.findOne('rateLimits', {
+      bucket: sha256Hex(bucket).slice(0, 32),
+      windowStart,
+    });
+    return existing?.count ?? 0;
+  }
+
   async hit(
     bucket: string,
     windowSeconds: number,

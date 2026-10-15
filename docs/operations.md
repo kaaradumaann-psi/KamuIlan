@@ -28,6 +28,7 @@ nedenle sorunlu olduğunu yazar.
 | Son başvuru durumlarının yenilenmesi            | 12 saatte bir   | Worker ("deadline-refresh" görevi)                                              |
 | Kapsam denetimi                                 | Günlük          | Worker ("coverage-audit" görevi)                                                |
 | Yedek                                           | Günlük          | aşağıya bakın                                                                   |
+| Eski ilan kayıtlarını yeniden sınıflandırma     | Kural değişince | `npm run jobs:reclassify` (kuru), `--report` ile inceleme, sonra `-- --apply`   |
 
 Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çalıştır" veya
 `POST /api/admin/maintenance/:kind`.
@@ -49,12 +50,12 @@ Bakım işlerini elle tetiklemek için Yönetim → Kaynaklar → "Bakımı çal
    sayacını artırır, çünkü kaynak hiç toplanamıyordur; çözüm ya bağımlılığı
    kurmak (`npx playwright install chromium`) ya da kaynağı `needs-manual-method`
    olarak işaretlemektir. **Engel aşılmaz.**
-6. **Test aşamasında dakikalık tarama** — `SCAN_INTERVAL_MINUTES=1` tüm etkin
-   kaynak görevlerine dakikalık aralık uygular; ayar `db:migrate` ve worker
-   başlangıcında mevcut görevlere de yazılır. Her kaynağın
-   `minRequestIntervalMs` sınırı yine uygulanır ve aynı kaynak iki kez eşzamanlı
-   taranmaz. Üretime çıkmadan önce `SCAN_INTERVAL_MINUTES=0` ile kaynak başına
-   aralığa dönün veya bilinçli bir 30–360 dakika değeri seçin.
+6. **Tarama aralığı** — `SCAN_INTERVAL_MINUTES=0` her kaynağı kendi
+   `intervalMinutes` değeriyle tarar (önerilen). Pozitif bir değer tüm kaynak
+   görevlerine aynı aralığı yazar; en küçük değer 15 dakikadır (daha küçük değerler
+   15'e yükseltilir). Bu ayar `db:migrate` ve worker başlangıcında mevcut görevlere de
+   yazılır. Her kaynağın `minRequestIntervalMs` sınırı yine uygulanır ve aynı kaynak
+   iki kez eşzamanlı taranmaz.
 
 ## 3.1 Uyarı gürültüsünü önleme
 
@@ -151,14 +152,14 @@ Geri yüklemede dosyayı yerine kopyalayın; uygulama açılışta indeksleri ye
 
 ## 7. Olay müdahalesi (runbook)
 
-| Belirti                          | İlk adım                                                | Kalıcı çözüm                                                                       |
-| -------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| API yanıt vermiyor               | `GET /api/health`, süreç günlüğü                        | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et                       |
+| Belirti                          | İlk adım                                                     | Kalıcı çözüm                                                                                      |
+| -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| API yanıt vermiyor               | `GET /api/health`, süreç günlüğü                             | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et                                      |
 | Zamanlanmış taramalar durdu      | `/api/health/worker`, `/api/health/config`, Yönetim → Kuyruk | Worker heartbeat'ini ve `SCHEDULER_ENABLED` ayarını kontrol et; kuyrukta kalan işleri ayrıca izle |
-| E-postalar gitmiyor              | Yönetim → E-posta kuyruğu `lastError`                   | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al                             |
-| İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et | Doğrulanmamış adrese gönderim yapılmaz (bilinçli)                                  |
-| Aynı ilan iki kayıt              | İnceleme kuyruğu → birleştirme                          | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez |
-| Yanlış ilan kabul edilmiş        | İnceleme kuyruğu → reddet                               | Sınıflandırma kuralını güncelle + test ekle (`tests/classification.test.ts`)       |
+| E-postalar gitmiyor              | Yönetim → E-posta kuyruğu `lastError`                        | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al                                            |
+| İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et      | Doğrulanmamış adrese gönderim yapılmaz (bilinçli)                                                 |
+| Aynı ilan iki kayıt              | İnceleme kuyruğu → birleştirme                               | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez                |
+| Yanlış ilan kabul edilmiş        | İnceleme kuyruğu → reddet                                    | Sınıflandırma kuralını güncelle + test ekle (`tests/classification.test.ts`)                      |
 
 `SCHEDULER_ENABLED=0`, yalnızca zamanı gelen görevlerin kuyruğa eklenmesini
 bekletir. Worker heartbeat'i sürer; önceden kuyruğa alınmış işler ve e-posta
@@ -170,3 +171,18 @@ faaliyetlerini durdurmak için worker sürecini durdurun.
 - Günlükler pino ile JSON yazılır; e-posta adresleri maskelenir (`t***@ornek.test`).
 - Sırlar loglanmaz; `describeEnv()` yalnızca maskeli özet verir.
 - Yönetici işlemleri `auditLogs` koleksiyonuna yazılır (kim, ne zaman, ne yaptı).
+
+## 9. Telegram ve yapay zekâ hattı
+
+- **Telegram teslimi**: Bildirimler e-postayla aynı outbox üzerinden gider. 429 yanıtında `retry_after`
+  beklenir; 403 ve bazı 400 yanıtlarında bağlantı `blocked` olur ve bir daha denenmez. Ağ, 5xx,
+  401/404/409 hatalarında yeniden denenir. Durum izleme: Panelde Telegram kartı ve `npm run telegram:webhook -- info`.
+- **Webhook sırrı döndürme**: Yeni sırrı `.env`'e yazın, API'yi yeniden başlatın, ardından
+  `npm run telegram:webhook -- set` çalıştırın. Sıra ters olursa Telegram eski sırla istek atar ve 401 döner.
+- **Yapay zekâ maliyeti**: `AI_DAILY_LIMIT_PER_USER` ile kullanıcı başına günlük çağrı sınırlanır. Sayaç
+  `ai-daily:<kullanıcı>` kovasında tutulur. Sağlayıcı zaman aşımı `LLM_TIMEOUT_MS` ile sınırlıdır.
+- **Yapay zekâ hata ayıklama**: Denetim kaydında yalnızca `ai.suggestions` olayları vardır (`mode`, `candidateCount`,
+  `suggestionCount`, `modelCalled`). Model içeriği ve profil verisi loglanmaz; hata metinlerinde API anahtarı maskelenir.
+- **Acil kapatma**: `AI_ASSISTANT_ENABLED=0` ile API yeniden başlatıldığında uçlar 503 döner ve Panelim'deki
+  "Bana uygun ilanlar" kartı gizlenir (`/api/ai/status` → `enabled: false`). Telegram için `TELEGRAM_BOT_TOKEN`
+  boşaltılıp API yeniden başlatılırsa kanal kapanır; bağlantı kayıtları silinmez ve token geri konduğunda devam eder.

@@ -12,7 +12,7 @@
  * indirmez veya OCR/PDF metin çıkarımı yapmaz.
  */
 import { elementText, loadHtml, readableAnnouncementText } from '../../lib/html';
-import { cleanTitle, parseListingDate } from '../listing-utils';
+import { cleanTitle, ownCardText, parseListingDate } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { detectNextPage } from '../pagination';
 import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
@@ -48,7 +48,21 @@ function parseCandidates(html: string, baseUrl: string, allowedHosts: readonly s
     const itemId = path.replace(/^\//, '').replace(/\/$/, '');
     const title = cleanTitle(elementText(node, 300));
     if (title.length < 15 || candidates.has(itemId)) return;
-    const rowText = elementText(node.closest('li, tr, article, div'), 600);
+    // Paylaşılmış satırda komşu duyurunun tarihi atanmasın (yalnız kendi metni).
+    const rowText =
+      ownCardText(
+        node,
+        'li, tr, article, div',
+        (value) => {
+          try {
+            const path = new URL(value, baseUrl).pathname;
+            return SLUG_PATTERN.test(path) ? path : null;
+          } catch {
+            return null;
+          }
+        },
+        600,
+      ) ?? elementText(node, 300);
     const publishedAt = parseListingDate(/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}/.exec(rowText)?.[0] ?? null);
     candidates.set(itemId, { itemId, url: assertSafeUrl(url, allowedHosts).toString(), title, publishedAt });
   });
@@ -236,9 +250,12 @@ export class OsymAdapter implements SourceAdapter {
       notes.push(`${deferred} duyuru sonraki taramalara bırakıldı (detay bütçesi ${ctx.maxDetailFetches}).`);
 
     const detailCoverageNotes: string[] = [];
-    if (failedDetailFetches > 0) detailCoverageNotes.push(`${failedDetailFetches} detay isteği başarısız oldu.`);
+    if (failedDetailFetches > 0)
+      detailCoverageNotes.push(`${failedDetailFetches} detay isteği başarısız oldu.`);
     if (detailsWithoutUsableText > 0)
-      detailCoverageNotes.push(`${detailsWithoutUsableText} detay sayfasından kullanılabilir duyuru metni çıkarılamadı.`);
+      detailCoverageNotes.push(
+        `${detailsWithoutUsableText} detay sayfasından kullanılabilir duyuru metni çıkarılamadı.`,
+      );
     if (deferred > 0)
       detailCoverageNotes.push(`${deferred} duyuru detay bütçesi nedeniyle sonraki taramaya ertelendi.`);
     const finalCoverageStatus = detailCoverageNotes.length > 0 ? 'partial' : coverageStatus;

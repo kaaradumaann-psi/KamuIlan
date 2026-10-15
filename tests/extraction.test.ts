@@ -105,12 +105,13 @@ describe('kontenjan ve şehir', () => {
     expect(extractCity('Sözleşmeli personel alınacaktır.')).toBeNull();
   });
 
-  it('birden çok il geçtiğinde ilk ili kaydeder ve bunu belirsizlik olarak bildirir', () => {
+  it('birden çok il geçip görev yeri belirtilmemişse il atamaz ve belirsizlik bildirir', () => {
     const result = extract({
       title: 'Personel Alım İlanı',
       body: 'Ankara ve İzmir illerinde istihdam edilmek üzere 10 kişi alınacaktır.',
     });
-    expect(result.city).toBe('Ankara');
+    // Kadro hangi ilde olduğu belirsiz: ilk geçen ili seçmek yanlış atama olur.
+    expect(result.city).toBeNull();
     expect(result.uncertainties.join(' ')).toContain('birden çok il');
   });
 

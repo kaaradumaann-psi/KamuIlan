@@ -11,13 +11,13 @@
  * oluşturulur (ek saklanır, durum "metin katmanı yok" olarak bildirilir) ve
  * metin gerektiren alanlar boş bırakılır — tahmin yürütülmez.
  */
-import { collapseWhitespace } from '../../domain/text';
+import { collapseWhitespace, normalizeTr } from '../../domain/text';
 import { firstDateOnlyIn } from '../../domain/dates';
 import { addDaysDateOnly, toIstanbulDateOnly, toIstanbulIso } from '../../domain/dates';
 import { normalizeUrl } from '../../domain/urls';
 import type { JobAttachment, RawAnnouncement } from '../../domain';
 import { AdapterStructureError } from '../errors';
-import { cleanInstitution } from '../listing-utils';
+import { cleanInstitution, ownCardText } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
 import { assertSafeUrl, FetchError, isTransientTransportFailure, type FetchResponse } from '../fetcher';
@@ -169,6 +169,51 @@ class PlaywrightSectionBrowser implements SectionBrowser {
       close: () => session.close(),
     };
   }
+}
+
+/** Günün "Çeşitli İlânlar" bölüm sayfasının adresi (adaptörün ve probe'un ortak kaynağı). */
+export function resmiGazeteSectionUrl(dateOnly: string): string {
+  const [year, month, day] = dateOnly.split('-');
+  return `${RESMI_GAZETE_HOST}/ilanlar/eskiilanlar/${year}/${month}/${year}${month}${day}-4.htm`;
+}
+
+export interface SectionPageDiagnostics {
+  title: string | null;
+  anchorCount: number;
+  pdfLinkCount: number;
+  /** Adaptörün gerçekte çıkardığı satır sayısı (parseSectionRows ile aynı kod). */
+  parsedRows: number;
+  tableCount: number;
+  htmlContentPresent: boolean;
+  /** Engel/doğrulama sayfası izi (erişim engellendi, captcha, challenge vb.). */
+  challengeHint: boolean;
+  /** Menü dışındaki ilk metin; yalnızca kısa bir teşhis için, sayfa içeriği değildir. */
+  textHead: string;
+}
+
+/**
+ * Bölüm sayfasının yapısını bir kez özetler. Sayfa içeriği saklanmaz; yalnızca sayımlar,
+ * başlık ve kısa bir metin başı döner. Canlı teşhiste "PDF bağlantısı yok" ile "engel sayfası"
+ * ayrımını yapmak için kullanılır.
+ */
+export function describeSectionPage(html: string, pageUrl: string): SectionPageDiagnostics {
+  const $ = loadHtml(html);
+  const text = readableText($, 'body');
+  const normalized = normalizeTr(text.slice(0, 4_000));
+  return {
+    title: collapseWhitespace($('title').first().text()) || null,
+    anchorCount: $('a[href]').length,
+    pdfLinkCount: $('a[href]').filter((_index, element) =>
+      /\.pdf(?:$|[?#])/i.test($(element).attr('href') ?? ''),
+    ).length,
+    parsedRows: new ResmiGazeteAdapter().parseSectionRows($, pageUrl).length,
+    tableCount: $('table').length,
+    htmlContentPresent: $('#html-content').length > 0,
+    challengeHint: /\b(?:erisim engellen\w*|access denied|captcha|cloudflare|just a moment|challenge)\b/.test(
+      normalized,
+    ),
+    textHead: text.slice(0, 160),
+  };
 }
 
 export class ResmiGazeteAdapter implements SourceAdapter {
@@ -515,7 +560,8 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       sectionCoverages.some((section) => section.status === 'partial') ||
       sectionCoverages.length < days.length;
     const allSectionsComplete =
-      sectionCoverages.length === days.length && sectionCoverages.every((section) => section.status === 'complete');
+      sectionCoverages.length === days.length &&
+      sectionCoverages.every((section) => section.status === 'complete');
     const coverageStatus: CoverageStatus = notModified
       ? 'unknown'
       : hasKnownOmissions
@@ -554,8 +600,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
   }
 
   private sectionUrl(dateOnly: string): string {
-    const [year, month, day] = dateOnly.split('-');
-    return `${RESMI_GAZETE_HOST}/ilanlar/eskiilanlar/${year}/${month}/${year}${month}${day}-4.htm`;
+    return resmiGazeteSectionUrl(dateOnly);
   }
 
   private sourceItemId(pdfUrl: string): string {
@@ -590,9 +635,10 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       if (seen.has(href)) return;
       seen.add(href);
 
-      const container = node.closest('td, li, tr, div');
+      // Paylaşılmış hücrede (birden çok PDF) satır metni komşu belgeye ait olabilir: yalnız bağlantı metni.
       const rowText = collapseWhitespace(
-        (container.length > 0 ? container.text() : node.parent().text()) || node.text(),
+        ownCardText(node, 'td, li, tr, div', (value) => (PDF_PATTERN.test(value) ? value : null), 4_000) ??
+          node.text(),
       )
         .replace(/\s*\(?PDF\)?\s*$/i, '')
         .trim();

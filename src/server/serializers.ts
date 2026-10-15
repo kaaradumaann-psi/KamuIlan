@@ -9,7 +9,7 @@
  */
 import { deadlineState, toIstanbulDateOnly } from '../domain/dates';
 import { makeExcerpt, maskEmail } from '../domain/text';
-import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS } from '../domain/types';
+import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS, PROCESS_STATUS_LABEL } from '../domain/types';
 import type { JobDoc, JobRevisionDoc, JobSourceDoc, ScrapeRunDoc, SourceDoc, UserDoc } from '../db/schemas';
 import type { SourceCoverageEntry } from '../db/repos/sources';
 
@@ -18,6 +18,8 @@ export interface PublicJobSummary {
   title: string;
   institution: string;
   unit: string | null;
+  /** `job`: iş ilanı; `process`: gerçek bir alımın kura/sınav/sonuç duyurusu. */
+  kind: 'job' | 'process';
   employmentType: string;
   employmentTypeLabel: string;
   status: string;
@@ -155,10 +157,15 @@ export function toPublicJobSummary(job: JobDoc, now: Date = new Date()): PublicJ
     title: job.title,
     institution: job.institution,
     unit: job.unit,
+    kind: job.classification.kind ?? 'job',
     employmentType: job.employmentType,
     employmentTypeLabel: EMPLOYMENT_TYPE_LABELS[job.employmentType] ?? job.employmentType,
     status: job.status,
-    statusLabel: JOB_STATUS_LABELS[job.status] ?? job.status,
+    // Süreç duyurusunda "Başvuru açık" gibi bir durum etiketi gösterilmez.
+    statusLabel:
+      (job.classification.kind ?? 'job') === 'process'
+        ? PROCESS_STATUS_LABEL
+        : (JOB_STATUS_LABELS[job.status] ?? job.status),
     city: job.city,
     district: job.district,
     quota: job.quota,
@@ -346,6 +353,12 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
       lastError: entry.health.lastErrorMessage,
       itemsFound: entry.health.lastDiscoveredCount,
       emptyStreak: entry.health.emptyStreak,
+      lastSuccessfulExtractionAt: entry.health.lastExtractionAt,
+      lastHttpStatus: entry.health.lastHttpStatus,
+      lastErrorType: entry.health.lastErrorType,
+      lastRejectedCount: entry.health.lastRejectedCount,
+      lastReviewCount: entry.health.lastReviewCount,
+      unexpectedZero: entry.health.unexpectedZero,
     },
     lastRun: entry.lastRun,
   };
