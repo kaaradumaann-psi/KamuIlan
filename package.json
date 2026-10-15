@@ -41,7 +41,8 @@
     "jobs:restore": "tsx scripts/restore-jobs-backup.ts",
     "seed:admin": "tsx scripts/create-admin.ts",
     "user:create": "tsx scripts/create-user.ts",
-    "eval:classification": "tsx scripts/eval-classification.ts"
+    "eval:classification": "tsx scripts/eval-classification.ts",
+    "eval:build-set": "tsx scripts/eval-build-set.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",
