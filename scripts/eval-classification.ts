@@ -76,6 +76,7 @@ async function main(): Promise<void> {
 
   const env = getEnv();
   let gateDir: string | null = null;
+  let gateStore: FileStore | null = null;
   let gate: ReturnType<typeof createLlmClassificationGate> | null = null;
   if (useLlm) {
     if (!llmClassifierConfig(env)) {
@@ -86,9 +87,9 @@ async function main(): Promise<void> {
       return;
     }
     gateDir = mkdtempSync(join(tmpdir(), 'kamuilan-eval-llm-'));
-    const store = new FileStore(gateDir);
-    await store.init();
-    const repos = createRepos(store);
+    gateStore = new FileStore(gateDir);
+    await gateStore.init();
+    const repos = createRepos(gateStore);
     gate = createLlmClassificationGate({
       repos,
       env,
@@ -134,6 +135,7 @@ async function main(): Promise<void> {
     console.log('Not: --llm modu GERÇEK sağlayıcı çağrısı yapar; maliyet ve veri koşulları sağlayıcıya tabidir.');
   }
 
+  if (gateStore) await gateStore.close();
   if (gateDir) rmSync(gateDir, { recursive: true, force: true });
 }
 

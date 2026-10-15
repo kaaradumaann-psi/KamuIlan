@@ -27,6 +27,9 @@ import { runSourceScrape } from '../src/ingest/pipeline';
 import { createLlmClassificationGate, disabledLlmGate } from '../src/ai/classifier';
 import type { LlmFetch } from '../src/ai/llm';
 import { hashPassword } from '../src/server/passwords';
+import { classify } from '../src/classification/engine';
+import { buildJobDocument } from '../src/ingest/jobs-service';
+import { reclassifyJob } from '../src/ingest/reclassify';
 
 const NOW = new Date('2026-10-15T09:00:00+03:00');
 const LOGGER = createLogger('llm-ingest-test', { level: 'silent' });
@@ -384,5 +387,59 @@ describe('LLM kapısı gerçek tarama hattında', () => {
     expect(result.itemsReview).toBe(3);
     const jobs: JobDoc[] = await repos.store.find('jobs', {});
     expect(jobs).toHaveLength(0);
+  });
+});
+
+describe('jobs:reclassify — LLM denetim izi korunur', () => {
+  it('kural güncellemesiyle düşürülen kayıtta classification.llm ve contentType kaybolmaz', () => {
+    const NEWS_BODY =
+      'Başkan Özvar, üniversitelerin sınav takvimine dikkat etmesi gerektiğini belirtti. Basın birimi tarafından paylaşılmıştır. Kurum internet sitesinde yayımlanan haber metni. Ayrıntılar için kurum sayfasını ziyaret ediniz.';
+    const raw = {
+      sourceKey: 'kamu-test',
+      sourceItemId: 'reclass-1',
+      title: "Yükseköğretim Kurulu Başkanı Özvar'dan üniversitelere sınav uyarısı",
+      url: 'https://kamu.test/reclass-1',
+      attachments: [],
+      bodyText: NEWS_BODY,
+      institution: 'Örnek Üniversitesi',
+      publishedAt: '2026-10-01',
+    } as unknown as RawAnnouncement;
+    // Geçmişte kapıdan geçmiş (LLM denetim izi olan) bir kabul kaydı:
+    const classification = { ...classify({ title: raw.title, body: raw.bodyText }), decision: 'accept' as const };
+    classification.llm = {
+      model: 'mock-model',
+      promptVersion: 'kamuilan-sinif-v1',
+      verdict: 'ilan',
+      confidence: 0.9,
+      evidenceVerified: true,
+      cacheHit: false,
+      analyzedAt: '2026-10-01T10:00:00.000Z',
+    };
+    classification.contentType = 'personnel_recruitment';
+    const createdAt = new Date('2026-10-01T12:00:00Z').toISOString();
+    const draft = buildJobDocument(raw, classification, {
+      now: new Date('2026-10-01T12:00:00Z'),
+      provenance: 'scraped',
+    });
+    const doc = {
+      ...draft,
+      id: 'reclass-1',
+      createdAt,
+      updatedAt: createdAt,
+      firstSeenAt: createdAt,
+      lastSeenAt: createdAt,
+      version: 1,
+    } as unknown as JobDoc;
+
+    // Güncel kurallar başlığı açık haber olarak reddediyor → yama classification üretmeli.
+    const result = reclassifyJob(doc, new Date('2026-10-14T09:00:00Z'));
+    const patch = result.patch;
+    expect(patch.classification).toBeDefined();
+    if (patch.classification) {
+      expect(patch.classification.decision).toBe('reject');
+      // LLM denetim izi tarihsel kayıttır; yeniden sınıflandırma onu silmemeli.
+      expect(patch.classification.llm).toEqual(classification.llm);
+      expect(patch.classification.contentType).toBe('news');
+    }
   });
 });
