@@ -33,6 +33,7 @@ import { requireAdapter } from '../sources/registry';
 import { AdapterStructureError, AdapterUnavailableError } from '../sources/errors';
 import type { AdapterContext, SourceAdapter } from '../sources/types';
 import { queueNotificationsForJob } from '../notifications/service';
+import { createLlmClassificationGate, disabledLlmGate, llmClassifierConfig, type LlmClassificationGate } from '../ai/classifier';
 import { applyRawAnnouncement } from './jobs-service';
 import { sanitizeRawAnnouncement } from './sanitize';
 
@@ -50,6 +51,12 @@ export interface RunSourceOptions {
   scheduledFor?: string | null;
   /** Adaptörü doğrudan çalıştırmak için (test/kapsam denetimi). */
   adapter?: SourceAdapter;
+  /**
+   * LLM sınıflandırma kapısı. Üretimde verilmez; ortam değişkenlerinden
+   * (LLM_CLASSIFIER_ENABLED) koşu başına bir kapı kurulur. Testlerde sahte
+   * fetch ile kapı enjekte edilebilir.
+   */
+  llmGate?: LlmClassificationGate;
 }
 
 export interface RunSourceResult {
@@ -71,6 +78,19 @@ export interface RunSourceResult {
   notes: string[];
   errors: string[];
   locked: boolean;
+  /** LLM sınıflandırma kapısı özeti (kapı kapalıysa enabled:false, tüm sayaçlar 0). */
+  llm: {
+    enabled: boolean;
+    calls: number;
+    cacheHits: number;
+    upgradedToJob: number;
+    upgradedToProcess: number;
+    rejected: number;
+    keptReview: number;
+    blocked: number;
+    invalid: number;
+    errors: number;
+  };
 }
 
 const LOCK_TTL_PADDING_MS = 90_000;
@@ -218,6 +238,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       notes: ['Kilit alınamadı: başka bir tarama sürüyor.'],
       errors: [],
       locked: true,
+      llm: disabledLlmGate().summary(),
     };
   }
 
@@ -249,6 +270,17 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const ownedHttp = options.http === undefined;
   const requestAbort = new AbortController();
   const http = options.http ?? new HttpClient({ logger, signal: requestAbort.signal });
+  // LLM sınıflandırma kapısı: koşu başına bir örnek (bütçe sayaçları koşuya ait).
+  // Kapalıysa veya yapılandırma eksikse no-op kapı kullanılır (davranış değişmez).
+  const llmGate =
+    options.llmGate ??
+    (llmClassifierConfig(env)
+      ? createLlmClassificationGate({
+          repos,
+          env,
+          logger: logger.child({ component: 'llm-gate', sourceKey: source.key }),
+        })
+      : disabledLlmGate());
 
   try {
     if (liveScanDisabled) {
@@ -310,6 +342,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
             now,
             workerId,
             logger,
+            llmGate,
           });
           if (outcome === 'created') totals.jobsCreated += 1;
           else if (outcome === 'updated') totals.jobsUpdated += 1;
@@ -351,6 +384,20 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
                   .join('|'),
               )
             : null;
+      }
+
+      // LLM kapısı özeti tarama notlarına yazılır (kalıcı telemetri: llmAnalyses).
+      const llmSummary = llmGate.summary();
+      if (
+        llmSummary.enabled &&
+        (llmSummary.calls > 0 || llmSummary.cacheHits > 0 || llmSummary.blocked > 0 || llmSummary.errors > 0)
+      ) {
+        adapterNotes.push(
+          `LLM kapısı: ${llmSummary.calls} çağrı, ${llmSummary.cacheHits} önbellek isabeti, ` +
+            `${llmSummary.upgradedToJob} ilan yükseltme, ${llmSummary.upgradedToProcess} süreç duyurusu, ` +
+            `${llmSummary.rejected} kanıtlı ret, ${llmSummary.keptReview} belirsiz, ` +
+            `${llmSummary.invalid} doğrulanamadı, ${llmSummary.errors} sağlayıcı hatası, ${llmSummary.blocked} bütçe/metin engeli`,
+        );
       }
 
       if (totals.errors.length > 0) {
@@ -446,6 +493,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
     notes: totals.notes,
     errors: totals.errors,
     locked: false,
+    llm: llmGate.summary(),
   };
 }
 
@@ -461,13 +509,14 @@ export function lockExpiry(now: Date, timeoutMs: number): string {
 
 async function processItem(
   item: RawAnnouncement,
-  ctx: { repos: Repos; now: Date; workerId: string; logger: Logger },
+  ctx: { repos: Repos; now: Date; workerId: string; logger: Logger; llmGate: LlmClassificationGate },
 ): Promise<'created' | 'updated' | 'merged' | 'review' | 'rejected' | 'withdrawal'> {
   const outcome = await applyRawAnnouncement(item, {
     repos: ctx.repos,
     now: ctx.now,
     workerId: ctx.workerId,
     provenance: 'scraped',
+    llmGate: ctx.llmGate,
   });
   switch (outcome.action) {
     case 'created':
