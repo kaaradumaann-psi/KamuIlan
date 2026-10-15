@@ -120,6 +120,28 @@ const TC_ID_PATTERN = /\b[1-9]\d{10}\b/g;
 const INJECTION_CUE_PATTERN =
   /yok\s+say|talimatlar[ıi]n|onceki\s+talimat|previous\s+instructions?|ignore\s+(?:all|previous|above|the)|disregard|system\s+prompt|sistem\s+(?:istemi|mesaji)|sen\s+bir\s+(?:yapay\s+zeka|asistan)|you\s+are\s+(?:a|an)\s|new\s+instructions?|as\s+an?\s+ai\b/;
 
+/**
+ * Model çıktısı doğrulanamadığında kaydedilen neden.
+ *
+ * Ham hata mesajı KULLANILMAZ: `JSON.parse` hataları ayrıştırılan metnin bir ön ekini
+ * mesaja gömer (ör. `Unexpected token 's', "sk-live-…"...`) ve Zod'un `invalid_union`
+ * gibi mesajları aldığı değeri yazabilir. Telemetri satırına model metninden bir parça
+ * (ve dolayısıyla anahtar/KVKK kalıntısı) sızmaması için yalnızca YAPI bilgisi yazılır:
+ * kaç alan hangi kodla reddedildi.
+ */
+export function describeModelOutputError(error: unknown): string {
+  const issues = (error as { issues?: { path: (string | number)[]; code?: string }[] } | null)?.issues;
+  if (Array.isArray(issues)) {
+    const summary = issues
+      .slice(0, 6)
+      .map((issue) => `${issue.path.join('.') || '(kök)'}:${issue.code ?? 'geçersiz'}`)
+      .join(', ');
+    return `şema ihlali (${issues.length} alan): ${summary}`;
+  }
+  if (error instanceof SyntaxError) return 'geçersiz JSON (ham içerik güvenlik nedeniyle kaydedilmiyor)';
+  return `doğrulama hatası: ${error instanceof Error ? error.name : 'bilinmiyor'}`;
+}
+
 /** Kanıt metni talimat benzeri ifade içeriyor mu? (içeriyorsa karar doğrulanmaz) */
 export function evidenceLooksLikeInjection(evidence: string): boolean {
   return INJECTION_CUE_PATTERN.test(normalizeTr(evidence));
@@ -834,7 +856,8 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           latencyMs: call.latencyMs,
           promptTokens: call.usage.promptTokens,
           completionTokens: call.usage.completionTokens,
-          error: `Model çıktısı şemaya uymuyor: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300),
+          // Ham ayrıştırma mesajı model metninden bir parça taşıyabilir; yapı özeti yazılır.
+          error: `Model çıktısı doğrulanamadı — ${describeModelOutputError(error)}`.slice(0, 300),
           summary: null,
           employmentType: null,
           evidence: null,
