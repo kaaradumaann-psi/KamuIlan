@@ -100,6 +100,8 @@ test.describe('erişilebilirlik (masaüstü)', () => {
 
   test('kontrast: ana başlık ve ana metin rengi WCAG eşiklerini karşılar', async ({ page }) => {
     await page.goto('/');
+    // React render'ını beklemeden ölçüm yapılırsa seçiciler boş döner (CI'da görüldü).
+    await expectHeading(page, 'Kamu personel alım ilanları');
     const colors = await page.evaluate(() => {
       const heading = document.querySelector('.app-main h1');
       const main = document.querySelector('.app-main');
