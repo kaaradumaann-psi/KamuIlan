@@ -32,8 +32,14 @@ export const SCHEDULER_DEFAULTS = {
 
 /** Sınıflandırma ve çıkarım sürümleri — kural değişince artırılır. */
 export const APP_VERSION = '2026.10.1';
-export const CLASSIFICATION_VERSION = '2026.10.1';
-export const EXTRACTION_VERSION = '2026.10.1';
+// 2026.10.2: dizin/yardım sayfası başlıkları için kesin ret kuralları eklendi
+// (ret-baslik.sss, politika-belgesi, etkinlik-konusma, dizin-sayfasi,
+// sayi-istatistik, dil-akademik-sinav). Eski sürümle sınıflanmış kayıtlar
+// `npm run jobs:reclassify` ile güncellenir.
+export const CLASSIFICATION_VERSION = '2026.10.2';
+// 2026.10.2: gövde metni artık sayfa iskeletinden (menü, çerez/KVKK modali,
+// erişilebilirlik araç çubuğu) arındırılarak çıkarılıyor.
+export const EXTRACTION_VERSION = '2026.10.2';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */

@@ -11,6 +11,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { classify } from '../src/classification/engine';
+import { buildJobDocument } from '../src/ingest/jobs-service';
+import { reclassifyJob } from '../src/ingest/reclassify';
+import type { RawAnnouncement } from '../src/domain';
+import type { JobDoc } from '../src/db/schemas';
 
 const noiseTitles: { title: string; rule: string }[] = [
   { title: 'Sıkça Sorulan Sorular', rule: 'ret-baslik.sss' },
@@ -76,4 +80,66 @@ describe('gerçek alım başlıkları yeni kurallara takılmaz', () => {
       expect(result.rules.filter((rule) => NEW_RULE_IDS.includes(rule)), JSON.stringify(result.reasons)).toEqual([]);
     });
   }
+});
+
+/**
+ * Paneldeki 58 "ilgililik" kaydı eski kural setiyle (2026.10.1) sınıflanmıştı; kural
+ * değişikliği tek başına depodaki kararı değiştirmez. Kayıtların gerçekten temizlendiğini
+ * kanıtlayan yol `reclassifyJob`: inceleme kararı açık ret sinyaliyle reddedilmeli.
+ */
+describe('mevcut inceleme kuyruğu yeniden sınıflandırmayla temizlenir', () => {
+  const NOW = new Date('2026-10-15T09:00:00+03:00');
+  const CEREZ_GOVDESİ =
+    'Modal content × T.C. İÇİŞLERİ BAKANLIĞI WEB SİTESİ GİZLİLİK VE ÇEREZ POLİTİKASI Erişilebilirlik Menüsü ' +
+    'Ekran Okuyucu Kurumsal Sıkça Sorulan Sorular Basın Açıklamaları İletişim Başvuru personel alımı hakkında bilgi.';
+
+  function reviewJob(id: string, title: string, body: string): JobDoc {
+    const raw = {
+      sourceKey: 'icisleri-bakanligi-duyurular',
+      sourceItemId: id,
+      title,
+      url: `https://www.icisleri.gov.tr/duyurular/${id}`,
+      attachments: [],
+      bodyText: body,
+      institution: 'T.C. İçişleri Bakanlığı',
+      publishedAt: '2026-10-14',
+    } as unknown as RawAnnouncement;
+    const doc = buildJobDocument(raw, { ...classify({ title, body }), decision: 'review' }, { now: NOW, provenance: 'scraped' });
+    return {
+      ...doc,
+      id,
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+      firstSeenAt: NOW.toISOString(),
+      lastSeenAt: NOW.toISOString(),
+      version: 1,
+    } as unknown as JobDoc;
+  }
+
+  it('dizin sayfası kaydı incelemeden rete döner', () => {
+    const job = reviewJob('sss', 'Sıkça Sorulan Sorular', CEREZ_GOVDESİ);
+    expect(job.classification.decision).toBe('review');
+
+    const result = reclassifyJob(job, NOW);
+
+    expect(result.decisionFrom).toBe('review');
+    expect(result.decisionTo).toBe('reject');
+    expect(result.patch.classification?.decision).toBe('reject');
+    expect(result.patch.classification?.version).toBe('2026.10.2');
+    expect(result.patch.classification?.rules.join(' ')).toContain('ret-baslik.sss');
+    expect(result.changed).toBe(true);
+  });
+
+  it('gerçek alım ilanı yeniden sınıflandırmada akışta kalır', () => {
+    const job = reviewJob(
+      'ilan-1',
+      'Bakanlığımız taşra teşkilatına 100 sözleşmeli personel alımı yapılacaktır',
+      'Kurumumuz taşra teşkilatında istihdam edilmek üzere 100 sözleşmeli personel alınacaktır. ' +
+        'Başvurular 12.10.2026-20.10.2026 tarihleri arasında e-Devlet üzerinden yapılır. KPSS puan sıralaması esas alınır.',
+    );
+
+    const result = reclassifyJob(job, NOW);
+
+    expect(result.decisionTo).not.toBe('reject');
+  });
 });

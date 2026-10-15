@@ -342,3 +342,64 @@ iskur için ya tarayıcıyla satır bulunur ya da "içerik JavaScript ile yükle
 dsi/epdk/tkgm/tmsf/kgm/saglik için özet yerine bağlantı sayımı + sık geçen yollar (seçiciyi
 hangi yola göre güncelleyeceğiniz doğrudan görünür). Panelde 58 "ilgililik" kaydının büyük
 bölümü artık inceleme kuyruğuna düşmemeli; düşenler gerçek gövde kanıtı taşır.
+
+### 8.7 Depodaki 58 inceleme kaydı: kural tek başına yetmez, yeniden sınıflandırma şart
+
+Yeni kurallar yalnızca **bundan sonra** sınıflanan kayıtları etkiler; paneldeki kuyruk eski
+kural setiyle yazılmış kararlardan oluşur. Aynı başlıklarla eski (`a1e12d6`) ve yeni
+(`b4b1f60`) `rules.ts` üzerinde A/B ölçümü yapıldı:
+
+| Başlık | 2026.10.1 | 2026.10.2 |
+| --- | --- | --- |
+| Sıkça Sorulan Sorular | reject 0.92 (`sayfa-arayuzu`) | reject 0.92 (`sayfa-arayuzu`, `sss`, `dizin-sayfasi`) |
+| Bilgi Güvenliği Politikası | reject 0.92 (`sayfa-arayuzu`) | reject 0.92 (+ `politika-belgesi`) |
+| Basın Açıklamaları | reject 0.92 (`basin-konferans-rapor`) | reject 0.92 (+ `dizin-sayfasi`) |
+| Başkan'ın Konuşmaları | reject 0.80 (kural kimliği yok) | reject 0.92 (`etkinlik-konusma`) |
+| HABERLER & DUYURULAR | reject 0.80 (kural kimliği yok) | reject 0.92 (`dizin-sayfasi`) |
+| İç Kontrol Çalışmaları | reject 0.80 (kural kimliği yok) | reject 0.92 (`dizin-sayfasi`) |
+| Radar uygulama sayıları | reject 0.80 (kural kimliği yok) | reject 0.92 (`sayi-istatistik`) |
+| e-YDS 2026/10 … Başvuruları | reject 0.80 (kural kimliği yok) | reject 0.92 (`dil-akademik-sinav`) |
+| 2026-TUS 2. Dönem Tercih | reject 0.92 (`ogrenci-kabul-tercih`) | reject 0.92 (+ `dil-akademik-sinav`) |
+
+Sonuç: bu başlıklar **yalnızca başlıkla** sınıflandığında zaten reddediliyordu. Panelde
+%45-57 güvenle bekleyen 58 kayıt ya eski sürümle yazılmış ya da gövdesi iskelet metniyle
+şişmiş kayıtlardır; yani düzeltmenin depoya işlemesi için yeniden sınıflandırma gerekir.
+`reclassifyJob` politikası bunu destekler: açık ret sinyali (başlık/gövde ret kuralı ya da
+alım kanıtı yokluğu) `review` kararını `reject`'e çevirir ve kayıt akıştan çıkar (silinmez).
+
+```bash
+npm run jobs:reclassify                      # KURU ÇALIŞTIRMA: özet, hiçbir şey yazmaz
+npm run jobs:reclassify -- --report reclassify.json   # kayıt bazlı rapor (yazmaz)
+npm run jobs:reclassify -- --apply           # önce tam yedek alır, sonra yazar
+npm run jobs:restore -- <yedek-dosyası>      # geri dönüş
+```
+
+Not: zaten `reject` olan kayıtlarda gerekçe/kural/sürüm alanları yenilendiği için `--apply`
+yazma yoğun bir işlemdir; yedek otomatik alınır ama kuru çalıştırma özetini görmeden
+uygulamayın.
+
+### 8.8 Sürüm damgaları
+
+`src/config/app.ts` kuralı: "kural değişince artırılır".
+
+| Sabit | Değer | Neden |
+| --- | --- | --- |
+| `CLASSIFICATION_VERSION` | `2026.10.1` → **`2026.10.2`** | 6 yeni başlık ret kuralı |
+| `EXTRACTION_VERSION` | `2026.10.1` → **`2026.10.2`** | Gövde metni iskeletten arındırılarak çıkarılıyor |
+| `DEDUPE_VERSION` | `2026.10.1` (değişmedi) | Tekilleştirme algoritması/eşikleri değişmedi |
+| `APP_VERSION` | `2026.10.1` (değişmedi) | Uygulama sürümü ayrı tutulur |
+
+`/api/health` çıktısındaki `versions.classification` ve `versions.extraction` değerleri
+`2026.10.2` görünmüyorsa yeni kod çalışmıyordur (panel ekran görüntüsünde bu iki alan
+dağıtımın gerçekten yüklendiğini doğrulamak için kullanılabilir).
+
+### 8.9 Yeniden kontrolde bulunan ve düzeltilen ek kusur
+
+Faz 4'ün ilk halinde tarayıcı ön-kontrolü liste sayfasını **iki kez** ayrıştırıyordu
+(ön-kontrol + döngünün 1. sayfası) ve tarayıcı sabitları import bloğunun ortasında
+duruyordu. İkisi de giderildi: ön-kontrolün ayrıştırma sonucu döngüde yeniden kullanılıyor
+(tarayıcı çizimi başarılıysa çizimin ayrıştırması kullanılıyor), sabitlar importların
+altında. `liveFetch=false` iken adaptör ağa çıkmadığı için tarayıcı yedeği de çağrılmıyor
+(doğrulama modu korunur). Ek dosya/başvuru bağlantıları bu değişiklikten etkilenmez:
+`readDetail` bağlantıları **temizlenmemiş** DOM'dan toplar, iskelet temizliği yalnızca metin
+çıkarımının kopyasında yapılır.

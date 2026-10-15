@@ -23,10 +23,6 @@ import {
   stripPageChrome,
 } from '../../lib/html';
 import { browserFallbackEnabled, describeBrowserFailure, withChromiumPage } from '../browser-session';
-
-/** Tarayıcı yedeği zaman sınırları (kariyer-kapısı adaptörüyle aynı mertebede). */
-const BROWSER_PAGE_TIMEOUT_MS = 45_000;
-const BROWSER_SETTLE_MS = 2_500;
 import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from '../../domain/text';
 import { cleanTitle, parseListingDate } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
@@ -34,6 +30,10 @@ import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
 import { detectNextPage } from '../pagination';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
+
+/** Tarayıcı yedeği zaman sınırları (kariyer-kapısı adaptörüyle aynı mertebede). */
+const BROWSER_PAGE_TIMEOUT_MS = 45_000;
+const BROWSER_SETTLE_MS = 2_500;
 
 export interface AnchorListConfig {
   key: string;
@@ -257,8 +257,12 @@ export class AnchorListAdapter implements SourceAdapter {
     // çubuğu metnini "sayfa özeti" diye gösterdi. Önce satır var mı diye bakılır, yoksa
     // kariyer-kapısı adaptöründeki gibi başsız tarayıcıyla yeniden çizilir.
     let browserFallbackNote = '';
+    // Ön-kontrol ayrıştırması döngünün 1. sayfasında yeniden kullanılır; aynı HTML iki
+    // kez ayrıştırılmaz (tarayıcı yedeği varsayılan olarak açık).
+    let firstPageParse: ReturnType<typeof parseAnchorListPage> | null = null;
     if (browserFallbackEnabled()) {
       const firstPass = parseAnchorListPage(html, source.listingUrl, source.listingUrl, this.config, source.allowedHosts);
+      firstPageParse = firstPass;
       if (firstPass.entries.length === 0) {
         const httpLength = html.length;
         try {
@@ -274,6 +278,7 @@ export class AnchorListAdapter implements SourceAdapter {
             );
             if (renderedPass.entries.length > firstPass.entries.length) {
               html = rendered;
+              firstPageParse = renderedPass;
               notes.push(
                 `HTTP listesi satır üretmedi (${httpLength} karakter); sayfa tarayıcıda çizildi ve ${renderedPass.entries.length} ilan bağlantısı bulundu.`,
               );
@@ -314,13 +319,11 @@ export class AnchorListAdapter implements SourceAdapter {
       }
       visitedPages.add(normalizedPageUrl);
 
-      const parsedPage = parseAnchorListPage(
-        currentHtml,
-        currentUrl,
-        source.listingUrl,
-        this.config,
-        source.allowedHosts,
-      );
+      const parsedPage =
+        page === 1 && firstPageParse
+          ? firstPageParse
+          : parseAnchorListPage(currentHtml, currentUrl, source.listingUrl, this.config, source.allowedHosts);
+      if (page === 1) firstPageParse = null;
       paginationDetected ||= parsedPage.paginationDetected;
       const repeatedEntry =
         page > 1 && parsedPage.entries.some((entry) => seenEntryIdentities.has(entryIdentity(entry)));
