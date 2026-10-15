@@ -33,6 +33,14 @@ export interface ContentTypeInput {
   rules: readonly string[];
   /** Normalize edilmiş başlık (küçük harf, Türkçe karakter sadeleştirilmiş). */
   normalizedTitle: string;
+  /**
+   * Normalize edilmiş kaynak kategorisi (varsa). YALNIZCA reddedilen kaydın
+   * alt tür etiketi için kullanılır; kabul/ret kararını ASLA etkilemez.
+   * Kaynağın kendisi "Haberler" dediyse ve başlıkta daha özgül bir tür
+   * (öğrenci/eğitim/etkinlik/rapor) çıkarılamıyorsa kayıt `news` sayılır —
+   * başlıkta haber ipucu yok diye `other`a düşmez.
+   */
+  normalizedSourceCategory?: string;
 }
 
 /** Başlık ipuçlarıyla alt tür (basın/konferans/rapor kuralı ortaktır). */
@@ -59,5 +67,11 @@ export function contentTypeOf(input: ContentTypeInput): ContentType {
   if (rules.some((rule) => EDUCATION_RULES.has(rule))) return 'education_program';
   if (rules.includes('ret-baslik.basin-duyurusu')) return 'news';
   // Kurala bağlanmayan veya basın/konferans/rapor kuralına giren redlerde başlık ipuçları belirler.
-  return titleSubtype(input.normalizedTitle);
+  const subtype = titleSubtype(input.normalizedTitle);
+  if (subtype !== 'other') return subtype;
+  // Başlık sessiz ama kaynağın kendi kategorisi "haber" diyorsa o etiket kullanılır.
+  // Bu yalnızca ret ETİKETİDİR: karar zaten reject'tir, hiçbir kayıt bu yolla
+  // ilana dönüşmez ve bildirim üretmez.
+  if (input.normalizedSourceCategory && /\bhaber\w*\b/.test(input.normalizedSourceCategory)) return 'news';
+  return 'other';
 }

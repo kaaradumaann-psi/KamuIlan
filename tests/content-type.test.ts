@@ -38,11 +38,45 @@ describe('içerik türü (deterministik eşleme)', () => {
       const result = classify({
         title,
         body,
-        sourceCategory: expected === 'personnel_recruitment' ? 'personel alımı' : 'Haberler',
+        // Kategori, eval fixture'ındaki gerçek değerlerle aynıdır: haber kayıtları
+        // "Haberler", `other` kaydı "Duyurular" kategorisindedir.
+        sourceCategory:
+          expected === 'personnel_recruitment' ? 'personel alımı' : expected === 'other' ? 'Duyurular' : 'Haberler',
       });
       expect(result.contentType).toBe(expected);
     });
   }
+
+  it('başlıkta haber ipucu yoksa kaynağın "Haberler" kategorisi ret etiketini news yapar', () => {
+    // Regresyon: bu dört başlık eval kümesinde news → other karışıklığı üretiyordu
+    // (news recall %50). Karar yine reject'tir; değişen yalnızca alt tür etiketi.
+    const titles = [
+      'Türkiye’nin Suriye’deki eğitim desteği yeni döneme taşınıyor',
+      'Koç Üniversitesi ile Bitlis Eren Üniversitesi kardeş oldu',
+      'Üniversitelerde yeni eğitim anlayışı: Daha az ders, daha fazla uygulama',
+      'Yükseköğretim Kurulundan Teknoloji Transfer Ofislerine üretim tesisi kurma ve işletme yetkisi',
+    ];
+    for (const title of titles) {
+      const result = classify({ title, body: NEWS_BODY, sourceCategory: 'Haberler' });
+      expect(result.decision).toBe('reject');
+      expect(result.contentType).toBe('news');
+    }
+  });
+
+  it('haber kategorisi daha özgül türleri ve kabul kararını EZMEZ', () => {
+    const event = classify({
+      title: 'Uluslararası Kirletmeden Üretmek Mümkün konferansı',
+      body: NEWS_BODY,
+      sourceCategory: 'Haberler',
+    });
+    expect(event.contentType).toBe('event');
+    const duyuru = classify({
+      title: 'Türkiye’nin Suriye’deki eğitim desteği yeni döneme taşınıyor',
+      body: NEWS_BODY,
+      sourceCategory: 'Duyurular',
+    });
+    expect(duyuru.contentType).toBe('other');
+  });
 
   it('yalnızca personel alımı ilan türü sayılır', () => {
     expect(JOB_CONTENT_TYPES).toEqual(['personnel_recruitment']);
