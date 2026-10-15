@@ -26,6 +26,7 @@ import {
   type SourceType,
 } from '../../config/sources';
 import type { Repos } from '../../db/repos';
+import { llmOverviewStats } from '../../ai/classifier';
 import { createId, randomToken } from '../../domain/ids';
 import { hashPassword } from '../passwords';
 import { BRANDING } from '../../config/app';
@@ -111,7 +112,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
 
   // ------------------------------------------------------------------ genel bakış
   app.get('/api/admin/overview', { schema: { tags: ['admin'], summary: 'Yönetici panosu' } }, async () => {
-    const [stats, coverage, runSummary, reviewCounts, outboxStats, queueStats, heartbeats, auditCount] =
+    const [stats, coverage, runSummary, reviewCounts, outboxStats, queueStats, heartbeats, auditCount, llm] =
       await Promise.all([
         repos.jobs.dashboardStats(repos.clock.now()),
         repos.sources.coverage(),
@@ -121,6 +122,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         repos.queue.stats(),
         repos.heartbeats.list(),
         repos.store.count('auditLogs', {}),
+        llmOverviewStats(repos, getEnv(), repos.clock.now()),
       ]);
     const now = repos.clock.now().getTime();
     const workers = heartbeats.map((beat) => ({
@@ -161,6 +163,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
           ? 'En az bir worker kalp atışı bayat; ilgili sürecin günlüklerini kontrol edin.'
           : null,
       auditEntries: auditCount,
+      llm,
       generatedAt: repos.clock.now().toISOString(),
     };
   });

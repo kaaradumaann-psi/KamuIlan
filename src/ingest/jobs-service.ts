@@ -14,6 +14,7 @@ import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult }
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
 import { classify } from '../classification/engine';
 import { extract, type ExtractedJob } from '../extraction/engine';
+import type { LlmClassificationGate, LlmReviewOpinion } from '../ai/classifier';
 import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceDoc, SourceItemDecisionDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
 import { DEDUPE_THRESHOLDS, decideDedupe, matchBySourceIdentity } from './dedupe';
@@ -363,6 +364,12 @@ export interface ApplyContext {
   now: Date;
   workerId: string;
   provenance: 'scraped' | 'sample' | 'manual';
+  /**
+   * LLM sınıflandırma kapısı (yalnızca tarama hattında verilir; bkz. src/ai/classifier.ts).
+   * Kapı YALNIZCA deterministik motorun `review` dediği kayıtlarda çalışır;
+   * kanıtı doğrulanamayan veya sağlayıcı hatalı durumlarda kayıt review kalır.
+   */
+  llmGate?: LlmClassificationGate;
 }
 
 /**
@@ -374,7 +381,7 @@ export async function applyRawAnnouncement(
   ctx: ApplyContext,
   options: { classificationOverride?: ClassificationResult } = {},
 ): Promise<IngestOutcome> {
-  const classification =
+  let classification =
     options.classificationOverride ??
     classify({
       title: raw.title,
@@ -383,6 +390,23 @@ export async function applyRawAnnouncement(
       sourceKey: raw.sourceKey,
       documentTextMissing: !raw.bodyText || raw.bodyText.length < 100 || raw.bodyTextSource === 'listing',
     });
+
+  // LLM ikinci aşama kapısı: yalnızca belirsiz (review) kayıtlarda ve yalnızca
+  // tarama hattı kapıyı sağladıysa çalışır. Deterministik kabul/ret değişmez.
+  let llmOpinion: LlmReviewOpinion | null = null;
+  if (!options.classificationOverride && ctx.llmGate && classification.decision === 'review') {
+    const gateOutcome = await ctx.llmGate.evaluate({
+      title: raw.title,
+      body: raw.bodyText ?? raw.rawExcerpt ?? null,
+      bodyTextSource: raw.bodyTextSource ?? null,
+      sourceCategory: raw.sourceCategory ?? null,
+      sourceKey: raw.sourceKey,
+      url: raw.url,
+      base: classification,
+    });
+    classification = gateOutcome.classification;
+    llmOpinion = gateOutcome.opinion;
+  }
 
   const withdrawal = detectWithdrawalSignal(raw.title, raw.bodyText ?? '');
 
@@ -501,6 +525,9 @@ export async function applyRawAnnouncement(
         attachments: raw.attachments,
         dedupeAction: decision.action,
         candidateJobIds: decision.candidateJobIds,
+        // LLM kapısı çalıştıysa modelin görüşü insan incelemesini kolaylaştırır
+        // (karar değildir; doğrulanamayan kanıt/hata durumu da burada görünür).
+        ...(llmOpinion ? { llmOpinion } : {}),
       },
       candidateJobIds: decision.candidateJobIds,
     });

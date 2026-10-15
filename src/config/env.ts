@@ -218,6 +218,27 @@ const envSchema = z.object({
   LLM_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
   /** Kullanıcı başına günlük öneri isteği sınırı (maliyet ve kötüye kullanım koruması). */
   AI_DAILY_LIMIT_PER_USER: z.coerce.number().int().min(1).max(100).default(5),
+
+  // --- LLM sınıflandırma kapısı (ingest hattı; varsayılan KAPALI) ---
+  /**
+   * Deterministik motorun `review` (belirsiz) dediği kayıtlarda LLM ikinci aşama
+   * sınıflandırması çalışsın mı? Yalnızca sunucu tarafında (worker) kullanılır.
+   * Kapalıyken veya sağlayıcı hatasında belirsiz kayıtlar inceleme kuyruğunda kalır;
+   * LLM hiçbir zaman tek başına ilan YAYIMLAMAZ (kanıt doğrulaması zorunludur).
+   */
+  LLM_CLASSIFIER_ENABLED: flag('0'),
+  /** İstem sürümüyle birlikte önbellek anahtarını belirleyen model adı. Boşsa LLM_MODEL kullanılır. */
+  LLM_CLASSIFIER_MODEL: z.string().default(''),
+  /** Sağlayıcıya gönderilecek azami ilan metni uzunluğu (karakter). Fazlası kırpılır. */
+  LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(1_000).max(40_000).default(12_000),
+  /** Tek kaynak taramasında yapılacak azami LLM çağrısı (maliyet freni). 0 = kapı bu koşuda çalışmaz. */
+  LLM_MAX_CALLS_PER_RUN: z.coerce.number().int().min(0).max(500).default(12),
+  /** Tüm worker'larda günlük toplam LLM çağrısı sınırı. */
+  LLM_DAILY_CALL_LIMIT: z.coerce.number().int().min(1).max(100_000).default(400),
+  /** Aynı anda sürebilecek LLM isteği sayısı (worker içi eşzamanlılık sınırı). */
+  LLM_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  /** Geçici sağlayıcı hatalarında (429/5xx/zaman aşımı) ek deneme sayısı. */
+  LLM_RETRY_MAX: z.coerce.number().int().min(0).max(3).default(1),
   /** Geliştirme posta görüntüleyicisinin portu (scripts/dev-smtp-server.ts). */
   DEV_MAIL_VIEWER_PORT: z.coerce.number().int().min(1).max(65_535).default(1080),
 
@@ -327,7 +348,11 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
         'Üretimde Telegram için TELEGRAM_WEBHOOK_SECRET zorunludur (1–256 karakter: A-Z a-z 0-9 _ -).',
       );
     }
-    if (env.AI_ASSISTANT_ENABLED && env.LLM_BASE_URL && !env.LLM_BASE_URL.startsWith('https://')) {
+    if (
+      (env.AI_ASSISTANT_ENABLED || env.LLM_CLASSIFIER_ENABLED) &&
+      env.LLM_BASE_URL &&
+      !env.LLM_BASE_URL.startsWith('https://')
+    ) {
       problems.push('Üretimde LLM_BASE_URL https:// ile başlamalıdır (kişisel profil verisi taşınır).');
     }
   }
@@ -352,6 +377,14 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
   }
   if (env.AI_ASSISTANT_ENABLED && (!env.LLM_BASE_URL || !env.LLM_API_KEY || !env.LLM_MODEL)) {
     problems.push('AI_ASSISTANT_ENABLED=1 için LLM_BASE_URL, LLM_API_KEY ve LLM_MODEL zorunludur.');
+  }
+  if (
+    env.LLM_CLASSIFIER_ENABLED &&
+    (!env.LLM_BASE_URL || !env.LLM_API_KEY || (!env.LLM_CLASSIFIER_MODEL && !env.LLM_MODEL))
+  ) {
+    problems.push(
+      'LLM_CLASSIFIER_ENABLED=1 için LLM_BASE_URL, LLM_API_KEY ve LLM_CLASSIFIER_MODEL (veya LLM_MODEL) zorunludur.',
+    );
   }
   if (env.DATABASE_DRIVER === 'mongo' && !env.MONGODB_URI) {
     problems.push('DATABASE_DRIVER=mongo için MONGODB_URI gereklidir.');
@@ -445,5 +478,8 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
         ? `@${env.TELEGRAM_BOT_USERNAME} (webhook sırrı ${env.TELEGRAM_WEBHOOK_SECRET ? 'tanımlı' : 'yok'})`
         : 'kapalı',
     aiAssistant: env.AI_ASSISTANT_ENABLED ? `açık (${env.LLM_MODEL || 'model yok'})` : 'kapalı',
+    llmClassifier: env.LLM_CLASSIFIER_ENABLED
+      ? `açık (${env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL}, günlük sınır ${env.LLM_DAILY_CALL_LIMIT})`
+      : 'kapalı',
   };
 }

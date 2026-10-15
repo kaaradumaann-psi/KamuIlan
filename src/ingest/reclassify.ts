@@ -88,6 +88,12 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
       negativeSignals: adoptNewReasons ? classification.negativeSignals : job.classification.negativeSignals,
       version: adoptNewReasons ? classification.version : job.classification.version,
       classifiedAt: now.toISOString(),
+      // İçerik türü kaybolmasın: yeni karar benimseniyorsa güncel tür, aksi halde saklanan.
+      contentType:
+        (adoptNewReasons ? classification.contentType : job.classification.contentType) ??
+        classification.contentType,
+      // LLM denetim izi tarihsel kayıttır (ingest anındaki kapı kararı); korunur.
+      ...(job.classification.llm ? { llm: job.classification.llm } : {}),
     };
   }
 

@@ -29,6 +29,7 @@ import type { TelegramSender } from '../telegram/deliver';
 import { toIstanbulDateOnly } from '../domain/dates';
 import type { SourceAdapter } from '../sources/types';
 import { runSourceScrape } from '../ingest/pipeline';
+import { purgeLlmAnalyses } from '../ai/classifier';
 import { QUEUE_NAMES, type QueueBackend, type QueueJobPayload } from './queue';
 import {
   ensureScheduledTasks,
@@ -366,11 +367,17 @@ export class WorkerRuntime {
         const purgedHeartbeats = await this.repos.heartbeats.purgeOlderThan(
           new Date(now.getTime() - 7 * 24 * 3_600_000).toISOString(),
         );
+        // LLM telemetrisi/önbelleği 90 gün saklanır; eski kayıtlar temizlenir.
+        // (90 günden eski bir içerik yeniden görülürse kontrollü biçimde yeniden analiz edilir.)
+        const purgedLlm = await purgeLlmAnalyses(
+          this.repos,
+          new Date(now.getTime() - 90 * 24 * 3_600_000).toISOString(),
+        );
         return {
           ran: kind,
           closedJobs: 0,
           activatedJobs: 0,
-          purged: purgedLocks + purgedLimits + purgedSessions + purgedHeartbeats,
+          purged: purgedLocks + purgedLimits + purgedSessions + purgedHeartbeats + purgedLlm,
         };
       }
       case 'coverage-audit': {

@@ -334,3 +334,32 @@ Varsayılan **kapalıdır** (`AI_ASSISTANT_ENABLED=0`). Açmak için:
 - Açmadan önce gizlilik sayfasındaki (`/gizlilik`) KVKK metnini ve sağlayıcının veri işleme koşullarını gözden geçirin. Gönderilen alanlar `docs/security-kvkk.md` içinde listelidir.
 
 Akış: kullanıcı profilini doldurur → Panelim'de rızasını verir → kart, kural tabanlı aday ilanları (en çok 12) ve sağlayıcı yanıtını gösterir. Rıza geri çekildiğinde veya hesap silindiğinde önbellek temizlenir.
+
+## 10. LLM sınıflandırma kapısı (ingest; isteğe bağlı, varsayılan KAPALI)
+
+Kuralların kararsız kaldığı (`review`) duyurularda ikinci aşama yapay zekâ denetimi. Modelin kararı
+yalnızca kanıtı kaynak metinde birebir doğrulanırsa uygulanır; sağlayıcı hatasında kayıt incelemede
+kalır (otomatik onay YOK). Karar ve sağlayıcı karşılaştırması: `docs/llm-karari.md`.
+
+1. `.env` dosyasına ekleyin (Windows'ta da aynı değerler; `.env` her iki ortamda okunur):
+   ```bash
+   LLM_CLASSIFIER_ENABLED=1
+   LLM_BASE_URL=https://api.groq.com/openai/v1   # OpenAI uyumlu herhangi bir uç
+   LLM_API_KEY=gsk_...                            # yalnız sunucuda; loglanmaz
+   LLM_CLASSIFIER_MODEL=llama-3.3-70b-versatile   # boşsa LLM_MODEL kullanılır
+   # Bütçe frenleri (varsayılanlar korunabilir):
+   LLM_MAX_CALLS_PER_RUN=12
+   LLM_DAILY_CALL_LIMIT=400
+   LLM_MAX_CONCURRENCY=2
+   LLM_RETRY_MAX=1
+   LLM_MAX_INPUT_CHARS=12000
+   ```
+2. `npm run env:check` ile doğrulayın (eksik/çelişkili yapılandırma başlamayı engeller).
+3. Worker'ı yeniden başlatın: kapı tarama hattında çalışır (`npm run dev:worker` / üretim servisi).
+4. Ölçün: Yönetici paneli → Genel bakış → "LLM sınıflandırma kapısı" kartı (24 saatlik çağrı,
+   önbellek isabeti, hata, gecikme, token). Etiketli kümeyle: `npm run eval:classification -- --llm`.
+5. Eski inceleme birikimi için kuru çalıştırma raporu: `npm run llm:review-assist -- --report rapor.json`
+   (ana veritabanına yazmaz; önerileri panel → İnceleme'den uygulayın).
+
+Acil kapatma: `LLM_CLASSIFIER_ENABLED=0` + worker yeniden başlat. Yayımlanmış ilanlar etkilenmez;
+sistem yalnız kurallara döner.

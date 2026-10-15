@@ -52,6 +52,40 @@ const REVIEW_KIND_LABELS: Record<string, string> = {
   extraction: 'bilgi okunamadı',
 };
 
+const LLM_OPINION_LABELS: Record<string, string> = {
+  ilan: 'personel alımı olabilir (kanıt doğrulanamadı)',
+  surec: 'süreç duyurusu olabilir',
+  'ilan-degil': 'ilan değil (kanıt doğrulanamadı)',
+  belirsiz: 'model de kararsız',
+  dogrulanamadi: 'model çıktısı doğrulanamadı',
+  hata: 'model denetimine ulaşılamadı',
+};
+
+interface ReviewLlmOpinion {
+  verdict: string;
+  contentType: string | null;
+  summary: string | null;
+  reasons: string[];
+  model: string;
+  cacheHit: boolean;
+}
+
+/** İnceleme kaydı payload'ındaki LLM ön görüşünü güvenle okur (yoksa null). */
+function llmOpinionOf(item: ReviewItem): ReviewLlmOpinion | null {
+  const raw = item.payload?.llmOpinion;
+  if (!raw || typeof raw !== 'object') return null;
+  const opinion = raw as Partial<ReviewLlmOpinion>;
+  if (typeof opinion.verdict !== 'string') return null;
+  return {
+    verdict: opinion.verdict,
+    contentType: typeof opinion.contentType === 'string' ? opinion.contentType : null,
+    summary: typeof opinion.summary === 'string' ? opinion.summary : null,
+    reasons: Array.isArray(opinion.reasons) ? opinion.reasons.filter((r): r is string => typeof r === 'string') : [],
+    model: typeof opinion.model === 'string' ? opinion.model : 'bilinmeyen model',
+    cacheHit: Boolean(opinion.cacheHit),
+  };
+}
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'ozet', label: 'Genel bakış' },
   { id: 'kaynaklar', label: 'Kaynaklar' },
@@ -187,6 +221,39 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
             </li>
           )}
         </ul>
+      </Card>
+
+      <Card
+        title="LLM sınıflandırma kapısı"
+        description="Kuralların kararsız kaldığı (incelemedeki) duyurular için ikinci aşama denetimi. Kanıtı doğrulanamayan hiçbir karar yayımlanmaz."
+      >
+        {data.llm ? (
+          data.llm.enabled ? (
+            <ul className="compact-list">
+              <li>
+                Model: {data.llm.model ?? '—'} · istem sürümü: {data.llm.promptVersion} · günlük sınır:{' '}
+                {formatNumber(data.llm.dailyCallLimit)} çağrı
+              </li>
+              <li>
+                Son 24 saat: {formatNumber(data.llm.last24h.calls)} çağrı · {formatNumber(data.llm.last24h.cacheHits)}{' '}
+                önbellek isabeti · {formatNumber(data.llm.last24h.invalid)} doğrulanamayan ·{' '}
+                {formatNumber(data.llm.last24h.errors)} hata · ortalama gecikme{' '}
+                {data.llm.last24h.avgLatencyMs !== null ? formatDuration(data.llm.last24h.avgLatencyMs) : '—'}
+              </li>
+              <li>
+                Token (24s): {formatNumber(data.llm.last24h.promptTokens)} girdi +{' '}
+                {formatNumber(data.llm.last24h.completionTokens)} çıktı · toplam kayıt:{' '}
+                {formatNumber(data.llm.totals.analyses)} ({formatNumber(data.llm.totals.ok)} geçerli)
+              </li>
+            </ul>
+          ) : (
+            <InfoNote tone="info">
+              Kapalı: belirsiz kayıtlar yalnızca kurallarla değerlendiriliyor ve inceleme kuyruğunda kalıyor.
+              Açmak için sunucuda <code>LLM_CLASSIFIER_ENABLED=1</code> + <code>LLM_BASE_URL</code>,{' '}
+              <code>LLM_API_KEY</code>, <code>LLM_CLASSIFIER_MODEL</code> tanımlayın (ayrıntı: docs/llm-karari.md).
+            </InfoNote>
+          )
+        ) : null}
       </Card>
     </div>
   );
@@ -503,6 +570,24 @@ function ReviewTab(): ReactNode {
           description={`${REVIEW_KIND_LABELS[item.kind] ?? item.kind} · eminlik %${Math.round(item.confidence * 100)}`}
         >
           <p className="body-copy">{item.reason}</p>
+          {llmOpinionOf(item) && (
+            <div className="push-sm">
+              <InfoNote
+                tone={llmOpinionOf(item)?.verdict === 'hata' ? 'warning' : 'info'}
+                title={`Yapay zekâ ön görüşü — ${LLM_OPINION_LABELS[llmOpinionOf(item)?.verdict ?? ''] ?? llmOpinionOf(item)?.verdict}`}
+              >
+                {llmOpinionOf(item)?.summary && <p className="body-copy">{llmOpinionOf(item)?.summary}</p>}
+                {llmOpinionOf(item)?.reasons?.map((reason) => (
+                  <p key={reason} className="text-muted-sm">
+                    {reason}
+                  </p>
+                ))}
+                <p className="text-muted-sm">
+                  Bu bir ön görüştür, karar değildir; kabul/red kararı yöneticiye aittir.
+                </p>
+              </InfoNote>
+            </div>
+          )}
           <p className="text-muted-sm push-sm">
             <a href={item.url} target="_blank" rel="noreferrer noopener" className="wrap-anywhere">
               {item.url}

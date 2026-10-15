@@ -33,6 +33,7 @@
     "db:indexes": "tsx scripts/create-indexes.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "sources:report": "tsx scripts/coverage-report.ts",
+    "llm:review-assist": "tsx scripts/llm-review-assist.ts",
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",

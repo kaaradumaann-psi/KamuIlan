@@ -254,6 +254,14 @@ export function JobDetailPage(): ReactNode {
         </InfoNote>
       )}
 
+      {job.classification.llmVerified && (
+        <InfoNote tone="info" title="Bu ilan ek denetimden geçti">
+          Kuralların kararsız kaldığı bu duyuru, yapay zekâ destekli ikinci bir denetimden geçti;
+          modelin gösterdiği kanıt ilan metninde birebir doğrulandıktan sonra yayımlandı. Resmî
+          başvuru öncesi kaynağın kendi sayfasını kontrol edin.
+        </InfoNote>
+      )}
+
       <Card
         title="Temel bilgiler"
         description="Bu bilgiler ilanın kendisinden alınır; yazmayan yerde belirtilmemiş görürsünüz."

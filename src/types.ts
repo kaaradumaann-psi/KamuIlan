@@ -83,6 +83,8 @@ export interface PublicJobDetail extends PublicJobSummary {
     confidence: number;
     reasons: string[];
     version: string;
+    /** Sınıflandırma LLM kapısından geçti ve kanıtı kaynak metinde doğrulandı mı? */
+    llmVerified: boolean;
   };
   fieldSources: Record<string, { kind: string; snippet: string | null }>;
   evidence: Record<string, string>;
@@ -402,6 +404,23 @@ export interface AdminOverview {
   }[];
   workerWarning: string | null;
   auditEntries: number;
+  /** LLM sınıflandırma kapısı telemetrisi (ingest hattı). */
+  llm: {
+    enabled: boolean;
+    model: string | null;
+    promptVersion: string;
+    dailyCallLimit: number;
+    last24h: {
+      calls: number;
+      cacheHits: number;
+      invalid: number;
+      errors: number;
+      avgLatencyMs: number | null;
+      promptTokens: number;
+      completionTokens: number;
+    };
+    totals: { analyses: number; ok: number; invalid: number; error: number; timeout: number };
+  };
   generatedAt: string;
 }
 
