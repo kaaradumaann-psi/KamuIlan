@@ -59,6 +59,8 @@ export interface PublicJobDetail extends PublicJobSummary {
     confidence: number;
     reasons: string[];
     version: string;
+    /** Sınıflandırma LLM kapısından geçti ve kanıtı kaynak metinde doğrulandı mı? */
+    llmVerified: boolean;
   };
   /** Alan bazlı kaynak izi: her alanın hangi katmandan geldiği. */
   fieldSources: JobDoc['fieldSources'];
@@ -221,6 +223,7 @@ export function toPublicJobDetail(
       confidence: job.classification.confidence,
       reasons: job.classification.reasons,
       version: job.classification.version,
+      llmVerified: Boolean(job.classification.llm?.evidenceVerified),
     },
     fieldSources: publicFieldSources(job),
     evidence: publicEvidence(job),
