@@ -28,12 +28,13 @@ import type { ScrapeRunTotals } from '../db/repos/runs';
 import { EMPTY_TOTALS } from '../db/repos/runs';
 import { createLogger, type Logger } from '../lib/logger';
 import { addMilliseconds, type Clock } from '../lib/clock';
-import { HttpClient } from '../sources/fetcher';
+import { FetchError, HttpClient } from '../sources/fetcher';
 import { requireAdapter } from '../sources/registry';
 import { AdapterStructureError, AdapterUnavailableError } from '../sources/errors';
 import type { AdapterContext, SourceAdapter } from '../sources/types';
 import { queueNotificationsForJob } from '../notifications/service';
 import { applyRawAnnouncement } from './jobs-service';
+import { sanitizeRawAnnouncement } from './sanitize';
 
 export interface RunSourceOptions {
   repos: Repos;
@@ -169,6 +170,18 @@ async function withTimeout<T>(
   }
 }
 
+/** Kaynak sağlığı için hata türü: fatal hata varsa türü, yalnız ilan bazlı hatalar varsa "item", yoksa null. */
+export function classifyErrorType(
+  fatalError: Error | null,
+  itemErrorCount: number,
+): 'unavailable' | 'structure' | 'fetch' | 'item' | 'other' | null {
+  if (fatalError instanceof AdapterUnavailableError) return 'unavailable';
+  if (fatalError instanceof AdapterStructureError) return 'structure';
+  if (fatalError instanceof FetchError) return 'fetch';
+  if (fatalError) return 'other';
+  return itemErrorCount > 0 ? 'item' : null;
+}
+
 export async function runSourceScrape(options: RunSourceOptions): Promise<RunSourceResult> {
   const env = getEnv();
   const { repos, source, trigger, workerId } = options;
@@ -292,7 +305,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
 
       for (const item of runResult.items) {
         try {
-          const outcome = await processItem(item, { repos, now, workerId, logger });
+          const outcome = await processItem(sanitizeRawAnnouncement(item), {
+            repos,
+            now,
+            workerId,
+            logger,
+          });
           if (outcome === 'created') totals.jobsCreated += 1;
           else if (outcome === 'updated') totals.jobsUpdated += 1;
           else if (outcome === 'merged') totals.itemsMerged += 1;
@@ -376,6 +394,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const durationMs = repos.clock.now().getTime() - startedAt;
 
   if (!liveScanDisabled) {
+    const lastHttpStatus =
+      totals.httpStatuses.length > 0
+        ? (totals.httpStatuses[totals.httpStatuses.length - 1] ?? null)
+        : fatalError instanceof FetchError
+          ? fatalError.status
+          : null;
     await repos.sources.recordHealth(source.key, {
       lastRunAt: now.toISOString(),
       success: fatalError === null && status !== 'skipped',
@@ -389,6 +413,11 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       contentHash: contentUnchanged ? undefined : contentHash,
       contentUnchanged,
       skipped: status === 'skipped',
+      httpStatus: lastHttpStatus,
+      errorType: classifyErrorType(fatalError, totals.errors.length),
+      extracted: totals.itemsFound > 0 && (status === 'success' || status === 'partial'),
+      rejectedCount: totals.itemsRejected,
+      reviewCount: totals.itemsReview,
     });
 
     // Atlanan tarama da yöneticiyi ilgilendirir (kaynak hiç toplanamıyor); uyarı

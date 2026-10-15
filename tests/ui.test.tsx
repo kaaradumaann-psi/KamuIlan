@@ -235,7 +235,7 @@ describe('arayüz kabuğu', () => {
     renderApp('/kaynaklar');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
-    expect(await screen.findByText('yöntemi doğrulandı')).toBeTruthy();
+    expect(await screen.findByText('tarihsel doğrulama')).toBeTruthy();
     expect(screen.queryByText('ilanları düzenli okunuyor')).toBeNull();
     expect(screen.getByText('Gerçek veriyle doğrulanan')).toBeTruthy();
     const preparedLabel = screen.getByText('Hazırlanan');

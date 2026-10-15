@@ -2,12 +2,14 @@
 
 ## Gereksinimler
 
-- **Node.js 22+** ve npm 10+ (`node -v`)
+- **Node.js 22.15+** ve npm 10+ (`node -v`). 22.15 öncesi sürümlerde sistem sertifika deposu okunamaz;
+  ilan.gov.tr, BDDK ve TMSF gibi eksik sertifika zinciri olan siteler `UNABLE_TO_VERIFY_LEAF_SIGNATURE`
+  hatasıyla reddedilir. `npm run test:live` çıktısının ilk satırı TLS durumunu gösterir.
 - Geliştirme: başka hiçbir şey gerekmez (yerel **dosya deposu** + **yerleşik kuyruk**).
 - Üretim: **Supabase** projesi (Postgres), **Cloudflare** (alan adı/barındırma),
   **Resend** hesabı (e-posta). Ayrıntı: [deployment.md](./deployment.md).
 - İsteğe bağlı: MongoDB 7 ve Redis 7 (eski kurulumlar / kuyruk için)
-- İsteğe bağlı: Playwright tarayıcıları (yalnızca Kariyer Kapısı kaynağı ve E2E testleri için)
+- Playwright Chromium: **Resmî Gazete** (HTTP engellendiğinde tarayıcı yedeği), Kariyer Kapısı ve E2E testleri için gerekir. Kurulum: `npx playwright install chromium`
 
 ## 1. Bağımlılıklar
 
@@ -15,6 +17,21 @@
 npm install
 # Playwright tarayıcılarını indirmek istemiyorsanız:
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install
+```
+
+Resmî Gazete kaynağı HTTP ile engellendiğinde (ECONNRESET / zaman aşımı) gerçek bir Chromium
+oturumuyla okunur. Bu yüzden yerel makinede Chromium kurulu olmalıdır:
+
+```bash
+npx playwright install chromium
+```
+
+Kimlik politikası: HTTP istemcisi projenin açık botu (`SCRAPE_USER_AGENT`) ile çalışır. Tarayıcı
+yedeği Playwright'ın kendi kimliğini kullanır; tarayıcı kimliği taklit edilmez ve TLS doğrulaması
+kapatılmaz. Yedeğin canlı kaynakta çalışıp çalışmadığını ayrı görmek için:
+
+```bash
+npm run probe:resmigazete   # adaptörün gerçek bölüm sayfasını (HTTP ve Chromium) ayrı ayrı dener; yapı teşhisi yazar (veritabanına yazmaz)
 ```
 
 E2E testleri için tarayıcı gerekir:
@@ -52,10 +69,10 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 - `SOURCE_LIVE_FETCH=1` — gerçek kaynaklara istek atılmasını sağlar. `0` iken
   worker ağa çıkmaz (demo/test için): deneme `skipped` kaydedilir; başarılı tarama
   zamanı/ilan bulundu sayısı üretilmez ve kaynak erişilmiş gibi gösterilmez.
-- `SCAN_INTERVAL_MINUTES=1` — **test aşaması** ayarı: tüm etkin kaynakların
-  zamanlanmış görevi dakikada bir çalışır. `db:migrate` ve worker başlangıcında
-  yeni/mevcut görev aralıkları bu değere eşitlenir. Üretimde `0` (kaynak başına
-  `intervalMinutes`) veya kaynaklara uygun 30–360 önerilir; kaynak hız sınırları
+- `SCAN_INTERVAL_MINUTES=0` (önerilen) — her kaynak kendi aralığıyla taranır.
+  Pozitif bir değer tüm etkin kaynakların aralığını o değere eşitler; en küçük değer
+  15 dakikadır (daha küçük değerler 15'e yükseltilir, çünkü resmî siteler dakikada bir
+  istekle yıpranıp ulaşılamaz hâle gelir). Kaynak hız sınırları
   (`minRequestIntervalMs`) her durumda korunur.
 - `TRUST_PROXY`, `CORS_ORIGINS`, `DOCS_ENABLED` — güvenlik anahtarları;
   varsayılanları güvenli seçeneklerdir. Yalnızca ters vekil/CORS gerçekten
@@ -70,6 +87,7 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 | `POSTGRES_URL`                       | Supabase → Project Settings → Database → Connection string | Sunucu tarafı; havuz bağlantısı önerilir (port 6543)             |
 | `DATABASE_URL`                       | alternatif ad                                              | Bazı sağlayıcılar bu adı verir; ikisinden biri yeterlidir        |
 | `POSTGRES_SSL=true`                  | —                                                          | Supabase TLS ister; `false` yalnızca yerel test için             |
+| `POSTGRES_SSL_CA_FILE`               | —                                                          | Supabase CA PEM yolu. Tanımlanınca sunucu sertifikası doğrulanır; boşsa doğrulama kapalıdır ve uyarı verilir |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API                                             | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır      |
 | `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → API                                             | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz   |
 | `APP_DOMAIN`                         | —                                                          | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı)      |
@@ -206,6 +224,51 @@ Gerçek kaynaklara karşı canlı doğrulama (yalnızca gerçek ağ olan ortamda
 SOURCE_LIVE_FETCH=1 npm run test:live
 ```
 
+Canlı doğrulama sonucunda her kaynağın durumu ya da hatası yazdırılır. Başarısız kaynaklar
+`config/sources.ts` içinde "doğrulanmış" olarak kalmaz; nedeni `statusNote` alanına yazılır.
+
+## Mevcut ilan kayıtlarını yeniden değerlendirme
+
+Sınıflandırma kuralları değiştiğinde (ör. iş ilanı dışı duyuruların akıştan çıkarılması) eski
+kayıtlar için:
+
+```bash
+npm run jobs:reclassify                              # kuru çalıştırma: özet (yazmaz)
+npm run jobs:reclassify -- --report rapor.json       # kayıt bazlı JSON raporu (yazmaz)
+npm run jobs:reclassify -- --apply                   # değişiklikleri yazar (önce yedek alır)
+```
+
+Her kayıt iki türden birine ayrılır:
+
+- **İş ilanı (`job`)**: personel alım ilanı. Akışta kalır.
+- **Süreç duyurusu (`process`)**: gerçek bir personel alımının kura, sınav yeri/tarihi, sınav metni,
+  çağrılacak adaylar, mülakat veya sonuç duyurusu. Akışta ayrı tür olarak kalır. Tür yalnızca
+  başlıktan belirlenir ve personel bağlamı (personel, alım, işçi, memur, sözleşmeli, kadro)
+  ile süreç sinyalinin birlikte bulunmasını ister. Yer değiştirme, görevde yükselme, ünvan
+  değişikliği, tercih, eğitim, basın, satış ve ihale ifadeleri süreç olarak kabul edilmez.
+
+Ret sinyali olan kayıtlar "reddedildi" olur ve akıştan çıkar; kayıt silinmez. Süreç duyuruları akışta ve filtrelerde görünür; e-posta ve Telegram \"yeni ilan\" bildirimi üretmez,
+AI önerilerine de girmez. Reddedilen veya süreç olan kayıtların bekleyen bildirimleri `--apply` ile
+bastırılır (gönderilmiş bildirimler geri alınamaz; rapordaki `notifications` alanında görülür).
+Yeniden
+sınıflandırma kabul edilmiş kayıtların türünü de günceller.
+
+Supabase üzerinde çalıştırmadan önce ilk satırdaki veritabanı adını ve kuru çalıştırma çıktısını
+inceleyin. `--report` yalnızca okur; ret gerekçelerini ve gövde özetini inceleyebilmeniz için kullanın.
+
+### Geri alma
+
+`--apply` çalışmadan önce tüm ilan kayıtlarının yedeği `data/backups/jobs-before-reclassify-*.json`
+dosyasına yazılır. Yedek yazılamazsa hiçbir kayıt değiştirilmez. Geri almak için:
+
+```bash
+npm run jobs:restore -- data/backups/jobs-before-reclassify-<tarih>.json          # kuru çalıştırma
+npm run jobs:restore -- data/backups/jobs-before-reclassify-<tarih>.json --apply  # geri yükle
+```
+
+Geri yükleme yalnızca yedekteki kimlikleri birebir geri yazar; geri yüklemeden önce mevcut durumun
+yedeği de alınır.
+
 ## Kapsam raporu
 
 ```bash
@@ -243,3 +306,31 @@ Ayrıntılar: [deployment.md](./deployment.md).
 | `Veritabanına erişilemiyor` (Supabase)                    | `POSTGRES_URL` havuz (pooler) adresi mi, `POSTGRES_SSL=true` mı, Supabase'de IP kısıtı var mı kontrol edin.                                                                                                                                                                                                                                                                  |
 | E-posta gönderilmiyor (üretim)                            | `RESEND_API_KEY` ve **doğrulanmış** `EMAIL_FROM` alan adı gerekir; `npm run env:check` seçilen yolu yazar.                                                                                                                                                                                                                                                                   |
 | Davet e-postası gelmiyor                                  | Yönetim → E-posta kuyruğu ekranında kaydı bulun; `dead` ise nedeni `lastError` alanındadır.                                                                                                                                                                                                                                                                                  |
+
+## 8. Telegram bildirimleri (isteğe bağlı)
+
+Telegram kanalı, e-posta bildirimlerine ek olarak çalışır; tanımsızken tamamen kapalıdır.
+
+1. Telegram'da **@BotFather** ile `/newbot` komutunu verin; bot **kullanıcı adını** (`…bot` ile biter) ve **token**'ı alın.
+2. `.env` dosyasına yazın (token ve sır asla istemciye gitmez):
+   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` (`@` olmadan)
+   - `TELEGRAM_WEBHOOK_SECRET` — `openssl rand -hex 32` ile üretin. Token tanımlıyken üretimde zorunludur.
+3. `APP_BASE_URL` herkese açık bir **https** adres olmalıdır. Ardından:
+   ```bash
+   npm run telegram:webhook -- info    # bot kimliği ve webhook durumu
+   npm run telegram:webhook -- set     # APP_BASE_URL/api/telegram/webhook adresini kurar
+   ```
+4. Kullanıcı Panelim'deki **Telegram bildirimleri** kartında "Telegram'a bağla" düğmesine basar. Açılan bağlantıdan botu başlatabilir ya da gösterilen kodu botta `/start <kod>` olarak gönderebilir; kart bağlantı kurulana kadar durumu kendiliğinden kontrol eder. Bot komutları: `/durum`, `/dur`, `/basla`, `/cik`, `/yardim`.
+
+Sorun giderme: webhook isteği 401 dönüyorsa `TELEGRAM_WEBHOOK_SECRET` değeri ile webhook'a kurulan sır aynı değildir; 404 dönüyorsa sır hiç tanımlı değildir. Bot engellenmişse (403) bağlantı otomatik `blocked` durumuna geçer ve kullanıcı panelde bilgilendirilir.
+
+## 9. Yapay zekâ önerileri (isteğe bağlı, açık rızayla)
+
+Varsayılan **kapalıdır** (`AI_ASSISTANT_ENABLED=0`). Açmak için:
+
+- `AI_ASSISTANT_ENABLED=1`, `LLM_BASE_URL` (OpenAI uyumlu, `https://`), `LLM_API_KEY`, `LLM_MODEL` tanımlanmalıdır. Eksikse uygulama başlamaz (`npm run env:check` nedenini söyler).
+- `AI_PROVIDER_LABEL` kullanıcının rıza ekranında gördüğü sağlayıcı adıdır; gerçek sağlayıcıyı doğru yazın.
+- `AI_DAILY_LIMIT_PER_USER` (öntanımlı 5) kullanıcı başına günlük model çağrısını sınırlar; sınır dolunca profil eşleştirmesi gösterilir ve hata oluşmaz.
+- Açmadan önce gizlilik sayfasındaki (`/gizlilik`) KVKK metnini ve sağlayıcının veri işleme koşullarını gözden geçirin. Gönderilen alanlar `docs/security-kvkk.md` içinde listelidir.
+
+Akış: kullanıcı profilini doldurur → Panelim'de rızasını verir → kart, kural tabanlı aday ilanları (en çok 12) ve sağlayıcı yanıtını gösterir. Rıza geri çekildiğinde veya hesap silindiğinde önbellek temizlenir.

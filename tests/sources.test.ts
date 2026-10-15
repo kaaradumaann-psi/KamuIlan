@@ -324,11 +324,11 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
     '</body></html>',
   ].join('\n');
 
-  it('envanterde tanımlıdır ve canlı doğrulanmış kaynaktır', () => {
+  it('envanterde tanımlıdır; 14.10.2026 canlı koşumu başarısız olduğu için doğrulanmış sayılmaz', () => {
     expect(ilanGovSource).toBeDefined();
-    expect(ilanGovSource?.status).toBe('verified');
-    expect(ilanGovSource?.lastVerifiedAt).not.toBeNull();
-    expect(ilanGovSource?.verificationEvidence.length ?? 0).toBeGreaterThan(20);
+    expect(ilanGovSource?.status).toBe('scraper-built');
+    expect(ilanGovSource?.lastVerifiedAt).toBeNull();
+    expect(ilanGovSource?.statusNote).toMatch(/başarısız/);
   });
 
   it('liste sayfasından ilanları, kurumu, ili ve tarihi çıkarır', async () => {
@@ -443,10 +443,7 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
     const detailFixture = FIXTURE.replace(
       'href="/ilan/482311"',
       'href="/ilan/482311/IlanDetay?i=11111111-1111-4111-8111-111111111111"',
-    ).replace(
-      'href="/ilan/482312"',
-      'href="/ilan/482312/IlanDetay?i=22222222-2222-4222-8222-222222222222"',
-    );
+    ).replace('href="/ilan/482312"', 'href="/ilan/482312/IlanDetay?i=22222222-2222-4222-8222-222222222222"');
     const { http } = fakeHttp(ilanRoutes(detailFixture));
 
     // Detay isteği sahte istemcide tanımlı değil → ilan liste alanlarıyla kalır,
@@ -521,7 +518,13 @@ describe('genel kurum duyuru adaptörü', () => {
         expect(source.statusNote.length, source.key).toBeGreaterThan(40);
       } else {
         expect(source.enabled, source.key).toBe(true);
-        expect(['method-defined', 'verified'], source.key).toContain(source.status);
+        expect(['method-defined', 'verified', 'scraper-built'], source.key).toContain(source.status);
+        // Doğrulanmış sayılmayan kaynak, nedenini durum notunda açıkça yazmak zorundadır.
+        if (source.status !== 'verified') {
+          expect(source.statusNote, source.key).toMatch(
+            /başarısız|doğrulanmadı|doğrulanmamış|doğrulanmış sayılmaz/,
+          );
+        }
       }
     }
     // Planlanan listede artık yalnızca toplu gruplar kalır (üniversite/belediye gibi).
@@ -1009,7 +1012,8 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
 
 describe('MEB RSS beslemesi', () => {
   it('yapısal olarak geçerli ama boş RSS beslemesini unknown kapsamla bildirir', async () => {
-    const rss = '<?xml version="1.0"?><rss version="2.0"><channel><title>Personel duyuruları</title></channel></rss>';
+    const rss =
+      '<?xml version="1.0"?><rss version="2.0"><channel><title>Personel duyuruları</title></channel></rss>';
     const { http, calls } = fakeHttp((url) => (url.includes('rss_duyurular.xml') ? rss : undefined));
     const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
     if (!source) throw new Error('MEB Personel kaynağı envanterde yok');
@@ -1051,7 +1055,8 @@ describe('MEB RSS beslemesi', () => {
     </channel></rss>`;
     const { http, calls } = fakeHttp((url) => {
       if (url.includes('rss_duyurular.xml')) return rss;
-      if (url.includes('/icerik/1773')) return `<html><body><main><p>${'Detay metni burada yer alır. '.repeat(8)}</p></main></body></html>`;
+      if (url.includes('/icerik/1773'))
+        return `<html><body><main><p>${'Detay metni burada yer alır. '.repeat(8)}</p></main></body></html>`;
       return undefined;
     });
     const source = SOURCE_DEFINITIONS.find((entry) => entry.key === 'meb-personel-duyurular');
@@ -1059,7 +1064,9 @@ describe('MEB RSS beslemesi', () => {
 
     expect(result.items).toHaveLength(1);
     expect(calls.filter((url) => url.includes('/icerik/1773'))).toHaveLength(1);
-    expect(result.notes.some((note) => note.includes('yinelenen/geçersiz bağlantı tekilleştirildi'))).toBe(true);
+    expect(result.notes.some((note) => note.includes('yinelenen/geçersiz bağlantı tekilleştirildi'))).toBe(
+      true,
+    );
   });
 });
 
@@ -1374,8 +1381,11 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     const firstPage = `<html><body><table>
       <tr><td>ÖRNEK BAKANLIK</td><td>ÖRNEK BAKANLIK PERSONEL ALIM İLANI</td><td>14 Ekim 2026</td><td><a href="/IlanDetay?i=${id}">Başvur</a></td></tr>
     </table><nav class="pagination"><a rel="next" href="?page=2">Sonraki</a></nav></body></html>`;
-    const secondPage = '<html><body><div id="pnlIlanlar"></div><nav class="pagination"><a rel="next" aria-disabled="true" class="disabled" href="?page=3">Sonraki</a></nav></body></html>';
-    const { http } = fakeHttp((url) => (url.includes('page=2') ? secondPage : url.includes('/isealim') ? firstPage : undefined));
+    const secondPage =
+      '<html><body><div id="pnlIlanlar"></div><nav class="pagination"><a rel="next" aria-disabled="true" class="disabled" href="?page=3">Sonraki</a></nav></body></html>';
+    const { http } = fakeHttp((url) =>
+      url.includes('page=2') ? secondPage : url.includes('/isealim') ? firstPage : undefined,
+    );
     const result = await new KariyerKapisiAdapter().run({
       ...contextFor(kariyerSource()!, http, true),
       knownItemIds: new Set([id]),
@@ -1452,7 +1462,9 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     let browserCalls = 0;
     const render = async (urls: string[]): Promise<Map<string, string>> => {
       browserCalls += 1;
-      return new Map(urls.map((url) => [url, url.includes('/isealim') ? LIST_HTML : detailHtml('ILN00000109')]));
+      return new Map(
+        urls.map((url) => [url, url.includes('/isealim') ? LIST_HTML : detailHtml('ILN00000109')]),
+      );
     };
     const listDenied = {
       async fetchText(url: string): Promise<FetchResponse> {
@@ -1610,7 +1622,9 @@ describe('Resmî Gazete tarayıcı yedeği', () => {
         },
       };
 
-      await expect(new ResmiGazeteAdapter(browser).run(contextFor(source!, http, true))).rejects.toMatchObject({
+      await expect(
+        new ResmiGazeteAdapter(browser).run(contextFor(source!, http, true)),
+      ).rejects.toMatchObject({
         status,
       });
       expect(httpUrls).toHaveLength(1);

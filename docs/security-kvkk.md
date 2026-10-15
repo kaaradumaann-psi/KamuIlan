@@ -84,8 +84,11 @@
   ETag/Last-Modified ile koşullu istek, `429/503` durumunda üstel geri çekilme,
   açık `User-Agent` (`SCRAPE_USER_AGENT`).
 - **Talimat enjeksiyonu**: Toplanan metin **veri** olarak kabul edilir; içinde
-  geçen talimatlar asla yürütülmez. AI/LLM kullanılırsa aynı kural geçerlidir ve
-  çıktı yalnızca öneri olarak inceleme kuyruğuna yazılır (otomatik karar vermez).
+  geçen talimatlar asla yürütülmez. Panel yapay zekâ önerilerinde (`src/ai/`) aynı
+  kural geçerlidir: sistem yönergesi ilan metnini veri sayar; model yalnızca
+  aday kümesindeki kayıtlı ilan kimliklerini önerebilir, dışındaki kimlikler
+  zod doğrulamasında atılır ve bozuk yanıt deterministik yedeğe düşer. Çıktı
+  yalnızca öneri olarak gösterilir; hiçbir ilan veya kullanıcı verisi yazmaz.
 
 ## KVKK / veri minimizasyonu
 
@@ -121,15 +124,31 @@
   yedeklerde veya işlenmemiş dışa aktarımlarda bulunan içerik bu çevrimiçi göçle
   silinmez.
 - **Profil kişiselleştirmesi**: Varsayılan olarak kapalıdır ve Panelim'de açıkça
-  etkinleştirilir. Mevcut sürüm ilan alanlarıyla profil bilgisini tarayıcıda
-  karşılaştırır; profili haricî bir AI/LLM hizmetine göndermez. Kullanıcı
-  kişiselleştirmeyi istediği an kapatabilir (profil saklı kalır ama kullanılmaz)
-  veya Panelim'deki profil silme işlemiyle alanları ayrıca boşaltabilir; hesap
-  silme de profil alanlarını temizler.
+  etkinleştirilir. İlan sayfasındaki profil karşılaştırması tarayıcıda yapılır ve
+  hiçbir hizmete veri göndermez. Kullanıcı kişiselleştirmeyi istediği an kapatabilir
+  (profil saklı kalır ama kullanılmaz) veya Panelim'deki profil silme işlemiyle
+  alanları ayrıca boşaltabilir; hesap silme de profil alanlarını temizler.
+- **Yapay zekâ önerileri (açık rıza)**: Panelim'deki "Bana uygun ilanlar" kartı
+  yalnızca kullanıcı açık rıza verdikten sonra çalışır (`aiConsentAt`). Rıza olmadan
+  hiçbir veri harici hizmete gönderilmez (403). Gönderilen alanlar: meslek, eğitim
+  düzeyi, bölümler, beceriler, deneyim yılı ve en fazla 12 aday ilanın başlık, kurum,
+  şehir, çalışma biçimi, son başvuru tarihi, kontenjan ve eğitim/bölüm/KPSS koşulları. Ad, e-posta, parola, TC kimlik ve diğer kimlik bilgileri
+  **gönderilmez** (`buildMessages` testleri bunu doğrular). Rıza geri çekilince
+  veya hesap silinince önbellek temizlenir ve rıza alanı sıfırlanır. Sağlayıcı
+  `LLM_*` ortam değişkenleriyle yapılandırılır; sağlayıcı kendi saklama politikasını
+  uygular. Kamuİlan sağlayıcıya gönderilen içeriği saklamaz; yalnızca sayısal
+  denetim kaydı (`ai.suggestions`) tutulur. Günlük kota (`AI_DAILY_LIMIT_PER_USER`)
+  kullanıcı başına model çağrısını sınırlar; önbellek isabetleri ve yedek sonuçlar
+  kotadan düşmez.
+- **Telegram bildirimleri**: Bağlantı, Telegram sohbet kimliği ve (varsa) kullanıcı
+  adını tutar; hesap silme bağlantıyı siler. Bot komutları: `/dur`, `/basla`,
+  `/cik`, `/durum`. Bildirim metinleri Telegram Bot API üzerinden iletilir.
 - **Amaç sınırı**: Hesap verileri bildirim, oturum ve güvenlik için; isteğe bağlı
-  aday profili yalnızca ilan metniyle yerel eşleşme ipuçları üretmek için kullanılır.
-  Profil eşleşmesi bildirim aboneliğinden bağımsızdır; veriler satılmaz veya
-  haricî AI/LLM hizmetine aktarılmaz.
+  aday profili ilan eşleştirmesi için kullanılır. Profil eşleşmesi bildirim
+  aboneliğinden bağımsızdır. Veriler satılmaz; yapay zekâ hizmetine yalnızca açık
+  rıza ile ve yukarıdaki sınırlı alanlarla aktarılır.
+- **Telegram kanalı**: Yalnızca kullanıcı botla kendi isteğiyle bağlandığında etkinleşir; bot yalnızca
+  özel sohbeti kabul eder. `/cik` veya hesap silme bağlantıyı kaldırır.
 - **Bildirim izni**: Davetle açılan hesap bildirim aboneliği **başlatmaz**;
   kullanıcı tercihlerini açıkça kaydeder. Kullanıcı bildirimleri duraklatabilir
   veya tek tıkla abonelikten çıkabilir (jetonlu bağlantı).

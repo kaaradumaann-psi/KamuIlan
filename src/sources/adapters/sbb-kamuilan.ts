@@ -13,7 +13,7 @@ import { collapseWhitespace } from '../../domain/text';
 import type { RawAnnouncement } from '../../domain';
 import { AdapterStructureError, SourceAccessError } from '../errors';
 import { loadHtml, readableText, absoluteUrl, elementText } from '../../lib/html';
-import { cleanInstitution, cleanTitle, parseListingDate } from '../listing-utils';
+import { cleanInstitution, cleanTitle, ownCardText, parseListingDate } from '../listing-utils';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import { detectNextPage } from '../pagination';
 import { assertSafeUrl } from '../fetcher';
@@ -243,8 +243,9 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
       if (seen.has(key)) return;
       seen.add(key);
 
-      const container = node.closest('li, tr, div, article');
-      const containerText = container.length > 0 ? elementText(container, 700) : title;
+      // Paylaşılmış kapsayıcıda kurum/il komşu ilandan alınmaz.
+      const containerText =
+        ownCardText(node, 'li, tr, div, article', (value) => value.split('?')[0] || null, 700) ?? title;
       const institutionMatch = containerText.match(
         /([A-ZÇĞİÖŞÜ][^|•·]{5,90}?(?:Bakanlığı|Başkanlığı|Rektörlüğü|Müdürlüğü|Belediyesi|Üniversitesi|Kurumu|Genel Müdürlüğü))/u,
       );

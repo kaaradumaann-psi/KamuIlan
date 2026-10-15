@@ -19,6 +19,8 @@ import type {
 } from '../types';
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { TelegramCard } from '../components/TelegramCard';
+import { AiSuggestionsCard } from '../components/AiSuggestionsCard';
 
 const EMPTY_FILTERS: PreferenceFilters = {
   keywords: [],
@@ -399,7 +401,13 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                 onChange={(event) => save.mutate({ mode: event.target.value })}
               >
                 <option value="instant">Anında (yeni ilan bulununca)</option>
-                <option value="daily-digest">Günlük özet</option>
+                {/* Günlük özet henüz gönderilmiyor (toplayıcı görevi yok). Yalnızca bu moddaki
+                    mevcut tercihler için durumu gösterilir; yeni seçim sunulmaz. */}
+                {preference?.mode === 'daily-digest' && (
+                  <option value="daily-digest" disabled>
+                    Günlük özet (henüz kullanılamıyor; bildirimler anında gönderilir)
+                  </option>
+                )}
               </select>
             </Field>
 
@@ -562,6 +570,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
           </form>
         </Card>
       )}
+
+      {view === 'preferences' && <TelegramCard />}
+      {view === 'preferences' && <AiSuggestionsCard />}
 
       {view === 'history' && (
         <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">

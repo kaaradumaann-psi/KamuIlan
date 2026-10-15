@@ -23,7 +23,12 @@ import { fixedClock, type Clock } from '../src/lib/clock';
 import { createLogger } from '../src/lib/logger';
 import { applyRawAnnouncement } from '../src/ingest/jobs-service';
 import { BuiltinQueueBackend, QUEUE_NAMES } from '../src/worker/queue';
-import { ensureScheduledTasks, schedulerTick, syncTaskIntervals } from '../src/worker/scheduler';
+import {
+  ensureScheduledTasks,
+  MIN_GLOBAL_SCAN_INTERVAL_MINUTES,
+  schedulerTick,
+  syncTaskIntervals,
+} from '../src/worker/scheduler';
 import { WorkerRuntime } from '../src/worker/runtime';
 import { AdapterUnavailableError } from '../src/sources/errors';
 import type { SourceAdapter } from '../src/sources/types';
@@ -241,6 +246,7 @@ describe('zamanlayıcı', () => {
     expect(existing?.nextRunAt).toBe(new Date(NOW.getTime() + 60 * 60_000).toISOString());
 
     await world.repos.sources.seed([definition('test-kaynak-yeni', 'Yeni Test Kaynağı', 'ornek3.test')]);
+    // 1 dakikalık global override kaynakları yıpratır: taban (15 dk) uygulanır.
     const overridden = await ensureScheduledTasks(world.repos, LOGGER, 1);
     expect(overridden.updated).toBeGreaterThanOrEqual(2);
     expect(overridden.created).toBeGreaterThanOrEqual(1);
@@ -249,9 +255,11 @@ describe('zamanlayıcı', () => {
     let tasks = await world.repos.scheduledTasks.listAll();
     const sourceTasks = tasks.filter((task) => task.kind === 'source-scrape');
     expect(sourceTasks).toHaveLength(DEFINITIONS.length + 1);
-    expect(sourceTasks.every((task) => task.intervalMinutes === 1)).toBe(true);
+    expect(sourceTasks.every((task) => task.intervalMinutes === MIN_GLOBAL_SCAN_INTERVAL_MINUTES)).toBe(true);
     const rescheduledExisting = sourceTasks.find((task) => task.sourceKey === OK_SOURCE_KEY);
-    expect(rescheduledExisting?.nextRunAt).toBe(new Date(NOW.getTime() + 60_000).toISOString());
+    expect(rescheduledExisting?.nextRunAt).toBe(
+      new Date(NOW.getTime() + MIN_GLOBAL_SCAN_INTERVAL_MINUTES * 60_000).toISOString(),
+    );
     const newlyScheduled = sourceTasks.find((task) => task.sourceKey === 'test-kaynak-yeni');
     expect(newlyScheduled?.nextRunAt).toBe(NOW.toISOString());
 

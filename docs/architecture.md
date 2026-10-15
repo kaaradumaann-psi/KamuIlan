@@ -108,3 +108,14 @@ infra/           docker-compose + Dockerfile + MongoDB başlangıç betiği
 - Kurulum: [setup.md](./setup.md) · Dağıtım: [deployment.md](./deployment.md)
 - İşletim: [operations.md](./operations.md) · Testler: [testing.md](./testing.md)
 - Dürüst sınırlar: [limitations.md](./limitations.md)
+
+## Eklemeler (15 Ekim 2026)
+
+- **İçerik türü:** `classify()` sonucuna deterministik `contentType` eklenir (`src/classification/content-type.ts`).
+  Yalnızca `personnel_recruitment` ilan sayılır; `review` → `uncertain`.
+- **Paylaşılan kart atfı:** Bir kart birden çok farklı ilan kimliği taşıyorsa tarih, il, kurum ve gövde
+  komşudan alınmaz (`ownCardText`, `src/sources/listing-utils.ts`).
+- **Şehir:** Açık görev yeri ipucu, yoksa metinde tek il. Birden çok il ve ipucu yoksa il atanmaz.
+- **Kaynak sağlığı:** `lastHttpStatus`, `lastErrorType`, `lastExtractionAt`, `unexpectedZero` alanları
+  mevcut `sources.health` belgesinde tutulur (yeni koleksiyon yok).
+- **Değerlendirme:** `npm run eval:classification` etiketli kümeyi çalıştırır (`src/classification/eval.ts`).

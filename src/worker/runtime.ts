@@ -23,6 +23,9 @@ import type { JobDoc, ScrapeRunDoc, SourceDoc } from '../db/schemas';
 import { createLogger, type Logger } from '../lib/logger';
 import { createEmailTransport, type EmailTransport } from '../email/transport';
 import { sendOutboxBatch } from '../email/service';
+import { TelegramBotClient } from '../telegram/client';
+import { telegramConfig, type TelegramConfig } from '../telegram/config';
+import type { TelegramSender } from '../telegram/deliver';
 import { toIstanbulDateOnly } from '../domain/dates';
 import type { SourceAdapter } from '../sources/types';
 import { runSourceScrape } from '../ingest/pipeline';
@@ -42,6 +45,8 @@ export interface WorkerRuntimeOptions {
   logger?: Logger;
   workerId?: string;
   transport?: EmailTransport;
+  /** Telegram gönderici; `null` = kapalı. Verilmezse ortam değişkenlerinden kurulur. */
+  telegram?: TelegramSender | null;
   liveFetch?: boolean;
   /** Yalnızca testlerde: kalp atışı kaydını devre dışı bırakmaz, saati sabitler. */
   now?: () => Date;
@@ -58,6 +63,7 @@ export interface WorkerTickResult {
   scheduler: { due: number; enqueued: number; duplicates: number; misses: number };
   scrapes: { processed: number; succeeded: number; failed: number; skipped: number };
   emails: { claimed: number; sent: number; failed: number; dead: number };
+  telegram: { claimed: number; sent: number; failed: number; dead: number; suppressed: number };
   maintenance: { ran: string[]; closedJobs: number; activatedJobs: number; purged: number };
   warnings: string[];
 }
@@ -84,6 +90,7 @@ export class WorkerRuntime {
   private readonly logger: Logger;
   readonly workerId: string;
   private readonly transport: EmailTransport | null;
+  private readonly telegram: TelegramSender | null;
   private readonly now: () => Date;
   private readonly coverageWarnings: boolean;
   private readonly liveFetch: boolean | undefined;
@@ -109,6 +116,8 @@ export class WorkerRuntime {
     // Scheduling controls task creation only; it must not silently disable an
     // already-queued notification delivery. EMAIL_PROVIDER owns mail transport.
     this.transport = options.transport ?? createEmailTransport(this.env).transport;
+    this.telegram =
+      options.telegram !== undefined ? options.telegram : telegramSenderFromEnv(this.env);
   }
 
   /** Tek tik. Testlerde doğrudan çağrılır; üretimde `run()` döngü kurar. */
@@ -122,6 +131,7 @@ export class WorkerRuntime {
       scheduler: { due: 0, enqueued: 0, duplicates: 0, misses: 0 },
       scrapes: { processed: 0, succeeded: 0, failed: 0, skipped: 0 },
       emails: { claimed: 0, sent: 0, failed: 0, dead: 0 },
+      telegram: { claimed: 0, sent: 0, failed: 0, dead: 0, suppressed: 0 },
       maintenance: { ran: [], closedJobs: 0, activatedJobs: 0, purged: 0 },
       warnings: [],
     };
@@ -141,6 +151,7 @@ export class WorkerRuntime {
 
     const email = await this.processEmailQueue(now);
     result.emails = email;
+    result.telegram = await this.processTelegramQueue(now);
 
     const maintenance = await this.processMaintenanceQueue(now);
     result.maintenance = maintenance;
@@ -243,6 +254,33 @@ export class WorkerRuntime {
     }
   }
 
+  private async processTelegramQueue(now: Date): Promise<WorkerTickResult['telegram']> {
+    const empty = { claimed: 0, sent: 0, failed: 0, dead: 0, suppressed: 0 };
+    if (!this.telegram) return empty;
+    try {
+      const batch = await sendOutboxBatch({
+        repos: this.repos,
+        channel: 'telegram',
+        telegram: this.telegram,
+        workerId: this.workerId,
+        limit: 20,
+        now,
+      });
+      return {
+        claimed: batch.claimed,
+        sent: batch.sent,
+        failed: batch.failed,
+        dead: batch.dead,
+        suppressed: batch.suppressed,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = message;
+      this.logger.error({ err: message }, 'telegram turu başarısız');
+      return { ...empty, failed: 1 };
+    }
+  }
+
   private async processEmailQueue(now: Date): Promise<WorkerTickResult['emails']> {
     if (!this.transport) return { claimed: 0, sent: 0, failed: 0, dead: 0 };
     try {
@@ -314,9 +352,10 @@ export class WorkerRuntime {
       case 'deadline-refresh': {
         // Tarihler Türkiye saatine göre karşılaştırılır (gün sınırı Europe/Istanbul).
         const today = toIstanbulDateOnly(now);
-        const closed = await this.repos.jobs.closeExpiredJobs(today);
+        const closedExpired = await this.repos.jobs.closeExpiredJobs(today);
+        const closedStale = await this.repos.jobs.closeStalePublications(today);
         const activated = await this.repos.jobs.activateStartedJobs(today);
-        return { ran: kind, closedJobs: closed, activatedJobs: activated, purged: 0 };
+        return { ran: kind, closedJobs: closedExpired + closedStale, activatedJobs: activated, purged: 0 };
       }
       case 'maintenance': {
         const purgedLocks = await this.repos.locks.purgeExpired();
@@ -660,4 +699,16 @@ export function summarizeRun(run: ScrapeRunDoc): { label: string; value: string 
 /** Bildirim gönderilecek ilanı kısaca tanımlar (log/panel). */
 export function describeJob(job: JobDoc): string {
   return `${job.title} — ${job.institution}`;
+}
+
+/** Ortam değişkenlerinden Telegram göndericisi. Kanal kapalıysa null (e-posta etkilenmez). */
+export function telegramSenderFromEnv(env: Env): TelegramSender | null {
+  const config: TelegramConfig | null = telegramConfig(env);
+  if (!config) return null;
+  return {
+    client: new TelegramBotClient({ token: config.token, apiBaseUrl: config.apiBaseUrl }),
+    config,
+    senderName: env.APP_DISPLAY_NAME,
+    baseUrl: env.APP_BASE_URL,
+  };
 }

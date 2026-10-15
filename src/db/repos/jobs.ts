@@ -3,7 +3,13 @@
  */
 import { createId } from '../../domain/ids';
 import { escapeRegExp, normalizeTr } from '../../domain/text';
-import { toIstanbulDateOnly } from '../../domain/dates';
+import {
+  addDaysDateOnly,
+  isStalePublication,
+  sanePublishedDate,
+  STALE_PUBLICATION_DAYS,
+  toIstanbulDateOnly,
+} from '../../domain/dates';
 import type { JobStatus } from '../../domain';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
@@ -18,6 +24,8 @@ export interface JobSearchFilters {
   title?: string;
   cities?: string[];
   employmentTypes?: string[];
+  /** `process`: yalnızca süreç duyuruları; `job`: süreç duyuruları hariç iş ilanları. */
+  kind?: 'job' | 'process';
   educationLevels?: string[];
   departments?: string[];
   kpssScoreTypes?: string[];
@@ -248,10 +256,17 @@ export class JobRepo {
   buildFilter(filters: JobSearchFilters, includeNonAccepted = false): Query {
     const clauses: Query[] = [];
     if (!includeNonAccepted) clauses.push({ 'classification.decision': 'accept' });
-    if (filters.status && filters.status.length > 0) clauses.push({ status: { $in: filters.status } });
+    if (filters.status && filters.status.length > 0) {
+      // Süreç duyurusunun başvuru durumu yoktur: durum filtresi yalnızca iş ilanlarına uygulanır.
+      clauses.push({ status: { $in: filters.status } });
+      clauses.push({ 'classification.kind': { $ne: 'process' } });
+    }
     if (filters.employmentTypes && filters.employmentTypes.length > 0) {
       clauses.push({ employmentType: { $in: filters.employmentTypes } });
     }
+    // Eski kayıtlarda classification.kind yoktur; bunlar iş ilanıdır ($ne eksik alanı eşler).
+    if (filters.kind === 'process') clauses.push({ 'classification.kind': 'process' });
+    if (filters.kind === 'job') clauses.push({ 'classification.kind': { $ne: 'process' } });
     if (filters.cities && filters.cities.length > 0) {
       // Türkçe duyarlı karşılaştırma: kullanıcı 'istanbul', 'İSTANBUL' ya da
       // 'Istanbul' yazsa da aynı şehri bulur (normalize edilmiş alanla).
@@ -320,7 +335,8 @@ export class JobRepo {
     byEmploymentType: { key: string; count: number }[];
     lastSuccessfulScanAt: string | null;
   }> {
-    const base: Query = { 'classification.decision': 'accept' };
+    // İstatistikler iş ilanlarını sayar; süreç duyuruları "açık ilan" olarak sayılmaz.
+    const base: Query = { 'classification.decision': 'accept', 'classification.kind': { $ne: 'process' } };
     const today = toIstanbulDateOnly(now);
     const soon = toIstanbulDateOnly(new Date(now.getTime() + 7 * 86_400_000));
 
@@ -370,6 +386,37 @@ export class JobRepo {
       { status: { $in: ['active', 'upcoming'] }, applicationEndDate: { $lt: todayDateOnly } },
       { status: 'closed', statusReason: 'Başvuru süresi doldu.', updatedAt: now },
     );
+  }
+
+  /**
+   * Son başvuru tarihi hiç olmayan ve yayımından çok geçmiş ilanları kapatır.
+   * Eski kayıtlar (ör. 2008/2018 yayımlı) yeniden işlenmeden de bu bakımda düzelir.
+   */
+  async closeStalePublications(todayDateOnly: string, maxAgeDays = STALE_PUBLICATION_DAYS): Promise<number> {
+    const cutoff = addDaysDateOnly(todayDateOnly, -maxAgeDays);
+    const candidates = await this.store.find(
+      'jobs',
+      { status: { $in: ['active', 'upcoming', 'unknown'] }, publishedAt: { $lt: cutoff } },
+      { limit: 5_000 },
+    );
+    const now = this.clock.now().toISOString();
+    let closed = 0;
+    for (const job of candidates) {
+      if (job.applicationEndDate || job.applicationEndAt) continue;
+      if (!isStalePublication(sanePublishedDate(job.publishedAt, todayDateOnly), todayDateOnly, maxAgeDays))
+        continue;
+      await this.store.updateOne(
+        'jobs',
+        { id: job.id },
+        {
+          status: 'closed',
+          statusReason: 'Yayımından uzun süre geçti ve son başvuru tarihi belirtilmemiş.',
+          updatedAt: now,
+        },
+      );
+      closed += 1;
+    }
+    return closed;
   }
 
   /** Başvurusu bugün başlayan ilanları "aktif" durumuna alır. */

@@ -459,6 +459,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
             {
               classificationOverride: {
                 decision: 'accept',
+                kind: 'job',
                 employmentType,
                 confidence: Math.max(item.confidence, 0.85),
                 reasons: [

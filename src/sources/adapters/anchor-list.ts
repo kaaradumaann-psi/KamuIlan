@@ -10,6 +10,7 @@
  * kaydında hata olarak görünsün (HTML değişikliği sessizce veri kaybına
  * dönüşmesin).
  */
+import { AdapterStructureError } from '../errors';
 import type { AnyNode } from 'domhandler';
 import {
   elementText,
@@ -19,7 +20,7 @@ import {
   readableText,
   stripPageChrome,
 } from '../../lib/html';
-import { collapseWhitespace, makeExcerpt, normalizeTr } from '../../domain/text';
+import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from '../../domain/text';
 import { cleanTitle, parseListingDate } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
@@ -77,11 +78,8 @@ function listingDocumentIdentity(value: string): string | null {
 }
 
 function isChromeLikeTitle(value: string): boolean {
-  const normalized = normalizeTr(value);
-  if (normalized.length > 180) return true;
-  return /(?:sharepoint|oturum ac|erisilebilirlik|ana icerige atla|sayfa haritasi|^anasayfa$|^duyurular$|^haberler$|^iletisim$)/.test(
-    normalized,
-  );
+  if (normalizeTr(value).length > 180) return true;
+  return isSiteChromeTitle(value);
 }
 
 function isClearlyEmptyListingPage(html: string): boolean {
@@ -147,9 +145,20 @@ function parseAnchorListPage(
     });
 
   const entries: ListEntry[] = [];
+  const candidateElements = new Set<AnyNode>(candidates.map((candidate) => candidate.element));
   for (const candidate of candidates) {
     const anchorText = elementText($(candidate.element), 400);
-    const rowText = elementText($(candidate.element).closest(config.rowSelector), 900) || anchorText;
+    // Satır yalnızca bu bağlantıya aitse satır metni (tarih, kısa özet) kullanılır. Aynı satırda
+    // birden çok aday bağlantı varsa satır paylaşılıyordur: ilk bulunan tarih ya da gövde komşu
+    // duyuruya ait olabilir. Bu durumda yalnızca bağlantının kendi metni kullanılır.
+    const row = $(candidate.element).closest(config.rowSelector);
+    const sharedRow =
+      row.length > 0 &&
+      row
+        .find('a[href]')
+        .toArray()
+        .filter((anchor) => candidateElements.has(anchor as AnyNode)).length > 1;
+    const rowText = sharedRow ? anchorText : elementText(row, 900) || anchorText;
     const title = cleanTitle(anchorText.length >= config.minTitleLength ? anchorText : rowText);
     if (title.length < config.minTitleLength || isChromeLikeTitle(title)) continue;
     entries.push({
@@ -337,7 +346,8 @@ export class AnchorListAdapter implements SourceAdapter {
         });
       }
       const pageText = readableText(loadHtml(html), 'body', 300);
-      throw new Error(
+      throw new AdapterStructureError(
+        source.key,
         `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${String(this.config.pathPattern)} bulunamadı. ` +
           `Sayfa özeti: "${makeExcerpt(pageText, 160)}" — adaptör seçicileri güncellenmeli.`,
       );
@@ -397,7 +407,8 @@ export class AnchorListAdapter implements SourceAdapter {
         notes.push(coverage.note);
         return this.buildItems(ctx, [], notes, httpStatuses, requestCount, listing, coverage);
       }
-      throw new Error(
+      throw new AdapterStructureError(
+        source.key,
         `Liste yapısı tanınmadı (${source.key}): RSS beslemesinde kayıt bulunamadı. ` +
           `Sayfa özeti: "${makeExcerpt(collapseWhitespace(xml.replace(/<[^>]+>/g, ' ')), 160)}" — besleme biçimi değişmiş olabilir.`,
       );
@@ -428,17 +439,19 @@ export class AnchorListAdapter implements SourceAdapter {
     const candidatesByItemId = new Map<string, ListEntry>();
     for (const entry of entries) {
       const itemId = itemIdOf(entry.url);
-      if (!itemId || entry.title.length < this.config.minTitleLength || candidatesByItemId.has(itemId)) continue;
+      if (!itemId || entry.title.length < this.config.minTitleLength || candidatesByItemId.has(itemId))
+        continue;
       candidatesByItemId.set(itemId, entry);
     }
     if (candidatesByItemId.size < entries.length) {
-      notes.push(`${entries.length - candidatesByItemId.size} yinelenen/geçersiz bağlantı tekilleştirildi veya atlandı.`);
+      notes.push(
+        `${entries.length - candidatesByItemId.size} yinelenen/geçersiz bağlantı tekilleştirildi veya atlandı.`,
+      );
     }
     const eligible = [...candidatesByItemId.entries()]
       .map(([itemId, entry]) => ({ entry, itemId }))
       .filter(
-        (candidate) =>
-          !seen.has(candidate.itemId) || (fetchDetail && !knownWithDetail.has(candidate.itemId)),
+        (candidate) => !seen.has(candidate.itemId) || (fetchDetail && !knownWithDetail.has(candidate.itemId)),
       );
     const fresh = eligible.filter((candidate) => !seen.has(candidate.itemId));
     const pendingDetail = eligible.filter((candidate) => seen.has(candidate.itemId));
@@ -500,15 +513,16 @@ export class AnchorListAdapter implements SourceAdapter {
     const detailCoverageNotes: string[] = [];
     if (failedDetailReads > 0) detailCoverageNotes.push(`${failedDetailReads} detay isteği başarısız oldu.`);
     if (detailPagesWithoutText > 0)
-      detailCoverageNotes.push(`${detailPagesWithoutText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`);
+      detailCoverageNotes.push(
+        `${detailPagesWithoutText} detay sayfasından kullanılabilir ilan metni çıkarılamadı.`,
+      );
     if (deferred > 0)
       detailCoverageNotes.push(`${deferred} yeni/eksik detay bütçe nedeniyle sonraki taramaya ertelendi.`);
     const finalCoverage = {
       status: detailCoverageNotes.length > 0 ? ('partial' as const) : coverage.status,
       note: [coverage.note, ...detailCoverageNotes].join(' '),
     };
-    if (detailCoverageNotes.length > 0)
-      notes.push(`Detay kapsamı kısmi — ${detailCoverageNotes.join(' ')}`);
+    if (detailCoverageNotes.length > 0) notes.push(`Detay kapsamı kısmi — ${detailCoverageNotes.join(' ')}`);
 
     return {
       items,

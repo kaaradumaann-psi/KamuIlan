@@ -65,6 +65,8 @@ interface PostgresStoreOptions {
   /** Supabase'de önerilen bağlantı havuzu boyutu. */
   maxConnections?: number;
   ssl?: boolean;
+  /** PEM CA sertifikası. Verilirse sunucu sertifikası bu CA ile doğrulanır. */
+  caCertificate?: string;
   /** Tablo ön eki: aynı Supabase projesinde birden fazla ortam çalıştırılabilir. */
   tablePrefix?: string;
   /** Testler için enjekte edilebilir havuz (PGlite uyarlaması). */
@@ -270,6 +272,19 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
   return conditions.length > 0 ? conditions.join(' AND ') : 'TRUE';
 }
 
+/**
+ * TLS yapılandırması. CA verilmişse doğrulama AÇIK. CA yoksa mevcut bağlantı (doğrulamasız)
+ * korunur; bu durum ortam denetiminde uyarı olarak raporlanır ve kapatılması önerilir.
+ */
+export function sslConfigFor(
+  caCertificate?: string,
+): { ca: string; rejectUnauthorized: true } | { rejectUnauthorized: false } {
+  if (caCertificate && caCertificate.trim().length > 0) {
+    return { ca: caCertificate, rejectUnauthorized: true };
+  }
+  return { rejectUnauthorized: false };
+}
+
 export class PostgresStore implements StoragePort {
   readonly driver = 'postgres' as const;
 
@@ -284,7 +299,7 @@ export class PostgresStore implements StoragePort {
       new Pool({
         connectionString: options.connectionString,
         max: options.maxConnections ?? 10,
-        ...(options.ssl === false ? {} : { ssl: { rejectUnauthorized: false } }),
+        ...(options.ssl === false ? {} : { ssl: sslConfigFor(options.caCertificate) }),
       });
   }
 

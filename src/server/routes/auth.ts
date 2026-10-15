@@ -473,6 +473,8 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
       const ok = await verifyPassword(body.password, user.passwordHash, user.passwordSalt);
       if (!ok) throw ApiError.unauthorized('Parola doğrulanamadı.');
       const result = await repos.users.erasePersonalData(user.id);
+      // Telegram: sohbet kimliği silinir (erasePersonalData) ve bekleyen işler bastırılır.
+      await repos.telegram.erase(user.id);
       const preference = await repos.notifications.getPreference(user.id);
       if (preference)
         await repos.notifications.upsertPreference(user.id, { enabled: false, paused: true, filters: {} });

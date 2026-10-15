@@ -2,7 +2,7 @@
  * Liste sayfaları için ortak yardımcılar (adaptörler arasında paylaşılır).
  */
 import type { CheerioAPI } from '../lib/html';
-import { absoluteUrl, cleanAnchorText, elementText } from '../lib/html';
+import { absoluteUrl, blockElementText, cleanAnchorText, elementText } from '../lib/html';
 import { parseTurkishDate } from '../domain/dates';
 import { collapseWhitespace } from '../domain/text';
 import type { AnyNode, Cheerio } from '../lib/html';
@@ -125,3 +125,31 @@ export function readListRow(
 }
 
 export { cleanAnchorText };
+
+/**
+ * Bağlantının kendi kartının (satır, madde, hücre) metni.
+ *
+ * Kart birden çok FARKLI ilan kimliği taşıyorsa paylaşılmış bir kapsayıcıdır: tarih, il,
+ * kurum ve gövde gibi alanlar komşu ilandan karışabilir. Bu durumda null döner ve çağıran
+ * yalnızca bağlantının kendi metnini kullanır. Aynı ilana giden iki bağlantı (başlık ve
+ * "devamı") tek kimlik sayılır; böylece tek ilanlık gerçek kartlar kaybolmaz.
+ *
+ * `keyOf`, bir bağlantı adresinden ilan kimliğini döndürür (ilan değilse null).
+ */
+export function ownCardText(
+  anchor: Cheerio<AnyNode>,
+  selector: string,
+  keyOf: (href: string) => string | null,
+  limit: number,
+): string | null {
+  const card = anchor.closest(selector);
+  if (card.length === 0) return null;
+  const keys = new Set<string>();
+  for (const element of card.find('a[href]').toArray()) {
+    const href = (element as { attribs?: Record<string, string> }).attribs?.href ?? '';
+    const key = keyOf(href);
+    if (key) keys.add(key);
+  }
+  if (keys.size > 1) return null;
+  return blockElementText(card, limit);
+}

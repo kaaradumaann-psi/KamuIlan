@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Kamuİlan — Türkiye'deki kamu personel alım ilanlarını resmî kaynaklardan toplayan, doğrulayan, tekilleştiren ve e-posta ile bildiren platform.",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.15.0"
   },
   "scripts": {
     "dev": "tsx scripts/dev-all.ts",
@@ -24,18 +24,23 @@
     "test:e2e": "playwright test",
     "test:e2e:local": "playwright test e2e/smoke.spec.ts --project=chromium",
     "test:live": "tsx scripts/live-check.ts",
+    "probe:resmigazete": "tsx scripts/probe-resmigazete-browser.ts",
     "audit:drain": "tsx scripts/audit-list-drain.ts",
     "start": "tsx src/server/main.ts",
     "start:worker": "tsx src/worker/main.ts",
     "env:check": "tsx scripts/check-env.ts",
+    "telegram:webhook": "tsx scripts/telegram-webhook.ts",
     "db:indexes": "tsx scripts/create-indexes.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "sources:report": "tsx scripts/coverage-report.ts",
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",
+    "jobs:reclassify": "tsx scripts/reclassify-jobs.ts",
+    "jobs:restore": "tsx scripts/restore-jobs-backup.ts",
     "seed:admin": "tsx scripts/create-admin.ts",
-    "user:create": "tsx scripts/create-user.ts"
+    "user:create": "tsx scripts/create-user.ts",
+    "eval:classification": "tsx scripts/eval-classification.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

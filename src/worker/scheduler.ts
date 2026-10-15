@@ -32,6 +32,22 @@ export interface EnsureTasksResult {
 }
 
 /**
+ * Kaynakların kaynak başına aralığını ezebilecek en kısa global aralık (dakika).
+ *
+ * Neden taban var: SCAN_INTERVAL_MINUTES tanımlıysa her kaynak aynı aralıkla taranır.
+ * Değer 1 ise 24 resmî kaynağa dakikada bir istek gider; sitelerin zaman aşımı ve
+ * engellemesi (\"12 denemedir ulaşılamıyor\") tam olarak bundan kaynaklanır. Taban,
+ * test amaçlı hızlı tarama isteğini korur ama kaynakları yıpratmayı önler.
+ */
+export const MIN_GLOBAL_SCAN_INTERVAL_MINUTES = 15;
+
+/** Global override yoksa null; varsa taban uygulanmış değer. */
+export function effectiveGlobalInterval(scanIntervalMinutes: number): number | null {
+  if (!(scanIntervalMinutes > 0)) return null;
+  return Math.max(Math.round(scanIntervalMinutes), MIN_GLOBAL_SCAN_INTERVAL_MINUTES);
+}
+
+/**
  * Zamanlanmış görevleri kaynak envanterine göre kurar/günceller.
  * Devre dışı kaynakların görevleri SİLİNMEZ, yalnızca devre dışı bırakılır.
  */
@@ -41,7 +57,7 @@ export async function ensureScheduledTasks(
   scanIntervalMinutes = 0,
 ): Promise<EnsureTasksResult> {
   const result: EnsureTasksResult = { created: 0, updated: 0, disabled: 0, total: 0 };
-  const globalIntervalMinutes = scanIntervalMinutes > 0 ? scanIntervalMinutes : null;
+  const globalIntervalMinutes = effectiveGlobalInterval(scanIntervalMinutes);
   const sources = await repos.sources.list();
   const before = await repos.scheduledTasks.listAll();
   const existingByKey = new Map(before.map((task) => [`${task.kind}:${task.sourceKey}`, task]));
@@ -219,7 +235,7 @@ export async function rescheduleTask(repos: Repos, id: string, delayMinutes = 0)
 export async function syncTaskIntervals(repos: Repos, scanIntervalMinutes = 0): Promise<number> {
   const sources = await repos.sources.list();
   const tasks = await repos.scheduledTasks.listAll();
-  const globalIntervalMinutes = scanIntervalMinutes > 0 ? scanIntervalMinutes : null;
+  const globalIntervalMinutes = effectiveGlobalInterval(scanIntervalMinutes);
   let changed = 0;
   for (const task of tasks) {
     if (task.kind !== 'source-scrape' || task.sourceKey === SYSTEM_TASK_KEY) continue;

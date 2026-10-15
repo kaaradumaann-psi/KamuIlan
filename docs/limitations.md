@@ -89,3 +89,41 @@ gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
 - Taranmış PDF'ler için OCR hattı (bilinçli olarak eklenmedi; maliyet/doğruluk
   dengesi tartışılmalı).
 - Çoklu dil (şimdilik yalnızca Türkçe).
+
+## Telegram ve yapay zekâ önerileri
+
+- **Telegram**: Bildirim metni düz HTML olarak gönderilir; bot yalnızca özel sohbeti kabul eder ve grup
+  bildirimi yoktur. Telegram teslimi "sağlayıcı kabul etti" kaydıdır; kullanıcının okuduğu garanti edilmez.
+- **Yapay zekâ önerileri**: Aday kümesi kural tabanlıdır (en çok 150 yeni açık ilan taranır, 12 aday
+  gönderilir). Ilanı dışarıda kalan iyi bir eşleşme önerilmez. Model sıralaması ve gerekçeleri öneri
+  niteliğindedir; başvuru koşullarının yerine geçmez ve kullanıcı resmî ilanı kontrol etmelidir.
+- **Önbellek ve kota**: Öneri önbelleği süreç belleğindedir (20 dakika); birden fazla API sürecinde
+  paylaşılmaz ve yeniden başlatmada sıfırlanır. Günlük kota da aynı kovada tutulur; yoğun dağıtımda
+  yeniden başlatma sayacı düşürebilir.
+- **Model kalitesi**: Sağlayıcı ve model değiştirilebilir; Türkçe kamu ilanı üzerindeki kalitesi
+  kurulum öncesinde örnek ilanlarla ölçülmelidir. Uydurma ilan kimlikleri doğrulamada atılır, ancak
+  metin içindeki yanlış gerekçeler doğrulanamaz.
+
+## Üretim sertleştirme turu (15 Ekim 2026) — açık kalan sınırlar
+
+1. **Gerçek etiketli küme yok.** `tests/fixtures/eval/labeled-set.json` 17 kayıttır; gövdeler
+   sentetik, başlıklar kullanıcı spesifikasyonundan. Gerçek precision/recall raporlanmadı.
+   `npm run eval:classification` gerçek örnek (`origin: "real"`) eklenince gerçek metrik verir.
+2. **Haber sınıfı zayıf.** Başlığında haber ipucu olmayan ve kurala bağlanmayan redler `other`
+   olarak etiketlenir. Etiketli kümede haber recall'u ölçüldü (bkz. eval çıktısı). Bu, yanlış ilan
+   kabulü değildir, ama haber ayrımı eksiktir.
+3. **Canlı kaynaklar bu turda doğrulanamadı.** Sandbox yalnızca github/npm/pypi'ye erişebilir.
+   YÖK, ilan.gov.tr, İŞKUR ve diğer kurum sayfaları için canlı sonuç yoktur; `verified` etiketleri
+   tarihsel kanıttır.
+4. **LLM ingest hattında yok.** Gerekçe ve koşullar: `docs/llm-karari.md`.
+5. **Günlük özet gönderilmiyor.** Panelde yeni seçim sunulmuyor; bu moddaki mevcut tercihler
+   "henüz kullanılamıyor" olarak gösterilir, bildirimler anında gönderilir.
+6. **Veritabanı TLS doğrulaması varsayılan olarak kapalı.** `POSTGRES_SSL_CA_FILE` tanımlanınca
+   doğrulama açılır. Tanımlı değilse uyarı verilir. Varsayılanı değiştirmek için Supabase CA
+   sertifikası gerekir.
+7. **Kuru çalıştırma sonuçları değişti.** Kabul kuralı güncellendi; 14 Ekim rakamları eski olabilir.
+   Yeni kuru çalıştırma gerekir (`docs/veri-duzeltme-plani.md`).
+8. **Ana metin ve menü temizliği genel değildir.** Menü metni sorunu için kullanıcıdan örnek
+   bekleniyor; genel bir gövde temizleme kuralı eklenmedi.
+9. **Telegram ve e-posta canlı teslimi test edilmedi.** Gönderim hataları kuyrukta izlenir, ama bu
+   ortamda gerçek gönderim yapılmadı (gerçek kullanıcıya gönderim riski nedeniyle).

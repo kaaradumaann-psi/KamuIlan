@@ -2,8 +2,9 @@
 
 Bu belge kaynak **envanterini ve kapsam politikasını** açıklar; anlık kaynak sağlığı
 raporu değildir. 14 Ekim 2026 denetiminde hiçbir resmî kaynağa canlı istek
-atılmadı. `src/config/sources.ts` envanteri şu anda 27 kaynak kaydı içeriyor:
-23 etkin ve `verified` olarak işaretli, 4 devre dışı/manuel yöntemli. Bu
+atılmadı. `src/config/sources.ts` envanteri (15 Ekim 2026 ayrıştırması) 28 kaynak kaydı içeriyor:
+15 etkin ve `verified`, 9 etkin ve `scraper-built` (henüz `verified` değil), 4 devre dışı
+(`needs-manual-method`). Bu
 `verified` sayacı, envanterde saklanan **tarihsel kanıtı** sayar; bugünkü erişimi,
 worker çalışmasını, ilan üretimini veya tam kapsamı kanıtlamaz. Sağlık için
 `npm run sources:report`, her çalışmanın kapsamı için tarama geçmişini kullanın.
@@ -43,7 +44,7 @@ Aşağıdaki kanıt tarihleri `src/config/sources.ts` içindeki kayıtlarla uyum
 
 ### Etkinlik ve tarihsel kanıtın sınırları
 
-- 23 etkin kayıt `verified` statüsünü taşıyor; bu, 23 kaynağın **bugün** sağlıklı
+- 15 etkin kayıt `verified` statüsünü taşıyor; bu, 15 kaynağın **bugün** sağlıklı
   olduğunu veya hepsinin tam arşiv sunduğunu göstermez. Özellikle genel kurum
   sayfalarında bir sayfayı açmak/örnek satır görmek, kaynağın tarihsel bütünlüğünü
   kanıtlamaz.

@@ -28,6 +28,8 @@ export interface PublicJobSummary {
   id: string;
   title: string;
   institution: string;
+  /** `job`: iş ilanı; `process`: gerçek bir alımın kura/sınav/sonuç duyurusu. */
+  kind: 'job' | 'process';
   unit: string | null;
   employmentType: EmploymentType;
   employmentTypeLabel: string;
@@ -201,6 +203,13 @@ export interface SourceCoverageEntry {
     lastError: string | null;
     itemsFound: number;
     emptyStreak: number;
+    lastSuccessfulExtractionAt: string | null;
+    lastHttpStatus: number | null;
+    lastErrorType: 'unavailable' | 'structure' | 'fetch' | 'item' | 'other' | null;
+    lastRejectedCount: number;
+    lastReviewCount: number;
+    /** Beklenmeyen sıfır: yapı değişimi ya da kaynak bozulması olabilir; yönetici incelemeli. */
+    unexpectedZero: boolean;
   };
   lastRun: {
     startedAt: string;
@@ -494,4 +503,63 @@ export interface CoverageReport {
   unknownRegistryAdapters: string[];
   disclaimer: string;
   generatedAt: string;
+}
+
+export interface TelegramLinkView {
+  status: 'active' | 'stopped' | 'blocked';
+  telegramUsername: string | null;
+  linkedAt: string;
+  statusChangedAt: string;
+  lastError: string | null;
+}
+
+export interface TelegramStatusResponse {
+  configured: boolean;
+  botUsername: string | null;
+  link: TelegramLinkView | null;
+  notificationsOn: boolean;
+  canReceive: boolean;
+  notice: string;
+}
+
+export interface TelegramLinkCodeResponse {
+  deepLink: string;
+  expiresAt: string;
+  botUsername: string;
+  manualCommand: string;
+  message: string;
+}
+
+export interface AiStatusResponse {
+  enabled: boolean;
+  providerLabel: string;
+  consent: { given: boolean; at: string | null };
+  profileReady: boolean;
+  dailyLimit: number;
+  remainingToday: number;
+}
+
+export interface AiSuggestionItem {
+  jobId: string;
+  title: string;
+  institution: string;
+  city: string | null;
+  employmentTypeLabel: string;
+  applicationEndDate: string | null;
+  status: string;
+  fit: 'strong' | 'possible' | 'weak';
+  reasons: string[];
+  caveats: string[];
+}
+
+export interface AiSuggestionsResponse {
+  mode: 'ai' | 'profile-fallback' | 'none';
+  generatedAt: string;
+  candidateCount: number;
+  suggestions: AiSuggestionItem[];
+  notice: string | null;
+  cached: boolean;
+  providerLabel: string;
+  remainingToday: number;
+  dailyLimit: number;
 }

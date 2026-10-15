@@ -38,17 +38,27 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
       </h3>
 
       <div className="job-card-tags">
-        <Tag tone="accent">
-          {employmentTypeLabel(job.employmentType) || job.employmentTypeLabel}
-        </Tag>
+        {job.kind === 'process' ? (
+          <Tag tone="info">Süreç duyurusu</Tag>
+        ) : (
+          <Tag tone="accent">{employmentTypeLabel(job.employmentType) || job.employmentTypeLabel}</Tag>
+        )}
         {city && <Tag icon="mapPin">{city}</Tag>}
         {job.quota !== null && <Tag icon="user">{`${job.quota} kişi`}</Tag>}
-        <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
+        {job.kind !== 'process' && (
+          <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
+        )}
         {job.provenance === 'sample' && <Tag tone="warning">Örnek veri</Tag>}
         {job.criticalMissingFields && job.criticalMissingFields.length > 0 && (
           <Tag tone="warning">Bazı bilgiler eksik</Tag>
         )}
       </div>
+
+      {job.kind === 'process' && (
+        <p className="job-card-note">
+          Yeni alım ilanı değil; devam eden bir personel alımının kura, sınav veya sonuç aşamasını bildirir.
+        </p>
+      )}
 
       {(job.unit || job.titles.length > 0 || job.attachmentCount > 0) && (
         <ul className="job-card-meta">
