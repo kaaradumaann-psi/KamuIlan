@@ -77,6 +77,30 @@ describe('NODE_EXTRA_CA_CERTS birleştirme', () => {
     expect(bundle?.sort()).toEqual(['DEFAULT-ROOT', 'SYSTEM-ROOT'].sort());
   });
 
+  it('sistem deposu hata verse bile varsayılan kökleri ve ek CA dosyasını korur', () => {
+    const extraPath = join(tmpDir, 'extra.pem');
+    writeFileSync(extraPath, BUNDLE, 'utf8');
+    process.env['NODE_EXTRA_CA_CERTS'] = extraPath;
+    getCACertificates.mockImplementation((type: string) => {
+      if (type === 'system') throw new Error('Windows certificate store unavailable');
+      return ['DEFAULT-ROOT'];
+    });
+    expect(loadCaStore()).toEqual([
+      'DEFAULT-ROOT',
+      '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----',
+      '-----BEGIN CERTIFICATE-----\nBBBB\n-----END CERTIFICATE-----',
+    ]);
+  });
+
+  it('sistem deposu hata verdiğinde ek CA olmasa da varsayılan kökler korunur', () => {
+    delete process.env['NODE_EXTRA_CA_CERTS'];
+    getCACertificates.mockImplementation((type: string) => {
+      if (type === 'system') throw new Error('unavailable');
+      return ['DEFAULT-ROOT'];
+    });
+    expect(loadCaStore()).toEqual(['DEFAULT-ROOT']);
+  });
+
   it('eski Node (<22.15) sistem deposu API\'si yoksa ve NODE_EXTRA_CA_CERTS ayarlıysa CA zorla ezilmez; undefined döner', () => {
     // Not: eski Node'da getCACertificates yoktur; varsayılan depoyu programlı olarak
     // okuyamayız. Bu durumda `ca` seçeneği vermek yerine Node\'un kendi varsayılan

@@ -69,6 +69,9 @@ npm run env:check     # ortam değişkeni doğrulaması
 npm run dev           # arayüz + API + worker + geliştirme posta sunucusu
 ```
 
+Supabase bağlantısında `SELF_SIGNED_CERT_IN_CHAIN` alırsanız doğrulamayı kapatmadan
+[proje CA sertifikasını tanıtın](./docs/database-tls.md).
+
 | Adres | Ne |
 | --- | --- |
 | http://localhost:5173 | Arayüz |

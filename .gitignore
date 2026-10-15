@@ -16,3 +16,6 @@ playwright-report/
 # Yeniden sınıflandırma raporu ve canlı probe çıktıları (kişisel/operasyonel veri içerebilir)
 reclassify-report*.json
 probe-resmigazete-*.json
+
+# Yerel veritabanı / kurumsal CA dosyaları
+certs/
