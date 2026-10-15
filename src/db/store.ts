@@ -31,7 +31,7 @@ function readCaFileOrThrow(path: string): string {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `POSTGRES_SSL_CA_FILE okunamadı (${reason}). Doğrulamasız bağlantıya düşülmedi; ` +
-        'dosya yolunu düzeltin ya da CA dosyası kaldırmak için bilinçli olarak POSTGRES_SSL_MODE=no-verify verin.',
+        'Güvenilir CA dosyasının yolunu/içeriğini düzeltin. Kurulum: docs/database-tls.md',
     );
   }
 }

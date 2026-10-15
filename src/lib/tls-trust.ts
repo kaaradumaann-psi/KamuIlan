@@ -65,35 +65,62 @@ function loadNodeExtraCaCerts(): string[] {
  * NODE_EXTRA_CA_CERTS ile belirtilen ek kökleri tekilleştirilmiş tek liste
  * olarak döndürür.
  *
- * Sistem deposu okunamazsa (eski Node, izin sorunu) ve NODE_EXTRA_CA_CERTS
- * de yoksa `undefined` döner — çağıran taraf bu durumda Node'un varsayılan
- * deposunu kullanır; hata fırlatmaz ve doğrulamayı KAPATMAZ.
+ * Sistem deposu okunamazsa varsayılan kökler ve ek CA dosyası korunur.
+ * API yoksa veya varsayılan depo okunamıyorsa `undefined` döner; çağıran
+ * Node'un kendi deposunu kullanır. Doğrulama hiçbir durumda KAPATILMAZ.
  */
 export function loadCaStore(): string[] | undefined {
+  if (!systemCaStoreAvailable()) return undefined;
+
+  // Depolar birbirinden bağımsız okunmalı. Windows sistem deposundaki bir
+  // hata, çalışan varsayılan depoyu ve .env'den gelen ek CA'yı yok etmemeli.
+  let defaults: string[];
   try {
-    const extra = loadNodeExtraCaCerts();
-    if (!systemCaStoreAvailable()) {
-      // Eski Node (<22.15): sistem CA deposu API'si yok ve gömülü Mozilla
-      // köklerini programlı olarak okuyamıyoruz. `ca` seçeneği VERMEYİP
-      // `undefined` döndüğümüzde Node kendi varsayılan deposunu (Mozilla +
-      // NODE_EXTRA_CA_CERTS + platform deposu) kullanır. Eğer `ca` olarak
-      // sadece `extra`'yı verseydik, Node varsayılan depoyu atar ve yalnızca
-      // ek CA'ya güvenir — tüm genel CA siteleri kırılır.
-      //
-      // Dolayısıyla eski Node'da en güvenli davranış: CA'yı ezmemek.
-      // Kullanıcı NODE_EXTRA_CA_CERTS ile kurum kökünü eklemişse Node bunu
-      // zaten otomatik olarak güvenir.
-      return undefined;
-    }
-    const merged = new Set<string>([
-      ...getCACertificates('default'),
-      ...getCACertificates('system'),
-      ...extra,
-    ]);
-    return merged.size > 0 ? [...merged] : undefined;
+    defaults = getCACertificates('default');
   } catch {
+    // Varsayılan kökler olmadan yalnızca özel CA'larla genel depoyu ezmeyiz.
     return undefined;
   }
+  let system: string[] = [];
+  try {
+    system = getCACertificates('system');
+  } catch {
+    // Varsayılan köklerle doğrulama sürer; ek CA dosyası yine de yüklenir.
+  }
+  const merged = new Set([...defaults, ...system, ...loadNodeExtraCaCerts()]);
+  return merged.size > 0 ? [...merged] : undefined;
+}
+
+/**
+ * Yalnızca bilinen TLS hata kodlarına göre sabit çözüm metni üretir.
+ * Ham hata mesajı/URL/sertifika içeriği yazılmaz (DB sırları içerebilir).
+ */
+export function databaseTlsHelp(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const code = (error as Error & { code?: unknown }).code;
+  if (
+    code !== 'SELF_SIGNED_CERT_IN_CHAIN' &&
+    code !== 'DEPTH_ZERO_SELF_SIGNED_CERT' &&
+    code !== 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' &&
+    code !== 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY' &&
+    code !== 'CERT_HAS_EXPIRED' &&
+    code !== 'ERR_TLS_CERT_ALTNAME_INVALID'
+  ) return undefined;
+
+  if (code === 'CERT_HAS_EXPIRED') {
+    return 'Veritabanı TLS sertifikasının süresi dolmuş. Sistem saatini ve sunucu/ara katman sertifikasını kontrol edin. Doğrulamayı kapatmayın.';
+  }
+  if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') {
+    return 'Veritabanı adresi TLS sertifikasındaki adla eşleşmiyor. POSTGRES_URL sunucu adını Supabase Connect ekranıyla karşılaştırın. Doğrulamayı kapatmayın.';
+  }
+  return [
+    'Veritabanı TLS zinciri güvenilir bir CA ile doğrulanamadı; bağlantı reddedildi.',
+    'Supabase kullanıyorsanız projenizin Database Settings → SSL Configuration bölümünden CA sertifikasını indirin.',
+    "Dosyayı örneğin certs/supabase-ca.crt olarak kaydedin ve .env içine POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt ile POSTGRES_SSL_MODE=verify yazın.",
+    'CA zaten tanımlıysa doğru projeye ve kullandığınız doğrudan/pooler adresine ait olduğunu kontrol edin.',
+    'Kurumsal proxy/antivirüs TLS denetimi varsa yalnızca yöneticinizden doğruladığınız kökü NODE_EXTRA_CA_CERTS ile tanıtın (özel POSTGRES_SSL_CA_FILE yalnızca kendi CA dosyasına güvenir).',
+    'NODE_TLS_REJECT_UNAUTHORIZED=0 veya no-verify kullanmayın. Ayrıntılar: docs/database-tls.md',
+  ].join('\n');
 }
 
 /** Kullanıcıya gösterilecek TLS güven modu özeti (live-check ve bağlantı tanısı). */

@@ -24,6 +24,7 @@ import { getEnv } from '../src/config/env';
 import { migrateCapturedTextMetadata } from '../src/db/migrations/captured-text-metadata';
 import { migrateJobTextMinimization } from '../src/db/migrations/job-text-minimization';
 import { safeErrorFields } from '../src/lib/safe-error';
+import { databaseTlsHelp } from '../src/lib/tls-trust';
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -77,6 +78,8 @@ main().catch(async (error: unknown) => {
   // DB hatalarının `detail` alanı, örneğin benzersiz indeks çakışmasında e-posta
   // gibi kayıt değerlerini içerebilir. Ham hata nesnesi/mesajı/stack'i yazma.
   console.error('Bakım başarısız:', safeErrorFields(error));
+  const tlsHelp = databaseTlsHelp(error);
+  if (tlsHelp) console.error(tlsHelp);
   process.exitCode = 1;
   await closeStore().catch(() => undefined);
 });

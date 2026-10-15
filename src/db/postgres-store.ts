@@ -287,8 +287,8 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
  *  2. `mode: 'no-verify'` → eldiven imzalı sertifika kabulü (AÇIK risk kabulü; panel/CLI uyarır).
  *  3. CA verildiyse → sunucu sertifikası yalnızca bu CA ile doğrulanır.
  *  4. CA yoksa → Node'un varsayılan + işletim sisteminin kök depolarıyla doğrulanır.
- *     Supabase'in sertifikası genel bir CA tarafından imzalandığı için ek dosya
- *     gerektirmez; bu dal eski davranışın (doğrulamasız bağlantı) yerini alır.
+ *     Supabase uç noktası özel bir CA kullanıyorsa panelden indirilen proje
+ *     CA'sı gerekir (POSTGRES_SSL_CA_FILE); sistem deposu tek başına yetmez.
  *
  * Bağlantı dizesindeki `sslmode`/`sslrootcert` gibi TLS parametreleri burada
  * yorumlanmaz; onlar `postgresUrl()` (src/config/env.ts) içinde REDDEDİLİR.
