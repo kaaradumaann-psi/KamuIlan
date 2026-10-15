@@ -74,6 +74,17 @@ interface PostgresStoreOptions {
   sslMode?: PostgresTlsMode;
   /** PEM CA sertifikası. Verilirse sunucu sertifikası bu CA ile doğrulanır. */
   caCertificate?: string;
+  /**
+   * CA dosyası sistem kökleriyle BİRLEŞTİRİLSİN mi? (POSTGRES_SSL_CA_MERGE_SYSTEM)
+   *
+   * Varsayılan `false`: sunucu sertifikası YALNIZCA CA dosyasındaki köklerle
+   * doğrulanır (pinning). `true` olduğunda dosya kökleri Node'un gömülü Mozilla
+   * kökleri + işletim sistemi deposu + NODE_EXTRA_CA_CERTS ile birleştirilir;
+   * doğrulama yine AÇIKTIR, yalnızca güven kümesi genişler. Gerekçe: aynı anda
+   * hem Supabase proje CA'sına hem kurumsal TLS denetimi köküne güvenmek
+   * gerektiğinde tek dosya yetmez ve kullanıcı doğrulamayı kapatmaya zorlanamaz.
+   */
+  mergeSystemCa?: boolean;
   /** Tablo ön eki: aynı Supabase projesinde birden fazla ortam çalıştırılabilir. */
   tablePrefix?: string;
   /** Testler için enjekte edilebilir havuz (PGlite uyarlaması). */
@@ -285,7 +296,8 @@ function buildPrefilter(query: Query | undefined, table: string, params: unknown
  * Sıra:
  *  1. `mode: 'disable'` → TLS hiç kullanılmaz (yalnızca açık tercih; yerel Postgres).
  *  2. `mode: 'no-verify'` → eldiven imzalı sertifika kabulü (AÇIK risk kabulü; panel/CLI uyarır).
- *  3. CA verildiyse → sunucu sertifikası yalnızca bu CA ile doğrulanır.
+ *  3. CA verildiyse → sunucu sertifikası yalnızca bu CA ile doğrulanır
+ *     (POSTGRES_SSL_CA_MERGE_SYSTEM=1 ise sistem kökleriyle BİRLEŞTİRİLİR).
  *  4. CA yoksa → Node'un varsayılan + işletim sisteminin kök depolarıyla doğrulanır.
  *     Supabase uç noktası özel bir CA kullanıyorsa panelden indirilen proje
  *     CA'sı gerekir (POSTGRES_SSL_CA_FILE); sistem deposu tek başına yetmez.
@@ -310,20 +322,36 @@ export type PostgresSslConfig =
 
 export function sslConfigFor(
   caCertificate?: string,
-  options: { mode?: PostgresTlsMode; systemCaStore?: string[] } = {},
+  options: { mode?: PostgresTlsMode; systemCaStore?: string[]; mergeSystemCa?: boolean } = {},
 ): PostgresSslConfig {
   const mode = options.mode ?? 'verify';
   if (mode === 'disable') return false;
   if (mode === 'no-verify') return { rejectUnauthorized: false };
-  if (caCertificate && caCertificate.trim().length > 0) {
-    return { ca: caCertificate, rejectUnauthorized: true };
-  }
   // `systemCaStore` verilmemişse gerçek sistem deposu okunur; açıkça `undefined`
   // verildiğinde (ör. Node sistem deposunu desteklemiyor) gömülü kökler kullanılır.
   const systemCaStore = 'systemCaStore' in options ? options.systemCaStore : loadCaStore();
+  const hasFileCa = Boolean(caCertificate && caCertificate.trim().length > 0);
+
+  if (hasFileCa && options.mergeSystemCa) {
+    // POSTGRES_SSL_CA_MERGE_SYSTEM=1: dosya kökleri + sistem kökleri birlikte.
+    // Tekilleştirme PEM bloğu düzeyinde yapılır; aynı kök iki kez listelenmez.
+    const merged = new Set<string>(splitPemCertificates(caCertificate ?? ''));
+    for (const cert of systemCaStore ?? []) merged.add(cert.trim());
+    return { ca: [...merged], rejectUnauthorized: true };
+  }
+  if (hasFileCa) {
+    return { ca: caCertificate as string, rejectUnauthorized: true };
+  }
   return systemCaStore
     ? { ca: systemCaStore, rejectUnauthorized: true }
     : { rejectUnauthorized: true };
+}
+
+/** PEM metnindeki CERTIFICATE bloklarını ayırır (tek dosyada tam zincir olabilir). */
+function splitPemCertificates(pem: string): string[] {
+  const blocks = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+  if (!blocks) return [pem.trim()].filter((block) => block.length > 0);
+  return blocks.map((block) => block.trim()).filter((block) => block.length > 0);
 }
 
 /** Bu yapılandırma sunucu sertifikasını DOĞRULUYOR mu? (tanı/uyarı metinleri kullanır) */
@@ -347,7 +375,12 @@ export class PostgresStore implements StoragePort {
         max: options.maxConnections ?? 10,
         ...(options.ssl === false
           ? {}
-          : { ssl: sslConfigFor(options.caCertificate, { mode: options.sslMode }) }),
+          : {
+              ssl: sslConfigFor(options.caCertificate, {
+                mode: options.sslMode,
+                mergeSystemCa: options.mergeSystemCa,
+              }),
+            }),
       });
   }
 

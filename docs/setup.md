@@ -61,6 +61,58 @@ yoktur; Node'un `--env-file` bayrağına gerek kalmaz). Kurallar:
 Doğrulama: `npm run env:check` çıktısındaki `envFile` satırı hangi dosyanın
 okunduğunu gösterir (yol görünür, içerik görünmez).
 
+### Sihirbazla doldurma: `npm run env:setup`
+
+`.env` dosyasını elle doldurmak zorunda değilsiniz. `env:setup` katalogdaki
+**tüm** ayarları inceler, eksik/geçersiz olanları komut satırından sorar ve
+cevaplarınızı dosyaya yazar:
+
+```bash
+npm run env:setup                       # eksik/geçersiz alanları tek tek sorar
+npm run env:setup -- --check            # sormadan tüm ayarları maskeli raporlar
+npm run env:setup -- --all              # her alanı baştan sorar
+npm run env:setup -- --group llm,eposta # yalnızca bu grupları sorar
+npm run env:setup -- --only LLM_API_KEY,LLM_MODEL
+npm run env:setup -- --set LLM_MODEL=gemini-2.5-flash
+npm run env:setup -- --answers cevaplar.txt   # betik/CI: KEY=value satırları
+npm run env:setup -- --file .env.production   # başka bir hedef dosya
+```
+
+Davranış kuralları:
+
+- **Yazma güvenlidir.** Değişen anahtarlar yerinde güncellenir (yorumlar ve
+  bilinmeyen satırlar korunur), yazmadan önce `.env.yedek-<zaman damgası>`
+  kopyası alınır (`--no-backup` ile kapatılır), dosya geçici adla yazılıp
+  atomik olarak değiştirilir.
+- **Sırlar ekranda maskelenir** (`LLM_API_KEY=cev••••tar`); gizli alanlarda
+  giriş yapılırken karakterler yankılanmaz. Sihirbaz sır DEĞERİ uydurmaz —
+  `APP_SECRET` için yalnızca üretim komutunu önerir.
+- **Soru sırasında komutlar:** `:skip` (mevcut değeri koru), `:clear` (alanı
+  boşalt), `:help` (alanın açıklaması), `:quit` (hiçbir şey yazmadan çık).
+  Boş Enter mevcut değeri korur; değer yoksa şema varsayılanını yazar. Üç
+  geçersiz girişte sihirbaz dosyaya yazmadan durur.
+- **Riskli kararlar ek onay ister.** `POSTGRES_SSL_MODE=no-verify`,
+  `POSTGRES_SSL=0`, 32 karakterden kısa `APP_SECRET`, 12 karakterden kısa
+  `ADMIN_PASSWORD` gibi değerler ilk girişte REDDEDİLİR. Bilinçli olarak
+  yazmak için değerin başına `!` koyun (`!no-verify`); `--set`/`--answers`
+  yolunda da aynı kural geçerlidir. Doğrulamayı kapatmak çözüm değildir:
+  [database-tls.md](./database-tls.md).
+- **Yol alanları diskte doğrulanır.** `POSTGRES_SSL_CA_FILE` ve
+  `NODE_EXTRA_CA_CERTS` için verilen yol bulunamazsa değer yazılmaz; dosya
+  `.env`'in yanındaki dizine göre çözülür (`--file` başka dizinde olsa bile).
+- **Yazdıktan sonra gerçek denetim çalışır:** `getEnv` + `inspectEnvironment`
+  (yani `env:check` ile aynı kurallar), veritabanı seçildiyse CA dosyası
+  denetimi ve canlı TLS tanısı. Tanı `unreachable` dönerse bu bir AĞ sorunudur
+  (yapılandırma geçerlidir); sertifika doğrulaması başarısızsa çıkış kodu 1
+  olur ve neden yazdırılır.
+- **Kabuk değişkeni dosyayı gölgeliyorsa söylenir.** Süreç ortamı `.env`'den
+  öncelikli olduğu için (ör. Windows'ta `setx` ile kalıcı yapılmış bir
+  `NODE_TLS_REJECT_UNAUTHORIZED` ya da `POSTGRES_URL`) sihirbaz çakışan
+  anahtarları listeler ve o alanı yeniden sorar.
+
+> `NODE_ENV=test` altında `.env` yüklenmez; sihirbaz bu kipi riskli değer
+> olarak işaretler ve test amaçlı ortam değişkenlerini yok sayar.
+
 Geliştirme için çoğu değer boş kalabilir. En az:
 
 - `APP_SECRET` — üretimde zorunlu (en az 32 karakter). Geliştirmede boşsa
@@ -89,6 +141,8 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 | `POSTGRES_SSL=true`                  | —                                                          | Supabase TLS ister; `false` TLS'i tümüyle kapatır (yalnızca yerel test) |
 | `POSTGRES_SSL_CA_FILE`               | —                                                          | Kök CA PEM yolu. Tanımlanınca sertifika YALNIZCA o CA ile doğrulanır; okunamazsa bağlantı hatası verilir (doğrulamasıza düşürülmez) |
 | `POSTGRES_SSL_MODE`                  | `''` (boş)                                                 | `verify` (varsayılan) \| `no-verify` \| `disable`. Doğrulamayı kapatmanın tek yolu; üretimde `no-verify`/`disable` `env:check`'i durdurur |
+| `POSTGRES_SSL_CA_MERGE_SYSTEM`       | `0` (kapalı)                                               | `1`: CA dosyasındaki kökler Node/Windows kökleri ve `NODE_EXTRA_CA_CERTS` ile BİRLEŞTİRİLİR (doğrulama açık kalır). Doğrudan bağlantı ile havuz farklı kök sunuyorsa ya da kurumsal TLS denetimi varsa gerekir. CA dosyası boşken etkisizdir |
+| `NODE_EXTRA_CA_CERTS`                | kurumunuz / `npm run db:tls-doctor -- --save-chain`        | Şema dışı ama Node'un okuduğu anahtar: ek kök sertifika PEM dosyası. Eksik zincir sunan resmî siteler (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`) ve kurumsal proxy/antivirüs denetimi için. **Doğrulama kapatılmaz**; yalnızca güvenilen kök eklenir |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Supabase → API                                             | Kayıtlıdır; uygulama şu an yalnızca `POSTGRES_URL` kullanır      |
 | `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → API                                             | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz   |
 | `APP_DOMAIN`                         | —                                                          | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı)      |
@@ -104,10 +158,12 @@ anahtarıyla uygulama **başlamaz** (e-postanın sessizce kaybolmasını engelle
 Doğrulama:
 
 ```bash
-npm run env:check
+npm run env:check     # eksik/hatalı değişkenleri ve güvenlik uyarılarını listeler
+npm run env:setup     # eksikleri sorar ve .env dosyasına yazar (bkz. yukarıda)
+npm run db:tls-doctor # veritabanı sertifika zincirini ayrıntılı inceler
 ```
 
-Betik, eksik/hatalı değişkenleri ve güvenlik uyarılarını listeler.
+`env:check` yalnızca RAPORLAR; `env:setup` eksikleri sorup DOSYAYA YAZAR.
 
 ## 3. Veritabanı hazırlığı
 

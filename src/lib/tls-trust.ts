@@ -118,7 +118,8 @@ export function databaseTlsHelp(error: unknown): string | undefined {
     'Supabase kullanıyorsanız projenizin Database Settings → SSL Configuration bölümünden CA sertifikasını indirin.',
     "Dosyayı örneğin certs/supabase-ca.crt olarak kaydedin ve .env içine POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt ile POSTGRES_SSL_MODE=verify yazın.",
     'CA zaten tanımlıysa doğru projeye ve kullandığınız doğrudan/pooler adresine ait olduğunu kontrol edin.',
-    'Kurumsal proxy/antivirüs TLS denetimi varsa yalnızca yöneticinizden doğruladığınız kökü NODE_EXTRA_CA_CERTS ile tanıtın (özel POSTGRES_SSL_CA_FILE yalnızca kendi CA dosyasına güvenir).',
+    'Kurumsal proxy/antivirüs TLS denetimi varsa yalnızca yöneticinizden doğruladığınız kökü NODE_EXTRA_CA_CERTS ile tanıtın (özel POSTGRES_SSL_CA_FILE yalnızca kendi CA dosyasına güvenir; sistem kökleriyle birleştirmek için POSTGRES_SSL_CA_MERGE_SYSTEM=1).',
+    'Kök nedeni otomatik bulmak için: npm run db:tls-doctor (parola göndermeden sunucunun sunduğu zinciri okur, eksik halkayı ve uygulanacak adımı yazar).',
     'NODE_TLS_REJECT_UNAUTHORIZED=0 veya no-verify kullanmayın. Ayrıntılar: docs/database-tls.md',
   ].join('\n');
 }
@@ -127,8 +128,13 @@ export function databaseTlsHelp(error: unknown): string | undefined {
 export function describeTlsTrust(): string {
   const extraPath = process.env['NODE_EXTRA_CA_CERTS'];
   const extraNote = extraPath ? `; NODE_EXTRA_CA_CERTS=${extraPath}` : '';
+  const caFile = process.env['POSTGRES_SSL_CA_FILE'];
+  const merge = process.env['POSTGRES_SSL_CA_MERGE_SYSTEM'];
+  const dbNote = caFile
+    ? `; veritabanı CA dosyası: ${caFile}${merge === '1' || merge?.toLowerCase() === 'true' ? ' (sistem kökleriyle birleştiriliyor)' : ' (YALNIZCA bu dosya)'}`
+    : '';
   return systemCaStoreAvailable()
-    ? `Node ${process.version}: sistem sertifika deposu kullanılıyor (eksik zincirli resmî siteler için)${extraNote}.`
+    ? `Node ${process.version}: sistem sertifika deposu kullanılıyor (eksik zincirli resmî siteler için)${extraNote}${dbNote}.`
     : `Node ${process.version}: sistem sertifika deposu KULLANILAMIYOR. ilan.gov.tr, BDDK ve TMSF gibi siteler ` +
-        `UNABLE_TO_VERIFY_LEAF_SIGNATURE hatası verebilir. Node ${SYSTEM_CA_MIN_NODE} veya üstünü kurun${extraNote ? `; ek CA: ${extraPath}` : ''}.`;
+        `UNABLE_TO_VERIFY_LEAF_SIGNATURE hatası verebilir. Node ${SYSTEM_CA_MIN_NODE} veya üstünü kurun${extraNote ? `; ek CA: ${extraPath}` : ''}${dbNote}.`;
 }

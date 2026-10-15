@@ -8,8 +8,11 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { z } from 'zod';
+import { inspectCaFile } from '../lib/ca-file';
+import { effectiveDriver } from '../db/store';
 import { systemCaStoreAvailable } from '../lib/tls-trust';
-import { envFileSource, loadEnvFile } from './load-env';
+import { existsSync, readFileSync } from 'node:fs';
+import { envFileSource, loadEnvFile, parseEnvFile } from './load-env';
 
 /**
  * `.env` dosyası (varsa) ortam değişkenlerine yüklenir.
@@ -117,6 +120,22 @@ const envSchema = z.object({
    * gerekmez). Doğrulamayı kapatmanın tek yolu POSTGRES_SSL_MODE'dur.
    */
   POSTGRES_SSL_CA_FILE: z.string().default(''),
+  /**
+   * CA dosyası sistem kökleriyle BİRLEŞTİRİLSİN mi? (varsayılan: 0)
+   *
+   *  - `0` (varsayılan): sunucu sertifikası YALNIZCA `POSTGRES_SSL_CA_FILE`
+   *    içindeki köklerle doğrulanır (pinning). Dosya yanlış/eksikse bağlantı
+   *    `SELF_SIGNED_CERT_IN_CHAIN` ile reddedilir.
+   *  - `1`: dosya kökleri Node'un gömülü Mozilla kökleri + işletim sistemi
+   *    deposu + `NODE_EXTRA_CA_CERTS` ile birleştirilir. Doğrulama AÇIK kalır;
+   *    yalnızca güven kümesi genişler. Ne zaman gerekir: aynı anda hem Supabase
+   *    proje CA'sına hem kurumsal TLS denetimi köküne güvenmek gerektiğinde,
+   *    ya da doğrudan bağlantı ile pooler farklı kök sunduğunda.
+   */
+  POSTGRES_SSL_CA_MERGE_SYSTEM: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
   /**
    * TLS doğrulama kipi. Boş bırakılırsa `POSTGRES_SSL` ile geriye dönük uyum korunur:
    *  - `''` (varsayılan): `POSTGRES_SSL=1` → `verify`, `POSTGRES_SSL=0` → `disable`.
@@ -318,10 +337,23 @@ export type Env = z.infer<typeof envSchema>;
 
 let cachedEnv: Env | null = null;
 
-export function getEnv(overrides: Record<string, string | undefined> = {}): Env {
+export interface GetEnvOptions {
+  /** Göreli CA dosya yolu bu köke göre çözülsün (bkz. EnvironmentInspectionOptions). */
+  caFileRoot?: string;
+  /** Yalnızca bu `.env` dosyası doğrulansın (proje `.env`'i ve süreç ortamı değil). */
+  envFile?: string;
+}
+
+export function getEnv(
+  overrides: Record<string, string | undefined> = {},
+  options?: GetEnvOptions,
+): Env {
   const hasOverrides = Object.keys(overrides).length > 0;
-  if (cachedEnv && !hasOverrides) return cachedEnv;
-  const parsed = envSchema.safeParse({ ...process.env, ...overrides });
+  if (cachedEnv && !hasOverrides && !options) return cachedEnv;
+  const base: Record<string, string | undefined> = options?.envFile
+    ? parseEnvFileScoped(options.envFile)
+    : { ...process.env };
+  const parsed = envSchema.safeParse({ ...base, ...overrides });
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
@@ -329,14 +361,70 @@ export function getEnv(overrides: Record<string, string | undefined> = {}): Env 
     throw new Error(`Ortam değişkenleri geçersiz: ${details}`);
   }
   const env = parsed.data;
-  validateEnvironment(env);
-  if (!hasOverrides) cachedEnv = env;
+  validateEnvironment(env, options);
+  if (!hasOverrides && !options) cachedEnv = env;
   return env;
 }
 
 /** Testlerde ortam değişikliği sonrası yeniden okumak için. */
 export function resetEnvCache(): void {
   cachedEnv = null;
+}
+
+export type ParseEnvResult =
+  | { ok: true; env: Env }
+  | { ok: false; issues: string[]; partial: Record<string, string | undefined> };
+
+/**
+ * Ortamı DOĞRULAMADAN ayrıştırır (`env:setup` sihirbazı için).
+ *
+ * Neden ayrı: `getEnv()` fail-closed'tur ve sorunlu yapılandırmada fırlar.
+ * Sihirbazın amacı tam olarak bu sorunları KULLANICIYLA BİRLİKTE düzeltmektir;
+ * bu yüzden mevcut değerleri (maskelenmiş) gösterebilmek için ayrıştırılmış ama
+ * doğrulanmamış görünüme ihtiyacı vardır. Yazma işleminden sonra sihirbaz
+ * `getEnv()` + `inspectEnvironment()` ile asıl denetimi çalıştırır.
+ *
+ * Bu fonksiyon sır DEĞERLERİ döndürür; çağıran taraf maskeler (bkz.
+ * `maskValue` ve `describeEnv`). Üretim kodunda karar vermek için KULLANILMAZ.
+ */
+export function parseEnvWithoutValidation(
+  overrides: Record<string, string | undefined> = {},
+  options?: EnvironmentInspectionOptions,
+): ParseEnvResult {
+  // `envFile` verildiğinde YALNIZCA o dosya + açık overrides incelenir: süreç
+  // ortamı (özellikle modül yüklenirken okunan proje `.env`'i) sonucu
+  // kirletmemelidir. `env:setup --file başka/.env` bunun için var.
+  const base: Record<string, string | undefined> = options?.envFile
+    ? { ...(loadEnvFile({ envFile: options.envFile }) ? parseEnvFileScoped(options.envFile) : {}) }
+    : { ...process.env };
+  const merged = { ...base, ...overrides } as Record<string, string | undefined>;
+  const parsed = envSchema.safeParse(merged);
+  if (parsed.success) return { ok: true, env: parsed.data };
+  const issues = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  const partial: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(merged)) {
+    if (typeof value === 'string') partial[key] = value;
+  }
+  return { ok: false, issues, partial };
+}
+
+/**
+ * Bir `.env` dosyasını DOĞRUDAN okur (`process.env`'e dokunmadan).
+ *
+ * `loadEnvFile()` süreç başına bir kez çalışır ve değerleri `process.env`'e
+ * yazar; `env:setup` aynı süreçte birden çok hedef dosyayı denetlediği için
+ * orada bu salt-okunur yol kullanılır. Dosya yoksa boş küme döner (şema
+ * varsayılanları devreye girer).
+ */
+function parseEnvFileScoped(filePath: string): Record<string, string | undefined> {
+  if (!existsSync(filePath)) return {};
+  let contents: string;
+  try {
+    contents = readFileSync(filePath, 'utf8');
+  } catch {
+    return {};
+  }
+  return { ...parseEnvFile(contents) };
 }
 
 /** Supabase/Postgres bağlantı dizesi tanımlı mı? (POSTGRES_URL veya DATABASE_URL) */
@@ -420,6 +508,16 @@ export function postgresTlsMode(env: Env): 'verify' | 'no-verify' | 'disable' {
   return env.POSTGRES_SSL ? 'verify' : 'disable';
 }
 
+/**
+ * CA dosyası sistem kökleriyle birleştirilecek mi? (tek karar noktası)
+ *
+ * Birleştirme YALNIZCA bir CA dosyası tanımlıyken anlam taşır; dosya yokken
+ * zaten sistem kökleri kullanılır.
+ */
+export function postgresCaMergeSystem(env: Env): boolean {
+  return Boolean(env.POSTGRES_SSL_CA_FILE) && env.POSTGRES_SSL_CA_MERGE_SYSTEM;
+}
+
 export interface EnvironmentInspection {
   ok: boolean;
   problems: string[];
@@ -430,12 +528,31 @@ export interface EnvironmentInspection {
  * Ayarları çalıştırmadan denetler: `npm run env:check` ve süreç başlangıcı
  * bu sonucu kullanır. `getEnv()` sorun varsa hata fırlatır.
  */
-export function inspectEnvironment(env: Env = getEnv()): EnvironmentInspection {
-  const { problems, warnings } = collectEnvironmentProblems(env);
+export function inspectEnvironment(
+  env: Env = getEnv(),
+  options?: EnvironmentInspectionOptions,
+): EnvironmentInspection {
+  const { problems, warnings } = collectEnvironmentProblems(env, options);
   return { ok: problems.length === 0, problems, warnings };
 }
 
-function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: string[] } {
+export interface EnvironmentInspectionOptions {
+  /**
+   * Göreli CA dosya yolunun çözüleceği kök dizin.
+   *
+   * Varsayılan: `.env` dosyasının bulunduğu proje kökü. `env:setup --file`
+   * başka bir dizindeki dosyayı yazdığında denetimin O dosyanın kökünü
+   * kullanması gerekir; aksi halde doğru yol "bulunamadı" diye reddedilir.
+   */
+  caFileRoot?: string;
+  /** Yalnızca bu `.env` dosyası denetlensin (proje `.env`'i ve süreç ortamı değil). */
+  envFile?: string;
+}
+
+function collectEnvironmentProblems(
+  env: Env,
+  options?: EnvironmentInspectionOptions,
+): { problems: string[]; warnings: string[] } {
   const problems: string[] = [];
   const warnings: string[] = [];
   if (env.NODE_ENV === 'production') {
@@ -493,6 +610,52 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
             `(Node ${process.version}); özel/ulusal CA kullanan bir Supabase sertifikasında bağlantı reddedilebilir. ` +
             'Kök CA dosyasını POSTGRES_SSL_CA_FILE ile gösterin.',
         );
+      }
+      // CA dosyası tanımlıysa İÇERİĞİ burada denetlenir: `db:migrate`/`start`
+      // çalışmadan önce yanlış dosya (HTML, DER, özel anahtar, leaf, süresi
+      // dolmuş, eksik yol) görünür olmalıdır. Aksi halde kullanıcı aynı
+      // SELF_SIGNED_CERT_IN_CHAIN hatasını nedenini bilmeden alır.
+      //
+      // Denetim YALNIZCA etkin sürücü Postgres iken yapılır: DATABASE_DRIVER=file
+      // ile yerel çalışan bir geliştirici, `.env`'de unutulmuş bir CA yolu yüzünden
+      // uygulama başlatamaz duruma düşmemelidir.
+      if (env.POSTGRES_SSL_CA_FILE && effectiveDriver(env) === 'postgres') {
+        const report = inspectCaFile(env.POSTGRES_SSL_CA_FILE, { root: options?.caFileRoot });
+        if (!report.exists) {
+          problems.push(
+            `POSTGRES_SSL_CA_FILE bulunamadı: ${env.POSTGRES_SSL_CA_FILE} (denenen: ${report.candidates.join(', ')}). ` +
+              'Göreli yol `.env` dosyasının bulunduğu klasöre ve çalışma dizinine göre çözülür; doğrulamasız bağlantıya DÜŞÜLMEZ. ' +
+              'Tanılama: npm run db:tls-doctor — kurulum: docs/database-tls.md',
+          );
+        } else {
+          // Dosya bulunmuşsa aynı sorunu iki kez raporlamamak için yalnızca
+          // içerik denetiminin (blocking) sonuçları yazılır.
+          for (const entry of report.issues) {
+            if (!entry.blocking) continue;
+            problems.push(
+              `POSTGRES_SSL_CA_FILE kullanılamaz (${entry.code}): ${entry.message.replace(/\n\s*/g, ' ')} ` +
+                '— Tanılama: npm run db:tls-doctor, kurulum: docs/database-tls.md',
+            );
+          }
+        }
+        for (const entry of report.warnings) {
+          warnings.push(`POSTGRES_SSL_CA_FILE: ${entry.message.replace(/\n\s*/g, ' ')}`);
+        }
+        const caCount = report.certificates.length;
+        const rootCount = report.certificates.filter((cert) => cert.selfSigned && cert.isCa).length;
+        if (report.usable && caCount > 0 && rootCount === 0 && !postgresCaMergeSystem(env)) {
+          warnings.push(
+            `POSTGRES_SSL_CA_FILE içinde kök (kendi kendini imzalayan) CA yok; ${caCount} sertifika listelendi. ` +
+              'Sunucu zinciri bu dosyayla doğrulanamayabilir: tam zinciri (leaf → intermediate → root) ekleyin ya da ' +
+              'POSTGRES_SSL_CA_MERGE_SYSTEM=1 ile sistem köklerini birleştirin.',
+          );
+        }
+        if (report.usable && !postgresCaMergeSystem(env)) {
+          warnings.push(
+            'CA dosyası tanımlı: sunucu sertifikası YALNIZCA bu dosyadaki köklerle doğrulanır (sistem kökleri birleştirilmez). ' +
+              'Hem dosya hem sistem/kurum kökleri gerekiyorsa POSTGRES_SSL_CA_MERGE_SYSTEM=1 yazın.',
+          );
+        }
       }
     } else {
       const reason =
@@ -572,8 +735,8 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
   return { problems, warnings };
 }
 
-function validateEnvironment(env: Env): void {
-  const { problems } = collectEnvironmentProblems(env);
+function validateEnvironment(env: Env, options?: EnvironmentInspectionOptions): void {
+  const { problems } = collectEnvironmentProblems(env, options);
   if (problems.length > 0) {
     throw new Error(`Ortam yapılandırması güvenli değil:\n- ${problems.join('\n- ')}`);
   }
@@ -601,7 +764,13 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
           : `file:${env.DATA_DIR}`,
     // Veritabanı TLS doğrulaması: 'verify' varsayılandır; kapatmak açık tercihtir.
     dbTls: hasPostgresConfig(env)
-      ? `${postgresTlsMode(env)}${env.POSTGRES_SSL_CA_FILE ? ' (CA dosyası)' : ''}`
+      ? `${postgresTlsMode(env)}${
+          env.POSTGRES_SSL_CA_FILE
+            ? postgresCaMergeSystem(env)
+              ? ' (CA dosyası + sistem kökleri)'
+              : ' (yalnızca CA dosyası)'
+            : ''
+        }`
       : 'yok (postgres tanımlı değil)',
     redis: env.REDIS_URL ? 'tanımlı' : 'yok (yerleşik kuyruk)',
     // E-posta yolu: hangi taşıyıcının seçileceğini maskeli olarak özetler.

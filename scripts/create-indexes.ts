@@ -8,6 +8,9 @@
 import { initStore, closeStore } from '../src/db/store';
 import { INDEXES } from '../src/db/indexes';
 import { createLogger } from '../src/lib/logger';
+import { safeErrorFields } from '../src/lib/safe-error';
+import { databaseTlsHelp } from '../src/lib/tls-trust';
+import { reportDatabaseTlsFailure } from './lib/db-tls-report';
 
 async function main(): Promise<void> {
   const logger = createLogger('db-indexes', { level: 'info' });
@@ -34,7 +37,12 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-  console.error('İndeksler oluşturulamadı:', error instanceof Error ? error.message : error);
+  console.error('İndeksler oluşturulamadı:', safeErrorFields(error));
+  const tlsHelp = databaseTlsHelp(error);
+  if (tlsHelp) {
+    console.error(tlsHelp);
+    await reportDatabaseTlsFailure(error).catch(() => undefined);
+  }
   process.exitCode = 1;
   await closeStore().catch(() => undefined);
 });

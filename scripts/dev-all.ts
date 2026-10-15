@@ -150,6 +150,12 @@ async function main(): Promise<void> {
     );
   }).catch((error: unknown) => {
     console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      '[dev] Bakım yukarıdaki hatayla durdu. Hata TLS/sertifika kaynaklıysa (SELF_SIGNED_CERT_IN_CHAIN, ' +
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE) kök nedeni bulmak için: npm run db:tls-doctor ' +
+        '(parola göndermeden sunucunun zincirini okur ve uygulanacak adımı yazar). ' +
+        'Kurulum: docs/database-tls.md — doğrulamayı kapatmayın (no-verify).',
+    );
     process.exitCode = 1;
     process.exit(1);
   });

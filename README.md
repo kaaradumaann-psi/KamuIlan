@@ -65,12 +65,16 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
 ```bash
 npm install
 cp .env.example .env
-npm run env:check     # ortam değişkeni doğrulaması
+npm run env:setup     # tüm ayarları inceler, eksikleri sorar ve .env'e yazar
+npm run env:check     # ortam değişkeni doğrulaması (rapor)
 npm run dev           # arayüz + API + worker + geliştirme posta sunucusu
 ```
 
 Supabase bağlantısında `SELF_SIGNED_CERT_IN_CHAIN` alırsanız doğrulamayı kapatmadan
-[proje CA sertifikasını tanıtın](./docs/database-tls.md).
+[proje CA sertifikasını tanıtın](./docs/database-tls.md). Kök nedeni otomatik bulmak için
+`npm run db:tls-doctor` komutunu çalıştırın: parola göndermeden sunucunun sunduğu zinciri
+okur, CA dosyanızla karşılaştırır ve uygulanacak adımı yazar. Tüm ortam değişkenlerini
+adım adım doldurmak için `npm run env:setup`.
 
 | Adres | Ne |
 | --- | --- |
@@ -120,6 +124,7 @@ Docker ile: `cd infra/docker && docker compose up --build`
 | `npm run user:create` | Kullanıcı aç / davet et / parola belirle (`--email`, `--admin`, `--password`, `--force`) |
 | `npm run seed:demo` | Örnek veri (`provenance: 'sample'`) |
 | `npm run fixtures:pdf` / `fixtures:capture` | Test fixture üretimi / canlı yakalama |
+| `npm run env:setup` | Etkileşimli ortam sihirbazı: tüm ayarları inceler, eksikleri sorar, `.env`'e yazar (`--check`, `--all`, `--only`, `--group`, `--set`, `--answers`) |
 | `npm run env:check` | Ortam değişkeni doğrulaması (eksik/tehlikeli ayar uyarıları) |
 | `npm run eval:classification [-- --llm]` | Etiketlenmiş kümeyle sınıflandırma ölçümü (LLM'li mod gerçek çağrı yapar) |
 | `npm run llm:review-assist [-- --report r.json]` | İnceleme kuyruğu için LLM öneri raporu (kuru çalıştırma; DB'ye yazmaz) |

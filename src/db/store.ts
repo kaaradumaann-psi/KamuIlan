@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 /**
  * Depo (storage) seçimi ve tek örnek yönetimi.
  *
@@ -8,7 +7,16 @@ import { readFileSync } from 'node:fs';
  * Üçü de aynı `StoragePort` sözleşmesini uygular, bu yüzden iş mantığı değişmez.
  */
 import { join } from 'node:path';
-import { getEnv, hasPostgresConfig, postgresTlsMode, postgresUrl, type Env } from '../config/env';
+import {
+  getEnv,
+  hasPostgresConfig,
+  postgresCaMergeSystem,
+  postgresTlsMode,
+  postgresUrl,
+  type Env,
+} from '../config/env';
+import { loadTrustedCaCertificates } from '../lib/ca-file';
+import { loadCaStore } from '../lib/tls-trust';
 import { FileStore } from './file-store';
 import { MongoStore } from './mongo-store';
 import { PostgresStore } from './postgres-store';
@@ -17,21 +25,27 @@ import type { StoragePort } from './ports';
 export const DEFAULT_STORE_FILE = 'kamuilan.json';
 
 /**
- * CA dosyasını okur. Okunamazsa hata yükseltilir: yanlış yol, doğrulamasız
- * bağlantıya SESİZCE düşürülmez (güvenliğin sessiz iptali en tehlikeli arıza biçimidir).
+ * CA dosyasını okur, DOĞRULAR ve güvenilir kök listesine çevirir.
+ *
+ * Okunamayan ya da sertifika içermeyen dosya için hata yükseltilir: yanlış yol,
+ * doğrulamasız bağlantıya SESİZCE düşürülmez (güvenliğin sessiz iptali en
+ * tehlikeli arıza biçimidir). Ek olarak dosya içeriği anlam denetiminden geçer
+ * (HTML indirme sayfası, DER, özel anahtar, CA olmayan leaf sertifika, süresi
+ * dolmuş kök): hepsi aynı `SELF_SIGNED_CERT_IN_CHAIN` hatasına yol açtığı için
+ * ayırt edilmeden kullanıcı sorunu kendi başına çözemez.
+ *
+ * `mergeSystem` (POSTGRES_SSL_CA_MERGE_SYSTEM=1) açıldığında dosya kökleri
+ * Node + işletim sistemi + NODE_EXTRA_CA_CERTS kökleriyle birleştirilir;
+ * doğrulama açık kalır.
  */
-function readCaFileOrThrow(path: string): string {
+function loadCaCertificatesOrThrow(path: string, mergeSystem: boolean): string[] {
   try {
-    const contents = readFileSync(path, 'utf8');
-    if (!contents.includes('BEGIN CERTIFICATE')) {
-      throw new Error(`CA dosyası PEM sertifika içermiyor: ${path}`);
-    }
-    return contents;
+    return loadTrustedCaCertificates(path, { mergeSystem, systemCaStore: loadCaStore }).certificates;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `POSTGRES_SSL_CA_FILE okunamadı (${reason}). Doğrulamasız bağlantıya düşülmedi; ` +
-        'Güvenilir CA dosyasının yolunu/içeriğini düzeltin. Kurulum: docs/database-tls.md',
+      `${reason}\nDoğrulamasız bağlantıya düşülmedi; güvenilir CA dosyasının yolunu/içeriğini düzeltin. ` +
+        'Kurulum: docs/database-tls.md',
     );
   }
 }
@@ -80,12 +94,17 @@ export function createStore(env: Env = getEnv(), fileName = DEFAULT_STORE_FILE):
     }
     // CA dosyası okunamazsa SESİZCE doğrulamasıza düşülmez: hata yükselir.
     // (Yanlış yolu doğrulamasız bağlantıyla ödüllendirmek, en riskli hata biçimidir.)
-    const caCertificate = env.POSTGRES_SSL_CA_FILE ? readCaFileOrThrow(env.POSTGRES_SSL_CA_FILE) : undefined;
+    const mergeSystemCa = postgresCaMergeSystem(env);
+    const caCertificates = env.POSTGRES_SSL_CA_FILE
+      ? loadCaCertificatesOrThrow(env.POSTGRES_SSL_CA_FILE, mergeSystemCa)
+      : undefined;
     return new PostgresStore({
       connectionString: postgresUrl(env),
       maxConnections: env.POSTGRES_MAX_CONNECTIONS,
       sslMode: postgresTlsMode(env),
-      caCertificate,
+      caCertificate: caCertificates ? caCertificates.join('\n') : undefined,
+      // Dosya kökleri zaten birleştirildiyse sürücüde ikinci kez birleştirilmez.
+      mergeSystemCa: caCertificates ? false : mergeSystemCa,
     });
   }
   if (driver === 'mongodb') {
