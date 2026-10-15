@@ -3,6 +3,10 @@
 Bu belge, ürünün **yapamadıklarını** açıkça yazar. Arayüzde de aynı bilgiler
 gösterilir; hiçbir yerde "tüm ilanlar toplanıyor" denmez.
 
+Son denetim/uygulama turunun tam kaydı (ne yapıldı, ne test edildi, ne yapılamadı):
+`docs/denetim-raporu-2026-10-15-devam.md` (PR #15) ve gerçek veriyle ölçüm planı
+`docs/eval-gercek-veri.md`.
+
 ## Kapsam
 
 1. **Kapsam eksiktir.** Türkiye'de kamu personel alım ilanları yüzlerce farklı
