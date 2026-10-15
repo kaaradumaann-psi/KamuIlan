@@ -23,6 +23,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createServer, type Server as NetServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as tls from 'node:tls';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -73,6 +74,20 @@ function hasOpenssl(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * openssl kurulu olmayan makineler (ör. Windows) için geçerli bir kök CA PEM'i.
+ *
+ * Bu dosyada üretilen zincirler openssl ister; openssl yoksa aynı doğrulamayı
+ * depodaki sabit test köküyle yaparız. Böylece "CA dosyası tanımlıyken yalnızca
+ * bu dosyadaki köklere güvenilir" uyarısı her platformda test edilir.
+ */
+const FIXTURE_ROOT_CA = fileURLToPath(new URL('./fixtures/tls-aia/root.crt', import.meta.url));
+
+function validCaPem(dir: string): string {
+  if (hasOpenssl()) return buildMaterial(dir).rootCaPem;
+  return readFileSync(FIXTURE_ROOT_CA, 'utf8');
 }
 
 function runOpenssl(args: string[], dir: string): void {
@@ -645,23 +660,25 @@ describe('ortam denetimi: CA dosyası doğrulaması env:check’e yansır', () =
     resetEnvCache();
     const dir = mkdtempSync(join(tmpdir(), 'kamuilan-env-ca-'));
     const caPath = join(dir, 'ca.pem');
-    if (hasOpenssl()) {
-      const material = buildMaterial(dir);
-      writeFileSync(caPath, material.rootCaPem);
-      const env = getEnv({ ...base, POSTGRES_SSL_CA_FILE: caPath });
-      const inspection = inspectEnvironment(env);
-      expect(inspection.problems).toEqual([]);
-      expect(inspection.warnings.join(' ')).toMatch(/YALNIZCA bu dosyadaki köklerle/);
-      expect(postgresCaMergeSystem(env)).toBe(false);
+    // Geçerli CA dosyası: openssl varsa taze üretilir, yoksa depodaki sabit
+    // test kökü kullanılır. (Eski sürümde openssl'siz dal geçersiz bir dosya
+    // yazıp `getEnv` çağırıyordu; CA sorunları engelleyici olduğu için getEnv
+    // değer DÖNDÜRMEZ, fırlatır → test Windows'ta patlıyordu.)
+    writeFileSync(caPath, validCaPem(dir));
+    const env = getEnv({ ...base, POSTGRES_SSL_CA_FILE: caPath });
+    const inspection = inspectEnvironment(env);
+    expect(inspection.problems).toEqual([]);
+    expect(inspection.warnings.join(' ')).toMatch(/YALNIZCA bu dosyadaki köklerle/);
+    expect(postgresCaMergeSystem(env)).toBe(false);
 
-      const merged = getEnv({ ...base, POSTGRES_SSL_CA_FILE: caPath, POSTGRES_SSL_CA_MERGE_SYSTEM: '1' });
-      expect(postgresCaMergeSystem(merged)).toBe(true);
-      expect(inspectEnvironment(merged).warnings.join(' ')).not.toMatch(/YALNIZCA bu dosyadaki köklerle/);
-    } else {
-      writeFileSync(caPath, 'gecersiz');
-      const env = getEnv({ ...base, POSTGRES_SSL_CA_FILE: caPath });
-      expect(inspectEnvironment(env).ok).toBe(false);
-    }
+    const merged = getEnv({ ...base, POSTGRES_SSL_CA_FILE: caPath, POSTGRES_SSL_CA_MERGE_SYSTEM: '1' });
+    expect(postgresCaMergeSystem(merged)).toBe(true);
+    expect(inspectEnvironment(merged).warnings.join(' ')).not.toMatch(/YALNIZCA bu dosyadaki köklerle/);
+
+    // Geçersiz CA dosyası fail-closed'dur: başlatma engellenir (uyarı değil).
+    writeFileSync(caPath, 'gecersiz');
+    resetEnvCache();
+    expect(() => getEnv({ ...base, POSTGRES_SSL_CA_FILE: caPath })).toThrow(/POSTGRES_SSL_CA_FILE/);
     rmSync(dir, { recursive: true, force: true });
     resetEnvCache();
   });

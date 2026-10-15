@@ -27,6 +27,7 @@ import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from 
 import { cleanTitle, parseListingDate } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
+import { budgetedTimeoutMs, hasBudgetFor } from '../scan-budget';
 import { detectNextPage } from '../pagination';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
@@ -34,6 +35,78 @@ import type { RawAnnouncement } from '../../domain';
 /** Tarayıcı yedeği zaman sınırları (kariyer-kapısı adaptörüyle aynı mertebede). */
 const BROWSER_PAGE_TIMEOUT_MS = 45_000;
 const BROWSER_SETTLE_MS = 2_500;
+/** Tek detay sayfası için üst sınır (varsayılan SCRAPE_TIMEOUT_MS'ten bilinçli olarak kısa). */
+const DETAIL_TIMEOUT_MS = 20_000;
+/** Yeni bir detay indirmesine başlamak için gereken asgari kalan bütçe. */
+const MIN_DETAIL_BUDGET_MS = 6_000;
+
+/**
+ * Dizin/kategori yolu kökleri (Türkçe katlanmış).
+ *
+ * 2026-10-16 canlı koşumunda liste adaptörü kurum MENÜLERİNİ ve kategori
+ * sayfalarını ilan satırı diye topluyordu: "HABERLER & DUYURULAR"
+ * (`/haberler`), "Basın Açıklamaları" (`/basin-aciklamalari-yeni`),
+ * "Başkan'ın Konuşmaları" (`/duyurular/baskanin-konusmalari`), İŞKUR
+ * (`/ilanlar`). Bunlar inceleme kuyruğunu şişiriyordu.
+ */
+const CATEGORY_PATH_ROOTS = [
+  'ana',
+  'anasayfa',
+  'sayfa',
+  'sayfalar',
+  'kategori',
+  'kategoriler',
+  'liste',
+  'listesi',
+  'arsiv',
+  'arsivi',
+  'duyuru',
+  'duyurular',
+  'haber',
+  'haberler',
+  'ilan',
+  'ilanlar',
+  'icerik',
+  'basin',
+  'aciklama',
+  'aciklamalar',
+  'baskanin',
+  'konusma',
+  'konusmalari',
+  'proje',
+  'projeler',
+  'tum',
+  'tumu',
+  'genel',
+  'yeni',
+  'detaylar',
+  'konular',
+] as const;
+
+/**
+ * Yol bir DİZİN/KATEGORİ sayfası mı (tek bir ilan değil, liste mi)?
+ *
+ * Kurallar bilerek dar tutulur — gerçek ilan adresleri elenmemeli:
+ *  - sitede kök (`/`) bir ilan olamaz,
+ *  - yolda RAKAM varsa kimlik/numara vardır → ilan sayılır (`/Sayfa/Detay/745`),
+ *  - 4'ten çok parça varsa özgün bir adres kabul edilir
+ *    (`/Sayfalar/KGM/SiteTr/Duyurular/DuyuruDetay.aspx`),
+ *  - yalnızca TÜM parçalar (ve tire ile ayrılmış tüm sözcükler) dizin
+ *    sözlüğüyle başlıyorsa dizin sayılır (`/basin-aciklamalari-yeni`).
+ */
+export function isCategoryIndexPath(pathname: string): boolean {
+  const clean = pathname.replace(/\/+$/, '');
+  if (clean === '' || clean === '/') return true;
+  if (/\d/.test(clean)) return false;
+  const segments = clean.split('/').filter(Boolean);
+  if (segments.length === 0 || segments.length > 4) return false;
+  return segments.every((segment) =>
+    segment
+      .split('-')
+      .filter(Boolean)
+      .every((token) => CATEGORY_PATH_ROOTS.some((root) => token.startsWith(root))),
+  );
+}
 
 export interface AnchorListConfig {
   key: string;
@@ -96,6 +169,20 @@ function isClearlyEmptyListingPage(html: string): boolean {
   );
 }
 
+/** Ayrıştırma teşhisi: "neden 0 satır" sorusunun cevabı hata mesajına yazılır. */
+export interface AnchorListDiagnostics {
+  /** İskelet temizlendikten sonra belgede kalan bağlantı sayısı. */
+  anchors: number;
+  /** Satırların arandığı kapsayıcı (bulunamadıysa null → tüm belge). */
+  scopeSelector: string | null;
+  /** Desenle eşleşen aday: belge genelinde. */
+  patternMatchesDocument: number;
+  /** Desenle eşleşen aday: seçilen kapsam içinde. */
+  patternMatchesScoped: number;
+  /** Kapsam boş kaldığı için belge geneline düşüldü mü? */
+  rootFallbackUsed: boolean;
+}
+
 function parseAnchorListPage(
   html: string,
   pageUrl: string,
@@ -107,6 +194,7 @@ function parseAnchorListPage(
   nextPageUrl: string | null;
   paginationDetected: boolean;
   paginationEndConfirmed: boolean;
+  diagnostics: AnchorListDiagnostics;
 } {
   const $ = loadHtml(html);
   const detectedNavigation = detectNextPage(html, pageUrl);
@@ -130,26 +218,50 @@ function parseAnchorListPage(
     '#content',
     '.main-content',
   ].find((selector) => $(selector).length > 0);
-  const scope = scopeSelector ? $(scopeSelector).first() : $.root();
   const listingIdentity = listingDocumentIdentity(listingUrl);
-  const candidates: Candidate[] = scope
-    .find('a[href]')
-    .toArray()
-    .map((element) => ({
-      element: element as AnyNode,
-      url: normalizeUrl($(element).attr('href') ?? '', pageUrl),
-    }))
-    .filter((candidate): candidate is Candidate => candidate.url !== null)
-    .filter((candidate) => {
-      try {
-        assertSafeUrl(candidate.url, allowedHosts);
-        if (listingDocumentIdentity(candidate.url) === listingIdentity) return false;
-        const pattern = new RegExp(config.pathPattern.source, config.pathPattern.flags.replace('g', ''));
-        return pattern.test(new URL(candidate.url).pathname);
-      } catch {
-        return false;
-      }
-    });
+  const pattern = new RegExp(config.pathPattern.source, config.pathPattern.flags.replace('g', ''));
+
+  // `null` → tüm belge; aksi halde bulunan kapsayıcı seçici.
+  const collectCandidates = (containerSelector: string | null): Candidate[] =>
+    (containerSelector ? $(containerSelector).first() : $.root())
+      .find('a[href]')
+      .toArray()
+      .map((element) => ({
+        element: element as AnyNode,
+        url: normalizeUrl($(element).attr('href') ?? '', pageUrl),
+      }))
+      .filter((candidate): candidate is Candidate => candidate.url !== null)
+      .filter((candidate) => {
+        try {
+          assertSafeUrl(candidate.url, allowedHosts);
+          if (listingDocumentIdentity(candidate.url) === listingIdentity) return false;
+          const { pathname } = new URL(candidate.url);
+          // Kurum menüleri/kategori sayfaları ilan satırı değildir.
+          if (isCategoryIndexPath(pathname)) return false;
+          return pattern.test(pathname);
+        } catch {
+          return false;
+        }
+      });
+
+  const documentCandidates = collectCandidates(null);
+  const scopedCandidates = scopeSelector ? collectCandidates(scopeSelector) : documentCandidates;
+  /**
+   * Kapsam boş kaldı ama belge genelinde desen eşleşmesi var: liste beklenen
+   * kapsayıcının DIŞINDA çiziliyor (EPDK `/Detay` ×436, DSİ `/Duyuru` ×11 —
+   * 2026-10-16 canlı koşumunda 0 satır döndü). Tüm belgeye düşülür; iskelet
+   * zaten `stripPageChrome` ile temizlendiği için menü gürültüsü sınırlıdır ve
+   * başlık düzeyindeki dizin kuralları ikinci süzgeçtir.
+   */
+  const rootFallbackUsed = scopeSelector !== null && scopedCandidates.length === 0 && documentCandidates.length > 0;
+  const candidates: Candidate[] = rootFallbackUsed ? documentCandidates : scopedCandidates;
+  const diagnostics: AnchorListDiagnostics = {
+    anchors: $('a[href]').length,
+    scopeSelector: scopeSelector ?? null,
+    patternMatchesDocument: documentCandidates.length,
+    patternMatchesScoped: scopedCandidates.length,
+    rootFallbackUsed,
+  };
 
   const entries: ListEntry[] = [];
   const candidateElements = new Set<AnyNode>(candidates.map((candidate) => candidate.element));
@@ -180,6 +292,7 @@ function parseAnchorListPage(
     nextPageUrl,
     paginationDetected: detectedNavigation.detected,
     paginationEndConfirmed,
+    diagnostics,
   };
 }
 
@@ -256,43 +369,67 @@ export class AnchorListAdapter implements SourceAdapter {
     // yanıtında satır bırakmadı; hata mesajı da çerez modali ve erişilebilirlik araç
     // çubuğu metnini "sayfa özeti" diye gösterdi. Önce satır var mı diye bakılır, yoksa
     // kariyer-kapısı adaptöründeki gibi başsız tarayıcıyla yeniden çizilir.
-    let browserFallbackNote = '';
     // Ön-kontrol ayrıştırması döngünün 1. sayfasında yeniden kullanılır; aynı HTML iki
-    // kez ayrıştırılmaz (tarayıcı yedeği varsayılan olarak açık).
-    let firstPageParse: ReturnType<typeof parseAnchorListPage> | null = null;
-    if (browserFallbackEnabled()) {
-      const firstPass = parseAnchorListPage(html, source.listingUrl, source.listingUrl, this.config, source.allowedHosts);
-      firstPageParse = firstPass;
-      if (firstPass.entries.length === 0) {
-        const httpLength = html.length;
-        try {
-          const rendered = await this.renderListingHtml(source, ctx);
-          requestCount += 1;
-          if (rendered.length > 0) {
-            const renderedPass = parseAnchorListPage(
-              rendered,
-              source.listingUrl,
-              source.listingUrl,
-              this.config,
-              source.allowedHosts,
+    // kez ayrıştırılmaz. Ayrıştırma her zaman çalışır: 0 satır durumunda hata mesajına
+    // yazılacak teşhis (kaç bağlantı desenle eşleşti, hangi kapsayıcı denendi) buradan gelir.
+    const firstPass = parseAnchorListPage(html, source.listingUrl, source.listingUrl, this.config, source.allowedHosts);
+    let firstPageParse: ReturnType<typeof parseAnchorListPage> | null = firstPass;
+    let firstPageDiagnostics = firstPass.diagnostics;
+    /**
+     * Tarayıcı yedeğinin SONUCU. Hata fırlatıldığında `notes` operatöre ulaşmaz
+     * (2026-10-16: İŞKUR hatasında tarayıcının çizip çizmediği görünmüyordu,
+     * TMSF'te ise yalnızca hata fırlatıldığı için görünüyordu). Bu yüzden sonuç
+     * tek bir değişkende tutulur ve yapı hatasının metnine yazılır.
+     */
+    let browserOutcome = browserFallbackEnabled()
+      ? 'denenmedi (HTTP listesi satır üretti).'
+      : 'kapalı (SOURCE_BROWSER_FALLBACK=0 ya da Chromium kurulu değil).';
+    if (firstPass.diagnostics.rootFallbackUsed) {
+      notes.push(
+        `Liste beklenen kapsayıcıda (${firstPass.diagnostics.scopeSelector}) bulunamadı; tüm belge tarandı ve ` +
+          `${firstPass.diagnostics.patternMatchesDocument} desen eşleşmesi alındı. listContainers seçicisi gözden geçirilmeli.`,
+      );
+    }
+    if (firstPass.entries.length === 0 && browserFallbackEnabled()) {
+      const httpLength = html.length;
+      try {
+        const rendered = await this.renderListingHtml(source, ctx);
+        requestCount += 1;
+        if (rendered.length > 0) {
+          const renderedPass = parseAnchorListPage(
+            rendered,
+            source.listingUrl,
+            source.listingUrl,
+            this.config,
+            source.allowedHosts,
+          );
+          if (renderedPass.entries.length > firstPass.entries.length) {
+            html = rendered;
+            firstPageParse = renderedPass;
+            firstPageDiagnostics = renderedPass.diagnostics;
+            browserOutcome = `tarayıcı çizimi ${renderedPass.entries.length} satır üretti (${rendered.length} karakter).`;
+            notes.push(
+              `HTTP listesi satır üretmedi (${httpLength} karakter); sayfa tarayıcıda çizildi ve ${renderedPass.entries.length} ilan bağlantısı bulundu.`,
             );
-            if (renderedPass.entries.length > firstPass.entries.length) {
-              html = rendered;
-              firstPageParse = renderedPass;
+            if (renderedPass.diagnostics.rootFallbackUsed) {
               notes.push(
-                `HTTP listesi satır üretmedi (${httpLength} karakter); sayfa tarayıcıda çizildi ve ${renderedPass.entries.length} ilan bağlantısı bulundu.`,
-              );
-            } else {
-              notes.push(
-                `Tarayıcı çizimi de satır üretmedi (${rendered.length} karakter); HTTP yanıtıyla devam ediliyor.`,
+                `Çizilmiş sayfada da liste kapsayıcı dışında (${renderedPass.diagnostics.scopeSelector}); tüm belge tarandı.`,
               );
             }
+          } else {
+            browserOutcome = `tarayıcı çizimi de satır üretmedi (${rendered.length} karakter, desen eşleşmesi ${renderedPass.diagnostics.patternMatchesDocument}).`;
+            notes.push(
+              `Tarayıcı çizimi de satır üretmedi (${rendered.length} karakter); HTTP yanıtıyla devam ediliyor.`,
+            );
           }
-        } catch (error) {
-          if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
-          browserFallbackNote = describeBrowserFailure(error);
-          notes.push(`Tarayıcı yedeği kullanılamadı: ${browserFallbackNote}`);
+        } else {
+          browserOutcome = 'tarayıcı boş sayfa döndürdü (çizim başarısız ya da sayfa JavaScript ile dolmadı).';
+          notes.push('Tarayıcı çizimi boş HTML döndürdü; HTTP yanıtıyla devam ediliyor.');
         }
+      } catch (error) {
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+        browserOutcome = `kullanılamadı: ${describeBrowserFailure(error)}.`;
+        notes.push(`Tarayıcı yedeği kullanılamadı: ${describeBrowserFailure(error)}`);
       }
     }
 
@@ -396,6 +533,13 @@ export class AnchorListAdapter implements SourceAdapter {
       }
       const pageText = chromeFreeText(html, 300);
       const structure = describePageStructure(html, currentUrl);
+      const hint =
+        firstPageDiagnostics.patternMatchesDocument > 0
+          ? `desenle eşleşen ${firstPageDiagnostics.patternMatchesDocument} bağlantı var ancak hiçbiri satır üretmedi: ` +
+            'başlık/kapsam süzgeçlerini (minTitleLength, rowSelector, dizin filtresi) gözden geçirin.'
+          : structure.anchors === 0
+            ? 'sayfada hiç bağlantı yok; içerik büyük olasılıkla JavaScript ile yükleniyor (SOURCE_BROWSER_FALLBACK=1 ve Playwright gerekli).'
+            : 'pathPattern/listContainers seçicileri bu yollara göre güncellenmeli.';
       throw new AdapterStructureError(
         source.key,
         `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${String(this.config.pathPattern)} bulunamadı. ` +
@@ -403,13 +547,14 @@ export class AnchorListAdapter implements SourceAdapter {
           `${structure.scripts} script, ${structure.iframes} iframe, ${structure.forms} form, ` +
           `görünür metin ${structure.bodyTextLength} karakter` +
           (structure.topPathPrefixes.length > 0 ? `, sık geçen yollar: ${structure.topPathPrefixes.join(', ')}` : '') +
-          `. Sayfa özeti (iskelet temizlendikten sonra): "${makeExcerpt(pageText, 160)}" — ` +
-          (structure.anchors === 0
-            ? 'sayfada hiç bağlantı yok; içerik büyük olasılıkla JavaScript ile yükleniyor (SOURCE_BROWSER_FALLBACK=1 ve Playwright gerekli).'
-            : 'pathPattern/listContainers seçicileri bu yollara göre güncellenmeli.') +
-          // Tarayıcı yedeği denendiyse nedeni hata mesajında da görünür: notlar hata
+          `. Ayrıştırma teşhisi: iskelet temizlendikten sonra ${firstPageDiagnostics.anchors} bağlantı, ` +
+          `kapsayıcı ${firstPageDiagnostics.scopeSelector ?? 'bulunamadı (tüm belge)'}, ` +
+          `desen eşleşmesi kapsamda ${firstPageDiagnostics.patternMatchesScoped} / belgede ${firstPageDiagnostics.patternMatchesDocument}` +
+          (firstPageDiagnostics.rootFallbackUsed ? ' (belge geneline düşüldü)' : '') +
+          `. Sayfa özeti (iskelet temizlendikten sonra): "${makeExcerpt(pageText, 160)}" — ${hint}` +
+          // Tarayıcı yedeğinin sonucu HER durumda hata metninde görünür: notlar hata
           // fırlatılınca operatöre ulaşmıyor.
-          (browserFallbackNote ? ` Tarayıcı yedeği sonucu: ${browserFallbackNote}.` : ''),
+          ` Tarayıcı yedeği: ${browserOutcome}`,
       );
     }
 
@@ -536,13 +681,28 @@ export class AnchorListAdapter implements SourceAdapter {
     const items: RawAnnouncement[] = [];
     let failedDetailReads = 0;
     let detailPagesWithoutText = 0;
+    /** Zaman bütçesi dolduğu için bu koşumda okunmayan detay sayısı. */
+    let budgetDeferred = 0;
 
-    for (const { entry, itemId } of selected) {
+    let budgetExhausted = false;
+    for (const [index, { entry, itemId }] of selected.entries()) {
+      // Tarama bütçesinin sonuna gelindiyse yeni bir detay indirmesi BAŞLATILMAZ.
+      // Kayıt yine de liste bilgisiyle oluşturulur: gövde metni eksik kayıtlar
+      // `knownItemIdsWithDetail` dışında kalır ve sonraki taramada tamamlanır.
+      // (Eski davranış: sert zaman aşımı → koşumun tamamı ve bulunan satırlar çöpe giderdi.)
+      if (fetchDetail && !budgetExhausted && !hasBudgetFor(ctx, MIN_DETAIL_BUDGET_MS)) {
+        budgetExhausted = true;
+        notes.push(
+          `Tarama zaman bütçesi doldu; kalan ${selected.length - index} kayıt detay okunmadan liste bilgisiyle kaydedildi ` +
+            '(detay metni sonraki taramada tamamlanır, kaynak başarısız sayılmaz).',
+        );
+      }
+      if (budgetExhausted) budgetDeferred += 1;
       const title = entry.title;
       const publishedAt = entry.publishedAt;
       const candidate = { url: entry.url };
       const rowText = entry.rowText;
-      const detail = fetchDetail ? await this.readDetail(ctx, candidate.url) : null;
+      const detail = fetchDetail && !budgetExhausted ? await this.readDetail(ctx, candidate.url) : null;
       if (detail) {
         requestCount += detail.requests;
         httpStatuses.push(...detail.statuses);
@@ -592,6 +752,10 @@ export class AnchorListAdapter implements SourceAdapter {
       );
     if (deferred > 0)
       detailCoverageNotes.push(`${deferred} yeni/eksik detay bütçe nedeniyle sonraki taramaya ertelendi.`);
+    if (budgetDeferred > 0)
+      detailCoverageNotes.push(
+        `${budgetDeferred} detay tarama ZAMAN bütçesi dolduğu için sonraki taramaya ertelendi.`,
+      );
     const finalCoverage = {
       status: detailCoverageNotes.length > 0 ? ('partial' as const) : coverage.status,
       note: [coverage.note, ...detailCoverageNotes].join(' '),
@@ -627,6 +791,9 @@ export class AnchorListAdapter implements SourceAdapter {
         allowedHosts: ctx.source.allowedHosts,
         minIntervalMs: ctx.source.minRequestIntervalMs,
         maxBytes: 3_000_000,
+        // Kalan bütçeye sığan bir zaman aşımı: tek yavaş detay sayfası tüm
+        // taramayı düşürmesin (SCRAPE_TIMEOUT_MS varsayılanı tek istek için çok uzun).
+        timeoutMs: budgetedTimeoutMs(ctx, DETAIL_TIMEOUT_MS),
       });
       const html = response.decoded?.text ?? response.body.toString('utf8');
       const $ = loadHtml(html);

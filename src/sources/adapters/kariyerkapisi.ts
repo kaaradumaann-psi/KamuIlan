@@ -475,7 +475,12 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       );
       const coverage = {
         status: 'unknown' as const,
-        note: 'İlk sayfadan satır okunamadığı için kaynak kapsamı bilinmiyor.',
+        // Panelde görünen not operatöre SUNUCUNUN GERÇEKTEN NE VERDİĞİNİ ve bir
+        // sonraki adımı söylemeli; tek başına "bilinmiyor" bir çıkmazdır.
+        note:
+          'İlk sayfadan satır okunamadığı için kaynak kapsamı bilinmiyor ' +
+          `(HTTP ${httpStatuses.length > 0 ? httpStatuses.join('/') : 'istek yok'} · ${listHtml.length} karakter` +
+          `${viaBrowser ? ' · tarayıcı çizimi' : ''}). Ayrıntı: npm run test:live -- --source=${source.key}`,
       };
       return {
         items: [],

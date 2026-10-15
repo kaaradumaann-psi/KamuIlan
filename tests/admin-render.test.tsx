@@ -63,6 +63,30 @@ beforeAll(async () => {
     processedJobs: 3,
     lastError: null,
   });
+  // Durdurulmuş ve bayat worker satırları: panel üç durumu da ayırt etmeli.
+  // 2026-10-16 canlı dökümünde 42–47 saat önce durmuş süreçler "çalışıyor"
+  // rozetiyle görünüyordu (stale=false ama status='stopped').
+  await repos.heartbeats.beat({
+    workerId: 'kamuilan-durmus',
+    role: 'worker',
+    status: 'stopped',
+    version: 'test',
+    processedJobs: 12,
+    lastError: null,
+  });
+  await repos.heartbeats.beat({
+    workerId: 'kamuilan-bayat',
+    role: 'worker',
+    status: 'running',
+    version: 'test',
+    processedJobs: 7,
+    lastError: 'resmigazete-cesteli-ilanlar: zaman aşımı',
+  });
+  await repos.store.updateOne(
+    'workerHeartbeats',
+    { workerId: 'kamuilan-bayat' },
+    { lastHeartbeatAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000).toISOString() },
+  );
   const run = await repos.runs.start({
     sourceKey: 'resmigazete-cestili-ilanlar',
     trigger: 'schedule',
@@ -130,6 +154,14 @@ describe('Yönetim paneli (gerçek API cevaplarıyla)', () => {
     );
     expect(await screen.findByText('Yönetim paneli')).toBeTruthy();
     expect(await screen.findByText('Otomatik kontrol durumu')).toBeTruthy();
+
+    // Worker rozetleri: canlı süreç "çalışıyor", bilinçli kapanan "durdu",
+    // sessiz kalan "bayat" — hiçbiri diğeriyle karışmamalı.
+    expect((await screen.findAllByText('çalışıyor')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('durdu')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('bayat')).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/kamuilan-bayat/)).toBeTruthy();
+    expect(await screen.findByText(/Ayrıca 0 eski worker kaydı/).catch(() => null)).toBeNull();
 
     for (const label of [
       'Kaynaklar',

@@ -634,11 +634,17 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
   {
     key: 'SCRAPE_TIMEOUT_MS',
     group: 'tarama',
-    label: 'İstek zaman aşımı (ms)',
-    help: 'Resmî siteler yavaş olabilir; çok düşük değer taramaları başarısız kılar.',
+    label: 'Tarama zaman bütçesi (ms)',
+    help:
+      'Tek kaynak taramasının toplam süresi. Resmî siteler yavaştır; çok düşük değer taramaları ' +
+      'başarısız kılar. Süre bitmeye yaklaştığında adaptör yeni detay indirmeyi bırakır ve okunan ' +
+      'satırları "kısmi" olarak kaydeder. Önerilen: 120000 (PDF ağırlıklı kaynaklarda 180000).',
     type: 'number',
     integer: true,
-    min: 1000,
+    // Şemayla aynı sınırlar (env.ts): sihirbazın kabul ettiği değeri şema reddetmesin.
+    min: 5000,
+    max: 300000,
+    defaultValue: '120000',
     optional: true,
   },
   {

@@ -20,6 +20,15 @@ export interface AdapterContext {
   liveFetch: boolean;
   /** Tarama zaman aşımı/iptalinde HTTP ve browser işlemlerini durdurur. */
   signal?: AbortSignal;
+  /**
+   * Tarama bütçesinin SON ANI (pipeline `SCRAPE_TIMEOUT_MS`'ten pay düşerek verir).
+   *
+   * Adaptör pahalı bir indirmeye başlamadan önce `hasBudgetFor(ctx, …)` ile
+   * bakar; bütçe yetmiyorsa durup KISMİ sonuç + kapsam notu döndürür. Böylece
+   * tek yavaş belge tüm koşumu düşürmez (bkz. `src/sources/scan-budget.ts`).
+   * Tanımsızsa süre sınırı uygulanmaz.
+   */
+  deadlineAt?: Date | null;
   fetchedAt: Date;
   /** Kaynak içi ilerleme: daha önce gördüğümüz kayıt kimlikleri (idempotency için). */
   knownItemIds?: ReadonlySet<string>;

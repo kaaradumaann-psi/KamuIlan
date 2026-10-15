@@ -698,3 +698,100 @@ describe('yönetici uyarıları', () => {
     expect(await world.repos.store.count('workerHeartbeats', { status: 'running' })).toBe(0);
   });
 });
+
+/**
+ * Birikmiş tarama kuyruğu (2026-10-16 canlı döküm: bekleyen 2998).
+ *
+ * Worker kapalı kaldığında ya da taramalar sürekli zaman aşımına düştüğünde
+ * zamanlanmış işler birikir. Biriken işlerin tek tek koşulması aynı kaynağı
+ * saatlerce gereksiz yere döver ve paneli "sistem tıkanmış" gösterir; oysa aynı
+ * kaynağın eski bir taraması, güncel tarama kuyruktayken hiçbir şey ifade etmez.
+ */
+describe('birikmiş tarama kuyruğu', () => {
+  /** Birikmiş işler GECİKMİŞ zamanlardır: hepsi NOW'dan eski, index büyüdükçe yeni. */
+  function scheduledJob(sourceKey: string, index: number) {
+    const runAt = new Date(NOW.getTime() - (20 - index) * 15 * 60_000).toISOString();
+    return {
+      queue: QUEUE_NAMES.scrape,
+      name: 'source-scrape',
+      dedupeKey: `source-scrape:${sourceKey}:${runAt}`,
+      payload: { kind: 'source-scrape', sourceKey, scheduledFor: runAt, scheduleDelayMs: 0 },
+      runAt,
+    };
+  }
+
+  it('aynı kaynağın eski bekleyen taramaları kapatılır, en güncel olan korunur', async () => {
+    const world = await makeWorld();
+    for (let index = 0; index < 5; index += 1) {
+      await world.repos.queue.enqueue(scheduledJob(OK_SOURCE_KEY, index));
+    }
+    // Elle tetiklenen iş (panel "şimdi tara") ASLA kapatılmamalı.
+    await world.repos.queue.enqueue({
+      queue: QUEUE_NAMES.scrape,
+      name: 'source-scrape',
+      dedupeKey: `scrape:${OK_SOURCE_KEY}:manual:2026-10-12T09:00`,
+      payload: { sourceKey: OK_SOURCE_KEY, trigger: 'manual', requestedBy: 'admin@ornek.test' },
+      runAt: new Date(NOW.getTime() + 60 * 60_000).toISOString(),
+    });
+
+    const result = await world.repos.queue.collapseSupersededPending(QUEUE_NAMES.scrape, 'source-scrape', {
+      now: NOW,
+    });
+
+    expect(result.collapsed).toBe(4);
+    // `kept` yalnızca katlama ADAYLARINI sayar; elle tetiklenen iş aday değildir.
+    expect(result.kept).toBe(1); // en güncel zamanlanmış tarama
+    const stats = await world.repos.queue.stats();
+    expect(stats.pending).toBe(2); // korunan zamanlanmış + elle tetiklenen
+
+    // Kapatılan işler "yok olmadı": gerekçe iş yükünde durur.
+    const closed = await world.repos.store.find('queueJobs', { status: 'completed' }, { limit: 10 });
+    expect(closed.length).toBe(4);
+    for (const row of closed) {
+      expect(row.payload['superseded']).toBe(true);
+      expect(String(row.payload['supersededReason'])).toMatch(/daha güncel/);
+    }
+  });
+
+  it('farklı kaynakların işleri birbirini götürmez', async () => {
+    const world = await makeWorld();
+    await world.repos.queue.enqueue(scheduledJob(OK_SOURCE_KEY, 0));
+    await world.repos.queue.enqueue(scheduledJob(FAILING_SOURCE_KEY, 0));
+
+    const result = await world.repos.queue.collapseSupersededPending(QUEUE_NAMES.scrape, 'source-scrape', {
+      now: NOW,
+    });
+
+    expect(result.collapsed).toBe(0);
+    expect(result.kept).toBe(2);
+  });
+
+  it('worker tikinde birikmiş taramalar kaynak yeniden taranmadan eritilir', async () => {
+    const world = await makeWorld();
+    // Yalnızca tek kaynak gündemde olsun.
+    await world.repos.sources.setEnabled(FAILING_SOURCE_KEY, false);
+    for (let index = 0; index < 3; index += 1) {
+      await world.repos.queue.enqueue(scheduledJob(OK_SOURCE_KEY, index));
+    }
+    let adapterCalls = 0;
+    const adapter: SourceAdapter = {
+      key: 'test-liste',
+      label: 'Sayan test adaptörü',
+      method: 'html-list',
+      notes: 'Kaç kez tarama yapıldığını sayar.',
+      run: async () => {
+        adapterCalls += 1;
+        return { items: [], requestCount: 1, notes: [], etag: null, lastModified: null, notModified: false };
+      },
+    };
+
+    const runtime = makeRuntime(world, { adapter });
+    const result = await runtime.tick();
+
+    expect(result.scrapes.collapsed).toBe(2);
+    expect(adapterCalls).toBe(1);
+    const stats = await world.repos.queue.stats();
+    expect(stats.pending).toBe(0);
+    expect(stats.active).toBe(0);
+  });
+});

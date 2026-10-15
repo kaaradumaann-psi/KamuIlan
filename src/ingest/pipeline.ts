@@ -168,6 +168,9 @@ export async function loadKnownItemIdsWithDetail(repos: Repos, sourceKey: string
   ]);
 }
 
+/** Sert `withTimeout` reddinden önce adaptöre bırakılan pay (ms). */
+const SCAN_DEADLINE_MARGIN_MS = 8_000;
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -302,6 +305,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         logger: logger.child({ sourceKey: source.key }),
         liveFetch,
         signal: requestAbort.signal,
+        // Sert zaman aşımından ÖNCE adaptörün durup kısmi sonuç döndürebilmesi
+        // için pay bırakılır (BUDGET_RESERVE_MS + ağ kapanma payı).
+        deadlineAt: new Date(Date.now() + Math.max(5_000, timeoutMs - SCAN_DEADLINE_MARGIN_MS)),
         fetchedAt: now,
         knownItemIds,
         knownItemIdsWithDetail,

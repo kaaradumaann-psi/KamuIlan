@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { inspectCaFile } from '../lib/ca-file';
 import { effectiveDriver } from '../db/store';
 import { describeTlsVerificationOverride, systemCaStoreAvailable, tlsVerificationDisabled } from '../lib/tls-trust';
+import { describeLlmEndpointRisk } from '../ai/llm';
 import { existsSync, readFileSync } from 'node:fs';
 import { envFileSource, loadEnvFile, parseEnvFile } from './load-env';
 
@@ -177,7 +178,18 @@ const envSchema = z.object({
   SCAN_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(1_440).default(0),
   WORKER_NAMESPACE: z.string().default('kamuilan'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
-  SCRAPE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(60_000),
+  /**
+   * Tek kaynak taramasının TOPLAM zaman bütçesi (ms).
+   *
+   * 120 sn'ye yükseltildi (önceki 60 sn): PDF ağırlıklı kaynaklar (Resmî Gazete)
+   * ve tarayıcı yedeği kullanan kurum siteleri tek koşumda 60 sn'yi aşıyordu;
+   * bütçe dolunca koşum TAMAMEN başarısız sayılıyor ve o ana kadar okunan
+   * satırlar çöpe gidiyordu (canlı döküm: resmigazete 21 ardışık başarısızlık,
+   * "zaman aşımına uğradı (60000 ms)"). Artık adaptörler bütçeden pay düşerek
+   * çalışır (`src/sources/scan-budget.ts`): süre bitmeye yakınsa yeni detay/PDF
+   * indirilmez, okunanlar "kısmi" kapsamla kaydedilir.
+   */
+  SCRAPE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
   SCRAPE_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
   // Standart bot biçimi (Googlebot/Bingbot düzeni): kimlik gizlenmez, ad ve
   // iletişim adresi açıkça yazılır. Bazı resmî sunucular "Mozilla" ile
@@ -776,6 +788,21 @@ function collectEnvironmentProblems(
   }
   if (env.NODE_ENV === 'production' && !env.SOURCE_LIVE_FETCH) {
     warnings.push('Üretimde SOURCE_LIVE_FETCH=1 olmadan kaynaklar taranmaz.');
+  }
+  // LLM kapısı açıksa uç nokta/model uyumu denetlenir. Yanlış eşleşme istekte
+  // 404 döndürür ve inceleme kuyruğundaki HER kayıt insan onayına kalır
+  // (2026-10-16 paneli: 2 çağrı / 2 hata / %100 hata oranı). Engelleyici değil:
+  // yanlış pozitif olasılığı vardır, bu yüzden uyarı + `npm run llm:doctor`.
+  if ((env.AI_ASSISTANT_ENABLED || env.LLM_CLASSIFIER_ENABLED) && env.LLM_BASE_URL) {
+    const llmModel = env.LLM_CLASSIFIER_MODEL.trim() || env.LLM_MODEL.trim();
+    const risk = describeLlmEndpointRisk(env.LLM_BASE_URL, llmModel);
+    if (risk) warnings.push(`${risk} Doğrulamak için: npm run llm:doctor`);
+  }
+  if (env.LLM_CLASSIFIER_ENABLED && !env.LLM_COST_USD_PER_MTOK_INPUT && !env.LLM_COST_USD_PER_MTOK_OUTPUT) {
+    warnings.push(
+      'LLM_COST_USD_PER_MTOK_INPUT/OUTPUT boş: panelde LLM maliyeti "raporlanmadı" görünür. ' +
+        'Sağlayıcının 1M token fiyatını (USD) yazın; doğrulanmamış fiyat yayımlanmaz.',
+    );
   }
   if (env.ADMIN_EMAIL === '' || env.ADMIN_PASSWORD === '') {
     warnings.push(

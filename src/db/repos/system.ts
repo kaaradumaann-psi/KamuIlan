@@ -299,6 +299,85 @@ export class BuiltinQueueRepo {
     return { job: result.document, created: result.inserted };
   }
 
+  /**
+   * Aynı kaynağın BİRDEN ÇOK bekleyen zamanlanmış taraması varsa yalnızca en
+   * yenisi bırakılır; eskiler gerekçesi iş yüküne yazılarak kapatılır.
+   *
+   * Neden gerekli: worker kapalı kaldığında ya da taramalar sürekli zaman
+   * aşımına düştüğünde zamanlanmış işler birikir (canlı döküm: bekleyen 2998).
+   * Biriken işlerin tek tek koşulması hem kaynakları saatlerce gereksiz yere
+   * döver hem de paneli "sistem tıkanmış" gösterir; oysa aynı kaynağın eski bir
+   * taramasının sonucu, en güncel tarama yapıldığında hiçbir şey ifade etmez.
+   *
+   * Elle tetiklenen işler (panel "şimdi tara" düğmesi) ASLA kapatılmaz.
+   *
+   * @returns kapatılan ve korunan iş sayıları
+   */
+  async collapseSupersededPending(
+    queue: string,
+    name: string,
+    options: { limit?: number; scanLimit?: number; now?: Date } = {},
+  ): Promise<{ collapsed: number; kept: number }> {
+    const limit = Math.max(1, options.limit ?? 200);
+    const scanLimit = Math.max(limit, options.scanLimit ?? 1_000);
+    const now = (options.now ?? this.clock.now()).toISOString();
+    const rows = await this.store.find('queueJobs', { queue, name, status: 'pending' }, { limit: scanLimit, sort: [['runAt', 1]] });
+    const newestByGroup = new Map<string, QueueJobDoc>();
+    const groupOf = (row: QueueJobDoc): string | null => {
+      const kind = String(row.payload?.['kind'] ?? '');
+      const trigger = String(row.payload?.['trigger'] ?? '');
+      const sourceKey = String(row.payload?.['sourceKey'] ?? '');
+      // Yalnızca zamanlanmış kaynak taramaları katlanır; elle tetiklenenler korunur.
+      if (kind !== 'source-scrape' || trigger === 'manual' || !sourceKey) return null;
+      return `${kind}:${sourceKey}`;
+    };
+    const candidates: QueueJobDoc[] = [];
+    for (const row of rows) {
+      const group = groupOf(row);
+      if (!group) continue;
+      candidates.push(row);
+      const current = newestByGroup.get(group);
+      if (!current || row.runAt > current.runAt) newestByGroup.set(group, row);
+    }
+
+    let collapsed = 0;
+    let kept = 0;
+    for (const row of candidates) {
+      const group = groupOf(row);
+      const newest = group ? newestByGroup.get(group) : undefined;
+      if (newest?.id === row.id) {
+        kept += 1;
+        continue;
+      }
+      if (collapsed >= limit) {
+        kept += 1;
+        continue;
+      }
+      await this.store.updateOne(
+        'queueJobs',
+        { id: row.id, status: 'pending' },
+        {
+          status: 'completed',
+          completedAt: now,
+          updatedAt: now,
+          lockedBy: null,
+          lockedUntil: null,
+          // Gerekçe kayıtta kalır: iş kendiliğinden "yok olmadı", yerini daha
+          // güncel bir tarama aldı (yönetici veritabanından doğrulayabilir).
+          payload: {
+            ...row.payload,
+            superseded: true,
+            supersededReason: 'Aynı kaynağın daha güncel zamanlanmış taraması kuyruktaydı; eski tarama çalıştırılmadan kapatıldı.',
+            supersededBy: newest?.id ?? null,
+            supersededAt: now,
+          },
+        },
+      );
+      collapsed += 1;
+    }
+    return { collapsed, kept };
+  }
+
   async claim(queue: string, workerId: string, limit = 5, leaseMs = 300_000): Promise<QueueJobDoc[]> {
     const now = this.clock.now();
     const nowIso = now.toISOString();

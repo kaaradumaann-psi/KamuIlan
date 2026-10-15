@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { classify } from '../src/classification/engine';
+import { CLASSIFICATION_VERSION } from '../src/config/app';
 import { buildJobDocument } from '../src/ingest/jobs-service';
 import { reclassifyJob } from '../src/ingest/reclassify';
 import type { RawAnnouncement } from '../src/domain';
@@ -33,6 +34,13 @@ const noiseTitles: { title: string; rule: string }[] = [
   { title: 'e-YDS 2026/10 İngilizce Sınavı Başvuruları', rule: 'ret-baslik.dil-akademik-sinav' },
   { title: '2026-TUS 2. Dönem Tercih İşlemleri', rule: 'ret-baslik.dil-akademik-sinav' },
   { title: '2026-ALES/2 Başvuru Kılavuzu', rule: 'ret-baslik.dil-akademik-sinav' },
+  // 2026-10-16 canlı panel dökümü: KGM/DSİ/SPK kurumsal etkinlik ve fiyat sayfaları.
+  { title: '2026 Yılı Rayiç Fiyatları', rule: 'ret-baslik.kurumsal-etkinlik' },
+  { title: 'Tarihi Köprünün Restorasyon Çalışmasının Açılışı Yapıldı', rule: 'ret-baslik.kurumsal-etkinlik' },
+  { title: 'GICC 2026 Kapsamında Heyet Ziyareti Gerçekleştirildi', rule: 'ret-baslik.kurumsal-etkinlik' },
+  { title: 'Japonya Heyeti ile Görüşme', rule: 'ret-baslik.kurumsal-etkinlik' },
+  { title: 'Kurumlar Arası İş Birliği Protokolü İmza Töreni', rule: 'ret-baslik.kurumsal-etkinlik' },
+  { title: 'Uluslararası Akıllı Ulaşım Sistemleri Yarışması', rule: 'ret-baslik.kurumsal-etkinlik' },
 ];
 
 describe('dizin/yardım sayfası başlıkları', () => {
@@ -62,6 +70,7 @@ const NEW_RULE_IDS: readonly string[] = [
   'ret-baslik.dizin-sayfasi',
   'ret-baslik.sayi-istatistik',
   'ret-baslik.dil-akademik-sinav',
+  'ret-baslik.kurumsal-etkinlik',
 ];
 
 describe('gerçek alım başlıkları yeni kurallara takılmaz', () => {
@@ -73,6 +82,11 @@ describe('gerçek alım başlıkları yeni kurallara takılmaz', () => {
     'Sergi salonunda görevlendirilecek temizlik personeli alımı',
     'Kadro sayıları açıklanan 4/B sözleşmeli personel alımı',
     'KPSS 2026/1 Tercih Kılavuzu ile memur alımı',
+    // Yeni "kurumsal etkinlik" kuralının yanlış pozitif vermemesi gereken başlıklar:
+    // etkinlik/ziyaret/fuar kelimesi geçiyor ama alım açıkça belirtiliyor.
+    'Ziyaretçi kabulünde görevlendirilecek 10 güvenlik personeli alımı',
+    'Fuar alanında çalıştırılmak üzere 5 temizlik işçisi alımı',
+    'Açılışı yapılan hizmet binasında görevlendirilecek sözleşmeli memur alımı',
   ];
   for (const title of keepTitles) {
     it(`"${title}" yeni başlık ret kurallarına takılmaz`, () => {
@@ -125,7 +139,7 @@ describe('mevcut inceleme kuyruğu yeniden sınıflandırmayla temizlenir', () =
     expect(result.decisionFrom).toBe('review');
     expect(result.decisionTo).toBe('reject');
     expect(result.patch.classification?.decision).toBe('reject');
-    expect(result.patch.classification?.version).toBe('2026.10.2');
+    expect(result.patch.classification?.version).toBe(CLASSIFICATION_VERSION);
     expect(result.patch.classification?.rules.join(' ')).toContain('ret-baslik.sss');
     expect(result.changed).toBe(true);
   });

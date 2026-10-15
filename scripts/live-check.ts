@@ -33,6 +33,18 @@ interface LiveResult {
   notes: string[];
 }
 
+/**
+ * Kaynak başına zaman bütçesi.
+ *
+ * Eski davranış: `test:live` adaptöre hiçbir süre sınırı vermiyordu; tek bir
+ * kaynak (Resmî Gazete) 560 sn sürebiliyor ve tüm koşum takılıyordu. Artık
+ * worker ile AYNI bütçe (`SCRAPE_TIMEOUT_MS`) uygulanır: burada başarısız olan
+ * kaynak worker'da da başarısız olur, yani rapor üretim davranışını yansıtır.
+ */
+function liveBudgetMs(): number {
+  return Math.max(30_000, getEnv().SCRAPE_TIMEOUT_MS);
+}
+
 async function checkSource(
   source: SourceDefinition,
   http: HttpClient,
@@ -40,6 +52,9 @@ async function checkSource(
 ): Promise<LiveResult> {
   const started = Date.now();
   const adapter = requireAdapter(source.adapterKey);
+  const budgetMs = liveBudgetMs();
+  const controller = new AbortController();
+  const hardStop = setTimeout(() => controller.abort(new Error(`Canlı koşum bütçesi doldu (${budgetMs} ms).`)), budgetMs);
   try {
     const result = await adapter.run({
       source,
@@ -48,6 +63,8 @@ async function checkSource(
       liveFetch: true,
       fetchedAt: new Date(),
       maxDetailFetches: 5,
+      signal: controller.signal,
+      deadlineAt: new Date(Date.now() + Math.max(5_000, budgetMs - 8_000)),
     });
     return {
       key: source.key,
@@ -79,6 +96,8 @@ async function checkSource(
             : String(error),
       notes: [],
     };
+  } finally {
+    clearTimeout(hardStop);
   }
 }
 
@@ -92,7 +111,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`TLS: ${describeTlsTrust()}\n`);
+  console.log(`TLS: ${describeTlsTrust()}`);
+  console.log(`Kaynak başına zaman bütçesi: ${liveBudgetMs()} ms (SCRAPE_TIMEOUT_MS — worker ile aynı)\n`);
   const only = process.argv.find((argument) => argument.startsWith('--source='))?.split('=')[1];
   const targets = SOURCE_DEFINITIONS.filter(
     (source) => source.enabled && source.status !== 'disabled',

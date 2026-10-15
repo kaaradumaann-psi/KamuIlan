@@ -376,7 +376,7 @@ export class HttpClient {
     return new Agent({
       connections: 8,
       // Yavaş resmî sunucular başlıkları geç gönderebilir; başlık bütçesi
-      // çağrı bütçesinin (SCRAPE_TIMEOUT_MS, 60 sn) altında olmamalı.
+      // çağrı bütçesinin (SCRAPE_TIMEOUT_MS, varsayılan 120 sn) altında olmamalı.
       headersTimeout: 60_000,
       bodyTimeout: 60_000,
       // Resmî sunucular boşta bağlantıyı erken kapatır; uzun keep-alive

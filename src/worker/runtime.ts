@@ -62,7 +62,11 @@ export interface WorkerRuntimeOptions {
 
 export interface WorkerTickResult {
   scheduler: { due: number; enqueued: number; duplicates: number; misses: number };
-  scrapes: { processed: number; succeeded: number; failed: number; skipped: number };
+  /**
+   * `collapsed`: aynı kaynağın daha güncel zamanlanmış taraması kuyrukta olduğu
+   * için ÇALIŞTIRILMADAN kapatılan eski iş sayısı (birikmiş kuyruğu eritir).
+   */
+  scrapes: { processed: number; succeeded: number; failed: number; skipped: number; collapsed: number };
   emails: { claimed: number; sent: number; failed: number; dead: number };
   telegram: { claimed: number; sent: number; failed: number; dead: number; suppressed: number };
   maintenance: { ran: string[]; closedJobs: number; activatedJobs: number; purged: number };
@@ -130,7 +134,7 @@ export class WorkerRuntime {
     await this.safeHeartbeat([]);
     const result: WorkerTickResult = {
       scheduler: { due: 0, enqueued: 0, duplicates: 0, misses: 0 },
-      scrapes: { processed: 0, succeeded: 0, failed: 0, skipped: 0 },
+      scrapes: { processed: 0, succeeded: 0, failed: 0, skipped: 0, collapsed: 0 },
       emails: { claimed: 0, sent: 0, failed: 0, dead: 0 },
       telegram: { claimed: 0, sent: 0, failed: 0, dead: 0, suppressed: 0 },
       maintenance: { ran: [], closedJobs: 0, activatedJobs: 0, purged: 0 },
@@ -164,8 +168,28 @@ export class WorkerRuntime {
   }
 
   private async processScrapeQueue(): Promise<WorkerTickResult['scrapes']> {
-    const stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 };
+    const stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0, collapsed: 0 };
     if (this.queue.kind !== 'builtin') return stats; // Redis yolunda işler push edilir.
+
+    // Birikmiş kuyruğu erit: aynı kaynağın eski zamanlanmış taramaları, en güncel
+    // tarama kuyruktayken anlamsızdır. Tek tek koşulmaları kaynakları saatlerce
+    // gereksiz yorar (canlı döküm: bekleyen 2998). Elle tetiklenenler korunur.
+    try {
+      const collapsed = await this.repos.queue.collapseSupersededPending(QUEUE_NAMES.scrape, 'source-scrape', {
+        limit: 200,
+        now: this.repos.clock.now(),
+      });
+      stats.collapsed = collapsed.collapsed;
+      if (collapsed.collapsed > 0) {
+        this.logger.info(
+          { collapsed: collapsed.collapsed, kept: collapsed.kept, queue: QUEUE_NAMES.scrape },
+          'birikmiş eski tarama işleri kapatıldı (aynı kaynağın güncel taraması kuyrukta)',
+        );
+      }
+    } catch (error) {
+      // Katlama bir iyileştirmedir; başarısız olursa taramalar normal akışında sürer.
+      this.logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'kuyruk katlaması yapılamadı');
+    }
 
     const scrapeLeaseMs = Math.max(LEASE_MS, this.env.SCRAPE_TIMEOUT_MS + 90_000);
     const jobs = await this.queue.claim(

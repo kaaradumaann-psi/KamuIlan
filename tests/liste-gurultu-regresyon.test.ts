@@ -32,6 +32,9 @@ vi.mock('../src/sources/browser-session', () => ({
 }));
 
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
+import { isCategoryIndexPath } from '../src/sources/adapters/anchor-list';
+import { cleanTitle } from '../src/sources/listing-utils';
+import { budgetedTimeoutMs, hasBudgetFor, remainingBudgetMs } from '../src/sources/scan-budget';
 import { createLogger } from '../src/lib/logger';
 import { requireAdapter } from '../src/sources/registry';
 import type { FetchResponse, HttpClient } from '../src/sources/fetcher';
@@ -65,6 +68,30 @@ const JS_KABUGU = `<html><body>${CEREZ_MODALI}${ERISILEBILIRLIK}<div id="app"></
 
 const ARAC_CUBUGU_SAYFASI = `<html><body>${ERISILEBILIRLIK}<nav class="navbar">
 <a href="/kurumsal">Kurumsal</a><a href="/mevzuat">Mevzuat</a><a href="/iletisim">İletişim</a></nav><div id="app"></div></body></html>`;
+
+/**
+ * EPDK/DSİ biçimi (2026-10-16 canlı koşum): liste bağlantıları beklenen
+ * kapsayıcının DIŞINDA. EPDK sayfasında 436 `/Detay` bağlantısı görünürken
+ * adaptör 0 satır üretiyordu çünkü satırlar `main`/`#content` içinde değildi.
+ */
+const KAPSAM_DISI_LISTE = `<html><body>
+<nav class="navbar"><a href="/Anasayfa">ANASAYFA</a><a href="/kurum-hakkinda">KURUMUMUZ</a></nav>
+<main id="content"><h1>Duyurular</h1><p>Kurumumuz duyuruları aşağıdaki listededir.</p></main>
+<div class="detay-liste">
+  <div class="item"><a href="/Detay/2026-uzman-yardimcisi-giris-sinavi-ilani-12345">EPDK 10 Uzman Yardımcısı Giriş Sınavı İlanı</a><span>12.10.2026</span></div>
+  <div class="item"><a href="/Detay/2026-sozlesmeli-personel-alimi-98765">EPDK 5 Sözleşmeli Personel Alımı</a><span>11.10.2026</span></div>
+</div>
+</body></html>`;
+
+/** Kurum menüleri ve kategori sayfaları: hiçbiri ilan satırı olmamalı. */
+const MENU_VE_DIZINLER = `<html><body><main id="content"><ul>
+  <li><a href="/haberler">HABERLER &amp; DUYURULAR</a></li>
+  <li><a href="/duyurular/basin-duyurulari">Basın Duyuruları</a></li>
+  <li><a href="/basin-aciklamalari-yeni">Basın Açıklamaları</a></li>
+  <li><a href="/sikca-sorulan-sorular">Sıkça Sorulan Sorular</a></li>
+  <li><a href="/">Ana Sayfa</a></li>
+  <li><a href="/duyuru/2026-sozlesmeli-personel-alimi-12345">SGK 100 Sözleşmeli Personel Alım İlanı</a><span>12.10.2026</span></li>
+</ul></main></body></html>`;
 
 const tamSayfa = `<html><body><nav class="navbar"><a href="/sss">SSS</a></nav>${CEREZ_MODALI}${ERISILEBILIRLIK}${LISTE}<footer><a href="/iletisim">İletişim</a></footer></body></html>`;
 
@@ -105,7 +132,7 @@ function fakeHttp(resolve: (url: string) => string | undefined): { http: HttpCli
   return { http: handler as unknown as HttpClient, calls };
 }
 
-function contextFor(http: HttpClient): AdapterContext {
+function contextFor(http: HttpClient, overrides: Partial<AdapterContext> = {}): AdapterContext {
   if (!source) throw new Error('sgk-duyurular kaynağı envanterde yok');
   return {
     source,
@@ -114,6 +141,7 @@ function contextFor(http: HttpClient): AdapterContext {
     liveFetch: true,
     fetchedAt: new Date('2026-10-15T09:00:00.000Z'),
     maxDetailFetches: 5,
+    ...overrides,
   };
 }
 
@@ -220,7 +248,7 @@ describe('kurum duyuru listesi — tarayıcı yedeği', () => {
 
     // Notlar hata fırlatılınca operatöre ulaşmadığı için gerekçe mesajda taşınır.
     expect(message).toContain('Liste yapısı tanınmadı');
-    expect(message).toContain('Tarayıcı yedeği sonucu: playwright chromium bulunamadı');
+    expect(message).toContain('Tarayıcı yedeği: kullanılamadı: playwright chromium bulunamadı');
   });
 
   it('liste zaten satır üretiyorsa tarayıcı hiç başlatılmaz', async () => {
@@ -249,5 +277,194 @@ describe('kurum duyuru listesi — tarayıcı yedeği', () => {
     const { http } = fakeHttp((url) => (url === source.listingUrl ? JS_KABUGU : undefined));
 
     await expect(adapter.run(contextFor(http))).rejects.toThrow(/Liste yapısı tanınmadı/);
+  });
+});
+
+/**
+ * 2026-10-16 canlı koşum bulguları: kapsam dışında kalan listeler, menü/kategori
+ * bağlantılarının ilan diye toplanması, tarayıcı sonucunun hata metnine
+ * yansımaması ve zaman bütçesi dolunca tüm koşumun çöpe gitmesi.
+ */
+describe('kurum duyuru listesi — kapsam dışı liste (EPDK/DSİ biçimi)', () => {
+  it('liste beklenen kapsayıcıda yoksa belge geneline düşer ve satırları bulur', async () => {
+    if (!source) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http, calls } = fakeHttp((url) => {
+      if (url === source.listingUrl) return KAPSAM_DISI_LISTE;
+      if (url.includes('/Detay/')) return DETAY;
+      return undefined;
+    });
+
+    const result = await adapter.run(contextFor(http));
+
+    expect(result.items.map((item) => item.title).join(' | ')).toContain('Uzman Yardımcısı');
+    expect(result.items.length).toBe(2);
+    expect(result.notes.join(' | ')).toContain('tüm belge tarandı');
+    expect(calls.some((url) => url.includes('/Detay/'))).toBe(true);
+  });
+
+  it('desen eşleşmesi yoksa yapı hatası sayımla gerekçelenir', async () => {
+    if (!source) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http } = fakeHttp((url) => (url === source.listingUrl ? ARAC_CUBUGU_SAYFASI : undefined));
+
+    const error = await adapter.run(contextFor(http)).catch((cause: unknown) => cause);
+    const message = error instanceof Error ? error.message : String(error);
+
+    expect(message).toContain('Ayrıştırma teşhisi:');
+    expect(message).toContain('desen eşleşmesi kapsamda 0 / belgede 0');
+  });
+});
+
+describe('kurum duyuru listesi — menü ve kategori sayfaları', () => {
+  it('dizin/kategori bağlantıları ilan satırı sayılmaz', async () => {
+    if (!source) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http } = fakeHttp((url) => {
+      if (url === source.listingUrl) return MENU_VE_DIZINLER;
+      if (url.includes('/duyuru/')) return DETAY;
+      return undefined;
+    });
+
+    const result = await adapter.run(contextFor(http));
+
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]?.title).toContain('Sözleşmeli Personel Alım');
+    const urls = result.items.map((item) => item.url).join(' ');
+    expect(urls).not.toContain('/haberler');
+    expect(urls).not.toContain('basin-duyurulari');
+    expect(urls).not.toContain('basin-aciklamalari-yeni');
+  });
+
+  it('isCategoryIndexPath gerçek ilan adreslerini elemez', () => {
+    // Dizin/kategori: elenmeli.
+    for (const path of ['/haberler', '/duyurular', '/duyurular/basin-duyurulari', '/basin-aciklamalari-yeni', '/', '/proje', '/tum-duyurular']) {
+      expect(isCategoryIndexPath(path), path).toBe(true);
+    }
+    // Gerçek ilan adresleri: korunmalı.
+    for (const path of [
+      '/duyuru/2026-sozlesmeli-personel-alimi-12345',
+      '/Detay/2026-uzman-yardimcisi-giris-sinavi-ilani-12345',
+      '/Sayfa/Detay/745',
+      '/Sayfalar/KGM/SiteTr/Duyurular/DuyuruDetay.aspx',
+      '/TR-11622/duyuru',
+      '/gorevde-yukselme-ve-unvan-degisikligi-sinavi-hakkinda',
+      '/duyurular/satis-islemlerinde-zorunlu-deprem-sigortasi-hakkinda-duyuru',
+      '/sikca-sorulan-sorular',
+    ]) {
+      expect(isCategoryIndexPath(path), path).toBe(false);
+    }
+  });
+});
+
+describe('kurum duyuru listesi — tarayıcı sonucu hata metninde', () => {
+  it('çizim başarılı ama satır yoksa sonuç yapı hatasında görünür', async () => {
+    if (!source) return;
+    browser.fallback = true;
+    browser.rendered = '<html><body><main id="content"><p>Yükleniyor…</p></main></body></html>';
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http } = fakeHttp((url) => (url === source.listingUrl ? JS_KABUGU : undefined));
+
+    const error = await adapter.run(contextFor(http)).catch((cause: unknown) => cause);
+    const message = error instanceof Error ? error.message : String(error);
+
+    expect(message).toContain('Liste yapısı tanınmadı');
+    expect(message).toContain('Tarayıcı yedeği: tarayıcı çizimi de satır üretmedi');
+  });
+
+  it('yedek kapalıyken hata metni nedenini söyler', async () => {
+    if (!source) return;
+    browser.fallback = false;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http } = fakeHttp((url) => (url === source.listingUrl ? JS_KABUGU : undefined));
+
+    const error = await adapter.run(contextFor(http)).catch((cause: unknown) => cause);
+    const message = error instanceof Error ? error.message : String(error);
+
+    expect(message).toContain('Tarayıcı yedeği: kapalı');
+  });
+});
+
+describe('kurum duyuru listesi — tarama zaman bütçesi', () => {
+  it('bütçe dolduysa detay indirilmez, koşum KISMİ sonuçla döner', async () => {
+    if (!source) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http, calls } = fakeHttp((url) => {
+      if (url === source.listingUrl) return tamSayfa;
+      if (url.includes('/duyuru/')) return DETAY;
+      return undefined;
+    });
+
+    const result = await adapter.run(contextFor(http, { deadlineAt: new Date(Date.now() - 1_000) }));
+
+    // Eski davranış: sert zaman aşımı → 0 kayıt + başarısız tarama.
+    expect(result.items.length).toBe(2);
+    expect(calls.filter((url) => url.includes('/duyuru/')).length).toBe(0);
+    expect(result.notes.join(' | ')).toContain('Tarama zaman bütçesi doldu');
+    expect(result.coverage?.status).toBe('partial');
+    expect(result.coverage?.note).toContain('ZAMAN bütçesi');
+  });
+
+  it('bütçe yeterliyse detaylar okunur (davranış değişmez)', async () => {
+    if (!source) return;
+    const adapter = requireAdapter('kurum-duyuru-listesi');
+    const { http, calls } = fakeHttp((url) => {
+      if (url === source.listingUrl) return tamSayfa;
+      if (url.includes('/duyuru/')) return DETAY;
+      return undefined;
+    });
+
+    const result = await adapter.run(contextFor(http, { deadlineAt: new Date(Date.now() + 600_000) }));
+
+    expect(result.items.length).toBe(2);
+    expect(calls.filter((url) => url.includes('/duyuru/')).length).toBe(2);
+    expect(result.notes.join(' | ')).not.toContain('zaman bütçesi doldu');
+  });
+});
+
+describe('tarama bütçesi yardımcıları', () => {
+  it('süre tanımı yoksa davranış değişmez (sınırsız bütçe)', () => {
+    expect(remainingBudgetMs({})).toBeNull();
+    expect(hasBudgetFor({}, 60_000)).toBe(true);
+    expect(budgetedTimeoutMs({}, 25_000)).toBe(25_000);
+  });
+
+  it('kalan bütçeye göre zaman aşımı kısaltılır ve tabana saygı gösterilir', () => {
+    const ctx = { deadlineAt: new Date(Date.now() + 12_000) };
+    expect(budgetedTimeoutMs(ctx, 25_000)).toBeLessThanOrEqual(12_000);
+    expect(budgetedTimeoutMs({ deadlineAt: new Date(Date.now() - 5_000) }, 25_000)).toBe(5_000);
+  });
+
+  it('iptal sinyali bütçeyi her zaman kapatır', () => {
+    const controller = new AbortController();
+    controller.abort(new Error('dur'));
+    expect(hasBudgetFor({ signal: controller.signal }, 1)).toBe(false);
+  });
+});
+
+describe('başlık temizliği (panelde görünen metin)', () => {
+  it('satıra yapışan kategori rozeti ve tarih başlıktan düşer', () => {
+    expect(cleanTitle('Satış İşlemlerinde Zorunlu Deprem Sigortası Hakkında DuyuruDuyuru07 Eylül 2026')).toBe(
+      'Satış İşlemlerinde Zorunlu Deprem Sigortası Hakkında Duyuru',
+    );
+    expect(cleanTitle('Tapu ve Kadastro Genel Müdürlüğü Sözleşmeli Bilişim Personel Alım İlanıDuyuru28 Eylül 2026')).toBe(
+      'Tapu ve Kadastro Genel Müdürlüğü Sözleşmeli Bilişim Personel Alım İlanı',
+    );
+  });
+
+  it('baştaki yapışık rozet ve kırıntı (Ana Sayfa) temizlenir', () => {
+    expect(cleanTitle('GüncelTapu Arşivleri Dijital Dönüşüm (TADD) Projesi')).toBe('Tapu Arşivleri Dijital Dönüşüm (TADD) Projesi');
+    expect(cleanTitle('Güncel3 Boyutlu Taşınmaz Yönetim Bilgi Sistemi')).toBe('3 Boyutlu Taşınmaz Yönetim Bilgi Sistemi');
+    expect(cleanTitle('Ana Sayfa İlanlar Kamu Memur Alım İlanları')).toBe('İlanlar Kamu Memur Alım İlanları');
+  });
+
+  it('gerçek başlıklar bozulmaz', () => {
+    expect(cleanTitle('2026 Yılı İçişleri Uzman Yardımcısı Giriş (Sözlü) Sınavı Asıl/Yedek Bilgisine İlişkin Duyuru')).toBe(
+      '2026 Yılı İçişleri Uzman Yardımcısı Giriş (Sözlü) Sınavı Asıl/Yedek Bilgisine İlişkin Duyuru',
+    );
+    expect(cleanTitle('DÜZCE ÜNİVERSİTESİ REKTÖRLÜĞÜ - 2026 / 3 SÖZLEŞMELİ PERSONEL ALIM İLANI')).toBe(
+      'DÜZCE ÜNİVERSİTESİ REKTÖRLÜĞÜ - 2026 / 3 SÖZLEŞMELİ PERSONEL ALIM İLANI',
+    );
+    expect(cleanTitle('Hemşire, Ebe ve Sağlık Teknikeri Alımı - 07.11.2026')).toBe('Hemşire, Ebe ve Sağlık Teknikeri Alımı');
   });
 });

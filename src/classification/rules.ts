@@ -26,13 +26,100 @@ export interface KeywordRule {
   weight: number;
 }
 
+/**
+ * Kamu ünvan/kadro sözlüğü (Türkçe katlanmış, küçük harf biçimler).
+ *
+ * 2026-10-16 canlı koşum bulgusu: "Hemşire, ebe ve sağlık teknikeri alımı",
+ * "destek personeli alımı", "veri hazırlama ve kontrol işletmeni alımı",
+ * "uzman erbaş temin ilanı" gibi başlıklarda alım/temin ifadesi ÜNVANDAN sonra
+ * gelir. Eski kalıplar yalnızca "personel alımı" / "işçi alımı" biçimini
+ * tanıyordu; bu başlıklar kanıt kapısında (RECRUITMENT_EVIDENCE_PATTERN)
+ * reddediliyor ve gerçek ilanlar akışa hiç girmiyordu.
+ *
+ * Kapsam bilinçli olarak ünvana dar tutulur: "bilgisayar alımı", "hizmet alımı"
+ * gibi tedarik başlıkları bu sözlükte yoktur ve reddedilmeye devam eder.
+ */
+const POSITION_NOUN = [
+  'personel',
+  'memur',
+  'isci',
+  'uzman',
+  'muftes',
+  'denetci',
+  'kontrolor',
+  'hemsire',
+  'ebe',
+  'saglik',
+  'tekniker',
+  'teknisyen',
+  'laborant',
+  'gorevli',
+  'isletmen',
+  'asci',
+  'sofor',
+  'mubasir',
+  'katip',
+  'muhandis',
+  'mimar',
+  'avukat',
+  'psikolog',
+  'fizyoterapist',
+  'diyetisyen',
+  'eczaci',
+  'veteriner',
+  'hekim',
+  'doktor',
+  'ogretmen',
+  'okutman',
+  'ogretim',
+  'arastirma',
+  'bekci',
+  'polis',
+  'subay',
+  'astsubay',
+  'erbas',
+  'zabita',
+  'itfaiye',
+  'hizmetli',
+  'kaloriferci',
+  'bahcivan',
+  'murakip',
+  'imam',
+  'muezzin',
+  'vaiz',
+  'kutuphaneci',
+  'arkeolog',
+  'grafiker',
+  'tercuman',
+  'programci',
+  'cozumleyici',
+  'restorator',
+  'antrenor',
+  'rehber',
+  'biyolog',
+  'kimyager',
+  'istatistikci',
+  'ekonomist',
+  'muhasebeci',
+].join('|');
+
+/**
+ * Ünvan + alım/temin kalıbı: "teknikeri alımı", "memuru alımı",
+ * "subay temini", "erbaş ve er temini", "temin ilanı".
+ */
+export const POSITION_RECRUITMENT_PATTERN = new RegExp(
+  `\\b(?:${POSITION_NOUN})\\w*\\s+al(?:i?m|inacak)\\w*` +
+    `|\\b(?:${POSITION_NOUN}|er)\\w*\\s+temin\\w*` +
+    `|\\btemin\\s+ilan\\w*`,
+);
+
 /** Personel alımı ilanı olduğunu gösteren olumlu kanıtlar. */
 export const POSITIVE_RULES: readonly KeywordRule[] = [
   {
     id: 'pozitif.personel-alimi',
     reason: 'İlanda personel alımı ifadesi geçiyor',
-    // "personel alımı", "personel alınacak", "personel alımları", "personel alım ilanı"
-    pattern: /\bpersonel\s+al(?:i?m|inacak|imi|imlari|imina)/,
+    // "personel alımı", "personel alınacak", "destek personeli alımı", "personel alım ilanı"
+    pattern: /\bpersonel\w*\s+al(?:i?m|inacak|imi|imlari|imina)/,
     weight: 3,
   },
   {
@@ -143,9 +230,16 @@ export const POSITIVE_RULES: readonly KeywordRule[] = [
   {
     id: 'pozitif.personel-temin',
     reason: 'Personel temini ifadesi var',
-    // "muvazzaf subay temini", "personel temin edilecek"
-    pattern: /\b(?:subay|astsubay|uzman\s+er|personel|memur)\s+temin\w*/,
+    // "muvazzaf subay temini", "uzman erbaş temin ilanı", "erbaş ve er temini"
+    pattern: /\b(?:subay|astsubay|uzman\s+er\w*|erbas|er|bekci|polis|jandarma|personel|memur)\w*\s+temin\w*|\btemin\s+ilan\w*/,
     weight: 2.5,
+  },
+  {
+    id: 'pozitif.unvan-alimi',
+    reason: 'Ünvan/kadro belirtilerek alım veya temin yapılıyor',
+    // "hemşire, ebe ve sağlık teknikeri alımı", "veri hazırlama ve kontrol işletmeni alımı"
+    pattern: POSITION_RECRUITMENT_PATTERN,
+    weight: 3,
   },
   {
     id: 'pozitif.basvuru-sarti',
@@ -353,6 +447,19 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
       /^(?!.*\b(?:alim\w*|istihdam\w*|personel\w*|memur\w*|isci\w*|kadro\w*|sozlesmeli\w*|uzman\s+yardimcisi|hemsire\w*|sofor\w*|gorevli\w*|kura|atama\w*|giris\s+sinavi|sozlesme))\s*(?=.*\b(?:e-yds|yds|yokdil|ales|ydus|tus|dus|tip\s+uzmanligi|dis\s+hekimligi\s+uzmanlik|yabanci\s+dil\s+bilgisi\s+seviye\s+tespit)\b)(?=.*\b(?:sinav\w*|basvuru\w*|tercih\w*|kilavuz\w*|sonuc\w*|donem|aciklandi)).+/,
     weight: 0,
   },
+  {
+    // 2026-10-16 canlı panel dökümü (KGM/DSİ/SPK/İçişleri): "2026 Yılı Rayiç
+    // Fiyatları", "… Restorasyon Çalışmasının Açılışı", "GICC Heyeti Ziyareti",
+    // "Japonya Heyeti ile Görüşme", "… İş Birliği Protokolü İmza Töreni",
+    // "… Yarışması". Bunlar kurumsal etkinlik/tören ve fiyat duyurularıdır;
+    // inceleme kuyruğunu dolduruyordu. Alım/istihdam/temin/başvuru kelimesi
+    // taşıyan başlıklar kurala takılmaz (yanlış pozitif koruması).
+    id: 'ret-baslik.kurumsal-etkinlik',
+    reason: 'Başlık kurumsal etkinlik, tören, ziyaret ya da fiyat listesi duyurusu — personel alımı değil',
+    pattern:
+      /^(?!.*\b(?:alim\w*|istihdam\w*|personel\w*|memur\w*|isci\w*|kadro\w*|sozlesmeli\w*|hemsire\w*|sofor\w*|gorevli\w*|kura|atama\w*|giris\s+sinavi|temin\w*|basvuru\w*|yeterlik))(?=.*\b(?:rayic\s+fiyat\w*|fiyat\s+listesi|fiyat\s+tarifesi|tarife\s+listesi|acilis\w*|temel\s+atma|heyet\w*|ziyaret\w*|protokol\s+imza|imza\s+toreni|is\s+birligi\s+protokolu|yarisma\w*|festival\w*|fuar\w*|turnuva\w*|kutlama\w*|bayram\s+mesaji|yeni\s+yil\s+mesaji|taziye|bassagligi|anma\s+etkinligi|odul\s+toreni)\b).+$/,
+    weight: 0,
+  },
 ];
 
 /**
@@ -440,8 +547,16 @@ export const SOFT_NEGATIVE_RULES: readonly KeywordRule[] = [
  * alım/istihdam ifadesi olmalı. Kaynak kategorisi, sayfa kenar metni ve
  * genel kamu kelimeleri tek başına yeterli değildir.
  */
-export const RECRUITMENT_EVIDENCE_PATTERN =
+const RECRUITMENT_EVIDENCE_BASE =
   /\b(?:personel\s+alim\w*|alim\s+ilan\w*|alim\s+yapil\w*|alim\s+duyur\w*|isci\s+alim\w*|memur\s+alim\w*|sozlesmeli\s+(?:\w+\s+){0,3}personel|sozlesmeli\s+personel|kadro\w*|istihdam\w*|giris\s+sinavi|uzman\s+yardimci\w*|alinacak\w*|alinmak\s+uzere|alinacaktir|basvuru\s+(?:yapabilir|yapilacak|sarti))/;
+
+/**
+ * Kanıt kapısı: metinde personel alımına ilişkin bir ifade var mı?
+ * Ünvan + alım/temin kalıpları da kanıttır (bkz. POSITION_RECRUITMENT_PATTERN).
+ */
+export const RECRUITMENT_EVIDENCE_PATTERN = new RegExp(
+  `${RECRUITMENT_EVIDENCE_BASE.source}|${POSITION_RECRUITMENT_PATTERN.source}`,
+);
 
 /**
  * Süreç duyuruları: gerçek bir personel alımının kura, sınav, mülakat, sonuç gibi
@@ -452,11 +567,23 @@ export const PROCESS_TITLE_CONTEXT_PATTERN =
   /\b(?:personel\w*|alim\w*|isci\w*|memur\w*|sozlesmeli\w*|kadro\w*|istihdam\w*|uzman\s+yardimci\w*)\b/;
 
 export const PROCESS_TITLE_SIGNAL_PATTERN =
-  /\b(?:kura\w*|cagrilacak\s+adaylar|sinav\s+(?:yeri|tarih|metin|sonuc|takvim|kilavuz)\w*|sozlu\s+sinav\w*|uygulamali\s+sinav\w*|mulakat\w*|sonuc\w*|kazanan\w*|yedek\s+liste\w*|asil\s+ve\s+yedek\w*|yedek\s+aday\w*|nihai\s+liste\w*)/;
+  // `sinav duyur\w*` 2026-10-16 canlı dökümüyle eklendi: "Destek personeli alımı
+  // sınav duyurusu" gibi başlıklar sürmekte olan bir alımın AŞAMASINI duyurur;
+  // ünvan+alım kanıt kalıpları genişleyince bu başlıklar yeni iş ilanı gibi
+  // kabul edilip bildirim üretmeye başlamıştı (yanlış pozitif).
+  /\b(?:kura\w*|cagrilacak\s+adaylar|sinav\s+(?:yeri|tarih|metin|sonuc|takvim|kilavuz|duyur)\w*|sozlu\s+sinav\w*|uygulamali\s+sinav\w*|mulakat\w*|sonuc\w*|kazanan\w*|yedek\s+liste\w*|asil\s+ve\s+yedek\w*|yedek\s+aday\w*|nihai\s+liste\w*)/;
 
-/** Bu ifadelerden biri varsa başlık süreç duyurusu sayılmaz (kurum içi, eğitim, yer değiştirme vb.). */
+/**
+ * Bu ifadelerden biri varsa başlık süreç duyurusu sayılmaz (kurum içi, eğitim,
+ * yer değiştirme vb.).
+ *
+ * `giris sinav\w*` bilinçli olarak dışlamadır: "Uzman Yardımcılığı Giriş Sınavı
+ * Duyurusu" YENİ bir alımın ilanıdır, sürmekte olan alımın aşaması değil. Bu
+ * dışlama olmazsa gerçek ilanlar `kind: 'process'` olur ve kullanıcılara
+ * bildirilmez (yanlış negatif).
+ */
 export const PROCESS_TITLE_EXCLUDE_PATTERN =
-  /\b(?:yer\s+degistirme\w*|gorevde\s+yukselme\w*|unvan\s+degisiklig\w*|satis\w*|ihale\w*|basin\w*|konferans\w*|tercih\w*|ek\s+yerlestirme|dikey\s+gecis|yks\b|ogrenci\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|rektor\w*|cerez\w*|kira\w*|proje\s+cagri\w*|arastirma\s+programlari)/;
+  /\b(?:yer\s+degistirme\w*|gorevde\s+yukselme\w*|unvan\s+degisiklig\w*|satis\w*|ihale\w*|basin\w*|konferans\w*|tercih\w*|ek\s+yerlestirme|dikey\s+gecis|yks\b|ogrenci\w*|egitim\s+programlari\w*|uzmanlik\s+egitim\w*|rektor\w*|cerez\w*|kira\w*|proje\s+cagri\w*|arastirma\s+programlari|giris\s+sinav\w*)/;
 
 /**
  * Süreç duyurusu olduğunda bu başlık ret kuralları atlanır. Sonuç, sınav/kura ve
@@ -531,7 +658,12 @@ export const EMPLOYMENT_TYPE_RULES: readonly { type: EmploymentType; pattern: Re
   },
   {
     type: 'diger-kamu',
+    reason: 'Ünvan/kadro belirtilmiş alım veya temin ilanı',
+    pattern: POSITION_RECRUITMENT_PATTERN,
+  },
+  {
+    type: 'diger-kamu',
     reason: 'Genel personel alımı ifadesi',
-    pattern: /\bpersonel\s+al(?:i?m|inacak|imi)|alim\s+ilan\w*/,
+    pattern: /\bpersonel\w*\s+al(?:i?m|inacak|imi)|alim\s+ilan\w*/,
   },
 ];

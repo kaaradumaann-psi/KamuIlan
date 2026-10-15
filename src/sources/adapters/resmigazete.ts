@@ -20,6 +20,7 @@ import { AdapterStructureError } from '../errors';
 import { cleanInstitution, ownCardText } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
+import { budgetedTimeoutMs, hasBudgetFor } from '../scan-budget';
 import { assertSafeUrl, FetchError, isTransientTransportFailure, type FetchResponse } from '../fetcher';
 import { launchChromium } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
@@ -29,6 +30,14 @@ const RESMI_GAZETE_HOST = 'https://www.resmigazete.gov.tr';
 const SECTION_PATTERN = /-\d+\.htm$/i;
 const PDF_PATTERN = /\.pdf$/i;
 const MAX_SECTION_PAGES = 10;
+/**
+ * Tek PDF için üst sınır. Eski değer 60 sn idi: erişilemeyen beş PDF, tarama
+ * bütçesinin (SCRAPE_TIMEOUT_MS) tamamını yutup nüshayı düşürüyordu
+ * (2026-10-16 canlı koşum: tek kaynak 560 sn, `UND_ERR_HEADERS_TIMEOUT`).
+ */
+const PDF_TIMEOUT_MS = 25_000;
+/** Bir PDF indirmesine başlamak için gereken asgari kalan bütçe. */
+const MIN_PDF_BUDGET_MS = 8_000;
 
 type CoverageStatus = 'complete' | 'partial' | 'unknown';
 
@@ -245,6 +254,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     let detailFetches = 0;
     let failedPdfFetches = 0;
     let limitNoted = false;
+    // Zaman bütçesi dolduğunda kalan belgeler atlanır ve koşum KISMİ kapsamla
+    // döner (eski davranış: sert zaman aşımı → hiçbir kayıt oluşmaz).
+    let budgetNoted = false;
+    let budgetExhausted = false;
+    let deferredByBudget = 0;
     const sectionDatesRead: string[] = [];
     const sectionCoverages: { dateOnly: string; status: CoverageStatus; note: string }[] = [];
     const seenItemIds = new Set<string>(ctx.knownItemIds ?? []);
@@ -307,6 +321,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
 
     try {
       for (const offset of days) {
+        if (budgetExhausted) break;
         const dateOnly = addDaysDateOnly(today, -offset);
         const sectionUrl = this.sectionUrl(dateOnly);
         let firstPage: { response: FetchResponse | null; html: string };
@@ -354,6 +369,12 @@ export class ResmiGazeteAdapter implements SourceAdapter {
         let sectionNote = `${dateOnly} sayfa kapsamı son sayfa işaretiyle doğrulanmadı.`;
 
         for (let pageNumber = 1; pageNumber <= MAX_SECTION_PAGES; pageNumber += 1) {
+          if (budgetExhausted) {
+            sectionStatus = 'partial';
+            sectionNote = `${dateOnly} bölümü tarama zaman bütçesi dolduğu için ${pageNumber - 1}. sayfada durdu.`;
+            notes.push(sectionNote);
+            break;
+          }
           const normalizedPageUrl = normalizeUrl(currentUrl) || currentUrl;
           if (visitedPages.has(normalizedPageUrl)) {
             sectionStatus = 'partial';
@@ -410,6 +431,19 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               continue;
             }
 
+            if (!hasBudgetFor(ctx, MIN_PDF_BUDGET_MS)) {
+              budgetExhausted = true;
+              deferredByBudget += 1;
+              if (!budgetNoted) {
+                budgetNoted = true;
+                notes.push(
+                  'Tarama zaman bütçesi doldu; indirilmemiş belgeler sonraki taramaya bırakıldı ' +
+                    '(kaynak başarısız sayılmaz, bu koşum kısmi kapsamla kaydedilir).',
+                );
+              }
+              break;
+            }
+
             detailFetches += 1;
             requestCount += 1;
             // Tek yavaş/erişilemez PDF tüm nüshayı düşürmemeli: hata yalıtılır,
@@ -424,7 +458,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
                   allowedHosts: ctx.source.allowedHosts,
                   minIntervalMs: ctx.source.minRequestIntervalMs,
                   maxBytes: 15_728_640,
-                  timeoutMs: 60_000,
+                  timeoutMs: budgetedTimeoutMs(ctx, PDF_TIMEOUT_MS),
                   retries: 1,
                 });
                 pdfBody = pdfResponse.body;
@@ -556,6 +590,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     const incompleteSections = sectionCoverages.filter((section) => section.status !== 'complete');
     const hasKnownOmissions =
       limitNoted ||
+      budgetNoted ||
       failedPdfFetches > 0 ||
       sectionCoverages.some((section) => section.status === 'partial') ||
       sectionCoverages.length < days.length;
@@ -578,6 +613,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
             ...(limitNoted
               ? [
                   `PDF indirme bütçesi (${ctx.maxDetailFetches}) nedeniyle listedeki tüm yeni belgeler işlenemedi.`,
+                ]
+              : []),
+            ...(budgetNoted
+              ? [
+                  `Tarama zaman bütçesi doldu; en az ${deferredByBudget} belge sonraki taramaya bırakıldı.`,
                 ]
               : []),
             ...(failedPdfFetches > 0

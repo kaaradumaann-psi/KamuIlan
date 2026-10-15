@@ -115,3 +115,38 @@ Yönetici → Genel bakış → LLM kartı (24s çağrı, token, gecikme, hata).
   `classification.llm` içinde saklar, geriye dönük görülebilir).
 - İstem/model değişikliği: `LLM_PROMPT_VERSION` (kod sabiti) artırılır → önbellek anahtarları
   değişir → aynı içerik yeni sürümle kontrollü biçimde yeniden değerlendirilir.
+
+## 7. Sağlayıcı hatalarını tanılama (`npm run llm:doctor`)
+
+Belirti: panelde "Yapay zekâ ön görüşü — model denetimine ulaşılamadı / Sağlayıcı
+HTTP 404 döndü", LLM ölçümlerinde **%100 hata oranı · 0 token · 0 geçerli kayıt**.
+Bu, modelin "kötü" olması değil **yapılandırma** sorunudur: istek hiç bir modele
+ulaşmaz, dolayısıyla token da üretilmez. Kararlar kurallarda kalır ve inceleme
+kuyruğu insana yığılır.
+
+Tanı komutu (tek gerçek çağrı yapar, veritabanına yazmaz, anahtarı yazdırmaz):
+
+```bash
+npm run llm:doctor              # yapılandırma + canlı çağrı
+npm run llm:doctor -- --offline # yalnızca yapılandırma (ağ yok)
+npm run llm:doctor -- --json    # makine okunur
+```
+
+En sık üç kök neden ve karşılığı:
+
+| Belirti | Kök neden | Karşılık |
+| --- | --- | --- |
+| HTTP 404, ~300 ms, 0 token | `LLM_BASE_URL` sağlayıcının **yerel** ucu ya da model adı o sağlayıcıda yok | Kök adresi OpenAI uyumlu biçimde yazın. Google için `https://generativelanguage.googleapis.com/v1beta` (istemci bunu otomatik olarak `…/v1beta/openai/chat/completions` ucuna çevirir); OpenAI için `https://api.openai.com/v1`; karma model kataloğu için `https://openrouter.ai/api/v1` |
+| HTTP 401/403 | Anahtar geçersiz/süresi dolmuş ya da modele yetkisiz | `LLM_API_KEY`'yi yenileyin; `npm run env:setup` ile tek tek doldurun |
+| HTTP 429 / `Zaman aşımı` | Kota ya da ağ | `LLM_DAILY_CALL_LIMIT`, `LLM_MAX_CALLS_PER_RUN`, `LLM_TIMEOUT_MS` ayarları; ağ çıkışı |
+
+Uç/model uyuşmazlığı (ör. OpenAI ucuna `gemini-2.5-flash`) `npm run env:check`
+çıktısında da **uyarı** olarak görünür; başlatmayı engellemez çünkü yanlış
+pozitif olasılığı vardır — kesin kararı `llm:doctor`'ın canlı çağrısı verir.
+
+Doğrulama sonrası: maliyet satırının panelde görünmesi için
+`LLM_COST_USD_PER_MTOK_INPUT` / `LLM_COST_USD_PER_MTOK_OUTPUT` değerlerini
+sağlayıcının resmî fiyat sayfasından yazın (boşsa "maliyet raporlanmadı" yazar,
+rakam uydurulmaz). Kapı açıldıktan sonra inceleme kuyruğundaki eski kayıtlar
+kendiliğinden model denetiminden geçmez; `npm run llm:review-assist` (kuru
+çalıştırma) ya da sonraki taramalarda kapının aynı içeriği görmesi beklenir.

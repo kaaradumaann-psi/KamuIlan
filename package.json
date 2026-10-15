@@ -35,6 +35,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:tls-doctor": "tsx scripts/db-tls-doctor.ts",
     "sources:report": "tsx scripts/coverage-report.ts",
+    "llm:doctor": "tsx scripts/llm-doctor.ts",
     "llm:review-assist": "tsx scripts/llm-review-assist.ts",
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",

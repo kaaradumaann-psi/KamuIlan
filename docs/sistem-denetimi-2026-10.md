@@ -403,3 +403,134 @@ altında. `liveFetch=false` iken adaptör ağa çıkmadığı için tarayıcı y
 (doğrulama modu korunur). Ek dosya/başvuru bağlantıları bu değişiklikten etkilenmez:
 `readDetail` bağlantıları **temizlenmemiş** DOM'dan toplar, iskelet temizliği yalnızca metin
 çıkarımının kopyasında yapılır.
+
+## 9) 2026-10-16 canlı panel dökümü — bulgular, kök nedenler, düzeltmeler
+
+Beş ekran dökümü (Yönetim → İncelenecek ilanlar, Genel bakış, Kaynaklar, Tarama
+geçmişi/Hata bildirimleri, Panelim + ana sayfa) satır satır değerlendirildi.
+Aşağıdaki tabloda her bulgu, kök nedeni ve uygulanan düzeltme birlikte verilir;
+"operatör" satırları kod değişikliğiyle çözülemeyen, makinede yapılması gereken
+adımlardır.
+
+### 9.1 "Yapay zekâ çok etkin değil" — kök neden yapılandırmaydı
+
+Panel verisi: `gemini-2.5-flash`, istem `kamuilan-sinif-v1`, günlük sınır 50;
+son 24 saatte **2 çağrı, 0 önbellek isabeti, 2 hata, %100 hata oranı, 0 token,
+p50 324 ms**. İnceleme kartlarında "model denetimine ulaşılamadı / Sağlayıcı
+HTTP 404 döndü".
+
+0 token + ~320 ms + %100 hata üçlüsü modelin "zayıf" olduğunu değil, isteğin
+**hiçbir modele ulaşmadığını** gösterir. İstemci `${LLM_BASE_URL}/chat/completions`
+çağırır; Google'ın yerel kökü (`…/v1beta`) bu yolu bilmez, OpenAI uyumlu uç
+`…/v1beta/openai/chat/completions` adresindedir. Sonuç: kapı her kayıtta hata
+döner, kararlar kurallarda kalır, inceleme kuyruğu insana yığılır.
+
+Uygulanan düzeltmeler:
+
+| # | Düzeltme | Dosya |
+| --- | --- | --- |
+| 1 | Google kökü otomatik olarak OpenAI uyumlu `/openai` ucuna çevrilir (idempotent; tam uç verilmişse aynen kullanılır; yerel `:generateContent` yolu sürüm köküne indirgenir) | `src/ai/llm.ts` → `chatCompletionsEndpoint()` |
+| 2 | Sağlayıcı hata gerekçesi artık **hangi uca hangi modelle** gidildiğini ve ilk denenecek adımı yazar (404/401/403/400/429/413 ayrı ayrı); API anahtarı asla yazılmaz | `src/ai/llm.ts` → `statusHint()` |
+| 3 | Uç/model uyuşmazlığı (OpenAI ucuna Gemini, Google ucuna GPT) `env:check` çıktısında uyarı olarak görünür — engelleyici değil, yanlış pozitif olabilir | `src/config/env.ts`, `describeLlmEndpointRisk()` |
+| 4 | Yeni tanı komutu: tek gerçek çağrı yapar, ucu/modeli/anahtarı (yalnızca uzunluğu)/kotaları/maliyet ayarını ve canlı çağrı sonucunu raporlar; hata durumunda sıralı kontrol listesi basar | `scripts/llm-doctor.ts` → `npm run llm:doctor` (`--offline`, `--json`) |
+| 5 | `.env.example` ve karar belgesine sağlayıcı bazında kök adres örnekleri + 404 tanı tablosu | `.env.example`, `docs/llm-karari.md` §7 |
+
+Kilitlenen davranış: `tests/llm-uc-nokta.test.ts` (13 test) — uç kurulumu,
+uyuşmazlık uyarısı, 404/401/429 gerekçeleri, istek gövdesi, anahtar sızıntısı yok.
+
+### 9.2 Tarama bulguları (10 kaynak üst üste başarısız, 292 başarısız koşum)
+
+| Bulgu (döküm) | Kök neden | Düzeltme |
+| --- | --- | --- |
+| `resmigazete`: "zaman aşımına uğradı (60000 ms)", 21 ardışık başarısızlık; canlı koşumda tek nüsha **560 s** | Adaptörlerin TOPLAM süre sınırı yoktu: pipeline `SCRAPE_TIMEOUT_MS` dolunca koşumu çöpe atıyor, PDF indirmeleri ucu açık sürüyordu | `src/sources/scan-budget.ts` (bütçe/iptal yardımcıları), `AdapterContext.deadlineAt`, `pipeline.ts` marjı, `resmigazete.ts` PDF bütçesi (`PDF_TIMEOUT_MS=25 s`, `MIN_PDF_BUDGET_MS=8 s`, gün/sayfa/satır döngülerinde bütçe kontrolü, kısmi kapsam) |
+| `bddk` + diğerleri: 60 s tavanı yavaş resmî siteler için düşüktü | Varsayılan bütçe | `SCRAPE_TIMEOUT_MS` varsayılanı **60 000 → 120 000** ms (şema + katalog + `.env.example` birlikte; katalog sınırı şemayla aynı: 5 000–300 000) |
+| `epdk` (436 `/Detay` bağlantısı görünür, 0 satır), `dsi`, `kgm`, `saglik-bakanligi-personel`, `iskur`, `yok`: "Liste yapısı tanınmadı" | Satırlar beklenen kapsayıcının (`main`, `#content` …) DIŞINDAYSA aday listesi boş kalıyordu | `anchor-list.ts`: kapsayıcıda eşleşme yoksa **belge geneline düşer** (`rootFallbackUsed` → "tüm belge tarandı" notu) |
+| `iskur`: "Ana Sayfa İlanlar Kamu Memur Alım İlanları" kuyruğa ilan diye düşüyordu; menü/kategori bağlantıları satır sayılıyordu | Dizin/kategori yolları (`/haberler`, `/basin-aciklamalari-yeni`, `/`) detay bağlantısıyla aynı kalıba uyuyordu | `isCategoryIndexPath()`: rakam içermeyen, kök/tek segmentli ve tüm parçaları dizin sözcüğüyle başlayan yollar adaylıktan çıkar (gerçek ilan adresleri korunur — 8 canlı adres biçimiyle test edildi) |
+| Hata metni operatöre yol göstermiyordu ("Liste yapısı tanınmadı" + sayı dökümü) | Ayrıştırma teşhisi ve tarayıcı sonucu metinde yoktu | Yapı hatası artık şunu taşır: kapsayıcı seçici, **desen eşleşmesi kapsamda X / belgede Y**, 3 yönlü ipucu ve `Tarayıcı yedeği: <sonuç>` (kapalı / denenmedi / çizim N satır / çizim de satır üretmedi / boş sayfa / kullanılamadı: …) |
+| `afad`, `goc`, `icisleri`, `spk`, `meb`, `osym`: "kısmi" — detay bütçesi yetmedi | Bütçe bitince koşum sert zaman aşımıyla **tamamen** düşüyordu | `anchor-list.ts` detay döngüsü bütçe bitince yeni indirme başlatmaz; satır **liste bilgisiyle kaydedilir** ve kapsam `partial` işaretlenir (detay metni sonraki taramada tamamlanır) |
+| `tmsf`: tarayıcıda `ERR_CERT_AUTHORITY_INVALID` | Kurum kökü makinede güvenilmiyor; Chromium, TLS doğrulaması kapalı olsa bile sertifikayı denetler | Kod tarafı: AIA zincir tamamlama (`SOURCE_TLS_AIA_COMPLETION=1`). Operatör: kurum kökünü `NODE_EXTRA_CA_CERTS=./certs/kurum-koku.pem` ile ekle |
+| `kariyerkapisi`, `ilan-gov-tr-personel`: "İlk sayfadan satır okunamadığı için kaynak kapsamı bilinmiyor" | Not, sunucunun ne döndürdüğünü ve sonraki adımı söylemiyordu | Not artık HTTP durumlarını, karakter sayısını, tarayıcı çizimi kullanılıp kullanılmadığını ve `npm run test:live -- --source=<anahtar>` komutunu içerir |
+| Kuyrukta **2998 bekleyen** iş | Zamanlanmış işler birikir (worker kapalı/yavaş); biriken işlerin tek tek koşulması aynı kaynağı saatlerce döver ve paneli "tıkanmış" gösterir | `BuiltinQueueRepo.collapseSupersededPending()`: aynı kaynağın bekleyen zamanlanmış taramalarından yalnızca EN YENİSİ korunur, eskiler gerekçesi iş yüküne yazılarak kapatılır; worker her tikte en çok 200 iş katlar. **Elle tetiklenen işler asla kapatılmaz** (`tests/worker.test.ts` → 3 yeni test) |
+
+### 9.3 İnceleme kuyruğu gürültüsü (60 ilgililik + 12 tekilleştirme)
+
+Kuyruktaki kayıtların büyük kısmı kurum sitelerinin menü/dizin/etkinlik
+sayfalarıydı: İçişleri SSS-politika-basın-radar sayıları-atama kararnamesi-iç
+kontrol, TKGM `/haberler` + projeler ("Güncel" öneki başlığa yapışmış,
+"…DuyuruDuyuru07 Eylül 2026"), SPK basın duyuruları + başkanın konuşmaları,
+DSİ SEMPOZYUM + İngilizce teknik şartname, KGM rayiç fiyat/restorasyon
+açılışları/GICC/Japonya heyeti, TÜBİTAK Teknofest + araştırma çağrıları,
+ÖSYM e-YDS + TUS tercih, İŞKUR kırıntı başlığı.
+
+- Başlık kuralları: mevcut ret kurallarına `ret-baslik.kurumsal-etkinlik`
+  eklendi (rayiç fiyat/fiyat listesi, açılış, temel atma, heyet, ziyaret,
+  protokol imza töreni, iş birliği protokolü, yarışma, festival, fuar, turnuva,
+  kutlama, bayram/yeni yıl mesajı, taziye). Alım/istihdam/personel/memur/işçi/
+  kadro/sözleşmeli/kura/atama/giriş sınavı/temin/başvuru/yeterlik geçen
+  başlıklar kurala **takılmaz** (3 yanlış pozitif koruma testi eklendi).
+- `CLASSIFICATION_VERSION` → **2026.10.4** (kural seti değişti; depodaki
+  kararlar ancak yeniden sınıflandırmayla güncellenir).
+- Başlık temizliği (`cleanTitle`): satıra yapışan rozet/tarih
+  ("…Alım İlanıDuyuru28 Eylül 2026"), baştaki yapışık rozet ("Güncel3 Boyutlu…"),
+  "Ana Sayfa " kırıntısı, "İlân No: ILN01234567" etiketi, tekrarlanan kelime
+  ("DuyuruDuyuru") ve sonda yapışık Türkçe tarih düşürülür — 11 gerçek panel
+  dizesi üzerinde doğrulandı, gerçek başlıklar bozulmuyor.
+
+**Önemli:** depodaki 72 inceleme kaydı kendiliğinden temizlenmez. Operatör adımı:
+
+```bash
+npm run jobs:reclassify            # kuru çalıştırma: ne değişecek görünür
+npm run jobs:reclassify -- --report data/reclassify.json
+npm run jobs:reclassify -- --apply # otomatik yedek alır
+# geri almak gerekirse: npm run jobs:restore -- <yedek-dosyası>
+```
+
+### 9.4 Panel doğruluk hataları
+
+| Bulgu | Kök neden | Düzeltme |
+| --- | --- | --- |
+| Genel bakış: 17 worker satırından yalnızca 1'i "bayat"; **42–47 saat önce durmuş süreçler yeşil "çalışıyor"** | Rozet yalnızca `stale` alanına bakıyordu; `stale` bilinçli kapanışlarda (`status='stopped'`) yanlış alarm üretmemek için `false` kalır | `describeWorkerState()` ile **üç durum**: `bayat` (sessiz kalan) / `çalışıyor` / `durdu` (+ `başlıyor`, `duruyor`, bilinmeyen durum açıkça yazılır). Satırlar en yeni kalp atışına göre sıralanır, 6'dan fazlası "Ayrıca N eski worker kaydı var" diye özetlenir (`src/lib/format.ts`, `src/pages/Admin.tsx`, `tests/worker-durum-etiketi.test.ts`, `tests/admin-render.test.tsx`) |
+| Ana sayfa bilgi bandı kalıcı sarı | Uyarı tonu "N kaynağa ulaşılamıyor" ile de tetikleniyordu; bazı kurum siteleri her koşulda erişilemez | Ton yalnızca kullanıcının gördüğü sonucu etkileyen durumlarda uyarı: sistem kapalı, veriler bir günden eski, worker yok/başlıyor. Erişilemeyen kaynak sayısı cümlenin içinde **sonucuyla** açıklanır ("o kurumlara ait yeni ilanlar listeye gecikmeli düşebilir") |
+
+### 9.5 Bu turun test paketi
+
+- `tests/liste-gurultu-regresyon.test.ts` — 22 test (kapsam dışı liste/düşme,
+  kategori filtresi, tarayıcı sonucu metni, zaman bütçesi, `cleanTitle`)
+- `tests/llm-uc-nokta.test.ts` — 13 test
+- `tests/worker.test.ts` — 22 test (3 yeni: kuyruk katlama)
+- `tests/worker-durum-etiketi.test.ts` — 7 test
+- `tests/classification-dizin-gurultusu.test.ts` + `tests/siniflandirma-unvan-temin.test.ts` — 85 test
+- Önceki turlar: TLS zincir tamamlama (16), `db-tls-doctor` (27), `dev-all`
+  kapanışı (7), sınıflandırma kanıt kapısı.
+
+### 9.6 Operatör adımları (kod değişikliğiyle çözülemeyenler)
+
+```bat
+:: 1) TLS doğrulamasını kapatan geçici çözümü kaldır (yeni bir kabuk aç)
+setx NODE_TLS_REJECT_UNAUTHORIZED ""
+
+:: 2) .env'de veritabanı TLS kararı "verify" olsun (no-verify KALMAMALI)
+::    POSTGRES_SSL_MODE=verify
+::    db-tls-doctor "missing-provider-root" diyorsa Supabase kökünü indir:
+::    certs/supabase-ca.crt + POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt
+npm run db:tls-doctor
+npm run env:check
+
+:: 3) Tarayıcı yedeği için Chromium (PowerShell npm.ps1'i engelliyorsa cmd kullan)
+npx playwright install chromium
+
+:: 4) LLM kapısını doğrula, sonra kuyruğu erittir
+npm run llm:doctor
+npm run llm:review-assist
+npm run jobs:reclassify -- --apply
+
+:: 5) Worker'ı kesintisiz çalıştır (birikmiş kuyruk otomatik katlanır)
+npm run dev:worker
+
+:: 6) Kaynakları canlı doğrula (kaynak başına bütçe artık 120 s)
+npm run test:live
+```
+
+Terminal Türkçe karakterleri bozuyorsa: `chcp 65001`. PowerShell betikleri
+engelliyorsa: `cmd` içinde `npm.cmd …` ya da
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.

@@ -37,12 +37,40 @@ export function extractReferenceNumbers(text: string): string[] {
 }
 
 /** Başlık temizliği: tarih/numaralandırma/jenerik ekler ayıklanır. */
+/** Türkçe ay adları (başlıklara yapışan tarih rozetlerini temizlemek için). */
+const TURKISH_MONTHS =
+  'Ocak|Şubat|Subat|Mart|Nisan|Mayıs|Mayis|Haziran|Temmuz|Ağustos|Agustos|Eylül|Eylul|Ekim|Kasım|Kasim|Aralık|Aralik';
+
 export function cleanTitle(raw: string): string {
   let title = collapseWhitespace(raw);
   title = title.replace(/\s*[-–—]\s*\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}\s*$/u, '');
+  // "İlân No: ILN01234567" / "İlan Numarası YOK0123456" — etiketiyle birlikte
+  // silinir; aksi halde başlıkta yetim "İlân No:" kalıyordu.
+  title = title.replace(
+    /\s*[İI]l[âa]n\s*(?:No|Numarası|Numarasi)\s*[:.]?\s*(?:(?:YOK|DPB|ILN)\s?-?\s?)?\d{5,12}\b/giu,
+    ' ',
+  );
   title = title.replace(/\b(YOK|DPB|ILN)\s?-?\s?\d{5,12}\b/gi, ' ');
+  // Sondaki tarih rozeti: "…Hakkında Duyuru07 Eylül 2026" → "…Hakkında Duyuru".
+  // Satır metninden üretilen başlıklarda kartın kategori etiketi ve tarihi
+  // başlığa yapışıyordu (2026-10-16 panel görüntüsü).
+  title = title.replace(
+    new RegExp(`\\s*\\(?\\d{1,2}\\s*(?:${TURKISH_MONTHS})\\s*\\d{4}(?:\\s+\\d{1,2}[:.]\\d{2})?\\s*(?:tarihli|tarihinde)?\\s*\\)?\\s*$`, 'iu'),
+    '',
+  );
   title = title.replace(/\s*\(?\d{2}[.\-/]\d{2}[.\-/]\d{4}\s*(?:tarihli|tarihinde)?\s*\)?\s*/giu, ' ');
   title = title.replace(/\s*İlan\s*(?:No|Numarası)\s*[:.]?\s*[A-Z0-9-]{4,20}\s*/gi, ' ');
+  // Yapışık ikiz sözcük: satır rozeti bağlantı metninin sonuna bitişir
+  // ("…DuyuruDuyuru"). Boşluksuz tekrar gerçek başlıkta olmaz.
+  title = title.replace(/(\p{L}{3,})\1/gu, '$1');
+  // Sondaki YAPIŞIK kategori rozeti: "…Bilişim Personel Alım İlanıDuyuru" →
+  // "…Bilişim Personel Alım İlanı". Rozetten önce boşluk varsa dokunulmaz
+  // ("…Hakkında Duyuru" gerçek bir başlıktır).
+  title = title.replace(/(\p{L})(?:Duyuru|Haber|[İI]lan|Etkinlik|Güncel|Genel)$/u, '$1');
+  // Baştaki yapışık rozet: "GüncelTapu Arşivleri…", "Yeni2026 Yılı…"
+  title = title.replace(/^(?:Güncel|Guncel|Yeni|Önemli|Onemli|Son|Duyuru|Haber)(?=[\p{Lu}\d])/u, '');
+  // Kırıntı (breadcrumb) başlangıcı: "Ana Sayfa İlanlar Kamu Memur Alım İlanları".
+  title = title.replace(/^Ana\s+Sayfa\s+/iu, '');
   title = title.replace(/\s{2,}/g, ' ').trim();
   return title.replace(/[:;,–—-]\s*$/u, '').trim();
 }

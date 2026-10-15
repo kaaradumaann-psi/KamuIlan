@@ -15,9 +15,10 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -114,11 +115,47 @@ function buildMaterial(): Material {
   };
 }
 
-const material = hasOpenssl() ? buildMaterial() : null;
+/**
+ * Sabit test sertifikaları (openssl kurulu olmayan makineler için).
+ *
+ * Windows'ta openssl PATH'te yoksa `buildMaterial()` çalışmaz; testler tümden
+ * atlanırdı ve AIA zincir tamamlama (TMSF/BDDK/ilan.gov.tr gibi eksik zincir
+ * sunan resmî siteler için kritik yol) hiç doğrulanmazdı. Aynı zincir 10 yıl
+ * geçerli sabit dosyalar olarak `tests/fixtures/tls-aia/` altında tutulur.
+ */
+const FIXTURE_DIR = fileURLToPath(new URL('./fixtures/tls-aia/', import.meta.url));
+
+function loadFixtureMaterial(): Material | null {
+  const dir = mkdtempSync(join(tmpdir(), 'kamuilan-aia-fixture-'));
+  try {
+    cpSync(FIXTURE_DIR, dir, { recursive: true });
+    return {
+      dir,
+      rootPem: readFileSync(join(dir, 'root.crt'), 'utf8'),
+      intermediatePem: readFileSync(join(dir, 'intermediate.crt'), 'utf8'),
+      leafPem: readFileSync(join(dir, 'leaf.crt'), 'utf8'),
+      leafKeyPem: readFileSync(join(dir, 'leaf.key'), 'utf8'),
+      unrelatedPem: readFileSync(join(dir, 'unrelated.crt'), 'utf8'),
+      nonCaIntermediatePem: readFileSync(join(dir, 'nonca.crt'), 'utf8'),
+    };
+  } catch {
+    rmSync(dir, { recursive: true, force: true });
+    return null;
+  }
+}
+
+/** PEM gövdesini DER'e çevirir (openssl çağrısı gerektirmez). */
+function pemToDer(pem: string): Buffer {
+  return Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64');
+}
+
+const material = (hasOpenssl() ? buildMaterial() : null) ?? loadFixtureMaterial();
+// DİKKAT: Vitest'te `describe.skip` çağrının GÖVDESİNİ yine de çalıştırır; bu
+// yüzden gövde düzeyinde `material!` çözümlenemez (null ise toplama çöker).
 const describeWithCerts = material ? describe : describe.skip;
 
 describeWithCerts('AIA ile zincir tamamlama', () => {
-  const dir = material!.dir;
+  const dir = material?.dir ?? '';
   let leaf: X509Certificate;
   let intermediate: X509Certificate;
   let root: X509Certificate;
@@ -154,8 +191,7 @@ describeWithCerts('AIA ile zincir tamamlama', () => {
   });
 
   it('DER biçimindeki AIA cevabı da kabul edilir', async () => {
-    runOpenssl(['x509', '-in', 'intermediate.crt', '-outform', 'DER', '-out', 'intermediate.der'], dir);
-    const der = readFileSync(join(dir, 'intermediate.der'));
+    const der = pemToDer(material!.intermediatePem);
     const result = await completeCertificateChain([leaf], [root], { fetchIssuer: async () => der });
     expect(result.ok).toBe(true);
     expect(result.added[0]?.fingerprint256).toBe(intermediate.fingerprint256);
