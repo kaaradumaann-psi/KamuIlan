@@ -7,6 +7,7 @@
  *    ve belirsizlik uyarıları (`uncertainties`) bulunur — "uydurma yok" ilkesi.
  *  - E-posta adresleri yalnızca maskeli gösterilir; kullanıcının kendi kaydı hariç.
  */
+import { isHttpUrl } from '../domain/urls';
 import { deadlineState, toIstanbulDateOnly } from '../domain/dates';
 import { makeExcerpt, maskEmail } from '../domain/text';
 import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS, PROCESS_STATUS_LABEL } from '../domain/types';
@@ -153,6 +154,19 @@ export function deadlineOf(job: JobDoc, now: Date = new Date()): { state: string
   return { state: deadlineState(endDate, now), daysLeft };
 }
 
+/**
+ * Arayüze giden dış bağlantı: http(s) değilse güvenli yedeğe düşer.
+ *
+ * Toplanan içerik güvenilmeyen veridir; depoya eski/yeni bir yoldan `javascript:`
+ * ya da `data:` adresi sızarsa tıklanabilir bağ üzerinden betik çalıştırılabilirdi.
+ * Bu sınır, serializer'da tek noktada kapatılır (UI her bağda bu denetimi yapar).
+ */
+function safeHref(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return isHttpUrl(trimmed) ? trimmed : null;
+}
+
 export function toPublicJobSummary(job: JobDoc, now: Date = new Date()): PublicJobSummary {
   return {
     id: job.id,
@@ -175,8 +189,8 @@ export function toPublicJobSummary(job: JobDoc, now: Date = new Date()): PublicJ
     applicationEndAt: job.applicationEndAt,
     applicationEndDate: job.applicationEndDate,
     publishedAt: job.publishedAt,
-    detailUrl: job.detailUrl,
-    hasApplicationUrl: job.applicationUrl !== null,
+    detailUrl: safeHref(job.detailUrl) ?? '#',
+    hasApplicationUrl: safeHref(job.applicationUrl) !== null,
     attachmentCount: job.attachments.length,
     titles: job.titles,
     sourceKeys: job.sourceKeys,
@@ -207,7 +221,7 @@ export function toPublicJobDetail(
     })[0];
   return {
     ...summary,
-    applicationUrl: job.applicationUrl,
+    applicationUrl: safeHref(job.applicationUrl),
     applicationMethod: job.applicationMethod ?? null,
     originalRefNo: job.originalRefNo,
     textExcerpt: publicTextExcerpt(job.textExcerpt),
@@ -216,7 +230,7 @@ export function toPublicJobDetail(
       // Eski dokümanlarda alan yoksa boş liste dön (API sözleşmesi sabit kalsın).
       qualificationCodes: job.requirements.qualificationCodes ?? [],
     },
-    attachments: job.attachments,
+    attachments: job.attachments.filter((attachment) => isHttpUrl(attachment.url)),
     classification: {
       decision: job.classification.decision,
       employmentType: job.classification.employmentType,
@@ -241,7 +255,7 @@ export function toPublicJobDetail(
     sources: options.sources.map((link) => ({
       sourceKey: link.sourceKey,
       sourceName: options.sourceNames?.get(link.sourceKey) ?? null,
-      url: link.url,
+      url: safeHref(link.url) ?? '',
       title: link.title,
       publishedAt: link.publishedAt,
       firstSeenAt: link.firstSeenAt,
@@ -417,7 +431,7 @@ export function toReviewItem(item: {
     kind: item.kind,
     sourceKey: item.sourceKey,
     title: item.title,
-    url: item.url,
+    url: safeHref(item.url) ?? '',
     reason: item.reason,
     confidence: item.confidence,
     payload: item.payload,

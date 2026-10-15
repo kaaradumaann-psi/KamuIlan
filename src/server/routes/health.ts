@@ -4,6 +4,7 @@
  * `/api/health` yalnızca gerçek ölçümleri döner: veritabanı ping süresi, worker
  * kalp atışları, kuyruk ve son başarılı tarama. Uydurma istatistik yoktur.
  */
+import { requireAdmin } from '../context';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
@@ -122,7 +123,7 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
         response: { 200: healthResponse },
       },
     },
-    async () => {
+    async (request) => {
       const env = getEnv();
       const now = repos.clock.now();
       const startedAt = Date.now();
@@ -169,7 +170,10 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
           driver: health.driver,
           healthy: health.ok,
           latencyMs,
-          detail: health.detail,
+          // Sürücü hata mesajı host/port/dosya yolu sızdırabilir: sağlıklıyken
+          // herkese, başarısızken yalnızca yöneticiye gösterilir. Ayrıntılı tanı
+          // için anonim erişilebilir yol `npm run db:tls-doctor`'dır.
+          detail: health.ok || request.auth?.user?.role === 'admin' ? health.detail : null,
         },
         versions: {
           classification: CLASSIFICATION_VERSION,
@@ -213,10 +217,14 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
     {
       schema: {
         tags: ['health'],
-        summary: 'Maskeli ortam özeti (gizli değer içermez)',
+        summary: 'Maskeli ortam özeti (yalnızca yönetici)',
       },
     },
-    async () => {
+    // Maskeli olsa da altyapı bilgisi (baseUrl, sürücü, TLS modu, veri dizini,
+    // sağlayıcı açık/kapalı) anonim ziyaretçiye açık olmamalıdır. Yerel tanı için
+    // ağ gerektirmeyen `npm run env:check` aynı özeti verir.
+    async (request) => {
+      requireAdmin(request);
       const env = getEnv();
       return {
         ...describeEnv(env),

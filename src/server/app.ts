@@ -10,6 +10,8 @@
  *
  * Not: Bu dosya iş kuralı içermez; yalnızca taşıma katmanıdır.
  */
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
@@ -29,6 +31,7 @@ import {
   enforceRateLimit,
   safeEqual,
   staticCacheHeaders,
+  requestPathname,
 } from './context';
 import { registerAdminRoutes } from './routes/admin';
 import { registerAuthRoutes } from './routes/auth';
@@ -75,6 +78,16 @@ function isCsrfExempt(url: string): boolean {
   return CSRF_EXEMPT_PATHS.has(path);
 }
 
+/**
+ * Üretimde arayüzün derlenmiş varlıklarının kök dizini.
+ *
+ * `new URL(...).pathname` Windows'ta "/C:/Users/..." üretir ve `@fastify/static`
+ * bu yolu bulamaz (arayüz 404'e düşer); `fileURLToPath` platforma göre çözer.
+ */
+export function staticDistRoot(): string {
+  return fileURLToPath(new URL('../../dist', import.meta.url));
+}
+
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const env = getEnv();
   const repos = options.repos ?? getRepos();
@@ -87,7 +100,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // X-Forwarded-For'a yalnızca TRUST_PROXY=1 iken güvenilir (bkz. env.ts).
     trustProxy: env.TRUST_PROXY,
     bodyLimit: 256 * 1024,
-    genReqId: () => `req_${Math.random().toString(36).slice(2, 12)}`,
+    // İstek kimliğilogları için bile tahmin edilebilir olmamalı: Math.random yerine CSPRNG.
+    genReqId: () => `req_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
   });
 
   app.setValidatorCompiler(validatorCompiler);
@@ -157,7 +171,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   ]);
   app.addHook('preHandler', async (request, reply) => {
     if (options.disableRateLimit) return;
-    const pathname = request.url.split('?')[0] ?? request.url;
+    const pathname = requestPathname(request);
     // Telegram sunucuları tek IP'den çok sayıda güncelleme yollar; kimlik sırla doğrulanır.
     if (pathname === TELEGRAM_WEBHOOK_PATH) return;
     const isStrictAuth = request.method === 'POST' && STRICT_AUTH_PATHS.has(pathname);
@@ -242,7 +256,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   if (options.serveStatic && env.NODE_ENV === 'production') {
     const fastifyStatic = (await import('@fastify/static')).default;
     await app.register(fastifyStatic, {
-      root: new URL('../../dist', import.meta.url).pathname,
+      root: staticDistRoot(),
       prefix: '/',
       // Derlenmiş varlıklar içerik damgalıdır: uzun ömürlü önbellek + tazelik
       // gerektiren dosyalar için no-cache (bkz. context.ts).
@@ -253,7 +267,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     });
     app.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith('/api/')) {
+      if (requestPathname(request).startsWith('/api/')) {
         const { statusCode, body } = toErrorBody(ApiError.notFound('API yolu bulunamadı.'), request.id);
         void reply.status(statusCode).send(body);
         return;

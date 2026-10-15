@@ -155,7 +155,7 @@ Geri yüklemede dosyayı yerine kopyalayın; uygulama açılışta indeksleri ye
 | Belirti                          | İlk adım                                                     | Kalıcı çözüm                                                                                      |
 | -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | API yanıt vermiyor               | `GET /api/health`, süreç günlüğü                             | Süreci yeniden başlat; MongoDB/Redis bağlantısını kontrol et                                      |
-| Zamanlanmış taramalar durdu      | `/api/health/worker`, `/api/health/config`, Yönetim → Kuyruk | Worker heartbeat'ini ve `SCHEDULER_ENABLED` ayarını kontrol et; kuyrukta kalan işleri ayrıca izle |
+| Zamanlanmış taramalar durdu      | `/api/health/worker`, Yönetim → Kuyruk (`/api/health/config` yönetici oturumu ister; ağ gerektirmeyen eşdeğeri `npm run env:check`) | Worker heartbeat'ini ve `SCHEDULER_ENABLED` ayarını kontrol et; kuyrukta kalan işleri ayrıca izle |
 | E-postalar gitmiyor              | Yönetim → E-posta kuyruğu `lastError`                        | SMTP bilgilerini düzelt; ölü işleri yeniden kuyruğa al                                            |
 | İlanlar artıyor ama bildirim yok | Kullanıcı tercihlerini ve doğrulama durumunu kontrol et      | Doğrulanmamış adrese gönderim yapılmaz (bilinçli)                                                 |
 | Aynı ilan iki kayıt              | İnceleme kuyruğu → birleştirme                               | Kural eşiğini gözden geçir; benzer başlıklı farklı ilanlar OTOMATİK birleştirilmez                |

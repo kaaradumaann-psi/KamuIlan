@@ -776,6 +776,21 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     skipReason: 'EMAIL_PROVIDER=smtp değil.',
   },
   {
+    key: 'SMTP_TLS_INSECURE',
+    group: 'eposta',
+    label: 'SMTP sertifika doğrulaması kapatılsın mı? (ÖNERİLMEZ)',
+    help:
+      'Varsayılan 0: SMTP sunucusunun sertifikası doğrulanır. 1 yazmak doğrulamayı KAPATIR; TLS ' +
+      'kullanılsa bile sunucu kimliği doğrulanmaz ve SMTP_USER/SMTP_PASS ortadaki adama açık kalır. ' +
+      'Sertifika hatasının doğru çözümü eksik kökü eklemektir: NODE_EXTRA_CA_CERTS=./certs/kurum-koku.pem ' +
+      '(kendinden imzalı geliştirme sunucusu için bile doğrulamayı kapatmayın; kökü dosyaya koyun).',
+    type: 'boolean',
+    defaultValue: '0',
+    optional: true,
+    dependsOn: smtpSelected,
+    skipReason: 'EMAIL_PROVIDER=smtp değil.',
+  },
+  {
     key: 'SMTP_USER',
     group: 'eposta',
     label: 'SMTP kullanıcı adı',

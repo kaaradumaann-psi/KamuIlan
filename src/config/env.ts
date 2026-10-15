@@ -249,6 +249,18 @@ const envSchema = z.object({
   SMTP_USER: z.string().default(''),
   SMTP_PASS: z.string().default(''),
   /**
+   * SMTP TLS sertifika doğrulamasını KAPATIR (varsayılan 0 = doğrulama açık).
+   *
+   * Eski davranış doğrulamayı yalnızca üretimde açıyordu; geliştirmede kapalı
+   * kalması SMTP kullanıcı adı/parolasını ortadaki adama açık bırakıyordu
+   * (Postgres için kabul edilmeyen `no-verify` davranışının e-posta karşılığı).
+   * Doğru çözüm sunucunun kök zincirini tamamlamaktır (NODE_EXTRA_CA_CERTS).
+   */
+  SMTP_TLS_INSECURE: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+  /**
    * Gönderim sağlayıcısı:
    *  - resend : ÜRETİM. Resend HTTP API (RESEND_API_KEY + doğrulanmış alan adı).
    *  - smtp   : Sunucu SMTP'si veya geliştirme posta sunucusu.
@@ -581,6 +593,17 @@ function collectEnvironmentProblems(
     const override = describeTlsVerificationOverride() ?? 'NODE_TLS_REJECT_UNAUTHORIZED=0 kaldırılmalıdır.';
     if (env.NODE_ENV === 'production') problems.push(override);
     else warnings.push(override);
+  }
+  // SMTP sertifika doğrulaması kapatıldıysa: üretimde başlangıcı durdurur, diğer
+  // ortamlarda yüksek sesli uyarı (NODE_TLS_REJECT_UNAUTHORIZED ile aynı politika).
+  if (env.SMTP_TLS_INSECURE) {
+    const message =
+      'SMTP_TLS_INSECURE=1: SMTP sertifika doğrulaması KAPALI — gönderim TLS olsa bile sunucu ' +
+      'kimliği doğrulanmaz ve SMTP kullanıcı adı/parolası ortadaki adama açık kalır. Doğru karşılık ' +
+      'eksik kökü tamamlamaktır (NODE_EXTRA_CA_CERTS=./certs/kurum-koku.pem). Kapatmak için anahtarı ' +
+      '.env dosyasından silin: npm run env:setup -- --only SMTP_TLS_INSECURE';
+    if (env.NODE_ENV === 'production') problems.push(message);
+    else warnings.push(message);
   }
   if (env.NODE_ENV === 'production') {
     if (!env.APP_SECRET || env.APP_SECRET.length < 32) {

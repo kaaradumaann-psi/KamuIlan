@@ -133,6 +133,7 @@ Docker ile: `cd infra/docker && docker compose up --build`
 ## Mimari ve belgeler
 
 - [Sistem denetimi — 15 Ekim 2026](./docs/sistem-denetimi-2026-10.md) — canlı denetim/`env:check`/panel çıktıları ve değerlendirme sonuçlarının satır satır incelemesi, TLS kök nedenleri, kaynak sağlığı tablosu, eylem listesi
+- [Güvenlik ve hata denetimi — 15 Ekim 2026](./docs/guvenlik-denetimi-2026-10.md) — yönetici RBAC atlatması (yüzde kodlu yol), SMTP TLS doğrulaması, sağlık uçlarında bilgi sızıntısı, `javascript:` bağ sınırı, Windows statik kök hatası; temiz bulunan alanlar ve dağıtım sonrası 2 dakikalık kontrol
 - [Veritabanı TLS ve sertifika sorunları](./docs/database-tls.md) — `SELF_SIGNED_CERT_IN_CHAIN` / `UNABLE_TO_VERIFY_LEAF_SIGNATURE` çözümü, `db:tls-doctor`, eksik zincirin AIA ile tamamlanması, `NODE_TLS_REJECT_UNAUTHORIZED=0` kaldırma
 - [Mühendislik ve denetim raporu — 14 Ekim 2026](./docs/muhendislik-raporu-2026-10-14.md) — kronoloji, bulgular, kontroller, araştırma ve takip planı
 - [Arşiv: mühendislik raporu](./docs/muhendislik-raporu.md) — önceki doğrulama anlık görüntüsü

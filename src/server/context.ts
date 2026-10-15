@@ -75,6 +75,43 @@ export function sessionTtlHours(): number {
  * hız sınırı atlanır ve denetim kaydı zehirlenir. Vekil arkasında ilk değer
  * gerçek istemcidir.
  */
+/**
+ * İsteğin eşleştiği rota yolunu döndürür (sorgu dizesi olmadan).
+ *
+ * Fastify (find-my-way) yüzde kodlu yolları ÇÖZEREK rotayla eşleştirir:
+ * `/%61pi/admin/overview` isteği `/api/admin/overview` rotasına düşer, ama
+ * `request.url` ham dizedir (`/%61pi/...`). Ön ek kararları ham dizeye bakarsa
+ * bu istekler denetimi atlar. Bu yüzden önce eşleşen rota deseni kullanılır;
+ * rota yoksa (ör. 404 kancası) ham yol ve kodu çözülmüş hali değerlendirilir.
+ */
+export function requestPathname(request: FastifyRequest): string {
+  const routeUrl = request.routeOptions?.url;
+  if (typeof routeUrl === 'string' && routeUrl.length > 0) return routeUrl.split('?')[0] ?? routeUrl;
+  const raw = (request.url ?? '').split('?')[0] ?? '';
+  if (raw.length === 0) return '/';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * İstek verilen ön ekle eşleşiyor mu? Hem eşleşen rota hem ham/kod çözülü yol
+ * birlikte değerlendirilir; böylece `/%61pi/admin/...` gibi kodlanmış yollar da
+ * yakalanır (yetki kararları ham URL'ye bırakılmaz).
+ */
+export function matchesPathPrefix(request: FastifyRequest, prefix: string): boolean {
+  if (requestPathname(request).startsWith(prefix)) return true;
+  const raw = (request.url ?? '').split('?')[0] ?? '';
+  if (raw.startsWith(prefix)) return true;
+  try {
+    return decodeURIComponent(raw).startsWith(prefix);
+  } catch {
+    return false;
+  }
+}
+
 export function clientIp(request: FastifyRequest): string {
   if (getEnv().TRUST_PROXY) {
     const forwarded = request.headers['x-forwarded-for'];
