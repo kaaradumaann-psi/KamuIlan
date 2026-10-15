@@ -25,6 +25,7 @@ import { migrateCapturedTextMetadata } from '../src/db/migrations/captured-text-
 import { migrateJobTextMinimization } from '../src/db/migrations/job-text-minimization';
 import { safeErrorFields } from '../src/lib/safe-error';
 import { databaseTlsHelp } from '../src/lib/tls-trust';
+import { reportDatabaseTlsFailure } from './lib/db-tls-report';
 
 async function main(): Promise<void> {
   const env = getEnv();
@@ -80,6 +81,16 @@ main().catch(async (error: unknown) => {
   console.error('Bakım başarısız:', safeErrorFields(error));
   const tlsHelp = databaseTlsHelp(error);
   if (tlsHelp) console.error(tlsHelp);
+  // TLS zinciri hatasıysa kök nedeni OTOMATİK bul: sunucunun sunduğu zincir
+  // okunur (parola gönderilmez), CA dosyasıyla karşılaştırılır ve uygulanacak
+  // adım yazılır. Böylece kullanıcı genel metinle tahmin yürütmez.
+  if (tlsHelp) {
+    try {
+      await reportDatabaseTlsFailure(error);
+    } catch {
+      // Tanı üretilemezse genel yardım metni yeterlidir; bakım hatası gizlenmez.
+    }
+  }
   process.exitCode = 1;
   await closeStore().catch(() => undefined);
 });

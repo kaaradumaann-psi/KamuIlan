@@ -52,7 +52,12 @@ export function StatusBanner() {
   const workerPending = worker.isLoading && !worker.data && workerRunning === 0;
   const noWorker = workerRunning === 0 && workerStarting === 0 && !workerPending;
 
-  const tone = data.status === 'down' || stale || failing || noWorker || workerStarting > 0 || workerPending ? 'warning' : 'info';
+  // Uyarı tonu yalnızca KULLANICININ GÖRDÜĞÜ sonucu etkileyen durumlarda:
+  // sistem kapalı, veriler bir günden eski, tarama worker'ı yok ya da başlıyor.
+  // "N kaynağa ulaşılamıyor" tek başına kalıcı sarı bant üretmemeli (bazı
+  // kurum siteleri her koşulda erişilemez); bu bilgi cümlenin içinde açıklanır.
+  const affectsFreshness = data.status === 'down' || stale || noWorker;
+  const tone = affectsFreshness || workerStarting > 0 || workerPending ? 'warning' : 'info';
   const parts: string[] = [];
   parts.push(
     data.scans.lastSuccessAt
@@ -60,7 +65,12 @@ export function StatusBanner() {
       : 'Henüz başarılı tarama kaydı yok.',
   );
   parts.push(`${formatNumber(data.sources.enabled)} kaynak tarama için etkin olarak tanımlı.`);
-  if (failing) parts.push(`${formatNumber(data.sources.failing)} kaynağa şu an ulaşılamıyor.`);
+  if (failing) {
+    parts.push(
+      `${formatNumber(data.sources.failing)} kurum sitesine şu an ulaşılamıyor; o kurumlara ait yeni ilanlar ` +
+        'listeye gecikmeli düşebilir.',
+    );
+  }
   if (noWorker) {
     parts.push('Tarama worker’ı şu an çalışmıyor; zamanlanmış taramalar yürütülmüyor.');
   } else if (workerStarting > 0 || workerPending) {
@@ -68,7 +78,9 @@ export function StatusBanner() {
   } else if (!data.scans.lastSuccessAt) {
     parts.push('İlk başarılı taramanın tamamlanması bekleniyor.');
   }
-  if (data.sources.stale > 0) parts.push(`${formatNumber(data.sources.stale)} etkin kaynakta yakın zamanda başarılı tarama yok.`);
+  if (data.sources.stale > 0) {
+    parts.push(`${formatNumber(data.sources.stale)} kaynakta uzun süredir başarılı tarama yok.`);
+  }
   if (stale) parts.push('Son başarılı tarama bir günden eski olabilir.');
   parts.push('Bazı kurumlar ilanını yalnızca kendi sayfasında duyurur; her ilanı bulamayabiliriz.');
 

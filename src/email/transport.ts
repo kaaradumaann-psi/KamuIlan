@@ -168,6 +168,21 @@ export function parseResendId(body: string): string | null {
   }
 }
 
+/**
+ * SMTP TLS seçenekleri.
+ *
+ * Sertifika doğrulaması VARSAYILAN OLARAK AÇIKTIR ve ortamdan bağımsızdır; yalnızca
+ * açıkça `SMTP_TLS_INSECURE=1` verilirse kapanır (üretimde bu aynı zamanda başlangıcı
+ * durduran bir yapılandırma sorunudur — bkz. `collectEnvironmentProblems`). Eski
+ * davranış doğrulamayı geliştirmede kapatıyordu; bu, SMTP kimlik bilgilerini ağdaki
+ * ortadaki adama açık bırakıyordu.
+ */
+export function smtpTlsOptions(env: { SMTP_TLS_INSECURE: boolean } = getEnv()): {
+  rejectUnauthorized: boolean;
+} {
+  return { rejectUnauthorized: !env.SMTP_TLS_INSECURE };
+}
+
 export class SmtpEmailTransport implements EmailTransport {
   readonly key = 'smtp' as const;
   readonly description: string;
@@ -188,7 +203,7 @@ export class SmtpEmailTransport implements EmailTransport {
         connectionTimeout: 10_000,
         greetingTimeout: 10_000,
         socketTimeout: 20_000,
-        tls: { rejectUnauthorized: getEnv().NODE_ENV === 'production' },
+        tls: smtpTlsOptions(),
       });
     }
     return this.transporter;

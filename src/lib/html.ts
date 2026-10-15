@@ -50,7 +50,16 @@ export function blockElementText(element: Cheerio<AnyNode>, limit = 4_000): stri
   return text.length > limit ? text.slice(0, limit) : text;
 }
 
-const CHROME_SELECTORS = [
+/**
+ * Sayfa iskeleti seçicileri: menü/alt bilgi/paylaşım gibi her sayfada tekrar eden
+ * bölümler, çerez-KVKK onay modalları ve erişilebilirlik araç çubukları.
+ *
+ * Bu bölümler hem metin özetini hem bağlantı taramasını kirletir; 2026-10-15 canlı
+ * çıktısında icisleri/goc/afad listeleri "Modal content ... GİZLİLİK VE ÇEREZ
+ * POLİTİKASI", iskur listeleri "Erişilebilirlik Menüsü Ekran Okuyucu ..." özetleriyle
+ * "yapı tanınmadı" hatası vermişti.
+ */
+export const PAGE_CHROME_SELECTORS: readonly string[] = [
   'script',
   'style',
   'noscript',
@@ -66,6 +75,9 @@ const CHROME_SELECTORS = [
   'button',
   '[role="navigation"]',
   '[role="complementary"]',
+  '[role="dialog"]',
+  '[role="toolbar"]',
+  '[aria-modal="true"]',
   '[aria-hidden="true"]',
   '[hidden]',
   '.breadcrumb',
@@ -74,7 +86,31 @@ const CHROME_SELECTORS = [
   '.navigation',
   '.sidebar',
   '.share-buttons',
-].join(',');
+  '.modal',
+  '.modal-dialog',
+  '.modal-content',
+  '.modal-backdrop',
+  '[class*="cookie"]',
+  '[id*="cookie"]',
+  '[class*="cerez"]',
+  '[id*="cerez"]',
+  '[class*="consent"]',
+  '[id*="consent"]',
+  '[class*="kvkk"]',
+  '[id*="kvkk"]',
+  '[class*="gizlilik"]',
+  '[id*="gizlilik"]',
+  '[class*="modal"]',
+  '[id*="modal"]',
+  '[class*="accessibilit"]',
+  '[id*="accessibilit"]',
+  '[class*="erisilebilirlik"]',
+  '[id*="erisilebilirlik"]',
+  '[class*="a11y"]',
+  '[id*="a11y"]',
+];
+
+const CHROME_SELECTORS = PAGE_CHROME_SELECTORS.join(',');
 
 /** Remove recurring page chrome from a selected root before extracting text or links. */
 export function stripPageChrome(root: Cheerio<AnyNode>): void {
@@ -89,6 +125,78 @@ export function stripPageChrome(root: Cheerio<AnyNode>): void {
 }
 
 /**
+ * Parse a document, drop page chrome, and return readable body text. Used for
+ * operator-facing diagnostics so a cookie modal or accessibility toolbar is
+ * never reported as the page content.
+ */
+export function chromeFreeText(html: string, limit = 300): string {
+  const $ = loadHtml(html);
+  stripPageChrome($.root());
+  return readableText($, 'body', limit);
+}
+
+/** Anchor/markup census used to explain why a list page structure was not recognised. */
+export interface PageStructureSummary {
+  anchors: number;
+  sameHostAnchors: number;
+  topPathPrefixes: string[];
+  forms: number;
+  iframes: number;
+  scripts: number;
+  bodyTextLength: number;
+}
+
+/**
+ * Describe what a page actually contains (counts and the most common first path
+ * segments) so an operator can fix selector/pathPattern without guessing. Only
+ * path prefixes are reported - no query strings, tokens, or full URLs.
+ */
+export function describePageStructure(html: string, baseUrl: string): PageStructureSummary {
+  const $ = loadHtml(html);
+  const scripts = $('script').length;
+  const iframes = $('iframe').length;
+  const forms = $('form').length;
+  const rawAnchors = $('a[href]').toArray();
+  const counts = new Map<string, number>();
+  let sameHostAnchors = 0;
+  let baseHost = '';
+  try {
+    baseHost = new URL(baseUrl).host.toLowerCase();
+  } catch {
+    baseHost = '';
+  }
+  for (const node of rawAnchors) {
+    const href = isTag(node) ? (node.attribs.href ?? '') : '';
+    const resolved = absoluteUrl(href, baseUrl, $);
+    if (!resolved) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(resolved);
+    } catch {
+      continue;
+    }
+    if (baseHost && parsed.host.toLowerCase() === baseHost) sameHostAnchors += 1;
+    const segment = parsed.pathname.split('/').filter(Boolean)[0] ?? '';
+    const key = segment ? `/${segment}` : '/';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  stripPageChrome($.root());
+  const topPathPrefixes = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 6)
+    .map(([prefix, count]) => `${prefix} (${count})`);
+  return {
+    anchors: rawAnchors.length,
+    sameHostAnchors,
+    topPathPrefixes,
+    forms,
+    iframes,
+    scripts,
+    bodyTextLength: readableText($, 'body', 20_000).length,
+  };
+}
+
+/**
  * Extracts the first meaningful preferred announcement container, falling
  * back to body/root. Candidate selectors are ordered from most specific to
  * broadest by the adapter.
@@ -97,18 +205,34 @@ export function readableAnnouncementText(
   $: CheerioAPI,
   selectors: readonly string[],
   limit = 100_000,
+  options: { stripChrome?: boolean } = {},
 ): string {
+  // Menü/çerez modali/erişilebilirlik araç çubuğu ilan gövdesi sayılmaz; 2026-10-15
+  // çıktısında bu iskelet metni gövde kanıtı gibi puanlanıp %49'luk inceleme kayıtları
+  // üretmişti. Çağıranın bağlantı taraması bozulmasın diye kopya üzerinde temizlenir.
+  const stripChrome = options.stripChrome !== false;
   const candidates = [...selectors, 'body'];
   const seen = new Set<AnyNode>();
+  const textOf = (node: AnyNode): string => {
+    const selection = $(node);
+    if (!stripChrome) return blockElementText(selection, limit + 1);
+    const cloned = selection.clone();
+    stripPageChrome(cloned);
+    return blockElementText(cloned, limit + 1);
+  };
   for (const selector of candidates) {
     for (const node of $(selector).toArray()) {
       if (seen.has(node)) continue;
       seen.add(node);
-      const text = blockElementText($(node), limit + 1);
+      const text = textOf(node);
       if (text.length >= 80) return text.length > limit ? text.slice(0, limit + 1) : text;
     }
   }
-  return blockElementText($.root(), limit + 1).slice(0, limit + 1);
+  const root = $.root();
+  if (!stripChrome) return blockElementText(root, limit + 1).slice(0, limit + 1);
+  const clonedRoot = root.clone();
+  stripPageChrome(clonedRoot);
+  return blockElementText(clonedRoot, limit + 1).slice(0, limit + 1);
 }
 
 /** Resolve a link while ignoring cross-origin or malformed <base href> values. */

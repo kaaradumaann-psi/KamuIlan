@@ -57,7 +57,17 @@ const DEFINITION: SourceDefinition = {
   tags: ['test'],
 };
 
-/** Kuralların review dediği üç gerçekçi durum: belirsiz başlıklı alım, kadro geçen haber, sınav duyurusu. */
+/**
+ * Kuralların review dediği üç gerçekçi durum: belirsiz başlıklı alım, kadro
+ * geçen haber, sınav aşaması duyurusu.
+ *
+ * Başlıklar BİLEREK belirsiz tutulur: kural seti 2026.10.4 ile "…ziyaret"
+ * başlığı kesin ret (`ret-baslik.kurumsal-etkinlik`), "…alımı sınav duyurusu"
+ * başlığı ise süreç duyurusu (`süreç.personel-alimi`) olarak KURAL aşamasında
+ * karara bağlanır. Bu kapı testi kuralların değil LLM aşamasının sözleşmesini
+ * ölçer; kural kararlarının regresyonu `tests/siniflandirma-unvan-temin.test.ts`
+ * ve `tests/classification-dizin-gurultusu.test.ts` dosyalarındadır.
+ */
 const ITEMS: RawAnnouncement[] = [
   {
     sourceKey: DEFINITION.key,
@@ -78,9 +88,9 @@ const ITEMS: RawAnnouncement[] = [
     sourceKey: DEFINITION.key,
     sourceItemId: 'item-haber',
     url: 'https://ornek.test/duyuru/item-haber',
-    title: 'Üniversitemiz akademik birimlerine ziyaret',
+    title: 'Akademik birimlerde toplantı yapıldı',
     // Gövdede "kadro/istihdam/personel alımı planları" geçtiği için kurallar review der;
-    // aslında bir ziyaret haberidir (yanlış kabul riski taşıyan gerçek dünya örneği).
+    // aslında bir toplantı/ziyaret haberidir (yanlış kabul riski taşıyan gerçek dünya örneği).
     bodyText:
       'Rektörümüz, üniversitemiz akademik birimlerini ziyaret ederek kadro planlaması hakkında görüş alışverişinde bulunmuştur. ' +
       'Ziyaret kapsamında yapılan toplantıda önümüzdeki döneme ilişkin personel alımı planları değerlendirilmiştir. ' +
@@ -95,7 +105,7 @@ const ITEMS: RawAnnouncement[] = [
     sourceKey: DEFINITION.key,
     sourceItemId: 'item-surec',
     url: 'https://ornek.test/duyuru/item-surec',
-    title: 'Destek personeli alımı sınav duyurusu',
+    title: 'Kurumumuzdan sınav hakkında duyuru',
     // Yeni alım mı, mevcut alımın sınav aşaması mı belirsiz → kurallar review der.
     bodyText:
       'Sözleşmeli destek personeli alımı kapsamında yapılacak sınava ilişkin bilgiler aşağıda yer almaktadır. ' +
@@ -276,7 +286,7 @@ describe('LLM kapısı gerçek tarama hattında', () => {
     const jobs: JobDoc[] = await repos.store.find('jobs', {});
     expect(jobs).toHaveLength(2);
     const jobIlan = jobs.find((job) => job.title === 'Önemli Duyuru');
-    const jobSurec = jobs.find((job) => job.title.includes('sınav duyurusu'));
+    const jobSurec = jobs.find((job) => job.title.includes('sınav hakkında duyuru'));
     expect(jobIlan?.classification.kind).toBe('job');
     expect(jobIlan?.classification.contentType).toBe('personnel_recruitment');
     expect(jobIlan?.classification.llm?.evidenceVerified).toBe(true);

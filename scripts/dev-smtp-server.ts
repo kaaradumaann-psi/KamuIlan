@@ -147,7 +147,14 @@ viewer.listen(viewerPort, env.HOST, () => {
 const shutdown = (): void => {
   console.log('[dev-smtp] kapatılıyor…');
   viewer.close();
-  smtpServer.close(() => process.exit(0));
+  // Açık bir SMTP bağlantısı `close` geri çağrısını geciktirebilir; Ctrl+C
+  // sonrasında süreç askıda kalmasın diye sınırlı bir zorla çıkış bekletilir.
+  const forceExit = setTimeout(() => process.exit(0), 2_000);
+  forceExit.unref();
+  smtpServer.close(() => {
+    clearTimeout(forceExit);
+    process.exit(0);
+  });
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

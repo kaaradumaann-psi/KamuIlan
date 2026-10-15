@@ -20,6 +20,7 @@
  * sekmesinin açık kalmasına bağlı değildir.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { safeExitCode, signalExitCode } from './lib/exit-codes';
 import { createConnection } from 'node:net';
 import { getEnv } from '../src/config/env';
 import { describeDriver, effectiveDriver } from '../src/db/store';
@@ -65,16 +66,26 @@ function run(name: string, args: string[]): ChildProcess {
   return child;
 }
 
+/**
+ * Tüm alt süreçleri kapatır ve verilen SAYISAL kodla çıkar.
+ *
+ * DİKKAT: `process.on('SIGINT', shutdown)` yazıldığında Node sinyal ADINI
+ * ('SIGINT') ilk argüman olarak geçirir ve `process.exit('SIGINT')`
+ * `ERR_INVALID_ARG_TYPE` fırlatırdı — Ctrl+C sonrası süreç çökerek kapanıyordu
+ * (2026-10-16 Windows koşumunda görüldü). `process.exit` yalnızca sayı alır;
+ * sinyal için geleneksel kodlar kullanılır (128 + sinyal numarası).
+ */
 function shutdown(exitCode = 0): void {
   console.log('\n[dev] tüm süreçler kapatılıyor…');
   for (const child of children) {
     if (!child.killed) child.kill('SIGTERM');
   }
-  setTimeout(() => process.exit(exitCode), 500);
+  setTimeout(() => process.exit(safeExitCode(exitCode)), 500);
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', (signal) => shutdown(signalExitCode(signal)));
+process.on('SIGTERM', (signal) => shutdown(signalExitCode(signal)));
+process.on('SIGHUP', (signal) => shutdown(signalExitCode(signal)));
 
 /** Vite proxy'nin hedef API portu erişilebilir olana kadar TCP ile bekler. */
 function canConnectToApi(): Promise<boolean> {
@@ -150,6 +161,12 @@ async function main(): Promise<void> {
     );
   }).catch((error: unknown) => {
     console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      '[dev] Bakım yukarıdaki hatayla durdu. Hata TLS/sertifika kaynaklıysa (SELF_SIGNED_CERT_IN_CHAIN, ' +
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE) kök nedeni bulmak için: npm run db:tls-doctor ' +
+        '(parola göndermeden sunucunun zincirini okur ve uygulanacak adımı yazar). ' +
+        'Kurulum: docs/database-tls.md — doğrulamayı kapatmayın (no-verify).',
+    );
     process.exitCode = 1;
     process.exit(1);
   });

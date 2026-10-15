@@ -34,7 +34,9 @@ kuyruğu görünürlüğü (panelde "yapay zekâ ön görüşü") birlikte çal�
 
 ## 2. Sağlayıcı ve model kararı
 
-Mevcut altyapı OpenAI uyumlu `/chat/completions` istemcisidir (`src/ai/llm.ts`; panel önerileriyle
+Mevcut altyapı iki taşıyıcılı bir sohbet istemcisidir (`src/ai/llm.ts`): Google kökü için
+birincil `generateContent` API'si, diğer sağlayıcılar için OpenAI uyumlu `/chat/completions`
+(panel önerileriyle
 ortak). Yeni bağımlılık EKLENMEDİ; sağlayıcı ortam değişkeniyle seçilir.
 
 **Önerilen varsayılan: Groq üzerinde `llama-3.3-70b-versatile`** (`LLM_BASE_URL=https://api.groq.com/openai/v1`).
@@ -115,3 +117,82 @@ Yönetici → Genel bakış → LLM kartı (24s çağrı, token, gecikme, hata).
   `classification.llm` içinde saklar, geriye dönük görülebilir).
 - İstem/model değişikliği: `LLM_PROMPT_VERSION` (kod sabiti) artırılır → önbellek anahtarları
   değişir → aynı içerik yeni sürümle kontrollü biçimde yeniden değerlendirilir.
+
+## 7. Sağlayıcı hatalarını tanılama (`npm run llm:doctor`)
+
+Belirti: panelde "Yapay zekâ ön görüşü — model denetimine ulaşılamadı / Sağlayıcı
+HTTP 404 döndü", LLM ölçümlerinde **%100 hata oranı · 0 token · 0 geçerli kayıt**.
+Bu, modelin "kötü" olması değil **yapılandırma** sorunudur: istek hiç bir modele
+ulaşmaz, dolayısıyla token da üretilmez. Kararlar kurallarda kalır ve inceleme
+kuyruğu insana yığılır.
+
+Tanı komutu (tek gerçek çağrı yapar, veritabanına yazmaz, anahtarı yazdırmaz):
+
+```bash
+npm run llm:doctor              # yapılandırma + canlı çağrı
+npm run llm:doctor -- --offline # yalnızca yapılandırma (ağ yok)
+npm run llm:doctor -- --json    # makine okunur
+```
+
+En sık üç kök neden ve karşılığı:
+
+| Belirti | Kök neden | Karşılık |
+| --- | --- | --- |
+| HTTP 404, ~300 ms, 0 token | İstek, sağlayıcının **sunmadığı** bir sohbet ucuna gidiyor ya da model adı o sağlayıcıda yok | `npm run llm:doctor` taşıyıcıyı ve tam istek adresini yazar; başarısızlıkta sağlayıcının kendi mesajını ve **model listesi denetimini** gösterir. Google için kök `https://generativelanguage.googleapis.com/v1beta` yazılır — istemci birincil API'yi (`POST {kök}/models/{model}:generateContent`) kullanır. OpenAI için `https://api.openai.com/v1`, karma katalog için `https://openrouter.ai/api/v1` |
+| HTTP 401/403 | Anahtar geçersiz/süresi dolmuş ya da modele yetkisiz | `LLM_API_KEY`'yi yenileyin; `npm run env:setup` ile tek tek doldurun |
+| HTTP 429 / `Zaman aşımı` | Kota ya da ağ | `LLM_DAILY_CALL_LIMIT`, `LLM_MAX_CALLS_PER_RUN`, `LLM_TIMEOUT_MS` ayarları; ağ çıkışı |
+
+Uç/model uyuşmazlığı (ör. OpenAI ucuna `gemini-2.5-flash`) `npm run env:check`
+çıktısında da **uyarı** olarak görünür; başlatmayı engellemez çünkü yanlış
+pozitif olasılığı vardır — kesin kararı `llm:doctor`'ın canlı çağrısı verir.
+
+### 7.1 Google Gemini taşıyıcısı (2026-10-16 kök neden düzeltmesi)
+
+**Canlı kanıt (kullanıcı makinesi, aynı API anahtarı):**
+
+| İstek | Sonuç |
+| --- | --- |
+| `GET /v1beta/models` | 200 |
+| `GET /v1beta/openai/models` | 200 — `gemini-2.5-flash` listede VAR |
+| `POST /v1beta/openai/chat/completions` | **404** |
+| `npm run llm:doctor` (eski sürüm) | **404**, 0 token |
+
+Yani anahtar ve model geçerli; sorun **sohbet ucunun kendisinde**. Google'ın
+`…/v1beta/openai/…` katmanı birincil API değil, kısmî bir uyumluluk kabuğudur ve
+her anahtar/bölge/model kombinasyonu için `chat/completions` sunmaz. Modelin
+listede görünmesi sohbet ucunun çalıştığını kanıtlamaz — bu iki uç farklı
+yönlendiricilerdir.
+
+**Kalıcı düzeltme:** Google kökü (`generativelanguage.googleapis.com`) artık
+birincil API'ye yönlendirilir; kabuğa bağımlılık kalmaz.
+
+| Konu | OpenAI uyumlu (diğer sağlayıcılar) | Gemini yerel |
+| --- | --- | --- |
+| Uç | `POST {kök}/chat/completions` | `POST {kök}/models/{model}:generateContent` |
+| Anahtar | `Authorization: Bearer <anahtar>` | `x-goog-api-key: <anahtar>` (URL sorgusunda ASLA) |
+| Sistem mesajı | `messages[0].role = "system"` | `systemInstruction.parts[].text` |
+| Roller | `user` / `assistant` | `user` / `model` (ardışık aynı rol tek içerikte birleştirilir) |
+| Parametreler | `temperature`, `max_tokens`, `response_format` | `generationConfig.temperature`, `maxOutputTokens`, `responseMimeType: application/json` |
+| Model kimliği | olduğu gibi | `models/` ve `google/` önekleri atılır |
+| Yanıt metni | `choices[0].message.content` | `candidates[0].content.parts[].text` (parçalar birleştirilir) |
+| Token | `usage.prompt_tokens` / `completion_tokens` | `usageMetadata.promptTokenCount` / `candidatesTokenCount` (yoksa `totalTokenCount`) |
+| Boş yanıt | "içerik yok" | `finishReason` / `finishMessage` / `promptFeedback.blockReason` gerekçesiyle |
+
+Ortak kalan davranış: aynı `LlmResult` sözleşmesi, aynı zaman aşımı
+(`AbortController` + `LLM_TIMEOUT_MS`), aynı yeniden deneme politikası
+(429/5xx/zaman aşımı geçici; 400/401/403/404 kalıcı → kota tüketmez), aynı
+önbellek/telemetri/kota katmanı, aynı sır politikası (anahtar loglanmaz, hata
+metinlerinden ayıklanır). `LlmResult` ve üst katmanlar (`classifier.ts`,
+`suggest.ts`, panel) DEĞİŞMEDİ.
+
+Karşılaştırma yapmak gerekirse: `npm run llm:doctor -- --compat` (kabuğu dener)
+ve `npm run llm:doctor -- --native` (birincil API'yi zorlar). Doktor başarısız
+çağrıda ayrıca **model listesi denetimi** yapar ve "model listede VAR ⇒ sorun
+uçta" ya da "model listede YOK ⇒ benzer modeller: …" sonucunu yazar.
+
+Doğrulama sonrası: maliyet satırının panelde görünmesi için
+`LLM_COST_USD_PER_MTOK_INPUT` / `LLM_COST_USD_PER_MTOK_OUTPUT` değerlerini
+sağlayıcının resmî fiyat sayfasından yazın (boşsa "maliyet raporlanmadı" yazar,
+rakam uydurulmaz). Kapı açıldıktan sonra inceleme kuyruğundaki eski kayıtlar
+kendiliğinden model denetiminden geçmez; `npm run llm:review-assist` (kuru
+çalıştırma) ya da sonraki taramalarda kapının aynı içeriği görmesi beklenir.

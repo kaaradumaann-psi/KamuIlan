@@ -17,6 +17,7 @@ import {
   loadCaStore as tlsLoadCaStore,
   systemCaStoreAvailable as tlsTrustStoreAvailable,
   describeTlsTrust as tlsTrustDescribe,
+  tlsVerificationDisabled as tlsVerificationOff,
   SYSTEM_CA_MIN_NODE as TLS_TRUST_SYSTEM_CA_MIN_NODE,
 } from '../lib/tls-trust';
 import { isIP } from 'node:net';
@@ -24,6 +25,13 @@ import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
 import { createLogger, type Logger } from '../lib/logger';
 import { createPublicOnlyLookup } from './network-safety';
+import {
+  completeCertificateChain,
+  isChainIncompleteError,
+  readPresentedChain,
+  subjectLabel,
+} from '../lib/tls-chain-completion';
+import { X509Certificate } from 'node:crypto';
 
 export interface FetchOptions {
   /** Üst katman iptal/zaman aşımı sinyali. */
@@ -279,8 +287,45 @@ export function describeTlsTrust(): string {
   return tlsTrustDescribe();
 }
 
+/**
+ * Süreç genelinde TLS doğrulaması kapatılmış mı? (`NODE_TLS_REJECT_UNAUTHORIZED=0`)
+ *
+ * İstemci bu anahtarı kendisi kullanmaz; yalnızca RAPORLAR. Doğrulama her zaman
+ * açıktır ve açık kalır — kapatılmış bir süreçte yapılan taramanın sonucu
+ * güvenilmez olduğu için bunu gizlemek yerine görünür kılarız.
+ */
+export function tlsVerificationDisabled(): boolean {
+  return tlsVerificationOff();
+}
+
 export function loadTrustBundle(): string[] | undefined {
   return tlsLoadCaStore();
+}
+
+/**
+ * Eksik zincir için AIA tamamlaması denenmeli mi?
+ *
+ * Kararın ayrı bir saf fonksiyon olması bilinçlidir: bu yol TLS doğrulamasına
+ * dokunduğu için "ne zaman denenir" kuralı test edilebilir olmalıdır.
+ *
+ * Kurallar:
+ *  - Anahtar kapalıysa (`SOURCE_TLS_AIA_COMPLETION=0`) asla denenmez.
+ *  - Hata eksik zincir kodlarından biri değilse denenmez (ör. host adı
+ *    uyuşmazlığı ya da süresi dolmuş sertifika zincir tamamlamayla çözülmez).
+ *  - Host başına YALNIZCA bir kez denenir; tamamlanmış host yeniden denenmez.
+ */
+export function shouldAttemptChainCompletion(state: {
+  enabled: boolean;
+  chainIncomplete: boolean;
+  host: string;
+  attemptedHosts: ReadonlySet<string>;
+  completedHosts: ReadonlySet<string>;
+}): boolean {
+  if (!state.enabled) return false;
+  if (!state.chainIncomplete) return false;
+  if (state.attemptedHosts.has(state.host)) return false;
+  if (state.completedHosts.has(state.host)) return false;
+  return true;
 }
 
 let trustWarningShown = false;
@@ -292,6 +337,19 @@ export class HttpClient {
   private readonly userAgent: string;
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly signal: AbortSignal | undefined;
+  /** Birleşik güven deposu (Node + sistem + NODE_EXTRA_CA_CERTS) PEM listesi. */
+  private readonly baseCa: readonly string[];
+  /**
+   * AIA ile tamamlanmış zincirler: `host` → ek halkaları içeren dispatcher.
+   *
+   * Sunucu ara sertifikayı göndermediğinde (bkz. src/lib/tls-chain-completion.ts)
+   * eksik halka DOĞRULANARAK bulunur ve o host için ayrı bir ajan oluşturulur.
+   * Doğrulama her istekte AÇIKTIR; yalnızca güven kümesi, zaten güvenilen bir
+   * köke bağlanan halkalarla genişler.
+   */
+  private readonly completedChainAgents = new Map<string, Dispatcher>();
+  /** Aynı host için tamamlama yalnızca BİR kez denenir (döngü/tekrar koruması). */
+  private readonly chainCompletionAttempted = new Set<string>();
 
   constructor(options: HttpClientOptions = {}) {
     this.ownsAgent = options.dispatcher === undefined;
@@ -309,14 +367,16 @@ export class HttpClient {
         'Sistem sertifika deposu okunamıyor; eksik zincirli resmî siteler reddedilebilir. Node 22.15+ kurun.',
       );
     }
-    this.agent = options.dispatcher ?? this.createAgent(loadTrustBundle());
+    const trustBundle = loadTrustBundle();
+    this.baseCa = trustBundle ?? [];
+    this.agent = options.dispatcher ?? this.createAgent(trustBundle);
   }
 
   private createAgent(ca?: readonly string[]): Agent {
     return new Agent({
       connections: 8,
       // Yavaş resmî sunucular başlıkları geç gönderebilir; başlık bütçesi
-      // çağrı bütçesinin (SCRAPE_TIMEOUT_MS, 60 sn) altında olmamalı.
+      // çağrı bütçesinin (SCRAPE_TIMEOUT_MS, varsayılan 120 sn) altında olmamalı.
       headersTimeout: 60_000,
       bodyTimeout: 60_000,
       // Resmî sunucular boşta bağlantıyı erken kapatır; uzun keep-alive
@@ -333,14 +393,63 @@ export class HttpClient {
     });
   }
 
-  private dispatcherFor(_url: URL): Dispatcher {
-    return this.agent;
+  private dispatcherFor(url: URL): Dispatcher {
+    // AIA ile tamamlanmış zinciri olan host'lar kendi ajanını kullanır.
+    return this.completedChainAgents.get(url.host) ?? this.agent;
+  }
+
+  /**
+   * Eksik zinciri AIA ile tamamlamayı dener; başarılıysa host'a özel ajan kurar.
+   *
+   * @returns Kullanıcıya/günlüğe yazılabilir not; tamamlama olmadıysa `null`.
+   */
+  private async tryCompleteTlsChain(url: URL, timeoutMs: number): Promise<string | null> {
+    const presented = await readPresentedChain({
+      host: url.hostname,
+      port: url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80,
+      servername: url.hostname,
+      timeoutMs: Math.min(timeoutMs, 10_000),
+    });
+    if (presented.length === 0) return null;
+    const roots = this.baseCa
+      .map((pem) => {
+        try {
+          return new X509Certificate(pem);
+        } catch {
+          return null;
+        }
+      })
+      .filter((certificate): certificate is X509Certificate => certificate !== null);
+    const result = await completeCertificateChain(presented, roots, {
+      timeoutMs: Math.min(timeoutMs, 10_000),
+    });
+    if (!result.ok || result.added.length === 0) {
+      this.logger.warn(
+        { host: url.hostname, reason: result.reason, attemptedUrls: result.attemptedUrls.length },
+        'Eksik sertifika zinciri AIA ile tamamlanamadı; doğrulama açık kaldı ve istek reddedildi.',
+      );
+      return null;
+    }
+    const addedPem = result.added.map((certificate) => certificate.toString());
+    const agent = this.createAgent([...this.baseCa, ...addedPem]);
+    this.completedChainAgents.set(url.host, agent);
+    const note =
+      `Eksik ara sertifika AIA ile tamamlandı (${result.added.map(subjectLabel).join(', ')}); ` +
+      `zincir güvenilen köke bağlandı: ${result.trustedBy ? subjectLabel(result.trustedBy) : 'bilinmiyor'}. ` +
+      'TLS doğrulaması açık kaldı.';
+    this.logger.info({ host: url.hostname, added: result.added.map(subjectLabel) }, note);
+    return note;
   }
 
   private readonly ownsAgent: boolean;
 
   async close(): Promise<void> {
-    if (this.ownsAgent) await this.agent.close();
+    if (!this.ownsAgent) return;
+    await this.agent.close();
+    for (const agent of this.completedChainAgents.values()) {
+      await (agent as Agent).close().catch(() => undefined);
+    }
+    this.completedChainAgents.clear();
   }
 
   /** Metin (HTML/XML/JSON) getirir. */
@@ -403,6 +512,29 @@ export class HttpClient {
             ? error
             : new FetchError(rawUrl, describeFetchFailure(error), null, true);
         lastError = fetchError;
+
+        // Eksik sertifika zinciri: geri çekilme/yeniden deneme bütçesini
+        // tüketmeden, doğrulamayı KAPATMADAN tek seferlik tamamlama denenir.
+        // (NODE_TLS_REJECT_UNAUTHORIZED=0 yerine gerçek çözüm budur.)
+        const target = new URL(rawUrl);
+        const hostKey = target.host;
+        if (
+          shouldAttemptChainCompletion({
+            enabled: env.SOURCE_TLS_AIA_COMPLETION,
+            chainIncomplete: isChainIncompleteError(error),
+            host: hostKey,
+            attemptedHosts: this.chainCompletionAttempted,
+            completedHosts: new Set(this.completedChainAgents.keys()),
+          })
+        ) {
+          this.chainCompletionAttempted.add(hostKey);
+          const note = await this.tryCompleteTlsChain(target, timeoutMs).catch(() => null);
+          if (note) {
+            attempt -= 1; // tamamlama sonrası deneme bütçesi aynı kalır
+            continue;
+          }
+        }
+
         if (!fetchError.retryable || attempt > maxRetries) throw fetchError;
         const exponentialBackoff = Math.min(2 ** attempt * 500, 15_000) * (0.8 + Math.random() * 0.4);
         const backoff = Math.max(exponentialBackoff, fetchError.retryAfterMs ?? 0);

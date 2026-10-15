@@ -31,7 +31,11 @@ import { createId, randomToken } from '../../domain/ids';
 import { hashPassword } from '../passwords';
 import { BRANDING } from '../../config/app';
 import { getEnv } from '../../config/env';
-import { audit, requireAdmin } from '../context';
+import { audit, matchesPathPrefix, requireAdmin } from '../context';
+import { isHttpUrl } from '../../domain/urls';
+
+/** Yönetici uçlarının ortak ön eki. */
+const ADMIN_PREFIX = '/api/admin';
 import { ApiError } from '../errors';
 import {
   toCoverageEntry,
@@ -65,8 +69,8 @@ const sourceCreateSchema = z
       'manual',
     ]),
     institution: z.string().trim().min(3).max(160),
-    listingUrl: z.string().trim().url().max(400),
-    homepageUrl: z.string().trim().url().max(400),
+    listingUrl: httpUrlField(),
+    homepageUrl: httpUrlField(),
     adapterKey: z.string().trim().min(2).max(64),
     method: z.enum(['html-list', 'pdf-index', 'json-api', 'browser', 'manual-entry']),
     status: z.enum([
@@ -96,7 +100,7 @@ const sourcePatchSchema = z
     status: sourceCreateSchema.shape.status.optional(),
     statusNote: z.string().trim().max(600).optional(),
     coverageNote: z.string().trim().max(600).optional(),
-    listingUrl: z.string().trim().url().max(400).optional(),
+    listingUrl: httpUrlField().optional(),
     enabled: z.boolean().optional(),
     intervalMinutes: z.number().int().min(5).max(10_080).optional(),
     method: sourceCreateSchema.shape.method.optional(),
@@ -104,14 +108,26 @@ const sourcePatchSchema = z
   })
   .strict();
 
+/** Kaynak adresleri yalnızca http(s) olabilir: panel bunları tıklanabilir bağ çizer. */
+function httpUrlField() {
+  return z
+    .string()
+    .trim()
+    .max(400)
+    .refine(isHttpUrl, { message: 'URL http:// veya https:// ile başlamalıdır.' });
+}
+
 export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
+  // Yetki kararı HAM URL'ye bırakılmaz: `/%61pi/admin/overview` gibi yüzde kodlu
+  // yollar rotayla eşleşir ama `request.url` ön ekiyle eşleşmez ve denetimi atlardı.
   app.addHook('preHandler', async (request) => {
-    if (!request.url.startsWith('/api/admin')) return;
+    if (!matchesPathPrefix(request, ADMIN_PREFIX)) return;
     requireAdmin(request);
   });
 
   // ------------------------------------------------------------------ genel bakış
-  app.get('/api/admin/overview', { schema: { tags: ['admin'], summary: 'Yönetici panosu' } }, async () => {
+  app.get('/api/admin/overview', { schema: { tags: ['admin'], summary: 'Yönetici panosu' } }, async (request) => {
+    requireAdmin(request);
     const [stats, coverage, runSummary, reviewCounts, outboxStats, queueStats, heartbeats, auditCount, llm] =
       await Promise.all([
         repos.jobs.dashboardStats(repos.clock.now()),
@@ -172,7 +188,8 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
   app.get(
     '/api/admin/sources',
     { schema: { tags: ['admin'], summary: 'Kaynakları listele (sağlık dahil)' } },
-    async () => {
+    async (request) => {
+      requireAdmin(request);
       const coverage = await repos.sources.coverage();
       return {
         sources: coverage.sources.map(toCoverageEntry),
@@ -318,6 +335,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     '/api/admin/scrape-runs',
     { schema: { tags: ['admin'], summary: 'Tarama geçmişi (hata ayrıntılarıyla)' } },
     async (request) => {
+      requireAdmin(request);
       const query = z
         .object({
           sourceKey: sourceKeySchema.optional(),
@@ -357,6 +375,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     '/api/admin/review-queue',
     { schema: { tags: ['admin'], summary: 'İnceleme kuyruğu (sınıflandırma/tekilleştirme/çıkarım)' } },
     async (request) => {
+      requireAdmin(request);
       const query = z
         .object({
           kind: z.enum(['classification', 'dedupe', 'extraction']).optional(),
@@ -546,6 +565,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     '/api/admin/email-outbox',
     { schema: { tags: ['admin'], summary: 'E-posta kuyruğu ve hataları' } },
     async (request) => {
+      requireAdmin(request);
       const query = z
         .object({
           status: z.enum(['pending', 'sending', 'accepted', 'failed', 'dead', 'suppressed']).optional(),
@@ -613,7 +633,8 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
   app.get(
     '/api/admin/queue',
     { schema: { tags: ['admin'], summary: 'Kuyruk durumu, ölü işler ve kilitler' } },
-    async () => {
+    async (request) => {
+      requireAdmin(request);
       const [stats, dead, locks, tasks] = await Promise.all([
         repos.queue.stats(),
         repos.queue.listDead(50),
@@ -680,6 +701,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     '/api/admin/jobs/:id/revisions',
     { schema: { tags: ['admin'], summary: 'İlan değişiklik geçmişi' } },
     async (request) => {
+      requireAdmin(request);
       const params = z.object({ id: z.string().min(5).max(64) }).parse(request.params);
       const [job, revisions, links] = await Promise.all([
         repos.jobs.findById(params.id),
@@ -719,6 +741,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     '/api/admin/users',
     { schema: { tags: ['admin'], summary: 'Kullanıcı listesi (e-postalar maskeli)' } },
     async (request) => {
+      requireAdmin(request);
       const query = z
         .object({ limit: z.coerce.number().int().min(1).max(200).default(50) })
         .parse(request.query);
@@ -818,6 +841,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     '/api/admin/audit-logs',
     { schema: { tags: ['admin'], summary: 'Denetim kaydı' } },
     async (request) => {
+      requireAdmin(request);
       const query = z
         .object({
           action: z.string().trim().max(60).optional(),
@@ -845,7 +869,8 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
   app.get(
     '/api/admin/coverage-report',
     { schema: { tags: ['admin'], summary: 'Kapsam raporu (doğrulanan / planlanan kaynaklar)' } },
-    async () => {
+    async (request) => {
+      requireAdmin(request);
       const coverage = await repos.sources.coverage();
       const byGroup = new Map<string, number>();
       for (const entry of coverage.sources) byGroup.set(entry.group, (byGroup.get(entry.group) ?? 0) + 1);

@@ -16,6 +16,8 @@ import { HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { Icon } from '../components/Icon';
 import {
   RUN_STATUS_LABELS,
+  describeWorkerState,
+  sortWorkersByRecency,
   formatDateTime,
   formatDuration,
   formatNumber,
@@ -173,21 +175,38 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
             <code>npm run dev:worker</code> (üretimde ayrı servis) çalıştırılmalı.
           </InfoNote>
         ) : (
-          <ul className="summary-list">
-            {data.workers.map((worker) => (
-              <li key={worker.workerId} className="meta-row">
-                <Badge tone={worker.stale ? 'danger' : 'success'}>
-                  {worker.stale ? 'bayat' : 'çalışıyor'}
-                </Badge>
-                <span className="strong">{worker.workerId}</span>
-                <span className="text-muted">
-                  rol: {worker.role} · son atış: {formatRelative(worker.lastHeartbeatAt)} · işlenen iş:{' '}
-                  {formatNumber(worker.processedJobs)}
-                </span>
-                {worker.lastError && <span className="text-danger-sm">son hata: {worker.lastError}</span>}
-              </li>
-            ))}
-          </ul>
+          (() => {
+            // Üç durum: bayat / çalışıyor / durdu. `stale` yalnızca "durduğunu
+            // bildirmediği hâlde sessiz" süreçlerde true olur; iki duruma
+            // indirgenirse 47 saat önce kapanmış süreç "çalışıyor" görünür.
+            const { visible, hidden } = sortWorkersByRecency(data.workers);
+            return (
+              <>
+                <ul className="summary-list">
+                  {visible.map((worker) => {
+                    const state = describeWorkerState(worker.status, worker.stale);
+                    return (
+                      <li key={worker.workerId} className="meta-row">
+                        <Badge tone={state.tone}>{state.label}</Badge>
+                        <span className="strong">{worker.workerId}</span>
+                        <span className="text-muted">
+                          rol: {worker.role} · son atış: {formatRelative(worker.lastHeartbeatAt)} · işlenen iş:{' '}
+                          {formatNumber(worker.processedJobs)}
+                        </span>
+                        {worker.lastError && <span className="text-danger-sm">son hata: {worker.lastError}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {hidden > 0 && (
+                  <p className="text-muted">
+                    Ayrıca {formatNumber(hidden)} eski worker kaydı var (hepsi durmuş ya da bayat); yalnızca en yeni{' '}
+                    {visible.length} satır gösteriliyor.
+                  </p>
+                )}
+              </>
+            );
+          })()
         )}
       </Card>
 

@@ -119,23 +119,28 @@ function parseLine(rawLine: string): { key: string; value: string } | null {
  * `.env` (ve varsa `.env.<NODE_ENV>`) dosyalarını okuyup `process.env` içine
  * yazar. Süreç başına bir kez çalışır.
  *
- * @param cwd Arama kökü (varsayılan: sürecin çalışma dizini).
+ * @param target Arama kökü (dizine göreli `.env` aranır) ya da açık dosya yolu.
+ *   `envFile` verildiğinde YALNIZCA o dosya okunur: `env:setup` başka bir
+ *   dizindeki `.env` üzerinde çalışırken proje `.env`'inin doğrulamayı
+ *   kirletmemesi gerekir.
  * @returns Yüklenen son dosyanın yolu ya da `null`.
  */
-export function loadEnvFile(cwd: string = process.cwd()): string | null {
+export function loadEnvFile(target: string | { cwd?: string; envFile?: string } = process.cwd()): string | null {
   if (attempted) return loadedFrom;
   attempted = true;
 
   // Test ortamında geliştirici `.env` dosyası sonuçları etkilememelidir.
   if (process.env.NODE_ENV === 'test') return null;
 
+  const cwd = typeof target === 'string' ? target : (target.cwd ?? process.cwd());
+  const explicitFile = typeof target === 'string' ? undefined : target.envFile;
   const nodeEnv = process.env.NODE_ENV?.trim() ?? '';
   // İkinci dosya (`.env.development` / `.env.production`) daha özeldir:
   // `.env` içindeki aynı anahtarı ezer, ama gerçek ortam değişkenlerini ezmez.
   const candidates: { path: string; override: boolean }[] = [
-    { path: resolve(cwd, ENV_FILE), override: false },
+    { path: explicitFile ? resolve(explicitFile) : resolve(cwd, ENV_FILE), override: false },
   ];
-  if (nodeEnv.length > 0) {
+  if (nodeEnv.length > 0 && !explicitFile) {
     candidates.push({ path: resolve(cwd, `${ENV_FILE}.${nodeEnv}`), override: true });
   }
 
@@ -158,6 +163,31 @@ export function loadEnvFile(cwd: string = process.cwd()): string | null {
     loadedFrom = candidate.path;
   }
   return loadedFrom;
+}
+
+/**
+ * Hedef dosyadaki anahtarlar ile süreç ortamını karşılaştırır.
+ *
+ * Süreç ortamı dosyadan ÖNCE gelir; bu yüzden kabukta (Windows'ta "Kullanıcı
+ * değişkenleri", `set`, PowerShell `$env:`) tanımlı bir anahtar, dosyaya
+ * yazılan değeri GÖLGEDE bırakır. Sihirbaz bunu söylemek zorundadır, yoksa
+ * kullanıcı "yazdım ama çalışmıyor" diye kalır.
+ *
+ * @returns Dosyaya yazılacak değerle aynı OLMAYAN süreç değişkenlerinin adları.
+ */
+export function envOverridesFromFile(
+  fileValues: Record<string, string>,
+  keys: readonly string[],
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const overridden: string[] = [];
+  for (const key of keys) {
+    const fromProcess = processEnv[key];
+    if (fromProcess === undefined) continue;
+    if ((fileValues[key] ?? '') === fromProcess) continue;
+    overridden.push(key);
+  }
+  return overridden;
 }
 
 /** Tanılama: `.env` yüklendiyse dosya yolunu döndürür (içeriği değil). */

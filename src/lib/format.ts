@@ -90,6 +90,46 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   locked: 'Atlandı (başka tarama sürüyor)',
 };
 
+/**
+ * Worker kalp atışı durumu → panel etiketi + ton.
+ *
+ * Neden üç durum: `stale` alanı BİLEREK yalnızca "durmadığını bildirdiği hâlde
+ * uzun süredir sessiz" süreçler için `true` olur (`admin.ts`: bilinçli kapanış
+ * yanlış alarm üretmesin). Panel bunu `stale ? 'bayat' : 'çalışıyor'` diye
+ * iki duruma indirgediğinde, 47 saat önce durmuş bir süreç "çalışıyor"
+ * görünüyordu (2026-10-16 dökümü: 17 satırdan yalnızca 1'i bayat).
+ */
+export type WorkerStateTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'accent';
+
+export function describeWorkerState(status: string | null | undefined, stale: boolean): { tone: WorkerStateTone; label: string } {
+  if (stale) return { tone: 'danger', label: 'bayat' };
+  switch (status) {
+    case 'running':
+      return { tone: 'success', label: 'çalışıyor' };
+    case 'starting':
+      return { tone: 'info', label: 'başlıyor' };
+    case 'stopping':
+      return { tone: 'warning', label: 'duruyor' };
+    case 'stopped':
+      return { tone: 'neutral', label: 'durdu' };
+    default:
+      return { tone: 'warning', label: status ? `bilinmeyen (${status})` : 'durum bilinmiyor' };
+  }
+}
+
+/**
+ * Worker satırlarını panel için sırala/kırp: en yeni kalp atışı üstte, uzun
+ * listelerde yalnızca ilk `limit` satır gösterilir (kalanlar "N eski kayıt"
+ * diye özetlenir). Böylece 17 ölü süreç satırı gerçek durumu gizlemez.
+ */
+export function sortWorkersByRecency<T extends { lastHeartbeatAt: string }>(items: readonly T[], limit = 6): {
+  visible: T[];
+  hidden: number;
+} {
+  const sorted = [...items].sort((a, b) => Date.parse(b.lastHeartbeatAt) - Date.parse(a.lastHeartbeatAt));
+  return { visible: sorted.slice(0, Math.max(1, limit)), hidden: Math.max(0, sorted.length - Math.max(1, limit)) };
+}
+
 const ISTANBUL = 'Europe/Istanbul';
 
 /** Kullanıcının yerel saatinde göster (varsayılan: Istanbul). */

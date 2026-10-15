@@ -8,8 +8,12 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { z } from 'zod';
-import { systemCaStoreAvailable } from '../lib/tls-trust';
-import { envFileSource, loadEnvFile } from './load-env';
+import { inspectCaFile } from '../lib/ca-file';
+import { effectiveDriver } from '../db/store';
+import { describeTlsVerificationOverride, systemCaStoreAvailable, tlsVerificationDisabled } from '../lib/tls-trust';
+import { describeLlmEndpointRisk } from '../ai/llm';
+import { existsSync, readFileSync } from 'node:fs';
+import { envFileSource, loadEnvFile, parseEnvFile } from './load-env';
 
 /**
  * `.env` dosyası (varsa) ortam değişkenlerine yüklenir.
@@ -118,6 +122,22 @@ const envSchema = z.object({
    */
   POSTGRES_SSL_CA_FILE: z.string().default(''),
   /**
+   * CA dosyası sistem kökleriyle BİRLEŞTİRİLSİN mi? (varsayılan: 0)
+   *
+   *  - `0` (varsayılan): sunucu sertifikası YALNIZCA `POSTGRES_SSL_CA_FILE`
+   *    içindeki köklerle doğrulanır (pinning). Dosya yanlış/eksikse bağlantı
+   *    `SELF_SIGNED_CERT_IN_CHAIN` ile reddedilir.
+   *  - `1`: dosya kökleri Node'un gömülü Mozilla kökleri + işletim sistemi
+   *    deposu + `NODE_EXTRA_CA_CERTS` ile birleştirilir. Doğrulama AÇIK kalır;
+   *    yalnızca güven kümesi genişler. Ne zaman gerekir: aynı anda hem Supabase
+   *    proje CA'sına hem kurumsal TLS denetimi köküne güvenmek gerektiğinde,
+   *    ya da doğrudan bağlantı ile pooler farklı kök sunduğunda.
+   */
+  POSTGRES_SSL_CA_MERGE_SYSTEM: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+  /**
    * TLS doğrulama kipi. Boş bırakılırsa `POSTGRES_SSL` ile geriye dönük uyum korunur:
    *  - `''` (varsayılan): `POSTGRES_SSL=1` → `verify`, `POSTGRES_SSL=0` → `disable`.
    *  - `verify`   : sunucu sertifikası doğrulanır (CA verilmişse o CA, yoksa sistem depoları).
@@ -158,7 +178,18 @@ const envSchema = z.object({
   SCAN_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(1_440).default(0),
   WORKER_NAMESPACE: z.string().default('kamuilan'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
-  SCRAPE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(60_000),
+  /**
+   * Tek kaynak taramasının TOPLAM zaman bütçesi (ms).
+   *
+   * 120 sn'ye yükseltildi (önceki 60 sn): PDF ağırlıklı kaynaklar (Resmî Gazete)
+   * ve tarayıcı yedeği kullanan kurum siteleri tek koşumda 60 sn'yi aşıyordu;
+   * bütçe dolunca koşum TAMAMEN başarısız sayılıyor ve o ana kadar okunan
+   * satırlar çöpe gidiyordu (canlı döküm: resmigazete 21 ardışık başarısızlık,
+   * "zaman aşımına uğradı (60000 ms)"). Artık adaptörler bütçeden pay düşerek
+   * çalışır (`src/sources/scan-budget.ts`): süre bitmeye yakınsa yeni detay/PDF
+   * indirilmez, okunanlar "kısmi" kapsamla kaydedilir.
+   */
+  SCRAPE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
   SCRAPE_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
   // Standart bot biçimi (Googlebot/Bingbot düzeni): kimlik gizlenmez, ad ve
   // iletişim adresi açıkça yazılır. Bazı resmî sunucular "Mozilla" ile
@@ -197,6 +228,25 @@ const envSchema = z.object({
     .string()
     .default('1')
     .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
+  /**
+   * HTTP istemcisi cevap alamadığında başsız tarayıcı (Chromium) yedeği kullanılsın mı?
+   *
+   * `0`: tarayıcı hiç başlatılmaz. Testlerde ZORUNLU kapalıdır (bkz. tests/setup.ts),
+   * çünkü Chromium gerçek ağa çıkar ve sahte HTTP istemcisinin yerine canlı siteyi
+   * okuyarak testi yanıltır. Üretimde Chromium kurulu olmayan makinelerde de
+   * kapatılabilir; adaptör o zaman asıl HTTP hatasını olduğu gibi bildirir.
+   */
+  SOURCE_BROWSER_FALLBACK: flag('1'),
+  /**
+   * Sunucu ara sertifikayı göndermediğinde zincir AIA adresinden tamamlansın mı?
+   *
+   * `1` (varsayılan): eksik halka indirilir, İMZASI ve CA durumu doğrulanır,
+   * zincir güvenilen bir köke bağlanıyorsa kabul edilir ve istek doğrulama
+   * AÇIKKEN yeniden denenir. `0`: tamamlama yapılmaz; eksik zincirli siteler
+   * `UNABLE_TO_VERIFY_LEAF_SIGNATURE` ile reddedilir (doğrulama yine açıktır).
+   * Bu anahtar hiçbir durumda doğrulamayı KAPATMAZ.
+   */
+  SOURCE_TLS_AIA_COMPLETION: flag('1'),
   MAX_DOCUMENT_BYTES: z.coerce.number().int().min(1_024).max(52_428_800).default(15_728_640),
   MAX_REDIRECTS: z.coerce.number().int().min(0).max(10).default(3),
   DOCUMENT_TIMEOUT_MS: z.coerce.number().int().min(2_000).max(120_000).default(20_000),
@@ -210,6 +260,18 @@ const envSchema = z.object({
     .transform((value) => value === '1' || value.toLowerCase() === 'true'),
   SMTP_USER: z.string().default(''),
   SMTP_PASS: z.string().default(''),
+  /**
+   * SMTP TLS sertifika doğrulamasını KAPATIR (varsayılan 0 = doğrulama açık).
+   *
+   * Eski davranış doğrulamayı yalnızca üretimde açıyordu; geliştirmede kapalı
+   * kalması SMTP kullanıcı adı/parolasını ortadaki adama açık bırakıyordu
+   * (Postgres için kabul edilmeyen `no-verify` davranışının e-posta karşılığı).
+   * Doğru çözüm sunucunun kök zincirini tamamlamaktır (NODE_EXTRA_CA_CERTS).
+   */
+  SMTP_TLS_INSECURE: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
   /**
    * Gönderim sağlayıcısı:
    *  - resend : ÜRETİM. Resend HTTP API (RESEND_API_KEY + doğrulanmış alan adı).
@@ -318,10 +380,23 @@ export type Env = z.infer<typeof envSchema>;
 
 let cachedEnv: Env | null = null;
 
-export function getEnv(overrides: Record<string, string | undefined> = {}): Env {
+export interface GetEnvOptions {
+  /** Göreli CA dosya yolu bu köke göre çözülsün (bkz. EnvironmentInspectionOptions). */
+  caFileRoot?: string;
+  /** Yalnızca bu `.env` dosyası doğrulansın (proje `.env`'i ve süreç ortamı değil). */
+  envFile?: string;
+}
+
+export function getEnv(
+  overrides: Record<string, string | undefined> = {},
+  options?: GetEnvOptions,
+): Env {
   const hasOverrides = Object.keys(overrides).length > 0;
-  if (cachedEnv && !hasOverrides) return cachedEnv;
-  const parsed = envSchema.safeParse({ ...process.env, ...overrides });
+  if (cachedEnv && !hasOverrides && !options) return cachedEnv;
+  const base: Record<string, string | undefined> = options?.envFile
+    ? parseEnvFileScoped(options.envFile)
+    : { ...process.env };
+  const parsed = envSchema.safeParse({ ...base, ...overrides });
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
@@ -329,14 +404,70 @@ export function getEnv(overrides: Record<string, string | undefined> = {}): Env 
     throw new Error(`Ortam değişkenleri geçersiz: ${details}`);
   }
   const env = parsed.data;
-  validateEnvironment(env);
-  if (!hasOverrides) cachedEnv = env;
+  validateEnvironment(env, options);
+  if (!hasOverrides && !options) cachedEnv = env;
   return env;
 }
 
 /** Testlerde ortam değişikliği sonrası yeniden okumak için. */
 export function resetEnvCache(): void {
   cachedEnv = null;
+}
+
+export type ParseEnvResult =
+  | { ok: true; env: Env }
+  | { ok: false; issues: string[]; partial: Record<string, string | undefined> };
+
+/**
+ * Ortamı DOĞRULAMADAN ayrıştırır (`env:setup` sihirbazı için).
+ *
+ * Neden ayrı: `getEnv()` fail-closed'tur ve sorunlu yapılandırmada fırlar.
+ * Sihirbazın amacı tam olarak bu sorunları KULLANICIYLA BİRLİKTE düzeltmektir;
+ * bu yüzden mevcut değerleri (maskelenmiş) gösterebilmek için ayrıştırılmış ama
+ * doğrulanmamış görünüme ihtiyacı vardır. Yazma işleminden sonra sihirbaz
+ * `getEnv()` + `inspectEnvironment()` ile asıl denetimi çalıştırır.
+ *
+ * Bu fonksiyon sır DEĞERLERİ döndürür; çağıran taraf maskeler (bkz.
+ * `maskValue` ve `describeEnv`). Üretim kodunda karar vermek için KULLANILMAZ.
+ */
+export function parseEnvWithoutValidation(
+  overrides: Record<string, string | undefined> = {},
+  options?: EnvironmentInspectionOptions,
+): ParseEnvResult {
+  // `envFile` verildiğinde YALNIZCA o dosya + açık overrides incelenir: süreç
+  // ortamı (özellikle modül yüklenirken okunan proje `.env`'i) sonucu
+  // kirletmemelidir. `env:setup --file başka/.env` bunun için var.
+  const base: Record<string, string | undefined> = options?.envFile
+    ? { ...(loadEnvFile({ envFile: options.envFile }) ? parseEnvFileScoped(options.envFile) : {}) }
+    : { ...process.env };
+  const merged = { ...base, ...overrides } as Record<string, string | undefined>;
+  const parsed = envSchema.safeParse(merged);
+  if (parsed.success) return { ok: true, env: parsed.data };
+  const issues = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  const partial: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(merged)) {
+    if (typeof value === 'string') partial[key] = value;
+  }
+  return { ok: false, issues, partial };
+}
+
+/**
+ * Bir `.env` dosyasını DOĞRUDAN okur (`process.env`'e dokunmadan).
+ *
+ * `loadEnvFile()` süreç başına bir kez çalışır ve değerleri `process.env`'e
+ * yazar; `env:setup` aynı süreçte birden çok hedef dosyayı denetlediği için
+ * orada bu salt-okunur yol kullanılır. Dosya yoksa boş küme döner (şema
+ * varsayılanları devreye girer).
+ */
+function parseEnvFileScoped(filePath: string): Record<string, string | undefined> {
+  if (!existsSync(filePath)) return {};
+  let contents: string;
+  try {
+    contents = readFileSync(filePath, 'utf8');
+  } catch {
+    return {};
+  }
+  return { ...parseEnvFile(contents) };
 }
 
 /** Supabase/Postgres bağlantı dizesi tanımlı mı? (POSTGRES_URL veya DATABASE_URL) */
@@ -420,6 +551,16 @@ export function postgresTlsMode(env: Env): 'verify' | 'no-verify' | 'disable' {
   return env.POSTGRES_SSL ? 'verify' : 'disable';
 }
 
+/**
+ * CA dosyası sistem kökleriyle birleştirilecek mi? (tek karar noktası)
+ *
+ * Birleştirme YALNIZCA bir CA dosyası tanımlıyken anlam taşır; dosya yokken
+ * zaten sistem kökleri kullanılır.
+ */
+export function postgresCaMergeSystem(env: Env): boolean {
+  return Boolean(env.POSTGRES_SSL_CA_FILE) && env.POSTGRES_SSL_CA_MERGE_SYSTEM;
+}
+
 export interface EnvironmentInspection {
   ok: boolean;
   problems: string[];
@@ -430,14 +571,52 @@ export interface EnvironmentInspection {
  * Ayarları çalıştırmadan denetler: `npm run env:check` ve süreç başlangıcı
  * bu sonucu kullanır. `getEnv()` sorun varsa hata fırlatır.
  */
-export function inspectEnvironment(env: Env = getEnv()): EnvironmentInspection {
-  const { problems, warnings } = collectEnvironmentProblems(env);
+export function inspectEnvironment(
+  env: Env = getEnv(),
+  options?: EnvironmentInspectionOptions,
+): EnvironmentInspection {
+  const { problems, warnings } = collectEnvironmentProblems(env, options);
   return { ok: problems.length === 0, problems, warnings };
 }
 
-function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: string[] } {
+export interface EnvironmentInspectionOptions {
+  /**
+   * Göreli CA dosya yolunun çözüleceği kök dizin.
+   *
+   * Varsayılan: `.env` dosyasının bulunduğu proje kökü. `env:setup --file`
+   * başka bir dizindeki dosyayı yazdığında denetimin O dosyanın kökünü
+   * kullanması gerekir; aksi halde doğru yol "bulunamadı" diye reddedilir.
+   */
+  caFileRoot?: string;
+  /** Yalnızca bu `.env` dosyası denetlensin (proje `.env`'i ve süreç ortamı değil). */
+  envFile?: string;
+}
+
+function collectEnvironmentProblems(
+  env: Env,
+  options?: EnvironmentInspectionOptions,
+): { problems: string[]; warnings: string[] } {
   const problems: string[] = [];
   const warnings: string[] = [];
+  // NODE_TLS_REJECT_UNAUTHORIZED şemada değildir (Node'un kendi anahtarıdır) ama
+  // tüm TLS kararlarını geçersiz kılar: üretimde başlangıcı durdurur, diğer
+  // ortamlarda yüksek sesli uyarıdır. Kaldırma adımları metnin içindedir.
+  if (tlsVerificationDisabled()) {
+    const override = describeTlsVerificationOverride() ?? 'NODE_TLS_REJECT_UNAUTHORIZED=0 kaldırılmalıdır.';
+    if (env.NODE_ENV === 'production') problems.push(override);
+    else warnings.push(override);
+  }
+  // SMTP sertifika doğrulaması kapatıldıysa: üretimde başlangıcı durdurur, diğer
+  // ortamlarda yüksek sesli uyarı (NODE_TLS_REJECT_UNAUTHORIZED ile aynı politika).
+  if (env.SMTP_TLS_INSECURE) {
+    const message =
+      'SMTP_TLS_INSECURE=1: SMTP sertifika doğrulaması KAPALI — gönderim TLS olsa bile sunucu ' +
+      'kimliği doğrulanmaz ve SMTP kullanıcı adı/parolası ortadaki adama açık kalır. Doğru karşılık ' +
+      'eksik kökü tamamlamaktır (NODE_EXTRA_CA_CERTS=./certs/kurum-koku.pem). Kapatmak için anahtarı ' +
+      '.env dosyasından silin: npm run env:setup -- --only SMTP_TLS_INSECURE';
+    if (env.NODE_ENV === 'production') problems.push(message);
+    else warnings.push(message);
+  }
   if (env.NODE_ENV === 'production') {
     if (!env.APP_SECRET || env.APP_SECRET.length < 32) {
       problems.push('APP_SECRET üretimde en az 32 karakter olmalıdır (oturum/jeton imzası).');
@@ -493,6 +672,52 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
             `(Node ${process.version}); özel/ulusal CA kullanan bir Supabase sertifikasında bağlantı reddedilebilir. ` +
             'Kök CA dosyasını POSTGRES_SSL_CA_FILE ile gösterin.',
         );
+      }
+      // CA dosyası tanımlıysa İÇERİĞİ burada denetlenir: `db:migrate`/`start`
+      // çalışmadan önce yanlış dosya (HTML, DER, özel anahtar, leaf, süresi
+      // dolmuş, eksik yol) görünür olmalıdır. Aksi halde kullanıcı aynı
+      // SELF_SIGNED_CERT_IN_CHAIN hatasını nedenini bilmeden alır.
+      //
+      // Denetim YALNIZCA etkin sürücü Postgres iken yapılır: DATABASE_DRIVER=file
+      // ile yerel çalışan bir geliştirici, `.env`'de unutulmuş bir CA yolu yüzünden
+      // uygulama başlatamaz duruma düşmemelidir.
+      if (env.POSTGRES_SSL_CA_FILE && effectiveDriver(env) === 'postgres') {
+        const report = inspectCaFile(env.POSTGRES_SSL_CA_FILE, { root: options?.caFileRoot });
+        if (!report.exists) {
+          problems.push(
+            `POSTGRES_SSL_CA_FILE bulunamadı: ${env.POSTGRES_SSL_CA_FILE} (denenen: ${report.candidates.join(', ')}). ` +
+              'Göreli yol `.env` dosyasının bulunduğu klasöre ve çalışma dizinine göre çözülür; doğrulamasız bağlantıya DÜŞÜLMEZ. ' +
+              'Tanılama: npm run db:tls-doctor — kurulum: docs/database-tls.md',
+          );
+        } else {
+          // Dosya bulunmuşsa aynı sorunu iki kez raporlamamak için yalnızca
+          // içerik denetiminin (blocking) sonuçları yazılır.
+          for (const entry of report.issues) {
+            if (!entry.blocking) continue;
+            problems.push(
+              `POSTGRES_SSL_CA_FILE kullanılamaz (${entry.code}): ${entry.message.replace(/\n\s*/g, ' ')} ` +
+                '— Tanılama: npm run db:tls-doctor, kurulum: docs/database-tls.md',
+            );
+          }
+        }
+        for (const entry of report.warnings) {
+          warnings.push(`POSTGRES_SSL_CA_FILE: ${entry.message.replace(/\n\s*/g, ' ')}`);
+        }
+        const caCount = report.certificates.length;
+        const rootCount = report.certificates.filter((cert) => cert.selfSigned && cert.isCa).length;
+        if (report.usable && caCount > 0 && rootCount === 0 && !postgresCaMergeSystem(env)) {
+          warnings.push(
+            `POSTGRES_SSL_CA_FILE içinde kök (kendi kendini imzalayan) CA yok; ${caCount} sertifika listelendi. ` +
+              'Sunucu zinciri bu dosyayla doğrulanamayabilir: tam zinciri (leaf → intermediate → root) ekleyin ya da ' +
+              'POSTGRES_SSL_CA_MERGE_SYSTEM=1 ile sistem köklerini birleştirin.',
+          );
+        }
+        if (report.usable && !postgresCaMergeSystem(env)) {
+          warnings.push(
+            'CA dosyası tanımlı: sunucu sertifikası YALNIZCA bu dosyadaki köklerle doğrulanır (sistem kökleri birleştirilmez). ' +
+              'Hem dosya hem sistem/kurum kökleri gerekiyorsa POSTGRES_SSL_CA_MERGE_SYSTEM=1 yazın.',
+          );
+        }
       }
     } else {
       const reason =
@@ -564,6 +789,21 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
   if (env.NODE_ENV === 'production' && !env.SOURCE_LIVE_FETCH) {
     warnings.push('Üretimde SOURCE_LIVE_FETCH=1 olmadan kaynaklar taranmaz.');
   }
+  // LLM kapısı açıksa uç nokta/model uyumu denetlenir. Yanlış eşleşme istekte
+  // 404 döndürür ve inceleme kuyruğundaki HER kayıt insan onayına kalır
+  // (2026-10-16 paneli: 2 çağrı / 2 hata / %100 hata oranı). Engelleyici değil:
+  // yanlış pozitif olasılığı vardır, bu yüzden uyarı + `npm run llm:doctor`.
+  if ((env.AI_ASSISTANT_ENABLED || env.LLM_CLASSIFIER_ENABLED) && env.LLM_BASE_URL) {
+    const llmModel = env.LLM_CLASSIFIER_MODEL.trim() || env.LLM_MODEL.trim();
+    const risk = describeLlmEndpointRisk(env.LLM_BASE_URL, llmModel);
+    if (risk) warnings.push(`${risk} Doğrulamak için: npm run llm:doctor`);
+  }
+  if (env.LLM_CLASSIFIER_ENABLED && !env.LLM_COST_USD_PER_MTOK_INPUT && !env.LLM_COST_USD_PER_MTOK_OUTPUT) {
+    warnings.push(
+      'LLM_COST_USD_PER_MTOK_INPUT/OUTPUT boş: panelde LLM maliyeti "raporlanmadı" görünür. ' +
+        'Sağlayıcının 1M token fiyatını (USD) yazın; doğrulanmamış fiyat yayımlanmaz.',
+    );
+  }
   if (env.ADMIN_EMAIL === '' || env.ADMIN_PASSWORD === '') {
     warnings.push(
       'İlk yönetici hesabı için ADMIN_EMAIL/ADMIN_PASSWORD tanımlanmamış (seed:admin çalıştırılamaz).',
@@ -572,8 +812,8 @@ function collectEnvironmentProblems(env: Env): { problems: string[]; warnings: s
   return { problems, warnings };
 }
 
-function validateEnvironment(env: Env): void {
-  const { problems } = collectEnvironmentProblems(env);
+function validateEnvironment(env: Env, options?: EnvironmentInspectionOptions): void {
+  const { problems } = collectEnvironmentProblems(env, options);
   if (problems.length > 0) {
     throw new Error(`Ortam yapılandırması güvenli değil:\n- ${problems.join('\n- ')}`);
   }
@@ -601,7 +841,13 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
           : `file:${env.DATA_DIR}`,
     // Veritabanı TLS doğrulaması: 'verify' varsayılandır; kapatmak açık tercihtir.
     dbTls: hasPostgresConfig(env)
-      ? `${postgresTlsMode(env)}${env.POSTGRES_SSL_CA_FILE ? ' (CA dosyası)' : ''}`
+      ? `${postgresTlsMode(env)}${
+          env.POSTGRES_SSL_CA_FILE
+            ? postgresCaMergeSystem(env)
+              ? ' (CA dosyası + sistem kökleri)'
+              : ' (yalnızca CA dosyası)'
+            : ''
+        }`
       : 'yok (postgres tanımlı değil)',
     redis: env.REDIS_URL ? 'tanımlı' : 'yok (yerleşik kuyruk)',
     // E-posta yolu: hangi taşıyıcının seçileceğini maskeli olarak özetler.
@@ -619,6 +865,11 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
     dataDir: env.DATA_DIR,
     rateLimit: `${env.RATE_LIMIT_MAX_REQUESTS}/${env.RATE_LIMIT_WINDOW_SECONDS}s`,
     appSecretSet: env.APP_SECRET.length >= 32,
+    // TLS doğrulaması Node anahtarıyla kapatılmış mı? Kapatıldıysa tarama/test
+    // sonuçları güvenilmezdir; bu satır onu her özet görünümünde söyler
+    // (env:check, env:setup, worker başlangıcı, /health).
+    tlsVerification: tlsVerificationDisabled() ? 'KAPALI (NODE_TLS_REJECT_UNAUTHORIZED=0)' : 'açık',
+    browserFallback: env.SOURCE_BROWSER_FALLBACK ? 'açık (Chromium)' : 'kapalı',
     // Hangi dosyadan okunduğu (içerik değil) — ".env okunmadı" sorunlarını
     // ayıklamak için görünür tutulur.
     envFile: envFileSource() ?? 'yok (yalnızca ortam değişkenleri)',
