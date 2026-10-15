@@ -16,10 +16,17 @@ import {
   elementText,
   loadHtml,
   loadXml,
+  chromeFreeText,
+  describePageStructure,
   readableAnnouncementText,
   readableText,
   stripPageChrome,
 } from '../../lib/html';
+import { browserFallbackEnabled, describeBrowserFailure, withChromiumPage } from '../browser-session';
+
+/** Tarayıcı yedeği zaman sınırları (kariyer-kapısı adaptörüyle aynı mertebede). */
+const BROWSER_PAGE_TIMEOUT_MS = 45_000;
+const BROWSER_SETTLE_MS = 2_500;
 import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from '../../domain/text';
 import { cleanTitle, parseListingDate } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
@@ -240,9 +247,48 @@ export class AnchorListAdapter implements SourceAdapter {
       };
     }
 
-    const html = listing.decoded?.text ?? listing.body.toString('utf8');
+    let html = listing.decoded?.text ?? listing.body.toString('utf8');
     if (isRss) {
       return this.runFromRss(ctx, listing, html, notes, httpStatuses, requestCount);
+    }
+
+    // 2026-10-15 canlı çıktısında iskur/sgk benzeri JS ile çizilen listeler düz HTTP
+    // yanıtında satır bırakmadı; hata mesajı da çerez modali ve erişilebilirlik araç
+    // çubuğu metnini "sayfa özeti" diye gösterdi. Önce satır var mı diye bakılır, yoksa
+    // kariyer-kapısı adaptöründeki gibi başsız tarayıcıyla yeniden çizilir.
+    let browserFallbackNote = '';
+    if (browserFallbackEnabled()) {
+      const firstPass = parseAnchorListPage(html, source.listingUrl, source.listingUrl, this.config, source.allowedHosts);
+      if (firstPass.entries.length === 0) {
+        const httpLength = html.length;
+        try {
+          const rendered = await this.renderListingHtml(source, ctx);
+          requestCount += 1;
+          if (rendered.length > 0) {
+            const renderedPass = parseAnchorListPage(
+              rendered,
+              source.listingUrl,
+              source.listingUrl,
+              this.config,
+              source.allowedHosts,
+            );
+            if (renderedPass.entries.length > firstPass.entries.length) {
+              html = rendered;
+              notes.push(
+                `HTTP listesi satır üretmedi (${httpLength} karakter); sayfa tarayıcıda çizildi ve ${renderedPass.entries.length} ilan bağlantısı bulundu.`,
+              );
+            } else {
+              notes.push(
+                `Tarayıcı çizimi de satır üretmedi (${rendered.length} karakter); HTTP yanıtıyla devam ediliyor.`,
+              );
+            }
+          }
+        } catch (error) {
+          if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+          browserFallbackNote = describeBrowserFailure(error);
+          notes.push(`Tarayıcı yedeği kullanılamadı: ${browserFallbackNote}`);
+        }
+      }
     }
 
     const entriesByUrl = new Map<string, ListEntry>();
@@ -345,11 +391,22 @@ export class AnchorListAdapter implements SourceAdapter {
           note: coverageNote,
         });
       }
-      const pageText = readableText(loadHtml(html), 'body', 300);
+      const pageText = chromeFreeText(html, 300);
+      const structure = describePageStructure(html, currentUrl);
       throw new AdapterStructureError(
         source.key,
         `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${String(this.config.pathPattern)} bulunamadı. ` +
-          `Sayfa özeti: "${makeExcerpt(pageText, 160)}" — adaptör seçicileri güncellenmeli.`,
+          `Sayfa yapısı: ${structure.anchors} bağlantı (${structure.sameHostAnchors} aynı alan adı), ` +
+          `${structure.scripts} script, ${structure.iframes} iframe, ${structure.forms} form, ` +
+          `görünür metin ${structure.bodyTextLength} karakter` +
+          (structure.topPathPrefixes.length > 0 ? `, sık geçen yollar: ${structure.topPathPrefixes.join(', ')}` : '') +
+          `. Sayfa özeti (iskelet temizlendikten sonra): "${makeExcerpt(pageText, 160)}" — ` +
+          (structure.anchors === 0
+            ? 'sayfada hiç bağlantı yok; içerik büyük olasılıkla JavaScript ile yükleniyor (SOURCE_BROWSER_FALLBACK=1 ve Playwright gerekli).'
+            : 'pathPattern/listContainers seçicileri bu yollara göre güncellenmeli.') +
+          // Tarayıcı yedeği denendiyse nedeni hata mesajında da görünür: notlar hata
+          // fırlatılınca operatöre ulaşmıyor.
+          (browserFallbackNote ? ` Tarayıcı yedeği sonucu: ${browserFallbackNote}.` : ''),
       );
     }
 
@@ -364,6 +421,20 @@ export class AnchorListAdapter implements SourceAdapter {
   }
 
   /** RSS beslemesinden (MEB gibi JS'li listeler) aynı akışa giriş. */
+  /** Liste sayfasını başsız Chromium ile çizip HTML'i döndürür (ağ izin listesi korunur). */
+  private async renderListingHtml(source: AdapterContext['source'], ctx: AdapterContext): Promise<string> {
+    return withChromiumPage(
+      async (page) => {
+        await page.goto(source.listingUrl, { waitUntil: 'domcontentloaded', timeout: BROWSER_PAGE_TIMEOUT_MS });
+        // JS ile basılan satırlar için kısa bir oturma süresi; networkidle analitik
+        // isteklerinde takılabildiği için tercih edilmiyor.
+        await page.waitForTimeout(BROWSER_SETTLE_MS);
+        return page.content();
+      },
+      { allowedHosts: source.allowedHosts, signal: ctx.signal },
+    );
+  }
+
   private async runFromRss(
     ctx: AdapterContext,
     listing: { etag: string | null; lastModified: string | null },

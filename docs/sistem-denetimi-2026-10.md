@@ -246,3 +246,99 @@ Beklenen durum: `env:check` çıktısında `dbTls: verify`, `tlsVerification: a�
 `test:live` ilk satırında uyarı YOK; bddk/tmsf/ilan.gov.tr için ya başarılı
 tarama ya da "eksik zincir AIA ile tamamlanamadı" şeklinde **dürüst** bir ret
 (sertifika tarafı doğrulanmış olur); `npm test` iki platform hatası olmadan yeşil.
+
+## 8) Bu denetimden sonra uygulanan düzeltmeler (faz 4)
+
+Denetimin 3. ve 4. bölümündeki iki kök neden kapatıldı. Değişiklikler kural/seçici
+düzeyindedir; **hiçbir eşik değeri oynatılmadı** (insan eliyle doğrulanmış ölçüm kümesi
+olmadan eşik değiştirmemek bu belgenin 4. bölümündeki karar).
+
+### 8.1 Sayfa iskeleti artık içerik sayılmıyor
+
+`src/lib/html.ts`:
+
+- `PAGE_CHROME_SELECTORS` genişletildi ve dışa açıldı: çerez/KVKK onay modalları
+  (`[role="dialog"]`, `[aria-modal="true"]`, `.modal*`, `cookie|cerez|consent|kvkk|gizlilik`
+  sınıf/id desenleri) ve erişilebilirlik araç çubukları (`[role="toolbar"]`,
+  `accessibilit*|erisilebilirlik*|a11y*`) artık menü/alt bilgi gibi iskelet sayılıyor.
+- `chromeFreeText(html, limit)`: tanılama özetleri iskelet temizlendikten sonra üretiliyor.
+- `describePageStructure(html, baseUrl)`: bağlantı sayısı, aynı alan adı sayısı, sık geçen
+  yol önekleri (yalnızca ilk yol parçası; sorgu/anahtar sızmaz), script/iframe/form sayısı.
+- `readableAnnouncementText(...)` varsayılan olarak iskeleti **kopya üzerinde** temizliyor
+  (`{ stripChrome: false }` ile eski davranış korunur). Böylece gövde metni —yani sınıflandırma
+  kanıtı— menü/modali içermiyor, ama çağıranın bağlantı taraması bozulmuyor.
+
+Bu, canlı çıktıda görülen şu iki hata sınıfını kapatır:
+
+| Kanıt (2026-10-15) | Eski davranış | Yeni davranış |
+| --- | --- | --- |
+| icisleri/goc/afad: `Sayfa özeti: "Modal content × … GİZLİLİK VE ÇEREZ POLİTİKASI …"` | Çerez modali sayfa içeriği sanıldı | Modal/modaldaki bağlantılar düşer; özet gerçek liste metnini gösterir |
+| iskur ×2: `Sayfa özeti: "Erişilebilirlik Menüsü Ekran Okuyucu …"` | Erişilebilirlik araç çubuğu içerik sanıldı | Araç çubuğu iskelet sayılır; satırlar taranır |
+| 58 inceleme kaydı (%45-57) | Menü/modali metni gövde kanıtı oldu | Gövde kanıtı iskeletsiz; dizin sayfaları başlıkta reddediliyor |
+
+### 8.2 `Liste yapısı tanınmadı` hatası artık yol gösteriyor
+
+`src/sources/adapters/anchor-list.ts`:
+
+- Hata mesajı `Sayfa yapısı: N bağlantı (M aynı alan adı), S script, I iframe, F form,
+  görünür metin K karakter, sık geçen yollar: /duyurular (12), …` bilgisini taşıyor ve özet
+  iskelet temizlendikten sonra alınıyor.
+- Sayfada hiç bağlantı yoksa mesaj açıkça `içerik büyük olasılıkla JavaScript ile yükleniyor
+  (SOURCE_BROWSER_FALLBACK=1 ve Playwright gerekli)` diyor; bağlantı varsa
+  `pathPattern/listContainers seçicileri bu yollara göre güncellenmeli` diyor.
+- **Tarayıcı yedeği**: HTTP listesi satır üretmezse (kariyer-kapısı adaptöründeki kanıtlanmış
+  yol) liste sayfası başsız Chromium ile çizilip yeniden ayrıştırılıyor. `SOURCE_BROWSER_FALLBACK=0`
+  iken hiç çağrılmıyor; çizim de satır üretmezse HTTP davranışı korunuyor; tarayıcı
+  başlatılamazsa neden **hata mesajında** da görünüyor (notlar hata fırlatılınca kayboluyordu).
+
+### 8.3 Dizin/yardım sayfası başlıkları reddediliyor
+
+`src/classification/rules.ts` → `TITLE_REJECT_RULES` (kesin ret, güven 0.92):
+
+| Kural | Canlı çıktıda gördüğü başlıklar |
+| --- | --- |
+| `ret-baslik.sss` | "Sıkça Sorulan Sorular" |
+| `ret-baslik.politika-belgesi` | "Bilgi Güvenliği Politikası", "Gizlilik ve Çerez Politikası", "KVKK Politikası" |
+| `ret-baslik.etkinlik-konusma` | "SEMPOZYUM VE SERGİLER", "Başkan'ın Konuşmaları", TEKNOFEST/ödül töreni haberleri |
+| `ret-baslik.dizin-sayfasi` | "HABERLER & DUYURULAR", "Basın Açıklamaları", "projeler", "İç Kontrol Çalışmaları", "Foto Galeri" |
+| `ret-baslik.sayi-istatistik` | "Radar uygulama sayıları", "2026 yılı istatistikleri" |
+| `ret-baslik.dil-akademik-sinav` | "e-YDS 2026/10 İngilizce Sınavı Başvuruları", "2026-TUS 2. Dönem Tercih İşlemleri", "2026-ALES/2 Başvuru Kılavuzu" |
+
+Etkinlik/istatistik/dil kuralları başlıkta `alim|istihdam|personel|memur|isci|kadro|sozlesmeli|…`
+geçiyorsa devreye girmez; yani "Sergi salonunda görevlendirilecek temizlik personeli alımı"
+veya "YDS Şartlı 50 Sözleşmeli Personel Alımı" reddedilmez.
+
+### 8.4 Kopya incelemesi (10 çift, %72-83)
+
+Eşikler **bilerek** değiştirilmedi: `mergeTitleSimilarity 0.86` / `reviewTitleSimilarity 0.70`
+(`src/ingest/dedupe.ts`). %72-83 benzerlik, aynı ilanın farklı kurumlardaki kopyasıyla
+"aynı kurumun güncellenmiş ilanı"nı ayırt edemediğimiz bölge; otomatik birleştirme gerçek
+ilan kaybı riski taşır. Doğru sıra: `npm run eval:build-set` ile insan etiketli küme → sonra
+eşik kararı.
+
+### 8.5 Testler ve doğrulama
+
+- Yeni dosyalar: `tests/html-chrome.test.ts` (10), `tests/liste-gurultu-regresyon.test.ts` (8),
+  `tests/classification-dizin-gurultusu.test.ts` (24).
+- Tüm paket: **932 test / 80 dosya yeşil**, `npm run lint` ve `npm run typecheck` temiz.
+- Mevcut regresyon paketleri etkilenmedi: `tests/yanlis-ilan-regresyon.test.ts` (36),
+  `tests/non-job-filter.test.ts` (36), `tests/classification.test.ts` (28),
+  `tests/report-review-fixes.test.ts` (26), `tests/reclassify-roundtrip.test.ts` (6).
+
+### 8.6 Bu ortamda doğrulanamayanlar — Windows'ta koşulmalı
+
+Geliştirme kabuğunda dış ağ yok; bu yüzden aşağıdakiler **fixture ile** kanıtlandı, canlı
+siteyle değil. Kendi makinenizde sırayla:
+
+```bash
+npm i -D playwright && npx playwright install chromium   # tarayıcı yedeği için
+npm run env:setup -- --check                             # SOURCE_BROWSER_FALLBACK=1 görünüyor mu
+npm run test:live                                        # 24 kaynak: erişim + liste yapısı
+npm run eval:build-set && npm run eval:classification    # etiketli küme, sonra eşik kararı
+```
+
+`test:live` çıktısında beklenen değişim: icisleri/goc/afad özetlerinde çerez modali metni yok;
+iskur için ya tarayıcıyla satır bulunur ya da "içerik JavaScript ile yükleniyor" teşhisi;
+dsi/epdk/tkgm/tmsf/kgm/saglik için özet yerine bağlantı sayımı + sık geçen yollar (seçiciyi
+hangi yola göre güncelleyeceğiniz doğrudan görünür). Panelde 58 "ilgililik" kaydının büyük
+bölümü artık inceleme kuyruğuna düşmemeli; düşenler gerçek gövde kanıtı taşır.

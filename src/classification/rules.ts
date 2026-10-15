@@ -301,6 +301,58 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
     pattern: /\b(?:proje\s+cagri\w*|cagrisi\s+acildi|cagri\s+acildi|hibe\s+programi\w*|destek\s+programi\w*)/,
     weight: 0,
   },
+  {
+    // 2026-10-15 canlı çıktısı: "Sıkça Sorulan Sorular" %49 güvenle ilgililik incelemesine
+    // düşmüştü. Yardım sayfası ilan değildir.
+    id: 'ret-baslik.sss',
+    reason: 'Başlık sıkça sorulan sorular/yardım sayfası — ilan değil',
+    pattern: /\b(?:sikca\s+sorulan\s+sorular?|sss)\b/,
+    weight: 0,
+  },
+  {
+    // "Bilgi Güvenliği Politikası", "Gizlilik ve Çerez Politikası", "Açık Veri Politikası".
+    id: 'ret-baslik.politika-belgesi',
+    reason: 'Başlık politika/yükümlülük belgesi — ilan değil',
+    pattern:
+      /\b(?:gizlilik|cerez|cerezler|bilgi\s+guvenligi|kisisel\s+veriler\w*|kvkk|acik\s+veri|erisilebilirlik|kalite|etik|insan\s+haklari|veri\s+paylasimi|sifir\s+atik)\s+politika\w*|\bpolitika\s+(?:metni|belgesi)\b/,
+    weight: 0,
+  },
+  {
+    // "SEMPOZYUM VE SERGİLER", "Başkan'ın Konuşmaları", "TEKNOFEST", fuar/kongre haberleri.
+    id: 'ret-baslik.etkinlik-konusma',
+    reason: 'Başlık etkinlik/sempozyum/konuşma duyurusu — personel alımı değil',
+    // Alım/istihdam kelimesi taşıyan başlıklar kurala takılmaz ("Sergi salonu için personel alımı").
+    pattern:
+      /^(?!.*\b(?:alim\w*|istihdam\w*|personel\w*|memur\w*|isci\w*|kadro\w*|sozlesmeli\w*|hemsire\w*|sofor\w*|gorevli\w*|kura|atama\w*))(?=.*\b(?:sempozyum\w*|kongre\w*|calistay\w*|sergi(?:ler|si|leri)?|teknofest|anma\s+(?:gunu|programi)|odul\s+(?:ceremonisi|toreni)|baskanin\s+konusmalari|baskanlik\s+konusmasi|mesajlari)\b).+$/,
+    weight: 0,
+  },
+  {
+    // Yalnızca dizin/kategori adı olan başlıklar: "HABERLER & DUYURULAR", "Basın Açıklamaları",
+    // "projeler", "İç Kontrol Çalışmaları", "Arşiv", "İstatistikler".
+    id: 'ret-baslik.dizin-sayfasi',
+    reason: 'Başlık bir dizin/arsiv sayfası adı — tek bir ilan değil',
+    pattern:
+      /^(?:haberler?\s*(?:ve\s*)?(?:duyurular?|etkinlikler?|basin)?\s*|duyurular?\s*|duyuru\s+(?:listesi|arsivi)\s*|basin\s+(?:aciklamalari|duyurulari|bultenleri)\s*|ilanlar?\s*|arsiv(?:ler|ler\s+sayfasi)?\s*|projeler?\s*|ic\s+kontrol\s+calismalari\s*|calismalar\s*|istatistikler?\s*|multimedya\s*|foto(?:graf)?\s+galeri(?:leri)?\s*|video\s+galeri(?:leri)?\s*|yayinlar?\s*|faaliyet\s+rapor(?:u|lari)\s*|kutuphane\s*|kurumsal\s+tarihce\s*|sikca\s+sorulan\s+sorular\s*|sss\s*|iletisim\s*|insan\s+kaynaklari\s*|kurumsal\s*|hakkinda\s*|basvuru\s*|basvurular\s*)$/i,
+    weight: 0,
+  },
+  {
+    // "Radar uygulama sayıları", "… istatistikleri", "rakamlarla 2026": sayı/istatistik sayfaları.
+    id: 'ret-baslik.sayi-istatistik',
+    reason: 'Başlık sayısal özet/istatistik sayfası — ilan değil',
+    pattern:
+      /^(?!.*\b(?:alim\w*|istihdam\w*|personel\w*|memur\w*|isci\w*|sozlesmeli\w*|kadrolu\w*))(?=.*\b(?:sayilari|sayisi|istatistikleri|istatistikler|verileri|tablolar?|rakamlarla\s+\w+)\s*$).+$/,
+    weight: 0,
+  },
+  {
+    // ÖSYM çıktıları: "e-YDS 2026/10 İngilizce Sınavı Başvuruları", "2026-TUS 2. Dönem
+    // Tercih İşlemleri" %53-57 güvenle incelemeye düşmüştü. Dil/akademik sınav duyuruları
+    // personel alımı değildir; başlıkta alım/istihdam kelimesi varsa kural devreye girmez.
+    id: 'ret-baslik.dil-akademik-sinav',
+    reason: 'Başlık dil/akademik sınav duyurusu (YDS, ALES, TUS, DUS, YDUS) — personel alımı değil',
+    pattern:
+      /^(?!.*\b(?:alim\w*|istihdam\w*|personel\w*|memur\w*|isci\w*|kadro\w*|sozlesmeli\w*|uzman\s+yardimcisi|hemsire\w*|sofor\w*|gorevli\w*|kura|atama\w*|giris\s+sinavi|sozlesme))\s*(?=.*\b(?:e-yds|yds|yokdil|ales|ydus|tus|dus|tip\s+uzmanligi|dis\s+hekimligi\s+uzmanlik|yabanci\s+dil\s+bilgisi\s+seviye\s+tespit)\b)(?=.*\b(?:sinav\w*|basvuru\w*|tercih\w*|kilavuz\w*|sonuc\w*|donem|aciklandi)).+/,
+    weight: 0,
+  },
 ];
 
 /**
