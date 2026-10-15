@@ -237,6 +237,14 @@ export function riskyDecision(field: EnvFieldSpec, value: string): string | null
   if (field.key === 'NODE_ENV' && value === 'test') {
     return 'NODE_ENV=test .env dosyasının yüklenmesini engeller ve uygulamayı test kipine alır.';
   }
+  if (field.key === 'NODE_TLS_REJECT_UNAUTHORIZED' && value === '0') {
+    return (
+      'NODE_TLS_REJECT_UNAUTHORIZED=0 TLS sertifika doğrulamasını TÜM süreçte kapatır ' +
+      '(HTTPS + Postgres): test/tarama sonuçları güvenilmez olur ve ağ üzerindeki biri trafiği okuyabilir. ' +
+      'Çözüm eksik kökü/zinciri tamamlamaktır (POSTGRES_SSL_CA_FILE, POSTGRES_SSL_CA_MERGE_SYSTEM=1, ' +
+      'NODE_EXTRA_CA_CERTS, npm run db:tls-doctor) — doğrulamayı kapatmak değil.'
+    );
+  }
   return null;
 }
 

@@ -413,11 +413,10 @@ async function main(): Promise<void> {
     console.log('\n! Süreç ortamı dosyayı gölgeliyor (çalışma zamanında ORTAM DEĞİŞKENİ kazanır):');
     for (const key of overridden) {
       const field = ENV_FIELD_BY_KEY.get(key);
-      const inFile = fileValues[key] ?? '(dosyada yok)';
-      const inProcess = process.env[key] ?? '';
-      console.log(
-        `  - ${key}: dosyada ${field ? maskValue(field, inFile) : inFile} · ortamda ${field ? maskValue(field, inProcess) : inProcess}`,
-      );
+      const fromFile = key in fileValues ? fileValues[key] ?? '' : null;
+      const inFile = fromFile === null ? '(dosyada yok)' : field ? maskValue(field, fromFile) : fromFile;
+      const inProcess = field ? maskValue(field, process.env[key] ?? '') : (process.env[key] ?? '');
+      console.log(`  - ${key}: dosyada ${inFile} · ortamda ${inProcess}`);
     }
     console.log('  Bu alanlar aşağıda sorulacak; Windows\'ta kalıcı değişkeni kaldırmak için:');
     console.log('    setx KEY ""        (yeni kabuklarda etkili olur) ya da Sistem Özellikleri → Ortam Değişkenleri');

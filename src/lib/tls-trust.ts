@@ -124,6 +124,64 @@ export function databaseTlsHelp(error: unknown): string | undefined {
   ].join('\n');
 }
 
+/**
+ * TLS doğrulaması süreç genelinde KAPATILMIŞ mı?
+ *
+ * `NODE_TLS_REJECT_UNAUTHORIZED=0` Node'un acil durum anahtarıdır: HTTPS ve
+ * Postgres dahil TÜM TLS bağlantılarında sertifika denetimi atlanır. Sonuçta
+ * `npm run test:live` "başarılı" görünür ama bu, sitelerin doğru çalıştığını
+ * değil, kimsenin denetlenmediğini gösterir; ağ üzerindeki herhangi biri
+ * (kurum vekili, DNS zehirlenmesi, sahte Wi-Fi) trafiği okuyabilir/değiştirebilir.
+ *
+ * Bu yüzden uygulama bu anahtarı GİZLEMEZ: her tanılama çıktısında söyler ve
+ * üretimde başlangıcı durdurur. Doğru karşılık anahtarı kaldırmak ve eksik
+ * zinciri/kökü tamamlamaktır (docs/database-tls.md).
+ */
+export function tlsVerificationDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env['NODE_TLS_REJECT_UNAUTHORIZED']?.trim();
+  return raw === '0';
+}
+
+/**
+ * `NODE_TLS_REJECT_UNAUTHORIZED=0` için uyarı + kaldırma adımları.
+ *
+ * Anahtar kapalı değilse `null` döner. Adımlar işletim sistemine göredir:
+ * değişken genellikle kabukta değil, Windows'ta KALICI kullanıcı değişkeni
+ * olarak tanımlıdır (`setx`), bu yüzden "kaldırdım ama hâlâ görünüyor"
+ * tuzağına düşülmemesi için kalıcı kaldırma yolu da yazılır.
+ */
+export function describeTlsVerificationOverride(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (!tlsVerificationDisabled(env)) return null;
+  const windows = process.platform === 'win32';
+  const lines = [
+    '⚠ NODE_TLS_REJECT_UNAUTHORIZED=0 etkin: TLS sertifika doğrulaması BU SÜREÇTE TAMAMEN KAPALI.',
+    '  Etkisi: HTTPS istekleri ve Postgres bağlantıları HİÇBİR sertifika denetiminden geçmez;',
+    '  test/tarama sonuçları "başarılı" görünse bile GÜVENİLMEZ (MITM trafiği ayırt edilemez).',
+    '  Bu bir çözüm değildir; kaldırılması gerekir. Gerçek çözüm eksik kök/zinciri tamamlamaktır:',
+    '    · Supabase CA dosyası: POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt + POSTGRES_SSL_MODE=verify',
+    '    · Dosya + sistem kökleri birlikte: POSTGRES_SSL_CA_MERGE_SYSTEM=1',
+    '    · Kurumsal proxy/antivirüs kökü: NODE_EXTRA_CA_CERTS=C:/certs/kurum-ca.pem',
+    '    · Eksik zincirli resmî siteler: Node 22.15+ (sistem kök deposu) ve npm run db:tls-doctor',
+  ];
+  if (windows) {
+    lines.push(
+      '  Kaldırmak için (Windows):',
+      '    1) Geçici (yalnızca açık pencere): set NODE_TLS_REJECT_UNAUTHORIZED=   ya da  $env:NODE_TLS_REJECT_UNAUTHORIZED=$null',
+      '    2) Kalıcı kullanıcı değişkeni:     setx NODE_TLS_REJECT_UNAUTHORIZED ""   (YENİ bir kabuk açın)',
+      '       Kalıcı silme: Sistem Özellikleri → Gelişmiş → Ortam Değişkenleri → NODE_TLS_REJECT_UNAUTHORIZED → Sil',
+      '    3) Kontrol: node -e "console.log(process.env.NODE_TLS_REJECT_UNAUTHORIZED)"  → undefined yazmalı',
+    );
+  } else {
+    lines.push(
+      '  Kaldırmak için (Linux/macOS):',
+      '    1) Geçici: unset NODE_TLS_REJECT_UNAUTHORIZED',
+      '    2) Kalıcı: ~/.bashrc, ~/.zshrc, ~/.profile ya da systemd/Cloudflare ortam tanımından satırı silin',
+      '    3) Kontrol: node -e "console.log(process.env.NODE_TLS_REJECT_UNAUTHORIZED)"  → undefined yazmalı',
+    );
+  }
+  return lines.join('\n');
+}
+
 /** Kullanıcıya gösterilecek TLS güven modu özeti (live-check ve bağlantı tanısı). */
 export function describeTlsTrust(): string {
   const extraPath = process.env['NODE_EXTRA_CA_CERTS'];
@@ -133,6 +191,10 @@ export function describeTlsTrust(): string {
   const dbNote = caFile
     ? `; veritabanı CA dosyası: ${caFile}${merge === '1' || merge?.toLowerCase() === 'true' ? ' (sistem kökleriyle birleştiriliyor)' : ' (YALNIZCA bu dosya)'}`
     : '';
+  // Doğrulama kapatılmışsa hiçbir "güven deposu" bilgisinin anlamı kalmaz:
+  // okuyucunun önce bunu görmesi gerekir (test:live çıktısının ilk satırı).
+  const override = describeTlsVerificationOverride();
+  if (override) return override;
   return systemCaStoreAvailable()
     ? `Node ${process.version}: sistem sertifika deposu kullanılıyor (eksik zincirli resmî siteler için)${extraNote}${dbNote}.`
     : `Node ${process.version}: sistem sertifika deposu KULLANILAMIYOR. ilan.gov.tr, BDDK ve TMSF gibi siteler ` +

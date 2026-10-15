@@ -118,6 +118,21 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 - `APP_SECRET` — üretimde zorunlu (en az 32 karakter). Geliştirmede boşsa
   oturumlar çalışır ama başlangıçta uyarı loglanır.
 - `DATA_DIR` — dosya deposu ve geliştirme posta kutusu dizini (öntanımlı `./data`).
+- `SOURCE_TLS_AIA_COMPLETION=1` (varsayılan) — sunucu ara sertifikayı
+  göndermediğinde (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`: ilan.gov.tr, BDDK, TMSF)
+  eksik halka yapraktaki AIA adresinden indirilir, imzası/CA durumu/süresi ve
+  güvenilen köke bağlanması DOĞRULANIR, sonra istek doğrulama açıkken yeniden
+  denenir. `0` iken tamamlama yapılmaz (doğrulama yine açıktır). Ayrıntı:
+  [database-tls.md → HTTP tarafı](./database-tls.md#4-http-tarafı-kaynak-taramaları--unable_to_verify_leaf_signature).
+- `SOURCE_BROWSER_FALLBACK=1` (varsayılan) — HTTP istemcisi cevap alamadığında
+  sayfa başsız Chromium ile okunur (`npx playwright install chromium` gerekir).
+  `0` iken tarayıcı hiç başlatılmaz, asıl HTTP hatası raporlanır. **Testlerde
+  zorunlu olarak `0`'dır** (Chromium gerçek ağa çıktığı için sahte istemciyi
+  yanıltır; bkz. `tests/setup.ts`).
+- `NODE_TLS_REJECT_UNAUTHORIZED=0` **YAZMAYIN** — TLS doğrulamasını tüm süreçte
+  kapatır; üretimde uygulama başlamaz, diğer ortamlarda `env:check`/`test:live`
+  çıktısının ilk satırında uyarı ve kaldırma adımları görünür. Tanımlıysa
+  kaldırın: [database-tls.md → kaldırma](./database-tls.md#node_tls_reject_unauthorized0-zaten-tanımlıysa-kaldırma).
 - `SOURCE_LIVE_FETCH=1` — gerçek kaynaklara istek atılmasını sağlar. `0` iken
   worker ağa çıkmaz (demo/test için): deneme `skipped` kaydedilir; başarılı tarama
   zamanı/ilan bulundu sayısı üretilmez ve kaynak erişilmiş gibi gösterilmez.

@@ -122,11 +122,30 @@ export function isSafeBrowserRequest(rawUrl: string, allowedHosts: ReadonlySet<s
 }
 
 /** Chromium'u başlatır; çağıran `close()` çağırmakla yükümlüdür. */
+/**
+ * Tarayıcı yedeği açık mı? (`SOURCE_BROWSER_FALLBACK`)
+ *
+ * `getEnv()` burada çağrılmaz: bu modül adaptörlerden ve betiklerden erken
+ * yüklenir ve tüm ortamı doğrulamak (ör. eksik APP_SECRET) tarayıcı kararını
+ * belirlememelidir. Anahtar okunamaz/boş ise varsayılan AÇIK'tır.
+ */
+export function browserFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env['SOURCE_BROWSER_FALLBACK']?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return true;
+  return raw !== '0' && raw !== 'false' && raw !== 'no';
+}
+
 export async function launchChromium(options: {
   allowedHosts: readonly string[];
   signal?: AbortSignal;
 }): Promise<ChromiumSession> {
   throwIfAborted(options.signal);
+  if (!browserFallbackEnabled()) {
+    throw new Error(
+      'Tarayıcı yedeği kapalı (SOURCE_BROWSER_FALLBACK=0): Chromium başlatılmadı. ' +
+        'Açmak için SOURCE_BROWSER_FALLBACK=1 yazın ve npx playwright install chromium çalıştırın.',
+    );
+  }
   const pinned = await pinPublicHosts(options.allowedHosts, options.signal);
   // Playwright isteğe bağlı bağımlılıktır: yalnızca gerektiğinde yüklenir.
   const moduleName = 'playwright';

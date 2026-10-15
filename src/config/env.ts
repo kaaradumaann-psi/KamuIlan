@@ -10,7 +10,7 @@ import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { z } from 'zod';
 import { inspectCaFile } from '../lib/ca-file';
 import { effectiveDriver } from '../db/store';
-import { systemCaStoreAvailable } from '../lib/tls-trust';
+import { describeTlsVerificationOverride, systemCaStoreAvailable, tlsVerificationDisabled } from '../lib/tls-trust';
 import { existsSync, readFileSync } from 'node:fs';
 import { envFileSource, loadEnvFile, parseEnvFile } from './load-env';
 
@@ -216,6 +216,25 @@ const envSchema = z.object({
     .string()
     .default('1')
     .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
+  /**
+   * HTTP istemcisi cevap alamadığında başsız tarayıcı (Chromium) yedeği kullanılsın mı?
+   *
+   * `0`: tarayıcı hiç başlatılmaz. Testlerde ZORUNLU kapalıdır (bkz. tests/setup.ts),
+   * çünkü Chromium gerçek ağa çıkar ve sahte HTTP istemcisinin yerine canlı siteyi
+   * okuyarak testi yanıltır. Üretimde Chromium kurulu olmayan makinelerde de
+   * kapatılabilir; adaptör o zaman asıl HTTP hatasını olduğu gibi bildirir.
+   */
+  SOURCE_BROWSER_FALLBACK: flag('1'),
+  /**
+   * Sunucu ara sertifikayı göndermediğinde zincir AIA adresinden tamamlansın mı?
+   *
+   * `1` (varsayılan): eksik halka indirilir, İMZASI ve CA durumu doğrulanır,
+   * zincir güvenilen bir köke bağlanıyorsa kabul edilir ve istek doğrulama
+   * AÇIKKEN yeniden denenir. `0`: tamamlama yapılmaz; eksik zincirli siteler
+   * `UNABLE_TO_VERIFY_LEAF_SIGNATURE` ile reddedilir (doğrulama yine açıktır).
+   * Bu anahtar hiçbir durumda doğrulamayı KAPATMAZ.
+   */
+  SOURCE_TLS_AIA_COMPLETION: flag('1'),
   MAX_DOCUMENT_BYTES: z.coerce.number().int().min(1_024).max(52_428_800).default(15_728_640),
   MAX_REDIRECTS: z.coerce.number().int().min(0).max(10).default(3),
   DOCUMENT_TIMEOUT_MS: z.coerce.number().int().min(2_000).max(120_000).default(20_000),
@@ -555,6 +574,14 @@ function collectEnvironmentProblems(
 ): { problems: string[]; warnings: string[] } {
   const problems: string[] = [];
   const warnings: string[] = [];
+  // NODE_TLS_REJECT_UNAUTHORIZED şemada değildir (Node'un kendi anahtarıdır) ama
+  // tüm TLS kararlarını geçersiz kılar: üretimde başlangıcı durdurur, diğer
+  // ortamlarda yüksek sesli uyarıdır. Kaldırma adımları metnin içindedir.
+  if (tlsVerificationDisabled()) {
+    const override = describeTlsVerificationOverride() ?? 'NODE_TLS_REJECT_UNAUTHORIZED=0 kaldırılmalıdır.';
+    if (env.NODE_ENV === 'production') problems.push(override);
+    else warnings.push(override);
+  }
   if (env.NODE_ENV === 'production') {
     if (!env.APP_SECRET || env.APP_SECRET.length < 32) {
       problems.push('APP_SECRET üretimde en az 32 karakter olmalıdır (oturum/jeton imzası).');
@@ -788,6 +815,11 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
     dataDir: env.DATA_DIR,
     rateLimit: `${env.RATE_LIMIT_MAX_REQUESTS}/${env.RATE_LIMIT_WINDOW_SECONDS}s`,
     appSecretSet: env.APP_SECRET.length >= 32,
+    // TLS doğrulaması Node anahtarıyla kapatılmış mı? Kapatıldıysa tarama/test
+    // sonuçları güvenilmezdir; bu satır onu her özet görünümünde söyler
+    // (env:check, env:setup, worker başlangıcı, /health).
+    tlsVerification: tlsVerificationDisabled() ? 'KAPALI (NODE_TLS_REJECT_UNAUTHORIZED=0)' : 'açık',
+    browserFallback: env.SOURCE_BROWSER_FALLBACK ? 'açık (Chromium)' : 'kapalı',
     // Hangi dosyadan okunduğu (içerik değil) — ".env okunmadı" sorunlarını
     // ayıklamak için görünür tutulur.
     envFile: envFileSource() ?? 'yok (yalnızca ortam değişkenleri)',

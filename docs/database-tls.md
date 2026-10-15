@@ -127,16 +127,39 @@ Bazı resmî siteler (bddk.org.tr, tmsf.org.tr, ilan.gov.tr, dsi/kgm/tkgm gibi
 kurum portalları) zinciri eksik sunar ya da Mozilla listesinde olmayan bir kök
 kullanır. Tarayıcı bunu işletim sistemi deposundan çözer, Node çözemez.
 
-Doğru karşılık `NODE_TLS_REJECT_UNAUTHORIZED=0` **değildir**:
+Doğru karşılık `NODE_TLS_REJECT_UNAUTHORIZED=0` **değildir**. Uygulama üç
+katmanı sırayla kullanır:
 
-1. Node ≥ 22.15 kullanın; uygulama sistem kök deposunu zaten birleştirir
-   (`npm run test:live` çıktısının ilk satırı hangi modun etkin olduğunu yazar).
-2. Kök sistem deposunda da yoksa doğrulanmış kökü bir PEM dosyasına koyun ve
-   `NODE_EXTRA_CA_CERTS=C:/certs/turkiye-kamu-ca.pem` ile tanıtın. Dosyaya
-   yalnızca **doğrulayabildiğiniz** kökleri yazın; tarayıcıdan dışa aktarılan
-   her sertifika güvenilir değildir.
-3. Sunucu ara CA'yı hiç göndermiyorsa eksik halkayı kurumun resmî
-   duyurusundan/sertifika deposundan alın; aynı dosyaya ekleyin.
+1. **Sistem kök deposu (otomatik).** Node ≥ 22.15 gerekir; uygulama Node'un
+   gömülü Mozilla köklerini, işletim sistemi kök deposunu ve
+   `NODE_EXTRA_CA_CERTS` dosyasını birleştirir. `npm run test:live` çıktısının
+   ilk satırı hangi modun etkin olduğunu yazar.
+2. **AIA ile zincir tamamlama (otomatik, `SOURCE_TLS_AIA_COMPLETION=1`).**
+   Sunucu yalnızca yaprak sertifikayı gönderdiğinde istemci, yapraktaki
+   **AIA** ("CA Issuers") adresinden eksik ara sertifikayı indirir ve
+   DOĞRULAYARAK zincire ekler:
+   - indirilen sertifika zincirin son halkasını gerçekten imzalamış olmalı
+     (`çocuk.verify(eklenen.publicKey)`),
+   - CA olmalı (`basicConstraints CA:TRUE`) ve süresi geçerli olmalı,
+   - zincir **zaten güvenilen** bir köke bağlanmalı; bağlanmazsa hiçbir halka
+     eklenmez ve istek reddedilir.
+   İndirme SSRF korumalıdır (yalnızca http/https, kamuya açık IP, en çok 2
+   yönlendirme, 1 MiB ve 4 indirme sınırı). Sonuçta bağlantı yine Node'un TLS
+   yığınıyla, doğrulama AÇIKKEN ve host adı denetlenerek kurulur; tamamlama
+   host başına bir kez denenir ve sonucu günlüğe yazılır. Bu, tarayıcıların ve
+   Windows'un yaptığı işlemin kendisidir — farkı, indirdiği sertifikayı
+   **güven kökü saymamasıdır**.
+   Kod: `src/lib/tls-chain-completion.ts` (+ `tests/tls-chain-completion.test.ts`).
+3. **Elle kök/ara sertifika.** Kök sistem deposunda da yoksa doğrulanmış kökü
+   bir PEM dosyasına koyun ve `NODE_EXTRA_CA_CERTS=C:/certs/turkiye-kamu-ca.pem`
+   ile tanıtın. Dosyaya yalnızca **doğrulayabildiğiniz** kökleri yazın;
+   tarayıcıdan dışa aktarılan her sertifika güvenilir değildir. Sunucu ara CA'yı
+   hiç göndermiyorsa ve AIA adresi de yoksa eksik halkayı kurumun resmî
+   duyurusundan/sertifika deposundan alıp aynı dosyaya ekleyin.
+
+Tamamlama başarısız olursa istemci **reddeder** (sessizce gevşetmez) ve günlüğe
+nedeni yazar: `Eksik sertifika zinciri AIA ile tamamlanamadı; doğrulama açık
+kaldı ve istek reddedildi.`
 
 ## 5) Yapılmayacaklar
 
@@ -146,9 +169,53 @@ Doğru karşılık `NODE_TLS_REJECT_UNAUTHORIZED=0` **değildir**:
 - `no-verify`/`disable` üretimde `env:check` tarafından **engellenir**, geliştirmede uyarı üretir.
 - Bağlantı dizesine yazılan TLS parametreleri (`sslmode`, `ssl`, `sslrootcert`,
   `sslcert`, `sslkey`, `sslnegotiation`, `uselibpqcompat`) başlangıçta reddedilir.
-- Uygulama bilinmeyen bir sertifikayı otomatik indirip güvenilir saymaz.
+- Uygulama indirilen bir sertifikayı **güven kökü** saymaz: AIA ile indirilen
+  halka yalnızca imzası, CA durumu, süresi ve güvenilen köke bağlanması
+  doğrulandıktan sonra zincire eklenir (`SOURCE_TLS_AIA_COMPLETION=0` ile tümüyle
+  kapatılabilir). Doğrulama hiçbir yolda kapatılmaz.
 - Süre dolması veya sunucu adı uyuşmazlığı CA eklemekle çözülmez: sistem
   saatini, sertifika yenilemesini ve bağlantı adresini kontrol edin.
+
+### `NODE_TLS_REJECT_UNAUTHORIZED=0` zaten tanımlıysa (kaldırma)
+
+Bu anahtar açıkken `npm run test:live`, taramalar ve `env:check` "başarılı"
+görünebilir; ama bu, sitelerin çalıştığını değil **hiçbir sertifikanın
+denetlenmediğini** gösterir. Uygulama bunu gizlemez:
+
+- `describeEnv()` özeti `tlsVerification: KAPALI (NODE_TLS_REJECT_UNAUTHORIZED=0)` satırını taşır
+  (`npm run env:check`, `npm run env:setup`, worker başlangıcı, `/health`).
+- `npm run test:live` ve `npm run db:tls-doctor` çıktısının İLK satırı uyarı + kaldırma adımlarıdır.
+- Üretimde (`NODE_ENV=production`) uygulama **başlamaz**; geliştirmede yüksek sesli uyarıdır.
+- Sihirbaz bu alanı riskli karar sayar: `npm run env:setup -- --only NODE_TLS_REJECT_UNAUTHORIZED`
+  ile `:clear` deyince `.env`'den silinir (yazmak için `!0` gerekir).
+
+Kaldırma (Windows — genellikle kalıcı kullanıcı değişkenidir):
+
+```bat
+:: 1) Geçici (yalnızca açık pencere)
+set NODE_TLS_REJECT_UNAUTHORIZED=
+:: PowerShell: $env:NODE_TLS_REJECT_UNAUTHORIZED=$null
+
+:: 2) Kalıcı kullanıcı değişkeni: boş değere ayarlayın, YENİ bir kabuk açın
+setx NODE_TLS_REJECT_UNAUTHORIZED ""
+::    Kalıcı silme: Sistem Özellikleri → Gelişmiş → Ortam Değişkenleri → sil
+
+:: 3) Kontrol: undefined yazmalı
+node -e "console.log(process.env.NODE_TLS_REJECT_UNAUTHORIZED)"
+```
+
+Kaldırma (Linux/macOS):
+
+```bash
+unset NODE_TLS_REJECT_UNAUTHORIZED
+# kalıcı tanımları ~/.bashrc, ~/.zshrc, ~/.profile, systemd unit ya da
+# Cloudflare/panel ortam değişkenlerinden silin
+node -e "console.log(process.env.NODE_TLS_REJECT_UNAUTHORIZED)"   # undefined
+```
+
+Anahtar kaldırıldıktan sonra aynı hatayı alırsanız kök nedeni
+`npm run db:tls-doctor` (veritabanı) ve `npm run test:live` çıktısının ilk
+satırı (HTTP) söyler; eksik halka için yukarıdaki 1–3 adımları uygulayın.
 
 ## 6) Kararın uygulandığı yerler (kod haritası)
 
@@ -156,7 +223,12 @@ Doğru karşılık `NODE_TLS_REJECT_UNAUTHORIZED=0` **değildir**:
 | --- | --- |
 | `src/config/env.ts` | `POSTGRES_SSL*` anahtarları, `postgresTlsMode()`, `postgresCaMergeSystem()`, `env:check` denetimleri |
 | `src/lib/ca-file.ts` | CA yolu çözümleme, DER→PEM, içerik/anlam denetimi, güven listesi üretimi |
-| `src/lib/tls-trust.ts` | Node + sistem + `NODE_EXTRA_CA_CERTS` kök birleşimi, genel TLS yardım metni |
+| `src/lib/tls-trust.ts` | Node + sistem + `NODE_EXTRA_CA_CERTS` kök birleşimi, `NODE_TLS_REJECT_UNAUTHORIZED` bekçisi, genel TLS yardım metni |
+| `src/lib/tls-chain-completion.ts` | Eksik ara sertifikayı AIA'dan indirip DOĞRULAYARAK zincire ekleme (HTTP tarafı) |
+| `src/sources/fetcher.ts` | Birleşik güven deposuyla undici ajanı, host başına tamamlanmış zincir ajanı, `shouldAttemptChainCompletion()` |
+| `src/sources/browser-session.ts` | Chromium yedeği ve `SOURCE_BROWSER_FALLBACK` anahtarı (testlerde kapalı) |
+| `src/config/env-spec.ts`, `src/config/env-prompt.ts`, `src/config/env-file.ts`, `scripts/env-setup.ts` | `npm run env:setup` sihirbazı: katalog, karar mantığı, güvenli `.env` yazımı |
+| `tests/tls-verification-guard.test.ts`, `tests/env-setup.test.ts`, `tests/tls-chain-completion.test.ts` | Bekçi, sihirbaz ve zincir tamamlama kanıtları |
 | `src/db/postgres-store.ts` | `sslConfigFor()` karar tablosu (tek yetkili) |
 | `src/db/store.ts` | CA dosyasını okur/doğrular; doğrulamasıza **sessiz düşmez** |
 | `src/lib/pg-tls-probe.ts` | Parolasız SSLRequest sondajı, zincir okuma, güven değerlendirmesi |

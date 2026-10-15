@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const browserMocks = vi.hoisted(() => ({
   launch: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('../src/sources/network-safety', () => ({
   resolvePublicAddresses: browserMocks.resolvePublicAddresses,
 }));
 
-import { isSafeBrowserRequest, launchChromium } from '../src/sources/browser-session';
+import { browserFallbackEnabled, isSafeBrowserRequest, launchChromium } from '../src/sources/browser-session';
 
 describe('headless browser egress guard', () => {
   const hosts = new Set(['www.resmigazete.gov.tr', 'resmigazete.gov.tr']);
@@ -37,8 +37,35 @@ describe('headless browser egress guard', () => {
   });
 });
 
+describe('tarayıcı yedeği anahtarı (SOURCE_BROWSER_FALLBACK)', () => {
+  const original = process.env['SOURCE_BROWSER_FALLBACK'];
+  afterEach(() => {
+    if (original === undefined) delete process.env['SOURCE_BROWSER_FALLBACK'];
+    else process.env['SOURCE_BROWSER_FALLBACK'] = original;
+  });
+
+  it('0/false/no kapalı demektir; boş ya da tanımsız açık demektir', () => {
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '0' })).toBe(false);
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: 'false' })).toBe(false);
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: 'NO' })).toBe(false);
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '1' })).toBe(true);
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '' })).toBe(true);
+    expect(browserFallbackEnabled({})).toBe(true);
+  });
+
+  it('kapalıyken Chromium hiç başlatılmaz (testler gerçek ağa çıkamaz)', async () => {
+    // tests/setup.ts anahtarı 0 yapar; bu test onu DEĞİŞTİRMEDEN doğrular.
+    expect(process.env['SOURCE_BROWSER_FALLBACK']).toBe('0');
+    browserMocks.launch.mockReset();
+    await expect(launchChromium({ allowedHosts: ['example.gov'] })).rejects.toThrow(/SOURCE_BROWSER_FALLBACK=0/);
+    expect(browserMocks.launch).not.toHaveBeenCalled();
+  });
+});
+
 describe('browser session cancellation', () => {
   beforeEach(() => {
+    // Bu blok Playwright'ı MOCK'lar (gerçek ağ yok); anahtar bilinçli olarak açılır.
+    process.env['SOURCE_BROWSER_FALLBACK'] = '1';
     browserMocks.launch.mockReset();
     browserMocks.resolvePublicAddresses.mockClear();
   });

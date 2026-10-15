@@ -452,6 +452,23 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     outsideSchema: true,
   },
   {
+    key: 'NODE_TLS_REJECT_UNAUTHORIZED',
+    group: 'guvenlik',
+    label: 'TLS doğrulamasını kapatma anahtarı (KALDIRILMALI)',
+    help:
+      'Node\'un acil durum anahtarıdır: 0 yazıldığında HTTPS ve Postgres dahil TÜM TLS ' +
+      'bağlantılarında sertifika denetimi ATLANIR. Bu proje bunu bir çözüm olarak kabul etmez; ' +
+      'doğru karşılık eksik kökü/zinciri tamamlamaktır: POSTGRES_SSL_CA_FILE (Supabase CA), ' +
+      'POSTGRES_SSL_CA_MERGE_SYSTEM=1 (dosya + sistem kökleri), NODE_EXTRA_CA_CERTS (kurum kökü), ' +
+      'Node 22.15+ (sistem kök deposu) ve npm run db:tls-doctor (kök nedeni otomatik bulur). ' +
+      'Bu alanı BOŞALTMAK (:clear) anahtarı .env dosyasından kaldırır; kabukta/kullanıcı ' +
+      'değişkenlerinde tanımlıysa ayrıca silinmelidir (Windows: setx NODE_TLS_REJECT_UNAUTHORIZED "").',
+    type: 'enum',
+    options: ['0', '1'],
+    optional: true,
+    outsideSchema: true,
+  },
+  {
     key: 'POSTGRES_MAX_CONNECTIONS',
     group: 'veritabani',
     label: 'En çok bağlantı (havuz boyutu)',
@@ -582,6 +599,34 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     group: 'tarama',
     label: 'Gerçek kaynaklara istek atılsın mı?',
     help: '0: worker ağa çıkmaz (demo/test). 1: gerçek tarama. Üretimde 1 olmalıdır.',
+    type: 'boolean',
+    defaultValue: '1',
+    optional: true,
+  },
+  {
+    key: 'SOURCE_TLS_AIA_COMPLETION',
+    group: 'tarama',
+    label: 'Eksik sertifika zinciri AIA ile tamamlansın mı?',
+    help:
+      'Bazı resmî siteler (ilan.gov.tr, BDDK, TMSF) TLS\'te yalnızca yaprak sertifikayı gönderir; ' +
+      'Node zinciri tamamlayamadığı için UNABLE_TO_VERIFY_LEAF_SIGNATURE verir. ' +
+      '1: eksik ara sertifika, yapraktaki AIA adresinden indirilir; İMZASI, CA durumu ve süresi ' +
+      'doğrulanır, zincir GÜVENİLEN bir köke bağlanıyorsa istek doğrulama AÇIKKEN yeniden denenir. ' +
+      '0: tamamlama yapılmaz. Doğrulamayı kapatmaz; kapatmak için NODE_TLS_REJECT_UNAUTHORIZED=0 ' +
+      'KULLANILMAZ.',
+    type: 'boolean',
+    defaultValue: '1',
+    optional: true,
+  },
+  {
+    key: 'SOURCE_BROWSER_FALLBACK',
+    group: 'tarama',
+    label: 'Tarayıcı yedeği (Chromium) kullanılsın mı?',
+    help:
+      'HTTP istemcisi cevap alamadığında (ECONNRESET/zaman aşımı) sayfa başsız Chromium ile okunur. ' +
+      '0: tarayıcı hiç başlatılmaz, asıl HTTP hatası bildirilir. Chromium kurulu değilse ' +
+      '(npx playwright install chromium) ya da sunucuda tarayıcı istenmiyorsa 0 yazın. ' +
+      'Testlerde zorunlu olarak 0\'dır: Chromium gerçek ağa çıktığı için sahte istemciyi yanıltır.',
     type: 'boolean',
     defaultValue: '1',
     optional: true,

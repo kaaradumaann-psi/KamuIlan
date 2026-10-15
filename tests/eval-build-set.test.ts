@@ -11,11 +11,11 @@
  * Buradaki 'scraped' kayıt YALNIZCA aracın testidir; değerlendirme kümesi verisi
  * değildir ve küme dosyasına yazılmaz.
  */
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { runTsxScript } from './helpers/run-tsx';
 import { FileStore } from '../src/db/file-store';
 import type { JobDoc, JobSourceDoc } from '../src/db/schemas';
 import {
@@ -214,19 +214,19 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
   const setPath = join(dir, 'labeled-set.json');
 
   /** Betik çıktısını döndürür; kabul edilmeyen kayıt durumunda exit kodu 1 olur (bilinçli). */
+  /**
+   * Betik çıktısını döndürür; kabul edilmeyen kayıt durumunda exit kodu 1 olur
+   * (bilinçli) ve stdout yine de döndürülür.
+   *
+   * Windows'ta `npx` bir `.cmd` sarmalayıcısıdır ve `child_process` ile doğrudan
+   * çağrılamaz (`spawnSync npx ENOENT`). Bu yüzden betik, `process.execPath` +
+   * tsx CLI ile çalıştırılır; davranış üç platformda da aynıdır.
+   */
   function run(args: string[]): string {
-    try {
-      return execFileSync('npx', ['tsx', 'scripts/eval-build-set.ts', ...args], {
-        cwd: join(__dirname, '..'),
-        encoding: 'utf8',
-        env: { ...process.env, DATA_DIR: dir, DATABASE_DRIVER: 'file', NODE_ENV: 'test', SOURCE_LIVE_FETCH: '0' },
-        timeout: 120_000,
-      });
-    } catch (error) {
-      const failure = error as { stdout?: string; stderr?: string; message?: string };
-      if (typeof failure.stdout === 'string') return failure.stdout + (failure.stderr ?? '');
-      throw error;
-    }
+    const run = runTsxScript('scripts/eval-build-set.ts', args, {
+      env: { ...process.env, DATA_DIR: dir, DATABASE_DRIVER: 'file', NODE_ENV: 'test', SOURCE_LIVE_FETCH: '0' },
+    });
+    return run.output;
   }
 
   beforeAll(async () => {
