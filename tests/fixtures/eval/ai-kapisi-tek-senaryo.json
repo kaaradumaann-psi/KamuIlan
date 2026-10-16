@@ -1,0 +1,15 @@
+{
+  "description": "TEK SENARYOLUK CANLI DOĞRULAMA (1 gerçek API çağrısı). Amaç: sağlayıcı kotası/yoğunluğu kısıtlıyken bile kapının GEÇERLİ ve DOĞRU çıktı ürettiğini en az çağrıyla kanıtlamak. Kayıt, ai-kapisi-senaryolari.json içindeki 'kapi-A-ilan' kaydının BİREBİR aynısıdır (tests/ai-kapisi-tek-senaryo.test.ts bu eşitliği korur). Bu metin kural motorunu BİLEREK 'review'da bırakır; kapı çağrılır ve beklenen tür personnel_recruitment'tır. origin 'synthetic' olduğu için bu koşum gerçek dünya doğruluk oranı iddiası DEĞİLDİR; kapının çalıştığının kanıtıdır.",
+  "records": [
+    {
+      "id": "kapi-A-ilan",
+      "origin": "synthetic",
+      "labelProvenance": "human",
+      "title": "2026 Yılı Ekim Dönemi İşlemleri",
+      "sourceCategory": "Genel",
+      "bodyKind": "recruitment",
+      "expectedContentType": "personnel_recruitment",
+      "body": "Kurumumuz merkez ve taşra teşkilatında istihdam edilmek üzere sözleşmeli personel alınacaktır. Kontenjan 12 olup başvurular 01.11.2026 - 14.11.2026 tarihleri arasında alınacaktır. Adaylarda 657 sayılı Kanunun 4/B maddesinde belirtilen şartlar aranır. Başvuru e-Devlet üzerinden yapılacaktır. Kılavuz ekte yer almaktadır."
+    }
+  ]
+}

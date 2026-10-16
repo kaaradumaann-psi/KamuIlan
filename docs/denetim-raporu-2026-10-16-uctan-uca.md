@@ -141,7 +141,8 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 | `npm run lint` (`eslint .`) | **Temiz** (0 hata/0 uyarı) | Probe dosyaları silindikten sonra |
 | `npm run build` (`tsc --noEmit && vite build`) | **Başarılı** (113 modül, ~0.33 s) | Üretim derlemesi |
 | `npx vitest run` (ilk tur sonu) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
-| `npx vitest run` (**son durum, 16.10.2026**) | **101 dosya / 1273 test PASS**, 117.5 s | +13 dosya, +138 test (baseline'a göre) |
+| `npx vitest run` (**son durum, 16.10.2026**) | **102 dosya / 1276 test PASS**, 115.0 s | +14 dosya, +141 test (baseline'a göre) |
+| `npx vitest run tests/ai-kapisi-tek-senaryo.test.ts` | 3 PASS | Tek çağrılık doğrulama seti bütünlüğü |
 | `npx vitest run tests/llm-429-kota-teshisi.test.ts tests/json-cikti-arg.test.ts` | 12 PASS | Yeni: 429 kota ipucu + `--json` davranışı |
 | `npm run llm:doctor -- --offline --json /tmp/doktor-test.json` | Dosya yazıldı (2348 bayt) | `--json <dosya>` artık gerçekten yazıyor |
 | `npm run llm:doctor -- --offline --json /tmp/yok-klasor/d.json` | `✖ … YAZILAMADI (ENOENT)` + çıkış kodu 1 | Sessiz kayıp yok |
@@ -334,6 +335,34 @@ kapi-D-haber       beklenen news                           model kararı dogrula
 
 ---
 
+### G.13 (bu tur) Canlı kanıt: doctor TAM YEŞİL, ama sınıflandırma çağrıları kota/yoğunluk duvarına çarpıyor + tek çağrılık doğrulama seti
+
+**1) Doctor (16.10.2026, kullanıcının makinesi): her iki kapı da BAŞARILI**
+- `transport: gemini-native` · uç `…/v1beta/models/gemini-3.8-flash:generateContent` · `endpointRisk: null`.
+- Canlı çağrı: **HTTP 200, 6111 ms, 2 deneme**, üretilen metin `"hazır"` (24 girdi / 2 çıktı token) → `usableTextGenerated: başarılı`, `authorizationCheck: başarılı`.
+- Model listesi: HTTP 200 / **63 model**; `gemini-3.8-flash` **VAR**; yöntemler `[generateContent, countTokens, createCachedContent, batchGenerateContent]`.
+- İki kapı (sınıflandırma + panel asistanı) **ayrı ayrı** yeşil; biri diğerini kanıtlamıyor.
+- **Anlamı:** uç nokta/model/anahtar/taşıyıcı zinciri artık doğru çalışıyor. İlk denemenin 2. denemede geçmesi modelde **yoğunluk** olduğunu gösterir.
+
+**2) Aynı dakikada senaryo koşumu (4 kayıt, 4 çağrı): ölçüm YİNE yapılamadı**
+- `kararlar: ilan 0 · süreç 0 · kanıtlı ret 0 · belirsiz kaldı 0 · doğrulanamadı 0 · hata 4`; `token: 0+0` (kullanım bildiren çağrı oranı %0); hata oranı **%100**; gecikme ortalama 1872 ms (p95 2705 ms).
+- Senaryo tablosu: dört satır da `· kapı çalışmadı`; `Özet: uygun 0 · UYGUNSUZ 0 · kapı çalışmadı 4`.
+- Maskeli sağlayıcı hataları (iki farklı sınıf **birlikte** görüldü):
+  - `Sağlayıcı HTTP 429 döndü [Gemini yerel API (generateContent)]. Sağlayıcı mesajı: You exceeded your current quota, please check your plan and billing details…`
+  - `Sağlayıcı HTTP 503 döndü [Gemini yerel API (generateContent)]. Sağlayıcı mesajı: This model is currently experiencing high demand…`
+- **Teşhis:** doctor'ın minik isteği (256 token, kısa istem) geçiyor; sınıflandırmanın büyük isteği (JSON şeması + tam gövde, 900 çıktı tokenı, `jsonMode`) kotalı/yoğun modelde **reddediliyor**. Yani kalan engel **sağlayıcı kotası/yoğunluğu**; kod, uç nokta ve anahtar doğru. `LLM_DAILY_CALL_LIMIT` (50) ve `LLM_RETRY_MAX` bu duvarı değiştirmez. Her başarısız kayıt 2 istek harcar (1 + 1 yeniden deneme).
+- **Dürüst sınır:** bu koşumda "kapı doğru sınıflandırıyor" iddiası **kurulmaz** (0 karar). Önceki koşumdaki tek doğru karar (`personnel_recruitment`) hâlâ tek gerçek kanıttır.
+
+**3) Eklenen: TEK çağrılık doğrulama seti (kota kısıtlıyken kanıt üretmek için)**
+- `tests/fixtures/eval/ai-kapisi-tek-senaryo.json`: yalnızca `kapi-A-ilan` (personel alımı) kaydı — 4 senaryoluk setteki kaydın **birebir aynısı**.
+- Komut (1 gerçek çağrı): `npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-tek-senaryo.json --llm --json data\ai-kapisi-tek.json`
+- Beklenen: `kararlar: ilan 1 · … hata 0`, senaryo satırı `✓ uygun`, `Özet: uygun 1 · UYGUNSUZ 0 · kapı çalışmadı 0`. Bu satır görüldüğünde "kapı gerçek yanıtta geçerli JSON + kaynaktan birebir kanıt + doğru içerik türü üretti" kanıtı **tam** olur.
+- Bütünlük testi: `tests/ai-kapisi-tek-senaryo.test.ts` (3 test) — kayıt 4'lü setteki `kapi-A-ilan` ile birebir aynı mı, beklenen tür doğru mu, kural motoru kaydı gerçekten `review`da bırakıyor mu (bırakmazsa kapı hiç çağrılmaz).
+
+**4) Bu turda doğrulanan düzeltme (canlı):** `--json` yolu verilmediğinde artık **açık uyarı** basılıyor — kullanıcının çıktısının son satırı tam olarak bu: `⚠ --json için dosya yolu verilmedi; makine okunur rapor YAZILMADI (ör. --json data\ai-kapisi-sonuc.json).` Düzeltme kullanıcının makinesinde çalıştı.
+
+---
+
 ## H) Sonraki adımlar (teknik bilgisi sınırlı kullanıcı için, sırayla)
 
 > **Kullanıcının sonraki TEK adımı (16.10.2026 kararı):** veri değişikliği **şimdilik yapılmıyor**; önce **yapay zekâ kapısının gerçek çağrıda doğru çalıştığı** kanıtlanacak. Aşağıdaki **1 → 2 → 3 → 4** adımları sırayla çalıştırın; sonuçları bana yapıştırın. Veri onarımı (3b/3c) siz "devam" dedikten sonra ele alınacak.
@@ -343,11 +372,16 @@ kapi-D-haber       beklenen news                           model kararı dogrula
 1. **Kodu al ve hazırla:** proje klasöründe `git pull` → `npm ci`.
 2. **Bilgisayarında kontrol et:** `npm run env:check` çalıştır. Çıktıda "email: dosya (geliştirme; e-posta gönderilmez)" yazmalı. Gerçek kaynaklara çıkmak İSTEMİYORSAN `.env` dosyanda `SOURCE_LIVE_FETCH=0` yap.
 3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: **1261 test PASS**, derleme başarılı (sizin makinenizde ölçülen: 1256 test → 1233 geçti, 23 atlandı, 0 başarısız).
-4. **Yapay zekâ kapısını GERÇEK çağrıyla doğrula (en fazla 4 çağrı, üretim verisine yazmaz)** — **bu adımı 16.10.2026'da çalıştırdınız, sonuç yarım kaldı:**
+4. **Yapay zekâ kapısını GERÇEK çağrıyla doğrula** — **doctor artık TAM YEŞİL** (HTTP 200, model listede, `usableTextGenerated: başarılı`), ancak 4 çağrılık senaryo koşumu kota/yoğunluk nedeniyle yine ölçülemedi (429 + 503). Önce **tek çağrılık** kanıtı alın, kotayı buna harcayın:
    ```
    npm run llm:doctor -- --json data\llm-doktor.json
-   npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm --json data\ai-kapisi.json
+   npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-tek-senaryo.json --llm --json data\ai-kapisi-tek.json
    ```
+   - **Tek çağrılık set ne yapar:** yalnızca gerçek bir personel alımı duyurusunu kapıdan geçirir; beklenen `personnel_recruitment`.
+   - **Başarı ölçütü:** `kararlar: ilan 1 … hata 0` + senaryo satırı `✓ uygun` + `Özet: uygun 1 · UYGUNSUZ 0 · kapı çalışmadı 0`.
+   - **Bu görülürse "HTTP 200 tek başına kanıt değil" koşulu karşılanır:** kapı geçerli JSON üretmiş, kanıtı kaynak metinden birebir doğrulamış ve **doğru içerik türünü** vermiş olur.
+   - Dört senaryoluk tam set, kota elverdiğinde aynı komutla `--file tests/fixtures/eval/ai-kapisi-senaryolari.json` verilerek çalıştırılır (4 çağrı).
+   - **429/503 alıyorsanız:** bu sizin hesabınızın kotası/yoğunluk; kod veya ayar değiştirmeyin. Plan/kotayı sağlayıcı panelinden kontrol edin ya da **listede olan başka bir Flash modelini** deneyin (`LLM_CLASSIFIER_MODEL` + `LLM_MODEL`, ör. `gemini-2.5-flash`) ve önce `npm run llm:doctor` ile doğrulayın. Her başarısız kayıt 2 istek harcar.
    - **404 sorunu bitti (kanıt):** doctor artık `transport: gemini-native`, uç `…/v1beta/models/gemini-3.8-flash:generateContent`, model listesi **HTTP 200 / 63 model**, `generateContent` destekli ve `endpointRisk: null` diyor.
    - **Engelin türü zamanla değişti, üçü de SAĞLAYICIDA:** 1) 404 (yanlış uç — yapılandırma, düzeltildi) → 2) 503 "high demand" (geçici yoğunluk; bir koşumda 4 çağrıdan 1'i doğru sonuç verdi) → 3) **429 `RESOURCE_EXHAUSTED`: "You exceeded your current quota, please check your plan and billing details."** (hesap/plan kotası). **Üçü için de kod değişikliği veya ayar şişirme GEREKMEZ**; `LLM_DAILY_CALL_LIMIT`/`LLM_RETRY_MAX` sağlayıcı kotasını değiştirmez. Her `llm:doctor` koşumu 2, her `--llm` eval koşumu 4 gerçek çağrı harcar — kotayı bunlar tüketir.
    - **Kota yenilenince ne yapılır:** sağlayıcı panelinden kotayı/planı kontrol edin (mesajın kendisi "plan and billing details" diyor) ve **aynı iki komutu** yineleyin. Ölçüm yapılamazsa çıktı `kapı çalışmadı` yazar — bu "yanlış sınıflandırma" değildir; kayıtlar incelemede kalır ve **uydurma alan yazılmaz**.
