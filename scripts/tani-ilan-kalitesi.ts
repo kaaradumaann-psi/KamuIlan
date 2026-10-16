@@ -11,9 +11,13 @@
  *   npm run tani:ilan -- --limit 8000                  → daha geniş tarama
  *   npm run tani:ilan -- --json data\ilan-tanisi.json  → aynı raporu JSON olarak da yaz
  *   npm run tani:ilan -- --bayat-gun 120               → "eski kayıt yeni keşfedildi" eşiği
+ *   npm run tani:ilan -- --kaynak dsi-duyurular        → tek kaynağın kayıtlarını TAM gövde
+ *                                                        metniyle inceler (salt okuma)
+ *   npm run tani:ilan -- --kaynak kgm-duyurular --kaynak-sayi 5
  *
- * Gizlilik: çıktıda yalnızca ilan başlığı, kurum, tarih, karar ve kaynak anahtarı
- * bulunur; kişisel veri, e-posta, parola, API anahtarı veya .env değeri YAZILMAZ.
+ * Gizlilik: çıktıda yalnızca ilan başlığı, kurum, tarih, karar, kaynak anahtarı,
+ * ilan/başvuru adresi ve KAYNAKTA YAYIMLANMIŞ gövde metni bulunur; kişisel veri,
+ * e-posta, parola, API anahtarı veya .env değeri YAZILMAZ.
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -30,6 +34,9 @@ interface Options {
   limit: number;
   staleDays: number;
   reportPath: string | null;
+  /** Tek kaynağın kayıtlarını tam metniyle incelemek için (salt okuma). */
+  sourceKey: string | null;
+  sourceRecordLimit: number;
 }
 
 function parseOptions(argv: string[]): Options {
@@ -43,10 +50,14 @@ function parseOptions(argv: string[]): Options {
   const limitRaw = value('--limit');
   const staleRaw = value('--bayat-gun');
   const reportRaw = value('--json');
+  const sourceRaw = value('--kaynak');
+  const sourceLimitRaw = value('--kaynak-sayi');
   return {
     limit: limitRaw ? Math.max(1, Number(limitRaw)) : 3000,
     staleDays: staleRaw ? Math.max(1, Number(staleRaw)) : 90,
     reportPath: reportRaw ? resolve(reportRaw) : null,
+    sourceKey: sourceRaw ?? null,
+    sourceRecordLimit: sourceLimitRaw ? Math.max(1, Number(sourceLimitRaw)) : 10,
   };
 }
 
@@ -562,6 +573,43 @@ async function main(): Promise<void> {
   }
   lines.push('');
 
+  // --------------------------------------------- 9) tek kaynak incelemesi (isteğe bağlı)
+  if (options.sourceKey) {
+    const key = options.sourceKey;
+    const rows = jobs
+      .filter((job) => job.primarySourceKey === key || job.sourceKeys.includes(key))
+      .slice(0, options.sourceRecordLimit);
+    lines.push(
+      `9) KAYNAK İNCELEMESİ — ${key} (${rows.length} kayıt, tam gövde metni; hiçbir şey değiştirilmedi)`,
+    );
+    if (rows.length === 0) {
+      lines.push('   Bu anahtarla kayıt yok. Kaynak anahtarını 1. bölümdeki listeden alın.');
+    }
+    for (const job of rows) {
+      lines.push('');
+      lines.push(`   KAYIT: ${job.id}`);
+      lines.push(`   Başlık      : ${job.title}`);
+      lines.push(`   Kurum       : ${job.institution}`);
+      lines.push(`   Karar/tür   : ${job.classification.decision} / ${job.classification.kind ?? 'job'}`);
+      lines.push(`   Durum       : ${job.status} (${job.statusReason ?? ''})`);
+      lines.push(`   Yayım tarihi: ${job.publishedAt ?? '—'}  (kaynak: ${job.fieldSources?.publishedAt?.kind ?? '—'})`);
+      lines.push(`   Son başvuru : ${job.applicationEndDate ?? '—'}  ${job.applicationEndAt ?? ''}`);
+      lines.push(`   Kayıt adresi: ${job.detailUrl}`);
+      lines.push(`   Başvuru adr.: ${job.applicationUrl ?? '—'}`);
+      lines.push(`   İlk görülme : ${job.firstSeenAt}   Son görülme: ${job.lastSeenAt}`);
+      const body = (job.textExcerpt ?? '').trim();
+      lines.push(`   Gövde uzunluğu: ${body.length} karakter`);
+      lines.push('   --- kayıtta SAKLI gövde metni (tam) ---');
+      lines.push(body.length > 0 ? body : '   (boş)');
+      lines.push('   --- gövde sonu ---');
+    }
+    lines.push('');
+    lines.push('   Karşılaştırma: "Kayıt adresi"ni tarayıcıda açıp sayfadaki ilan metniyle');
+    lines.push('   yukarıdaki gövdeyi karşılaştırın. Gövde menü/çerez metniyse kaynak');
+    lines.push('   adaptörünün gövde seçicisi düzeltilmelidir (canlı HTML örneği gerekir).');
+    lines.push('');
+  }
+
   // ------------------------------------------------------------------ özet
   const verdict =
     findings.length === 0 && duplicates.length === 0 && staleVersion.length === 0
@@ -641,6 +689,32 @@ async function main(): Promise<void> {
             url: item.url,
             reason: item.reason,
           })),
+          sourceReview: options.sourceKey
+            ? jobs
+                .filter(
+                  (job) =>
+                    job.primarySourceKey === options.sourceKey ||
+                    job.sourceKeys.includes(options.sourceKey as string),
+                )
+                .slice(0, options.sourceRecordLimit)
+                .map((job) => ({
+                  id: job.id,
+                  title: job.title,
+                  institution: job.institution,
+                  detailUrl: job.detailUrl,
+                  applicationUrl: job.applicationUrl,
+                  decision: job.classification.decision,
+                  kind: job.classification.kind ?? 'job',
+                  status: job.status,
+                  publishedAt: job.publishedAt,
+                  publishedAtSourceKind: job.fieldSources?.publishedAt?.kind ?? null,
+                  applicationEndDate: job.applicationEndDate,
+                  firstSeenAt: job.firstSeenAt,
+                  lastSeenAt: job.lastSeenAt,
+                  textLength: (job.textExcerpt ?? '').length,
+                  text: job.textExcerpt ?? '',
+                }))
+            : null,
           sources: sourceRows,
         },
         null,
