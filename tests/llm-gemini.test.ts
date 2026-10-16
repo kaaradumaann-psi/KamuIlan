@@ -55,6 +55,7 @@ import {
   evaluateDoctorChecks,
   formatDoctorReport,
   probeModelList,
+  probeThinkingBudgetForModel,
   runLlmDoctor,
   type DoctorHttpFetch,
 } from '../scripts/llm-doctor';
@@ -954,6 +955,21 @@ describe('HTTP hata gövdesi tanısı ve başlık güvenliği', () => {
     });
     expect(thoughtOnly.content).toBeNull();
     expect(thoughtOnly.failure).toContain('MAX_TOKENS');
+
+    // Düşünme tokenları bütçenin 63 tokenını tüketip 1 token ("haz") üretildikten sonra
+    // MAX_TOKENS ile kesilen kısmi yanıt da başarılı üretim SAYILMAZ
+    const truncatedAtMaxTokens = parseGeminiResponse({
+      candidates: [
+        {
+          content: { role: 'model', parts: [{ text: 'haz' }] },
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
+      usageMetadata: { promptTokenCount: 23, candidatesTokenCount: 1, thoughtsTokenCount: 63, totalTokenCount: 87 },
+    });
+    expect(truncatedAtMaxTokens.content).toBeNull();
+    expect(truncatedAtMaxTokens.failure).toContain('MAX_TOKENS');
+    expect(truncatedAtMaxTokens.failure).toContain('thoughtsTokenCount: 63');
   });
 
   it('HTTP 200 + kullanılabilir metin başarılı üretim sayılır ve thought parçaları ayıklanır', async () => {
@@ -993,6 +1009,9 @@ describe('llm:doctor — kanıta dayalı kontroller ve iki kapının ayrı doğr
   it('tanı çağrısı 8 token yerine gerekçelendirilmiş makul sınır (DOCTOR_PROBE_MAX_TOKENS >= 64) kullanır', () => {
     expect(DOCTOR_PROBE_MAX_TOKENS).toBeGreaterThanOrEqual(64);
     expect(DOCTOR_PROBE_MAX_TOKENS).toBeLessThanOrEqual(256);
+    expect(probeThinkingBudgetForModel('gemini-2.5-flash', 'gemini-native')).toBe(0);
+    expect(probeThinkingBudgetForModel('models/gemini-2.5-flash', 'gemini-native')).toBe(0);
+    expect(probeThinkingBudgetForModel('gemini-2.5-flash', 'openai-compat')).toBeUndefined();
   });
 
   it('supportedGenerationMethods içinde generateContent denetimini yapar ve yanlış kesinlik ifadesi üretmez', async () => {

@@ -82,7 +82,14 @@ export interface LlmHttpDiagnostics {
 }
 
 export type LlmResult =
-  | { ok: true; content: string; usage: LlmUsage; status: number }
+  | {
+      ok: true;
+      content: string;
+      usage: LlmUsage;
+      status: number;
+      finishReason?: string | null;
+      thoughtsTokens?: number | null;
+    }
   | {
       ok: false;
       reason: string;
@@ -716,6 +723,7 @@ export function parseGeminiResponse(payload: unknown): {
     typeof candidate?.finishReason === 'string' && candidate.finishReason.trim().length > 0
       ? candidate.finishReason.trim()
       : null;
+  const finishMessage = typeof candidate?.finishMessage === 'string' ? candidate.finishMessage.trim() : '';
   const parts = candidate?.content?.parts ?? [];
   const visibleParts = parts.filter((part) => part?.thought !== true);
   const text = visibleParts
@@ -723,19 +731,31 @@ export function parseGeminiResponse(payload: unknown): {
     .join('')
     .trim();
 
+  const detail = [
+    finishReason && `finishReason: ${finishReason}`,
+    thoughtsTokens !== null && thoughtsTokens > 0 ? `thoughtsTokenCount: ${thoughtsTokens}` : '',
+    finishMessage,
+  ]
+    .filter(Boolean)
+    .join(' — ');
+
   if (text.length === 0) {
-    const finishMessage = typeof candidate?.finishMessage === 'string' ? candidate.finishMessage.trim() : '';
-    const detail = [
-      finishReason && `finishReason: ${finishReason}`,
-      thoughtsTokens !== null && thoughtsTokens > 0 ? `thoughtsTokenCount: ${thoughtsTokens}` : '',
-      finishMessage,
-    ]
-      .filter(Boolean)
-      .join(' — ');
     return {
       content: null,
       usage,
       failure: `Sağlayıcı yanıtında içerik yok${detail ? ` (${detail})` : ''}.`,
+      finishReason,
+      thoughtsTokens,
+    };
+  }
+
+  if (finishReason === 'MAX_TOKENS') {
+    return {
+      content: null,
+      usage,
+      failure: `Sağlayıcı yanıtı MAX_TOKENS nedeniyle yarıda kesildi (${detail}${
+        usage.completionTokens !== null ? ` — çıktı tokenı: ${usage.completionTokens}` : ''
+      }).`,
       finishReason,
       thoughtsTokens,
     };
@@ -939,7 +959,16 @@ export async function callChatCompletion(
           },
         };
       }
-      return { ok: true, content: gemini.content, status: response.status, usage: gemini.usage };
+      return {
+        ok: true,
+        content: gemini.content,
+        status: response.status,
+        usage: gemini.usage,
+        ...(gemini.finishReason ? { finishReason: gemini.finishReason } : {}),
+        ...(gemini.thoughtsTokens !== null && gemini.thoughtsTokens !== undefined
+          ? { thoughtsTokens: gemini.thoughtsTokens }
+          : {}),
+      };
     }
 
     const envelope = parsed as {

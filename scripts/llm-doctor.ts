@@ -54,15 +54,16 @@ Taşıyıcılar:
 /**
  * Tanı çağrısı çıktı token sınırı.
  *
- * Neden 8 değil 64: Gemini 2.5 modellerinde `generationConfig.maxOutputTokens`
+ * Neden 8 veya 64 değil 256: Gemini düşünme modellerinde `generationConfig.maxOutputTokens`
  * hem iç düşünme (`usageMetadata.thoughtsTokenCount`) hem görünür çıktı
  * (`candidatesTokenCount`) bütçesini birlikte sınırlar. `maxOutputTokens: 8`
- * gönderildiğinde model düşünme aşamasında 8 tokenı tüketip görünür metin
- * üretemeden `finishReason: MAX_TOKENS` ile sonlanır (HTTP 200 + boş içerik).
- * 64 token sınırı tek sözcüklük tanı yanıtı için yeterli alan bırakırken
- * maliyeti ihmal edilebilir düzeyde tutar.
+ * gönderildiğinde model düşünme aşamasında 8 tokenı tüketip boş içerikle,
+ * `maxOutputTokens: 64` gönderildiğinde ise düşünme kapalı değilse 63 düşünme +
+ * 1 çıktı tokenı ("haz") üretip `finishReason: MAX_TOKENS` ile yarıda kesilir.
+ * 256 token sınırı (ve Flash modellerinde `thinkingBudget: 0`) yanıtın kesilmeden
+ * tamamlanmasını sağlarken maliyeti ihmal edilebilir düzeyde tutar.
  */
-export const DOCTOR_PROBE_MAX_TOKENS = 64;
+export const DOCTOR_PROBE_MAX_TOKENS = 256;
 
 /** Tek bir tanı çalıştırmasında yapılabilecek azami gerçek HTTP çağrısı. */
 export const DOCTOR_MAX_API_CALLS = 5;
@@ -71,7 +72,7 @@ export const DOCTOR_MAX_API_CALLS = 5;
 export const DOCTOR_MAX_RETRIES_PER_CALL = 1;
 
 export const DOCTOR_PROBE_MESSAGES = [
-  { role: 'system', content: 'Bağlantı denetimi. Yanıt olarak yalnızca tek bir Türkçe sözcük yaz.' },
+  { role: 'system', content: 'Bağlantı denetimi. Yanıt olarak yalnızca "hazır" kelimesini yaz.' },
   { role: 'user', content: 'hazır' },
 ] as const;
 
@@ -182,14 +183,13 @@ export function describeSecret(value: string): string {
 }
 
 /**
- * Gemini 2.5 Flash modellerinde tanı çağrısının düşünme tokenlarıyla `maxOutputTokens`
- * sınırını tüketmemesi için `thinkingBudget: 0` desteklenip desteklenmediğini belirler.
- * Yalnızca `gemini-2.5-flash` ailesi `thinkingBudget: 0` değerini destekler.
+ * Gemini Flash modellerinde tanı çağrısının düşünme tokenlarıyla `maxOutputTokens`
+ * sınırını tüketmemesi ve gecikmeyi düşürmesi için `thinkingBudget: 0` belirler.
  */
 export function probeThinkingBudgetForModel(model: string, transport: LlmTransport): number | undefined {
   if (transport !== 'gemini-native') return undefined;
   const normalized = normalizeGeminiModel(model).toLowerCase();
-  if (normalized.startsWith('gemini-2.5-flash')) {
+  if (/^gemini-[\d.]+-flash/i.test(normalized)) {
     return 0;
   }
   return undefined;
@@ -565,13 +565,15 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
     const elapsedMs = Date.now() - started;
     if (result.ok) {
       const preview = redactSecret(result.content.replace(/\s+/g, ' ').trim(), env.LLM_API_KEY).slice(0, 60);
+      const thoughtsNote =
+        typeof result.thoughtsTokens === 'number' ? ` / ${result.thoughtsTokens} düşünme` : '';
       return {
         attempted: true,
         ok: true,
         status: result.status,
         elapsedMs,
         attempts: result.attempts,
-        detail: `kullanılabilir metin üretildi ("${preview}", ${result.usage.promptTokens ?? '?'} girdi / ${result.usage.completionTokens ?? '?'} çıktı token)`,
+        detail: `kullanılabilir metin üretildi ("${preview}", ${result.usage.promptTokens ?? '?'} girdi${thoughtsNote} / ${result.usage.completionTokens ?? '?'} çıktı token)`,
         failureCategory: 'ok',
         contentPreview: preview,
         diagnostics: null,
