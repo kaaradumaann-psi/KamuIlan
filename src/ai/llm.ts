@@ -23,10 +23,14 @@
  *  - Zaman aşımı zorunludur; yanıt boyutu sınırlıdır.
  *  - Ham istem ve yanıt loglanmaz; sağlayıcının hata mesajı kısaltılarak alınır.
  */
+export type LlmFetchHeaders =
+  | { get?(name: string): string | null | undefined }
+  | Record<string, string | string[] | undefined>;
+
 export type LlmFetch = (
   url: string,
   init: { method: 'POST'; headers: Record<string, string>; body: string; signal: AbortSignal },
-) => Promise<{ status: number; text(): Promise<string> }>;
+) => Promise<{ status: number; headers?: LlmFetchHeaders; text(): Promise<string> }>;
 
 export interface LlmConfig {
   baseUrl: string;
@@ -41,15 +45,412 @@ export interface LlmUsage {
   completionTokens: number | null;
 }
 
+export type LlmErrorBodyKind = 'empty' | 'json' | 'unexpected-json' | 'html' | 'text';
+
+export type LlmFailureCategory =
+  | 'auth'
+  | 'not-found'
+  | 'rate-limit'
+  | 'service-unavailable'
+  | 'bad-request'
+  | 'http-error'
+  | 'timeout'
+  | 'network'
+  | 'empty-output'
+  | 'invalid-json'
+  | 'config';
+
+/**
+ * HTTP yanıtı için güvenli ve hassas verilerden arındırılmış tanı özeti.
+ * Ham gövde veya gizli başlıklar burada tutulmaz; yalnızca izin verilen alanlar
+ * ve temizlenmiş kısa özet raporlanır.
+ */
+export interface LlmHttpDiagnostics {
+  status: number | null;
+  contentType: string | null;
+  bodyLength: number;
+  bodyKind: LlmErrorBodyKind;
+  errorCode: string | number | null;
+  errorStatus: string | null;
+  errorMessage: string | null;
+  bodySummary: string;
+  retryAfter: string | null;
+  retryAfterMs: number | null;
+  requestId: string | null;
+  requestIdHeader: string | null;
+  finishReason?: string | null;
+}
+
 export type LlmResult =
   | { ok: true; content: string; usage: LlmUsage; status: number }
-  | { ok: false; reason: string; status: number | null; retryable: boolean; timedOut?: boolean };
+  | {
+      ok: false;
+      reason: string;
+      status: number | null;
+      retryable: boolean;
+      timedOut?: boolean;
+      failureCategory?: LlmFailureCategory;
+      diagnostics?: LlmHttpDiagnostics;
+    };
 
 const MAX_RESPONSE_CHARS = 64_000;
 const MAX_PROVIDER_MESSAGE_CHARS = 240;
 
+/** Yeniden deneme ve Retry-After bekleme süresi için güvenli üst sınır (10 saniye). */
+export const MAX_RETRY_AFTER_MS = 10_000;
+
+/**
+ * Yanıt başlıklarından yalnızca bu sabit izin listesindeki istek/izleme
+ * kimlikleri okunur; diğer başlıklar (Set-Cookie, Authorization vb.) asla okunmaz.
+ */
+export const ALLOWED_REQUEST_ID_HEADERS = [
+  'x-request-id',
+  'x-goog-request-id',
+  'x-guploader-uploadid',
+  'cf-ray',
+  'traceparent',
+  'x-amzn-requestid',
+  'x-correlation-id',
+] as const;
+
+/**
+ * Metin içindeki API anahtarını ve yaygın yetki belirteci kalıplarını maskeler.
+ */
 export function redactSecret(text: string, secret: string): string {
-  return secret ? text.split(secret).join('***') : text;
+  if (!text) return text;
+  let cleaned = secret ? text.split(secret).join('***') : text;
+  cleaned = cleaned
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, 'Bearer ***')
+    .replace(/\bAIza[0-9A-Za-z_-]{10,}/g, '***')
+    .replace(/\bsk-[0-9A-Za-z_-]{10,}/g, '***')
+    .replace(/([?&](?:key|api_key|apikey|access_token)=)[^&\s"']+/gi, '$1***')
+    .replace(/((?:x-goog-api-key|authorization)\s*[:=]\s*)(?:Bearer\s+)?[^\s,"';]+/gi, '$1***');
+  return cleaned;
+}
+
+export function readResponseHeader(headers: LlmFetchHeaders | undefined, name: string): string | null {
+  if (!headers) return null;
+  const target = name.toLowerCase();
+  if (typeof (headers as { get?: unknown }).get === 'function') {
+    const getter = headers as { get(k: string): string | null | undefined };
+    const value = getter.get(target) ?? getter.get(name);
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+  }
+  const record = headers as Record<string, string | string[] | undefined>;
+  for (const [key, rawValue] of Object.entries(record)) {
+    if (key.toLowerCase() === target) {
+      const value = Array.isArray(rawValue) ? rawValue[0] : rawValue;
+      return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Sabit izin listesindeki yanıt başlıklarından güvenli istek/izleme kimliğini okur.
+ */
+export function extractAllowedRequestId(
+  headers: LlmFetchHeaders | undefined,
+  apiKey = '',
+): { header: string; value: string } | null {
+  if (!headers) return null;
+  for (const header of ALLOWED_REQUEST_ID_HEADERS) {
+    const raw = readResponseHeader(headers, header);
+    if (!raw) continue;
+    const sanitized = redactSecret(raw, apiKey)
+      .replace(/[\r\n\t]+/g, ' ')
+      .trim()
+      .slice(0, 120);
+    if (sanitized.length > 0) {
+      return { header, value: sanitized };
+    }
+  }
+  return null;
+}
+
+/**
+ * `Retry-After` başlığını ayrıştırır (hem saniye tam/ondalık hem HTTP tarih biçimi).
+ * Bekleme süresini `[0, maxWaitMs]` aralığında sınırlar.
+ */
+export function parseRetryAfterMs(
+  headerValue: string | null | undefined,
+  nowMs: number = Date.now(),
+  maxWaitMs: number = MAX_RETRY_AFTER_MS,
+): number | null {
+  if (typeof headerValue !== 'string') return null;
+  const trimmed = headerValue.trim();
+  if (trimmed.length === 0) return null;
+  const safeCap = Math.max(0, maxWaitMs);
+
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (!Number.isFinite(seconds) || seconds < 0) return null;
+    return Math.min(safeCap, Math.round(seconds * 1_000));
+  }
+
+  const parsedDateMs = Date.parse(trimmed);
+  if (!Number.isNaN(parsedDateMs)) {
+    const deltaMs = Math.max(0, parsedDateMs - nowMs);
+    return Math.min(safeCap, deltaMs);
+  }
+
+  return null;
+}
+
+interface ParsedProviderErrorEnvelope {
+  code: string | number | null;
+  status: string | null;
+  message: string | null;
+  matchedKnownField: boolean;
+}
+
+function extractDocumentedJsonError(parsed: unknown, apiKey: string): ParsedProviderErrorEnvelope {
+  const root = Array.isArray(parsed) ? (parsed.length > 0 ? parsed[0] : null) : parsed;
+  if (!root || typeof root !== 'object' || Array.isArray(root)) {
+    return { code: null, status: null, message: null, matchedKnownField: false };
+  }
+
+  const record = root as Record<string, unknown>;
+  let rawMessage: string | null = null;
+  let rawCode: string | number | null = null;
+  let rawStatus: string | null = null;
+  let matchedKnownField = false;
+
+  if (record.error !== undefined) {
+    matchedKnownField = true;
+    if (typeof record.error === 'string' && record.error.trim().length > 0) {
+      rawMessage = record.error;
+    } else if (record.error && typeof record.error === 'object' && !Array.isArray(record.error)) {
+      const errObj = record.error as Record<string, unknown>;
+      if (typeof errObj.message === 'string' && errObj.message.trim().length > 0) {
+        rawMessage = errObj.message;
+      }
+      if (typeof errObj.code === 'number' || (typeof errObj.code === 'string' && errObj.code.trim().length > 0)) {
+        rawCode = typeof errObj.code === 'string' ? errObj.code.trim() : errObj.code;
+      }
+      if (typeof errObj.status === 'string' && errObj.status.trim().length > 0) {
+        rawStatus = errObj.status.trim();
+      } else if (typeof errObj.type === 'string' && errObj.type.trim().length > 0) {
+        rawStatus = errObj.type.trim();
+      }
+    }
+  }
+
+  if (!rawMessage) {
+    if (typeof record.message === 'string' && record.message.trim().length > 0) {
+      rawMessage = record.message;
+      matchedKnownField = true;
+    } else if (typeof record.detail === 'string' && record.detail.trim().length > 0) {
+      rawMessage = record.detail;
+      matchedKnownField = true;
+    }
+  }
+
+  if (rawCode === null) {
+    if (typeof record.code === 'number' || (typeof record.code === 'string' && record.code.trim().length > 0)) {
+      rawCode = typeof record.code === 'string' ? record.code.trim() : record.code;
+      matchedKnownField = true;
+    } else if (typeof record.error_code === 'string' && record.error_code.trim().length > 0) {
+      rawCode = record.error_code.trim();
+      matchedKnownField = true;
+    }
+  }
+
+  if (!rawStatus && typeof record.status === 'string' && record.status.trim().length > 0) {
+    rawStatus = record.status.trim();
+    matchedKnownField = true;
+  }
+
+  const cleanMessage = rawMessage
+    ? redactSecret(rawMessage.replace(/\s+/g, ' ').trim(), apiKey).slice(0, MAX_PROVIDER_MESSAGE_CHARS)
+    : null;
+  const cleanCode =
+    typeof rawCode === 'string' ? redactSecret(rawCode, apiKey).slice(0, 64) : rawCode;
+  const cleanStatus = rawStatus ? redactSecret(rawStatus, apiKey).slice(0, 64) : null;
+
+  const hasExtracted = Boolean(cleanMessage || cleanCode !== null || cleanStatus);
+  return {
+    code: cleanCode,
+    status: cleanStatus,
+    message: cleanMessage,
+    matchedKnownField: matchedKnownField && hasExtracted,
+  };
+}
+
+/** Sağlayıcının hata gövdesinden okunabilir mesajı çıkarır (anahtar ayıklanır, kısaltılır). */
+export function providerErrorMessage(raw: string, apiKey: string): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const extracted = extractDocumentedJsonError(parsed, apiKey);
+    return extracted.message;
+  } catch {
+    /* gövde JSON değil: mesaj üretilmez */
+  }
+  return null;
+}
+
+function looksLikeHtml(raw: string, contentType: string | null): boolean {
+  if (contentType && /text\/html|application\/xhtml/i.test(contentType)) return true;
+  return /^\s*(?:<!doctype\s+html|<html\b|<head\b|<body\b|<title\b|<h1\b)/i.test(raw) || /<\/(?:html|body|head|title)>/i.test(raw);
+}
+
+function canSafelySummarizePlainText(raw: string): boolean {
+  // Kontrol karakterleri veya yapılandırma/özel anahtar dökümü içeren metinler doğrudan özetlenmez.
+  if (/[\x00-\x08\x0E-\x1F]/.test(raw)) return false;
+  if (/(?:BEGIN\s+(?:RSA\s+|EC\s+)?PRIVATE\s+KEY|password\s*=|secret\s*=)/i.test(raw)) return false;
+  return true;
+}
+
+/**
+ * HTTP hata yanıtını güvenli biçimde inceler:
+ *  - Boş, JSON, beklenmeyen JSON, HTML ve düz metin gövdelerini ayırt eder.
+ *  - Yalnızca belgelenmiş JSON hata alanlarını ayrıştırır.
+ *  - API anahtarı ve yetki başlıklarını temizler.
+ *  - İzin verilen başlıklardan istek kimliğini ve güvenli üst sınırlı Retry-After değerini okur.
+ */
+export function inspectHttpErrorResponse(
+  raw: string,
+  headers: LlmFetchHeaders | undefined,
+  apiKey: string,
+  status: number | null = null,
+  nowMs: number = Date.now(),
+): LlmHttpDiagnostics {
+  const safeRaw = raw ?? '';
+  const bodyLength = Buffer.byteLength(safeRaw, 'utf8');
+  const rawContentType = readResponseHeader(headers, 'content-type');
+  const contentType = rawContentType ? redactSecret(rawContentType, apiKey).slice(0, 100) : null;
+  const rawRetryAfter = readResponseHeader(headers, 'retry-after');
+  const retryAfter = rawRetryAfter ? redactSecret(rawRetryAfter, apiKey).slice(0, 80) : null;
+  const retryAfterMs = parseRetryAfterMs(rawRetryAfter, nowMs, MAX_RETRY_AFTER_MS);
+  const reqId = extractAllowedRequestId(headers, apiKey);
+
+  const trimmed = safeRaw.trim();
+  if (trimmed.length === 0) {
+    return {
+      status,
+      contentType,
+      bodyLength,
+      bodyKind: 'empty',
+      errorCode: null,
+      errorStatus: null,
+      errorMessage: null,
+      bodySummary: 'boş gövde (0 bayt)',
+      retryAfter,
+      retryAfterMs,
+      requestId: reqId?.value ?? null,
+      requestIdHeader: reqId?.header ?? null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const extracted = extractDocumentedJsonError(parsed, apiKey);
+    if (extracted.matchedKnownField) {
+      const parts = [
+        extracted.code !== null ? `kod=${extracted.code}` : '',
+        extracted.status ? `durum=${extracted.status}` : '',
+        extracted.message ?? '',
+      ].filter((part) => part.length > 0);
+      return {
+        status,
+        contentType,
+        bodyLength,
+        bodyKind: 'json',
+        errorCode: extracted.code,
+        errorStatus: extracted.status,
+        errorMessage: extracted.message,
+        bodySummary: parts.join(' · ') || `JSON hata gövdesi (${bodyLength} bayt)`,
+        retryAfter,
+        retryAfterMs,
+        requestId: reqId?.value ?? null,
+        requestIdHeader: reqId?.header ?? null,
+      };
+    }
+    return {
+      status,
+      contentType,
+      bodyLength,
+      bodyKind: 'unexpected-json',
+      errorCode: null,
+      errorStatus: null,
+      errorMessage: null,
+      bodySummary: `beklenmeyen JSON biçimi (${bodyLength} bayt, belgelenmiş hata alanı bulunamadı)`,
+      retryAfter,
+      retryAfterMs,
+      requestId: reqId?.value ?? null,
+      requestIdHeader: reqId?.header ?? null,
+    };
+  } catch {
+    /* JSON değil: HTML veya düz metin olarak sınıflandır */
+  }
+
+  if (looksLikeHtml(trimmed, contentType)) {
+    const titleMatch = /<title[^>]*>([\s\S]{1,120}?)<\/title>/i.exec(trimmed);
+    const rawTitle = titleMatch?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
+    const safeTitle =
+      rawTitle && canSafelySummarizePlainText(rawTitle) && !/[?&=/]/.test(rawTitle)
+        ? redactSecret(rawTitle, apiKey).slice(0, 80)
+        : '';
+    return {
+      status,
+      contentType,
+      bodyLength,
+      bodyKind: 'html',
+      errorCode: null,
+      errorStatus: null,
+      errorMessage: null,
+      bodySummary: safeTitle
+        ? `HTML hata gövdesi (${bodyLength} bayt, başlık: "${safeTitle}")`
+        : `HTML hata gövdesi (${bodyLength} bayt)`,
+      retryAfter,
+      retryAfterMs,
+      requestId: reqId?.value ?? null,
+      requestIdHeader: reqId?.header ?? null,
+    };
+  }
+
+  if (!canSafelySummarizePlainText(trimmed)) {
+    return {
+      status,
+      contentType,
+      bodyLength,
+      bodyKind: 'text',
+      errorCode: null,
+      errorStatus: null,
+      errorMessage: null,
+      bodySummary: `düz metin gövdesi (${bodyLength} bayt, güvenlik nedeniyle özetlenmedi)`,
+      retryAfter,
+      retryAfterMs,
+      requestId: reqId?.value ?? null,
+      requestIdHeader: reqId?.header ?? null,
+    };
+  }
+
+  const cleanText = redactSecret(trimmed.replace(/\s+/g, ' '), apiKey).slice(0, 160);
+  return {
+    status,
+    contentType,
+    bodyLength,
+    bodyKind: 'text',
+    errorCode: null,
+    errorStatus: null,
+    errorMessage: null,
+    bodySummary: `düz metin (${bodyLength} bayt): ${cleanText}`,
+    retryAfter,
+    retryAfterMs,
+    requestId: reqId?.value ?? null,
+    requestIdHeader: reqId?.header ?? null,
+  };
+}
+
+export function classifyHttpFailureStatus(status: number): LlmFailureCategory {
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 404) return 'not-found';
+  if (status === 429) return 'rate-limit';
+  if (status === 503 || (status >= 500 && status < 600)) return 'service-unavailable';
+  if (status === 400 || status === 413 || (status >= 400 && status < 500)) return 'bad-request';
+  return 'http-error';
 }
 
 export interface ChatCompletionOptions {
@@ -65,6 +466,11 @@ export interface ChatCompletionOptions {
    * Tanı aracı (`llm:doctor --compat`) ve testler kullanır.
    */
   transport?: LlmTransport;
+  /**
+   * Yalnızca Gemini 2.5 düşünme modellerinde isteğe bağlı düşünme bütçesi
+   * (`generationConfig.thinkingConfig.thinkingBudget`). Belirtilmezse gönderilmez.
+   */
+  thinkingBudget?: number;
 }
 
 export type LlmTransport = 'openai-compat' | 'gemini-native';
@@ -214,7 +620,7 @@ function geminiRole(role: string): 'user' | 'model' {
  */
 export function buildGeminiRequestBody(
   messages: ChatMessage[],
-  options: { temperature?: number; maxTokens?: number; jsonMode?: boolean } = {},
+  options: { temperature?: number; maxTokens?: number; jsonMode?: boolean; thinkingBudget?: number } = {},
 ): { systemInstruction?: { parts: { text: string }[] }; contents: GeminiContent[]; generationConfig: Record<string, unknown> } {
   const systemTexts = messages
     .filter((message) => (message.role ?? '').trim().toLowerCase() === 'system')
@@ -237,6 +643,13 @@ export function buildGeminiRequestBody(
     maxOutputTokens: options.maxTokens ?? 1200,
   };
   if (options.jsonMode) generationConfig.responseMimeType = 'application/json';
+  if (
+    typeof options.thinkingBudget === 'number' &&
+    Number.isInteger(options.thinkingBudget) &&
+    options.thinkingBudget >= 0
+  ) {
+    generationConfig.thinkingConfig = { thinkingBudget: options.thinkingBudget };
+  }
 
   return {
     ...(systemTexts.length > 0 ? { systemInstruction: { parts: systemTexts.map((text) => ({ text })) } } : {}),
@@ -248,8 +661,8 @@ export function buildGeminiRequestBody(
 /**
  * Gemini yanıtını `LlmResult` biçimine çevirir.
  *
- * - Metin: `candidates[0].content.parts[].text` birleştirilir (çok parçalı
- *   yanıtlar ve düşünce modellerinde parça parça metin dönebilir).
+ * - Metin: `candidates[0].content.parts[].text` birleştirilir (`thought: true`
+ *   olan iç düşünme parçaları görünür çıktıya karıştırılmaz).
  * - Token: `usageMetadata.promptTokenCount` / `candidatesTokenCount`.
  * - `promptFeedback.blockReason` ve `finishReason` (SAFETY, RECITATION,
  *   MAX_TOKENS, PROHIBITED_CONTENT) içerik üretilemediğini söyler; sessizce
@@ -259,21 +672,29 @@ export function parseGeminiResponse(payload: unknown): {
   content: string | null;
   usage: LlmUsage;
   failure: string | null;
+  finishReason?: string | null;
+  thoughtsTokens?: number | null;
 } {
   const toCount = (value: unknown): number | null =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 
   const envelope = payload as {
     candidates?: {
-      content?: { parts?: { text?: unknown }[] };
+      content?: { parts?: { text?: unknown; thought?: unknown }[] };
       finishReason?: unknown;
       finishMessage?: unknown;
     }[];
-    usageMetadata?: { promptTokenCount?: unknown; candidatesTokenCount?: unknown; totalTokenCount?: unknown };
+    usageMetadata?: {
+      promptTokenCount?: unknown;
+      candidatesTokenCount?: unknown;
+      totalTokenCount?: unknown;
+      thoughtsTokenCount?: unknown;
+    };
     promptFeedback?: { blockReason?: unknown; safetyRatings?: unknown };
     modelVersion?: unknown;
   };
 
+  const thoughtsTokens = toCount(envelope?.usageMetadata?.thoughtsTokenCount);
   const usage: LlmUsage = {
     promptTokens: toCount(envelope?.usageMetadata?.promptTokenCount),
     completionTokens: toCount(envelope?.usageMetadata?.candidatesTokenCount ?? envelope?.usageMetadata?.totalTokenCount),
@@ -281,43 +702,46 @@ export function parseGeminiResponse(payload: unknown): {
 
   const blockReason = envelope?.promptFeedback?.blockReason;
   if (typeof blockReason === 'string' && blockReason.trim().length > 0) {
-    return { content: null, usage, failure: `Sağlayıcı istemi engelledi (blockReason: ${blockReason.trim()}).` };
+    return {
+      content: null,
+      usage,
+      failure: `Sağlayıcı istemi engelledi (blockReason: ${blockReason.trim()}).`,
+      finishReason: null,
+      thoughtsTokens,
+    };
   }
 
   const candidate = envelope?.candidates?.[0];
+  const finishReason =
+    typeof candidate?.finishReason === 'string' && candidate.finishReason.trim().length > 0
+      ? candidate.finishReason.trim()
+      : null;
   const parts = candidate?.content?.parts ?? [];
-  const text = parts
+  const visibleParts = parts.filter((part) => part?.thought !== true);
+  const text = visibleParts
     .map((part) => (typeof part?.text === 'string' ? part.text : ''))
     .join('')
     .trim();
 
   if (text.length === 0) {
-    const finishReason = typeof candidate?.finishReason === 'string' ? candidate.finishReason.trim() : '';
     const finishMessage = typeof candidate?.finishMessage === 'string' ? candidate.finishMessage.trim() : '';
-    const detail = [finishReason && `finishReason: ${finishReason}`, finishMessage].filter(Boolean).join(' — ');
+    const detail = [
+      finishReason && `finishReason: ${finishReason}`,
+      thoughtsTokens !== null && thoughtsTokens > 0 ? `thoughtsTokenCount: ${thoughtsTokens}` : '',
+      finishMessage,
+    ]
+      .filter(Boolean)
+      .join(' — ');
     return {
       content: null,
       usage,
       failure: `Sağlayıcı yanıtında içerik yok${detail ? ` (${detail})` : ''}.`,
+      finishReason,
+      thoughtsTokens,
     };
   }
 
-  return { content: text, usage, failure: null };
-}
-
-/** Sağlayıcının hata gövdesinden okunabilir mesajı çıkarır (anahtar ayıklanır, kısaltılır). */
-export function providerErrorMessage(raw: string, apiKey: string): string | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as { error?: { message?: unknown; status?: unknown } };
-    const message = parsed?.error?.message;
-    if (typeof message === 'string' && message.trim().length > 0) {
-      return redactSecret(message.replace(/\s+/g, ' ').trim(), apiKey).slice(0, MAX_PROVIDER_MESSAGE_CHARS);
-    }
-  } catch {
-    /* gövde JSON değil: mesaj üretilmez */
-  }
-  return null;
+  return { content: text, usage, failure: null, finishReason, thoughtsTokens };
 }
 
 /**
@@ -401,6 +825,7 @@ export async function callChatCompletion(
       reason: `Taşıyıcı JSON modunu desteklemiyor (${describeTransport(endpoint.transport)}).`,
       status: null,
       retryable: false,
+      failureCategory: 'config',
     };
   }
 
@@ -411,6 +836,7 @@ export async function callChatCompletion(
       reason: 'Model adı boş: LLM_MODEL ya da LLM_CLASSIFIER_MODEL tanımlı olmalı (ör. gemini-2.5-flash).',
       status: null,
       retryable: false,
+      failureCategory: 'config',
     };
   }
   const geminiBody = native
@@ -418,6 +844,7 @@ export async function callChatCompletion(
         temperature: options.temperature ?? 0.2,
         maxTokens: options.maxTokens ?? 1200,
         jsonMode,
+        ...(options.thinkingBudget !== undefined ? { thinkingBudget: options.thinkingBudget } : {}),
       })
     : null;
   const requestBody: Record<string, unknown> = geminiBody ?? {
@@ -433,6 +860,7 @@ export async function callChatCompletion(
       reason: 'İstemde model mesajı yok: sistem mesajı dışında en az bir kullanıcı mesajı gerekli.',
       status: null,
       retryable: false,
+      failureCategory: 'config',
     };
   }
 
@@ -454,9 +882,8 @@ export async function callChatCompletion(
       // 429 (hız sınırı) ve 5xx geçici hatalardır; sınırlı yeniden deneme yapılır.
       // 401/403/400/404 yapılandırma hatasıdır; yeniden deneme kotası tüketmez.
       const retryable = response.status === 429 || response.status >= 500;
-      // Sağlayıcının KENDİ mesajı da gerekçeye eklenir: 404'ün "model adı mı,
-      // uç nokta mı, anahtar mı" olduğunu ayırt eden tek bilgi budur.
-      const providerMessage = providerErrorMessage(raw, config.apiKey);
+      const diagnostics = inspectHttpErrorResponse(raw, response.headers, config.apiKey, response.status);
+      const providerMessage = diagnostics.errorMessage ?? providerErrorMessage(raw, config.apiKey);
       return {
         ok: false,
         reason:
@@ -465,35 +892,92 @@ export async function callChatCompletion(
           statusHint(response.status, endpoint),
         status: response.status,
         retryable,
+        failureCategory: classifyHttpFailureStatus(response.status),
+        diagnostics,
       };
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return { ok: false, reason: 'Sağlayıcı yanıtı JSON değil.', status: response.status, retryable: false };
+      const diagnostics = inspectHttpErrorResponse(raw, response.headers, config.apiKey, response.status);
+      return {
+        ok: false,
+        reason: 'Sağlayıcı yanıtı JSON değil.',
+        status: response.status,
+        retryable: false,
+        failureCategory: 'invalid-json',
+        diagnostics,
+      };
     }
 
     if (native) {
       const gemini = parseGeminiResponse(parsed);
       if (!gemini.content) {
+        const reqId = extractAllowedRequestId(response.headers, config.apiKey);
+        const rawContentType = readResponseHeader(response.headers, 'content-type');
         return {
           ok: false,
           reason: gemini.failure ?? 'Sağlayıcı yanıtında içerik yok.',
           status: response.status,
           retryable: false,
+          failureCategory: 'empty-output',
+          diagnostics: {
+            status: response.status,
+            contentType: rawContentType ? redactSecret(rawContentType, config.apiKey).slice(0, 100) : null,
+            bodyLength: Buffer.byteLength(raw, 'utf8'),
+            bodyKind: 'json',
+            errorCode: null,
+            errorStatus: gemini.finishReason ?? null,
+            errorMessage: gemini.failure,
+            bodySummary: gemini.failure ?? 'Sağlayıcı yanıtında içerik yok.',
+            retryAfter: null,
+            retryAfterMs: null,
+            requestId: reqId?.value ?? null,
+            requestIdHeader: reqId?.header ?? null,
+            finishReason: gemini.finishReason ?? null,
+          },
         };
       }
       return { ok: true, content: gemini.content, status: response.status, usage: gemini.usage };
     }
 
     const envelope = parsed as {
-      choices?: { message?: { content?: unknown } }[];
+      choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
       usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
     };
-    const content = envelope?.choices?.[0]?.message?.content;
+    const choice = envelope?.choices?.[0];
+    const content = choice?.message?.content;
     if (typeof content !== 'string' || content.trim().length === 0) {
-      return { ok: false, reason: 'Sağlayıcı yanıtında içerik yok.', status: response.status, retryable: false };
+      const finishReason =
+        typeof choice?.finish_reason === 'string' && choice.finish_reason.trim().length > 0
+          ? choice.finish_reason.trim()
+          : null;
+      const reason = `Sağlayıcı yanıtında içerik yok${finishReason ? ` (finishReason: ${finishReason})` : ''}.`;
+      const reqId = extractAllowedRequestId(response.headers, config.apiKey);
+      const rawContentType = readResponseHeader(response.headers, 'content-type');
+      return {
+        ok: false,
+        reason,
+        status: response.status,
+        retryable: false,
+        failureCategory: 'empty-output',
+        diagnostics: {
+          status: response.status,
+          contentType: rawContentType ? redactSecret(rawContentType, config.apiKey).slice(0, 100) : null,
+          bodyLength: Buffer.byteLength(raw, 'utf8'),
+          bodyKind: 'json',
+          errorCode: null,
+          errorStatus: finishReason,
+          errorMessage: reason,
+          bodySummary: reason,
+          retryAfter: null,
+          retryAfterMs: null,
+          requestId: reqId?.value ?? null,
+          requestIdHeader: reqId?.header ?? null,
+          finishReason,
+        },
+      };
     }
     const toCount = (value: unknown): number | null =>
       typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -508,18 +992,95 @@ export async function callChatCompletion(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const reason = controller.signal.aborted
+    const timedOut = controller.signal.aborted;
+    const reason = timedOut
       ? 'Zaman aşımı.'
       : redactSecret(message, config.apiKey).slice(0, 200);
-    // Zaman aşımı ve ağ hatası geçicidir: sınırlı yeniden denenebilir.
+    // Zaman aşımı ve ağ hatası geçicidir: sınırlı yeniden denenebilir; 503 ile karıştırılmaz.
     return {
       ok: false,
       reason: `Sağlayıcıya ulaşılamadı: ${reason}`,
       status: null,
       retryable: true,
-      timedOut: controller.signal.aborted,
+      timedOut,
+      failureCategory: timedOut ? 'timeout' : 'network',
     };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Artan bekleme süresi + `Retry-After` (varsa güvenli üst sınır içinde) hesabı.
+ * `attempt`: 1 tabanlı yeniden deneme sırası (1 = ilk yeniden deneme).
+ */
+export function computeRetryDelayMs(
+  attempt: number,
+  baseDelayMs: number,
+  retryAfterMs: number | null | undefined,
+  maxDelayMs: number = MAX_RETRY_AFTER_MS,
+): number {
+  const safeCap = Math.max(0, maxDelayMs);
+  const step = Math.max(1, Math.floor(attempt));
+  const backoff = Math.max(0, baseDelayMs) * step;
+  const candidate =
+    typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs >= 0
+      ? Math.max(backoff, retryAfterMs)
+      : backoff;
+  return Math.min(safeCap, candidate);
+}
+
+export interface LlmRetryOptions extends ChatCompletionOptions {
+  /** İlk denemeden sonra yapılacak azami ek deneme sayısı (0..3). */
+  maxRetries?: number;
+  /** Artan bekleme için taban süre (ms). */
+  baseDelayMs?: number;
+  /** Bekleme süresi güvenli üst sınırı (ms). */
+  maxDelayMs?: number;
+  /** Testlerde bekleme süresini doğrulamak için enjekte edilebilir bekleme fonksiyonu. */
+  sleepImpl?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Yalnızca geçici hatalarda (`retryable === true`: 429, 5xx, zaman aşımı, ağ hatası)
+ * sınırlı yeniden deneme yapan sarmalayıcı.
+ * `401/403`, `400`, `404` ve `HTTP 200 + MAX_TOKENS/boş içerik` durumlarında tekrar yapmaz.
+ */
+export async function callChatCompletionWithRetry(
+  config: LlmConfig,
+  messages: ChatMessage[],
+  options: LlmRetryOptions = {},
+): Promise<LlmResult & { attempts: number; delaysMs: number[] }> {
+  const maxRetries = Math.min(3, Math.max(0, Math.floor(options.maxRetries ?? 0)));
+  const maxAttempts = 1 + maxRetries;
+  const baseDelayMs = options.baseDelayMs ?? 750;
+  const maxDelayMs = options.maxDelayMs ?? MAX_RETRY_AFTER_MS;
+  const sleep = options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  let attempts = 0;
+  const delaysMs: number[] = [];
+  let lastResult: LlmResult | null = null;
+
+  for (let index = 0; index < maxAttempts; index += 1) {
+    if (index > 0 && lastResult && !lastResult.ok) {
+      const delayMs = computeRetryDelayMs(
+        index,
+        baseDelayMs,
+        lastResult.diagnostics?.retryAfterMs,
+        maxDelayMs,
+      );
+      delaysMs.push(delayMs);
+      if (delayMs > 0) await sleep(delayMs);
+    }
+    attempts += 1;
+    lastResult = await callChatCompletion(config, messages, options);
+    if (lastResult.ok) {
+      return { ...lastResult, attempts, delaysMs };
+    }
+    if (!lastResult.retryable) {
+      break;
+    }
+  }
+
+  return { ...(lastResult as Extract<LlmResult, { ok: false }>), attempts, delaysMs };
 }
