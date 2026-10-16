@@ -213,11 +213,13 @@ export function maskEmail(email: string): string {
  * 16.10.2026 denetimi: çıkarım aşaması bu ifadeleri HTML seviyesinde
  * (PAGE_CHROME_SELECTORS) zaten atıyor; ancak kayıt bu temizlikten ÖNCE
  * alınmışsa gövdeye yapışmış kabuk metni kalıyordu ve yeniden sınıflandırma
- * kayıttaki metni temizleyemiyordu. Liste, depodaki canlı koşum kanıtlarında
- * birebir geçen dizelerle genişletildi (Karayolları erişilebilirlik çubuğu,
- * İŞKUR/İçişleri liste sayfaları çerez + araç çubuğu metni). İlan metninde
+ * kayıttaki metni temizleyemiyordu. Liste, 16.10.2026 kuru çalıştırma
+ * raporundaki GERÇEK kayıt gövdelerinde birebir geçen dizelerle genişletildi
+ * (Karayolları "Daha yüksek erişilebilirlik modunu aç … Şerit Komutlarını Atla",
+ * DSİ "HızlıErişim", İŞKUR "Erişilebilirlik Ayarlarını Temizle … Kabul
+ * Ediyorum", İçişleri filtre kutusu "Tarih aralığı seçiniz …"). İlan metninde
  * masum şekilde geçebilecek genel kelimeler (ör. "Kontrast", "Filtrele",
- * "Ara") bilinçli olarak DIŞARIDA bırakıldı.
+ * "Ara", "temizle") bilinçli olarak DIŞARIDA bırakıldı.
  */
 export const UI_CHROME_PHRASES: readonly string[] = [
   'Ana içeriğe atla',
@@ -225,6 +227,10 @@ export const UI_CHROME_PHRASES: readonly string[] = [
   'Daha yüksek erişilebilirlik modunu kapat',
   'Erişilebilirlik modunu aç',
   'Erişilebilirlik Menüsü',
+  'Erişilebilirlik Ayarlarını Temizle',
+  'Şerit Komutlarını Atla',
+  'Animasyonları Kapat',
+  'Animasyonları Aç',
   'Ekran Okuyucu',
   'Seçili Alan Okuyucu',
   'Bağlantı Vurgula',
@@ -232,10 +238,24 @@ export const UI_CHROME_PHRASES: readonly string[] = [
   'Metni Sola Hizala',
   'İmleç Okuma Kılavuzu',
   'Okuma Maskesi',
-  'Solgunlaştır',
+  'Kontrast Solgunlaştırma',
+  'Solgunlaştırma',
+  'Düşük Doygunluk',
+  'Yüksek Doygunluk',
+  'Şu anda seçili',
+  'HızlıErişim',
   'Sizlere daha iyi hizmet',
   'Sitemizde çerezlere yer veriyoruz',
+  'Web sitemizde sunulan ve açıkça talep etmiş olduğunuz hizmetler',
+  'Çerez Aydınlatma Metni',
   'Çerez Ayarları',
+  'Zorunlu Çerezler',
+  'Analitik Çerezler',
+  'Kabul Ediyorum',
+  'Kabul Etmiyorum',
+  'Tarih aralığı seçiniz',
+  'Başlangıç tarihi seçiniz',
+  'Bitiş tarihi seçiniz',
   'Gizlilik ve Çerez Politikası',
   'Oturum Aç',
   'SharePoint',
