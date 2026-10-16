@@ -193,6 +193,17 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
   - `src/config/app.ts` → `EXTRACTION_VERSION` `2026.10.3`.
 - **Test:** `tests/yeniden-siniflandirma-tarih.test.ts` (17 test): Göç 2013 / AFAD 2004 yasaldan okumuş tarihleri temizlenir, 2026-10-14 tarihli gerçek tarih korunur, YÖK 2026-04-20 (pencere içi) korunur, liste tarihi korunur, gelecek tarih reddi sürer; 1991 ve yayım-öncesi bitiş tarihleri temizlenir, geçerli bitiş korunur; kabuk temizliği; boş yamada yazma yok; özet sayaçları; raporun ham/sonrası değerleri.
 - **Uyumluluk:** Yeni veri yazımı yok, yalnız var olan kayıtlar yeniden sınıflandırıldığında onarılır. Geri dönüş: `npm run jobs:restore -- <yedek>` (yedek `--apply` öncesi otomatik alınır). Yan etki: yayım tarihi silinen kayıtlar için son başvuru kapısı yalnızca 2000 alt sınırını uygular (test ile sabitlendi, bilinçli sınır).
+### G.7 (ek tur, commit `ab240e5`) Kabuk temizliği kullanıcının gerçek gövde metinleriyle genişletildi (P1)
+- **Kanıt:** Kullanıcının kuru çalıştırma raporundaki (16.10.2026, Supabase) kayıtların `excerpt` alanları:
+  - Karayolları (`kgm-duyurular`, 4 kayıt): "Daha yüksek erişilebilirlik modunu aç … Şerit Komutlarını Atla … Şu anda seçili DuyuruDetay ANA SAYFA KURUMSAL …"
+  - DSİ (`dsi-duyurular`, 2 kayıt): "HızlıErişim Anasayfa Tarım ve Orman Bakanlığı …"
+  - İŞKUR (`iskur-*`, 3 kayıt): "Erişilebilirlik Menüsü … Kontrast Solgunlaştırma Düşük Doygunluk … Erişilebilirlik Ayarlarını Temizle … Kabul Ediyorum … Zorunlu Çerezler"
+  - İçişleri (menü başlıklı kayıt): "Tarih aralığı seçiniz Başlangıç tarihi seçiniz … Bitiş tarihi seçiniz"
+- **Kök neden:** `UI_CHROME_PHRASES` bu dizeleri içermiyordu; `stripUiChrome` yalnızca tanıdığı ifadeleri siliyor, kalan menü/çerez metni gövde olarak kalıyordu. Alan çıkarımı (şehir, son tarih, kadro) bu metinde kanıt bulamıyor → bu kayıtlarda `status: unknown`, alanlar boş.
+- **Değişiklik:** `src/domain/text.ts` → liste kayıtlardan birebir dizelerle genişletildi (genel kelimeler "Kontrast", "Filtrele", "temizle" hariç). Temizlik hem yeni çıkarımda hem yeniden sınıflandırmada uygulanır.
+- **Test:** `tests/yeniden-siniflandirma-tarih.test.ts` → 4 test: Karayolları/İŞKUR/DSİ/İçişleri metinleri temizlenir, gerçek ilan içeriği korunur.
+- **Not (kayıt altına alındı):** `readableAnnouncementText` (src/lib/html.ts) aday kapsayıcıyı **80 karakterden uzun ilk metin** olarak seçiyor; menüsü uzun sayfalarda menü metni bu eşiği geçebiliyor. KGM kayıtlarının detay adresi kaynağın liste adresiydi (bkz. G.6/`599e097`) → engel eklendi. Diğer kaynaklarda gövdenin menü olup olmadığı canlı örnek olmadan **kanıtlanmadı**.
+
 - **Doğrulama:** tam süit **95 dosya / 1231 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
 
 ---
