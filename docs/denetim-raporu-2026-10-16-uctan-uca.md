@@ -193,7 +193,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
   - `src/config/app.ts` → `EXTRACTION_VERSION` `2026.10.3`.
 - **Test:** `tests/yeniden-siniflandirma-tarih.test.ts` (17 test): Göç 2013 / AFAD 2004 yasaldan okumuş tarihleri temizlenir, 2026-10-14 tarihli gerçek tarih korunur, YÖK 2026-04-20 (pencere içi) korunur, liste tarihi korunur, gelecek tarih reddi sürer; 1991 ve yayım-öncesi bitiş tarihleri temizlenir, geçerli bitiş korunur; kabuk temizliği; boş yamada yazma yok; özet sayaçları; raporun ham/sonrası değerleri.
 - **Uyumluluk:** Yeni veri yazımı yok, yalnız var olan kayıtlar yeniden sınıflandırıldığında onarılır. Geri dönüş: `npm run jobs:restore -- <yedek>` (yedek `--apply` öncesi otomatik alınır). Yan etki: yayım tarihi silinen kayıtlar için son başvuru kapısı yalnızca 2000 alt sınırını uygular (test ile sabitlendi, bilinçli sınır).
-- **Doğrulama:** tam süit **95 dosya / 1230 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
+- **Doğrulama:** tam süit **95 dosya / 1231 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
 
 ---
 
@@ -201,7 +201,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 
 1. **Kodu al ve hazırla:** proje klasöründe `git pull` → `npm ci`.
 2. **Bilgisayarında kontrol et:** `npm run env:check` çalıştır. Çıktıda "email: dosya (geliştirme; e-posta gönderilmez)" yazmalı. Gerçek kaynaklara çıkmak İSTEMİYORSAN `.env` dosyanda `SOURCE_LIVE_FETCH=0` yap.
-3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1230 test PASS, derleme başarılı.
+3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1231 test PASS, derleme başarılı.
 3b. **Veriyi onar (ÖNCE kuru çalıştırma):**
    ```
    npm run jobs:reclassify -- --report raporlar\reclassify-kuru.json
