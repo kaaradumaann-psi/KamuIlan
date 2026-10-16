@@ -17,6 +17,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { llmTelemetryStats } from '../src/ai/classifier';
 import { CLASSIFICATION_VERSION } from '../src/config/app';
 import { getEnv } from '../src/config/env';
 import { createRepos } from '../src/db/repos';
@@ -164,7 +165,7 @@ async function main(): Promise<void> {
   const env = getEnv();
   const driver = effectiveDriver(env);
   const store = await initStore(undefined, { ensureIndexes: false });
-  createRepos(store);
+  const repos = createRepos(store);
 
   const now = new Date();
   const today = new Date(now.getTime() + 3 * 3_600_000).toISOString().slice(0, 10); // Europe/Istanbul günü
@@ -448,6 +449,86 @@ async function main(): Promise<void> {
   if (evidenceLines === 0) lines.push('   Eski tarihli kayıt yok.');
   lines.push('');
 
+  // ----------------------------------------------- AI kapısı telemetrisi (gerçek)
+  lines.push('8) AI KAPISI TELEMETRİSİ (llmAnalyses koleksiyonu — panelin kullandığı gerçek veri)');
+  const telemetryRows = (await store.find('llmAnalyses', {}, { limit: 5000, sort: [['createdAt', -1]] })) as {
+    status: string;
+    cacheHit: boolean;
+    latencyMs: number;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    error: string | null;
+    createdAt: string;
+  }[];
+  const telemetry = await llmTelemetryStats(repos, env, { limit: 5000 });
+  lines.push(
+    `   Analiz kaydı: ${telemetry.analyses} · gerçek API çağrısı: ${telemetry.apiCalls} · önbellek isabeti: ${telemetry.cacheHits}` +
+      ` (${telemetry.cacheHitRate === null ? '—' : `${(telemetry.cacheHitRate * 100).toFixed(1)}%`})`,
+  );
+  lines.push(
+    `   Sonuç: ok=${telemetry.ok} · invalid=${telemetry.invalid} · error=${telemetry.error} · timeout=${telemetry.timeout}` +
+      ` · hata oranı=${telemetry.errorRate === null ? '—' : `${(telemetry.errorRate * 100).toFixed(1)}%`}`,
+  );
+  if (telemetry.latency.count > 0) {
+    lines.push(
+      `   Gecikme (yalnız API çağrıları): ortalama=${telemetry.latency.avgMs}ms · p50=${telemetry.latency.p50Ms}ms` +
+        ` · p95=${telemetry.latency.p95Ms}ms · en yüksek=${telemetry.latency.maxMs}ms`,
+    );
+  } else {
+    lines.push('   Gecikme: ölçüm yok (hiç gerçek API çağrısı kaydedilmemiş).');
+  }
+  lines.push(
+    `   Token: girdi=${telemetry.tokens.prompt} · çıktı=${telemetry.tokens.completion}` +
+      ` · maliyet=${
+        telemetry.cost.usd === null
+          ? `raporlanmadı (${telemetry.cost.note})`
+          : `$${telemetry.cost.usd.toFixed(4)}`
+      }`,
+  );
+  const failureSignals = new Map<string, number>();
+  for (const row of telemetryRows) {
+    if (row.status === 'ok') continue;
+    const text = `${row.status} ${row.error ?? ''}`.toLowerCase();
+    const signals: [string, RegExp][] = [
+      ['429 (kota/hız sınırı)', /429|rate limit|resource_exhausted|kota/],
+      ['503/500 (sağlayıcı hatası)', /50[03]|unavailable|internal/],
+      ['zaman aşımı', /timeout|zaman a/],
+      ['boş çıktı', /empty|boş/],
+      ['geçersiz JSON/şema', /invalid|json|şema|schema/],
+      ['yetki/anahtar', /401|403|api key|permission|unauthor/],
+      ['güvenlik filtresi', /safety|blocked|recitation/],
+    ];
+    let matched = false;
+    for (const [label, pattern] of signals) {
+      if (pattern.test(text)) {
+        failureSignals.set(label, (failureSignals.get(label) ?? 0) + 1);
+        matched = true;
+      }
+    }
+    if (!matched) failureSignals.set('sınıflandırılamayan', (failureSignals.get('sınıflandırılamayan') ?? 0) + 1);
+  }
+  if (failureSignals.size > 0) {
+    lines.push('   Başarısız analizlerin sinyalleri (ham hata metni YAZILMAZ):');
+    for (const [label, count] of [...failureSignals.entries()].sort((a, b) => b[1] - a[1])) {
+      lines.push(`     ${String(count).padStart(5)}  ${label}`);
+    }
+  }
+  const callsByDay = new Map<string, number>();
+  for (const row of telemetryRows) {
+    if (row.cacheHit) continue;
+    const day = row.createdAt.slice(0, 10);
+    callsByDay.set(day, (callsByDay.get(day) ?? 0) + 1);
+  }
+  if (callsByDay.size > 0) {
+    lines.push('   Gerçek API çağrısı / gün (son 10 gün) — günlük sınırla karşılaştırın:');
+    for (const [day, count] of [...callsByDay.entries()].sort().slice(-10)) {
+      lines.push(`     ${day}  ${count}`);
+    }
+  } else {
+    lines.push('   Hiç gerçek AI çağrısı kaydedilmemiş (önbellek isabeti ya da sınıflandırıcı kapalı olabilir).');
+  }
+  lines.push('');
+
   // ------------------------------------------------------------------ özet
   const verdict =
     findings.length === 0 && duplicates.length === 0 && staleVersion.length === 0
@@ -481,6 +562,22 @@ async function main(): Promise<void> {
             seenYears: Object.fromEntries(seenYears),
           },
           staleClassificationRecords: staleVersion.length,
+          aiTelemetry: {
+            analyses: telemetry.analyses,
+            apiCalls: telemetry.apiCalls,
+            cacheHits: telemetry.cacheHits,
+            ok: telemetry.ok,
+            invalid: telemetry.invalid,
+            error: telemetry.error,
+            timeout: telemetry.timeout,
+            errorRate: telemetry.errorRate,
+            latency: telemetry.latency,
+            tokens: telemetry.tokens,
+            costUsd: telemetry.cost.usd,
+            costNote: telemetry.cost.note,
+            failureSignals: Object.fromEntries(failureSignals),
+            callsByDay: Object.fromEntries(callsByDay),
+          },
           duplicateGroups: duplicates.map((group) => ({
             title: group[0]?.title ?? '',
             institution: group[0]?.institution ?? '',
