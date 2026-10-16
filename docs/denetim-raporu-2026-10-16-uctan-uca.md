@@ -140,7 +140,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 | `npm run lint` (`eslint .`) | **Temiz** (0 hata/0 uyarı) | Probe dosyaları silindikten sonra |
 | `npm run build` (`tsc --noEmit && vite build`) | **Başarılı** (113 modül, ~0.33 s) | Üretim derlemesi |
 | `npx vitest run` (ilk tur sonu) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
-| `npx vitest run` (**son durum, 16.10.2026**) | **96 dosya / 1245 test PASS**, 116.1 s | +8 dosya, +110 test (baseline'a göre) |
+| `npx vitest run` (**son durum, 16.10.2026**) | **98 dosya / 1256 test PASS**, 116.1 s | +8 dosya, +110 test (baseline'a göre) |
 | `npx vitest run tests/govde-iskelet-olcumu.test.ts` | 10 PASS | Yeni: gövde iskelet ölçümü |
 | `npx vitest run tests/yeniden-siniflandirma-tarih.test.ts` | 21 PASS | 17 tarih/rapor + 4 kabuk temizliği |
 | `npm run tani:ilan -- --kaynak …` (sentetik dosya deposu) | Çalıştı; 9. bölüm + `sourceReview` + T12 doğru | Gerçek veri yazılmadı |
@@ -221,6 +221,18 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 - **Değişiklik:** `scripts/tani-ilan-kalitesi.ts` → `--kaynak <anahtar>` ve `--kaynak-sayi <n>` (varsayılan 10). 9. bölüm her kayıt için kimlik/başlık/kurum/karar-tür/durum/yayım(+kaynağı)/son başvuru/ilan+başvuru adresi/ilk-son görülme/**tam gövde** yazar; JSON çıktısına `sourceReview` eklenir. **Salt okuma.**
 - **Doğrulama (sentetik depo):** `DATABASE_DRIVER=file DATA_DIR=/tmp/tani-data5 … --kaynak dsi-duyurular --json /tmp/tani5.json` → 9. bölüm ve `sourceReview` doğru; probe ve geçici dosyalar silindi.
 
+### G.8b (commit `605db71`) Yapay zekâ kapısı 404'ünün kalıcı düzeltmesi + canlı doğrulama seti
+- **Kök neden (kullanıcının kendi üretim verisi + kod kanıtı):** `tani:ilan` 8. bölümü iki başarısız çağrı gösteriyordu: `Sağlayıcı HTTP 404 döndü.` (16.10.2026 00:06 ve 00:08 TSİ, 324/367 ms, **token 0, çıktı 0**). 0 token + ~350 ms = istek sağlayıcıya gitti, **model hiç çalışmadı**; yani yanıt gövdesinin değil **isteğin kendisinin** reddedildiğini gösterir. Aynı dönemde `llm:doctor` "hazır" görünüyordu — çünkü doctor'un kullandığı model LİSTESİ ucu (`…/v1beta/openai/models`) 200 dönüyordu; sınıflandırmanın çağırdığı sohbet ucu (`…/chat/completions`) ise 404 veriyordu. Bu, kodda da tutanak altına alınmış bir olaydır: `src/ai/llm.ts` başlığı "…OpenAI uyumlu `/v1beta/openai/chat/completions` **404** döndü…" der ve kullanıcıya gösterilen "hazır" yanıtının yanıltıcı olduğunu ayrıca not eder.
+- **Düzeltme (zaten `main`'de, `a777f38`):** sınıflandırma kapısı artık Google kökünde **yerel** ucu kullanır: `POST {kök}/v1beta/models/{model}:generateContent`, `x-goog-api-key`. OpenAI uyumlu yol (`chat/completions`) yalnız `LLM_BASE_URL` OpenAI benzeri bir sağlayıcıya verildiğinde kullanılır. `resolveLlmEndpoint` + `googleApiVersionPath` bu ayrımı yapar; kullanıcının 404 gördüğü kimlik bilgisiyle aynı yoldan geçen `llm:doctor` artık **200** ve gerçek metin üretir.
+- **Kullanıcı tarafında gereken tek şey:** güncel kodu almak (`git pull`) ve `.env`'de `LLM_BASE_URL=https://generativelanguage.googleapis.com` (ya da `…/v1beta`) bırakmak. Yeni kod bu adreslerden hangisi verilirse verilsin doğru uca çevirir.
+- **HTTP 200 kanıt SAYILMAZ — sınıflandırmanın doğruluğu ayrıca kanıtlanacak:** `doctor` yalnız bağlantı kurulduğunu gösterir. Bunun için `tests/fixtures/eval/ai-kapisi-senaryolari.json` **(4 senaryo)** eklendi: (A) personel alımı, (B) alım süreci duyurusu (sınav/kura/sonuç), (C) **istem enjeksiyonu** metni, (D) haber. Set bilerek kural motorunu **belirsiz** bıraktırır, böylece kapı gerçekten çağrılır ve **yanıtın içeriği** ölçülür: model ilan/süreç ayrımını doğru yapıyor mu, kanıt metni gerçekten kaynaktan mı (uydurma engellenir), enjeksiyon metni kanıt sayılıyor mu, kaç yeniden deneme/gecikme üretiyor.
+- **Komut (gerçek sağlayıcı, en fazla 4 çağrı, üretim verisine YAZMAZ — geçici dosya deposu kullanır):**
+  ```
+  npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm --json raporlar\ai-kapisi.json
+  ```
+  Çıktıda bakılacaklar: `çözülen`, `kararlar: ilan/süreç/kanıtlı ret/belirsiz`, **`doğrulanamadı` (= şema/kanıt doğrulamasından geçmeyen yanıt)** ve `hata` sayıları, `gecikme`, `token`, `hata oranı`. Beklenen: 4/4 kayıt kapıdan geçer, `hata=0`, `doğrulanamadı` düşük, (A) ilan ve (B) süreç doğru sınıflanır, (C) ilan kabul EDİLMEZ.
+- **Dürüst sınır:** bu set sentetiktir; "gerçek dünya doğruluğu" iddiası üretmez (bunu yalnız insan etiketli gerçek kayıtlar üretir — `npm run eval:build-set`). Amacı, kapının **çalıştığını ve doğru karar ürettiğini** göstermektir.
+
 ### G.9 (bu tur) Gövde metni iskelet ölçümü + gerçek kaynak incelemesi kanıtı
 - **Kullanıcı kanıtı (üretim Supabase, `--kaynak` çıktıları; uzunluklar 2499–2500 karakter = kesit sınırı):**
   - **DSİ (2 kayıt):** `…cf2ff2cd…` "PERSONEL DAİRESİ BAŞKANLIĞI" (yayım 2018-07-10, `detail`, kapalı) ve `…76dfaa3f…` "ARAZİ TOPLULAŞTIRMASI … DAİRESİ BAŞKANLIĞI" (bitiş 2026-10-23, aktif, adres `dsi.gov.tr/duyuru/duyuruListe` = **liste sayfası**). Gövdelerin %100'ü menü.
@@ -233,7 +245,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 - **Tanı entegrasyonu:** `tani:ilan` bölüm 3'e **T12** bulgusu eklendi — "gövde metni sayfa iskeleti (menü/çerez) — alan çıkarımı gövdeye dayanamaz". Sentetik depoyla doğrulandı: iskelet gövde işaretlendi (pay 1,00), gerçek ilan gövdesi işaretlenmedi.
 - **Yapılmayan (gerekçeli):** gövde **seçici** düzeltmesi yapılmadı. Hangi kapsayıcının alınacağını belirlemek kaynağın canlı HTML'ini gerektirir; canlı HTML örneği olmadan kural eklemek "kanıtsız kural" olurdu.
 
-- **Doğrulama:** tam süit **97 dosya / 1252 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
+- **Doğrulama:** tam süit **98 dosya / 1256 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
 
 ### G.10 (bu tur) İki kanıtlı düzeltme daha: gövde seçimi gerçek kayıtlarla + DSİ kararı + 404 sinyali
 - **Kullanıcı kanıtı (`tani:ilan --kaynak dsi-duyurular`, üretim Supabase, 16.10.2026 09:45Z):**
@@ -250,12 +262,24 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 
 ## H) Sonraki adımlar (teknik bilgisi sınırlı kullanıcı için, sırayla)
 
-> **Kullanıcının sonraki TEK adımı:** aşağıdaki **3b** (kuru çalıştırma) + **3c** (uygula) kararı. Bunun dışındaki adımlar isteğe bağlıdır. Yapay zekâ kapısı 404 sorunu **zaten düzeltilmiş durumda** (bkz. C.5) — bunun için yeni kod gerekmiyor, yalnız `git pull` yeterli.
+> **Kullanıcının sonraki TEK adımı (16.10.2026 kararı):** veri değişikliği **şimdilik yapılmıyor**; önce **yapay zekâ kapısının gerçek çağrıda doğru çalıştığı** kanıtlanacak. Aşağıdaki **1 → 2 → 3 → 4** adımları sırayla çalıştırın; sonuçları bana yapıştırın. Veri onarımı (3b/3c) siz "devam" dedikten sonra ele alınacak.
+>
+> **Yapay zekâ kapısı 404 sorunu kodda zaten düzeltilmiş durumda** (bkz. C.5 ve G.8b) — sizin tarafta yeni kod gerekmiyor, yalnız `git pull` yeterli. Ancak "HTTP 200" tek başına sınıflandırmanın çalıştığını göstermez; bu yüzden 4. adım yanıtın **içeriğini** ölçer.
 
 1. **Kodu al ve hazırla:** proje klasöründe `git pull` → `npm ci`.
 2. **Bilgisayarında kontrol et:** `npm run env:check` çalıştır. Çıktıda "email: dosya (geliştirme; e-posta gönderilmez)" yazmalı. Gerçek kaynaklara çıkmak İSTEMİYORSAN `.env` dosyanda `SOURCE_LIVE_FETCH=0` yap.
-3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1245 test PASS, derleme başarılı.
-3b. **Veriyi onar (ÖNCE kuru çalıştırma):**
+3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1256 test PASS, derleme başarılı.
+4. **Yapay zekâ kapısını GERÇEK çağrıyla doğrula (en fazla 4 çağrı, üretim verisine yazmaz):**
+   ```
+   npm run llm:doctor -- --json raporlar\llm-doktor.json
+   npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm --json raporlar\ai-kapisi.json
+   ```
+   İkinci komutun çıktısında şu satırları bana yapıştırın:
+   - `kararlar: ilan … · süreç … · kanıtlı ret … · belirsiz kaldı … · doğrulanamadı … · hata …`
+   - `API çağrısı …` ve `gecikme`/`token`/`hata oranı` satırları.
+   **Beklenen (başarı ölçütü):** 4 kayıt da kapıdan geçer; `hata=0`; (A) personel alımı **ilan**, (B) sınav/kura duyurusu **süreç** olarak sınıflanır; (C) istem enjeksiyonu metni **ilan kabul edilmez**; `doğrulanamadı` yüksekse modelin gösterdiği kanıt kaynak metinde birebir bulunamamış demektir (bu da raporlanmalıdır).
+   Bu adım geçerse sıradaki konu, veri onarımı (3b/3c) ve 12 kaynağın canlı doğrulanmasıdır.
+3b. **Veriyi onar (ÖNCE kuru çalıştırma) — siz "devam" dediğinizde:**
    ```
    npm run jobs:reclassify -- --report raporlar\reclassify-kuru.json
    ```
@@ -271,6 +295,8 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
    - Hiçbir kayıt **silinmez**; yalnız bu iki tarih alanı `null` olur ve kayıt inceleme kuyruğunda kalır.
    - Kararın değişmez: listeyi okuduktan sonra "bu tarihler gerçekten yanlış" diyorsan `--apply` çalıştır. Tereddüt edersen **çalıştırma**; çıktıyı bana yapıştır, kayıt kayıt birlikte bakarız.
    - Başvuru bağlantısı, kaynak adresi, ilan metni ve diğer tüm alanlar **değişmez**.
+   - **Kanıtlanmış yanlış tarih örneği (16.10.2026 denetimi, `T*` bulguları):** yasal atıf cümlesindeki tarihler yayım tarihi sanıldı — 2004-09-26 (AFAD ×2, ceza kanunu atfı), 2008-12-31 (Türk Patent, KHK atfı), 2013-07-11 (Göç İdaresi, yönetmelik atfı), 2018-07-15 (Batı Akdeniz/OKA, Resmî Gazete atfı), 2019-05-02 (Hazine, Cumhurbaşkanı Kararı atfı), 2018-07-10 (DSİ, birim sayfası). Bu tarihler ilanın yayım tarihi **değildir**; silinmeleri gerekir. Kuru çalıştırma bu 8 kaydı ayrıca listeler.
+   - **İkinci hata sınıfı:** son başvuru tarihi yayım tarihinden ÖNCE görünüyor (mantıken imkânsız) — ör. 01.01.1991 (Savunma Sanayii/Özelleştirme), 20.12.2025 (Adalet ×3), 14.09.2026 (MEB, yayım 22.09.2026). Kural (`src/domain/dates.ts` `plausibleApplicationEnd`): 01.01.2000'den eski veya yayım tarihinden eski ise tarih geçersiz sayılır ve temizlenir.
 4. **Yapay zekâyı AÇMADAN doğrula:** `npm run llm:doctor` — kapıların "kapalı" göründüğünü gör. Bu yanıt **sınıflandırmanın çalıştığını göstermez**; yalnız "hazır değil" bilgisidir.
 5. **Gerçek Gemini'yi dene (isteğe bağlı, ücretli olabilir):** `.env` içinde `AI_ASSISTANT_ENABLED=1`, `LLM_CLASSIFIER_ENABLED=1`, `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`. Sonra **yine `npm run llm:doctor`** çalıştır ve **iki kapının ayrı ayrı** yeşil olduğunu gör (kapı 1: sınıflandırma, kapı 2: panel asistanı). Doctor tek başına yeterli değildir; bir sonraki adımda gerçek senaryoyu dene.
 6. **Tek kaynakla sınırlı deneme:** panelden **tek bir kaynağı** elle tara (Kaynaklar sayfası), ardından **İnceleme kuyruğu** ve **Kaynak sağlığı** ekranlarını kontrol et. Birden çok kaynağı aynı anda taramayın.
