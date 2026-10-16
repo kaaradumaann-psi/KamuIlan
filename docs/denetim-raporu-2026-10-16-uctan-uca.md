@@ -12,7 +12,8 @@
 | Konu | Durum | Kanıt |
 |---|---|---|
 | Gerçek API anahtarı / `.env` | **Yok** | `npm run env:check` → `envFile: yok (yalnızca ortam değişkenleri)` |
-| Gerçek LLM çağrısı | **Test edilemedi / engellendi** | `npm run llm:doctor -- --json` → `classifierEnabled:false`, `assistantEnabled:false`, `checks.*: "bilinmiyor"` |
+| Gerçek LLM çağrısı (denetim sandbox'ı) | **Test edilemedi** (anahtar yok) | `npm run llm:doctor -- --json` → `classifierEnabled:false`, `assistantEnabled:false`, `checks.*: "bilinmiyor"` |
+| Gerçek LLM çağrısı (kullanıcının makinesi, 16.10.2026) | **Kısmen doğrulandı** | Doctor: uç `…/v1beta/models/gemini-3.8-flash:generateContent`, model listesi **HTTP 200 / 63**, `generateContent` VAR, `endpointRisk: null`; canlı çağrı **503 (sağlayıcı yoğunluğu)**. Senaryo koşumu: 4 çağrı → **1 doğru sınıflandırma** (personel alımı → `personnel_recruitment`), 3 çağrı 503. Ayrıntı: C.5, G.11 |
 | İki LLM kapısının davranışı | **Sahte sağlayıcı (fake fetch) + mock sunucu ile test edildi** | `tests/llm-gate.test.ts`, `tests/llm-provider-mock-server.test.ts`, yeni `tests/senaryo-siniflandirma-ai.test.ts`, `tests/senaryo-panel-oneri.test.ts` |
 | Gerçek kaynak HTML'i | **Test edilemedi** (canlı tarama yapılmadı) | Sahte adaptör + kayıtlı fixture'larla çalışıldı (`tests/fixtures/`, `tests/senaryo-toplama-akisi.test.ts`) |
 | Veritabanı | **Dosya deposu** (üretim DB'si değil) | `env:check` → `database: file:./data`, `dbTls: yok` |
@@ -140,7 +141,10 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 | `npm run lint` (`eslint .`) | **Temiz** (0 hata/0 uyarı) | Probe dosyaları silindikten sonra |
 | `npm run build` (`tsc --noEmit && vite build`) | **Başarılı** (113 modül, ~0.33 s) | Üretim derlemesi |
 | `npx vitest run` (ilk tur sonu) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
-| `npx vitest run` (**son durum, 16.10.2026**) | **98 dosya / 1256 test PASS**, 116.1 s | +8 dosya, +110 test (baseline'a göre) |
+| `npx vitest run` (**son durum, 16.10.2026**) | **99 dosya / 1261 test PASS**, 114.6 s | +11 dosya, +126 test (baseline'a göre) |
+| `npx vitest run tests/ai-kapisi-olcum.test.ts tests/ai-kapisi-senaryo-seti.test.ts` | 9 PASS | Yeni: kapı kararı ölçümü + senaryo seti bütünlüğü |
+| `npx vitest run` (**kullanıcının kendi makinesi**, `git pull` + `npm ci` sonrası) | **98 dosya / 1256 test**: 1233 geçti, 23 atlandı, 0 başarısız | Önceki commit'te alınan sonuç; bu turda 1261'e çıktı |
+| `npm run lint` + `npm run build` (son durum) | Temiz · 113 modül · ✓ built in 304 ms | `dist/` yeniden üretildi |
 | `npx vitest run tests/govde-iskelet-olcumu.test.ts` | 10 PASS | Yeni: gövde iskelet ölçümü |
 | `npx vitest run tests/yeniden-siniflandirma-tarih.test.ts` | 21 PASS | 17 tarih/rapor + 4 kabuk temizliği |
 | `npm run tani:ilan -- --kaynak …` (sentetik dosya deposu) | Çalıştı; 9. bölüm + `sourceReview` + T12 doğru | Gerçek veri yazılmadı |
@@ -157,6 +161,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 - `npm run test:e2e` (Playwright) — canlı sunucu + tarayıcı gerektiriyor; sonuç "geçti" sayılmadı.
 - `npm run test:live` (gerçek kaynak) — canlı taranmama talimatı nedeniyle çalıştırılmadı.
 - Gerçek Gemini/OpenAI çağrısı, gerçek SMTP/Resend gönderimi, gerçek PostgreSQL+RLS — ortam/anahtar yok.
+- **Gerçek yapay zekâ kapısı sınıflandırması (canlı):** kullanıcının makinesinde koşuldu ama sağlayıcı **HTTP 503 (yoğunluk)** döndürdüğü için 4 senaryonun yalnız **1'i** gerçek yanıtla ölçülebildi (bkz. G.11). Kalan 3 senaryo için sonuç "kapı çalışmadı" sayıldı; **"geçti" olarak raporlanmadı**.
 
 ---
 
@@ -245,7 +250,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 - **Tanı entegrasyonu:** `tani:ilan` bölüm 3'e **T12** bulgusu eklendi — "gövde metni sayfa iskeleti (menü/çerez) — alan çıkarımı gövdeye dayanamaz". Sentetik depoyla doğrulandı: iskelet gövde işaretlendi (pay 1,00), gerçek ilan gövdesi işaretlenmedi.
 - **Yapılmayan (gerekçeli):** gövde **seçici** düzeltmesi yapılmadı. Hangi kapsayıcının alınacağını belirlemek kaynağın canlı HTML'ini gerektirir; canlı HTML örneği olmadan kural eklemek "kanıtsız kural" olurdu.
 
-- **Doğrulama:** tam süit **98 dosya / 1256 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
+- **Doğrulama:** tam süit **99 dosya / 1261 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
 
 ### G.10 (bu tur) İki kanıtlı düzeltme daha: gövde seçimi gerçek kayıtlarla + DSİ kararı + 404 sinyali
 - **Kullanıcı kanıtı (`tani:ilan --kaynak dsi-duyurular`, üretim Supabase, 16.10.2026 09:45Z):**
@@ -260,6 +265,41 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 
 ---
 
+### G.11 (bu tur, commit `ab436b6`) Canlı ölçüm: 404 GİTTİ, yerine sağlayıcı yoğunluğu (503) geldi + "kapı yanlış karar verdi" ile "kapıya ulaşılamadı" ayrıldı
+
+**1) Kullanıcının kendi makinesindeki koşum (16.10.2026, `git pull` + `npm ci` sonrası):**
+- `npm test` → **98 dosya / 1256 test (1233 geçti, 23 atlandı, 0 başarısız)**; `npm run build` → başarılı.
+- `npm run llm:doctor -- --json` → `transport: gemini-native`, `endpoint: https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`, `endpointRisk: null`, model listesi **HTTP 200 / 63 model**, `configuredModelListed: true`, `supportedGenerationMethods` içinde **`generateContent` VAR**.
+  **404 (yanlış uç) ARTIK YOK** — istek `models/{model}:generateContent` ucuna gidiyor ve sağlayıcı modeli tanıyor.
+- Canlı çağrı bu kez **HTTP 503**: sağlayıcı mesajı *"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."*, `failureCategory: service-unavailable`, **2 deneme / 2603 ms**, `usableTextGenerated: başarısız`, `authorizationCheck: bilinmiyor` (yetki kanıtı ancak başarılı üretimle doğrulanır).
+  → **Yorum: 503 bir kod hatası değil, sağlayıcının o andaki yoğunluğudur.** Bu yüzden kod değiştirilmedi, `timeout`/`retry` ayarları şişirilmedi; doğru davranış yoğunluk geçince **aynı komutu yinelemektir**.
+- `npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm` → 4 kayıt, **4 API çağrısı**, `çözülen 1`; `kararlar: ilan 1 · süreç 0 · kanıtlı ret 0 · belirsiz kaldı 0 · doğrulanamadı 0 · hata 3`; gecikme ortalama 3670 ms (en yüksek 7879 ms); token **1154 girdi + 218 çıktı**; **hata oranı %75**.
+  **Çağrı 1 (personel alımı senaryosu) gerçek model yanıtıyla DOĞRU sınıflandı → `personnel_recruitment`.** Diğer üç çağrı sağlayıcı 503'ü nedeniyle düştü; kayıtlar `uncertain` kaldı, hiçbir uydurma alan yazılmadı. Yani kapı çalışıyor; engel sağlayıcı kapasitesi.
+- **Kullanıcının komutundaki küçük hata (kod hatası değil):** `--json` bayrağı tek başına verilmiş (`npm run eval:classification -- --file … --llm --json`), bu yüzden JSON yazılmadı; ardından `raporlar\ai-kapisi.json` bir kabuk komutu gibi çalıştırılıp *"The system cannot find the path specified"* çıktısı alındı. Doğru kullanım: `--json data\ai-kapisi.json` (klasör varsa). Ayrıca `raporlar` klasörü yoksa önce `mkdir raporlar` gerekir.
+
+**2) Bu turda eklenen ölçüm ayrımı (kod):**
+- `src/classification/eval.ts` → `assessGateScenario()` (saf fonksiyon) üç sonuçtan birini verir: **`uygun`**, **`uygunsuz`**, **`kapi-calismadi`**. Kural: kapının ham kararı `ilan`/`surec`/`ilan-degil` değilse (yani `hata`, `dogrulanamadi`, `belirsiz` veya çağrı yok) senaryo **"kapı çalışmadı"** sayılır — kayıt incelemede kalır, uydurma bilgi yazılmaz. Yasaklı tür (`forbiddenContentTypes`) içeren bir tahmin, beklenen türle çakışsa bile **UYGUNSUZ** sayılır (istem enjeksiyonunun ilana dönüşmesi engellenir).
+- `scripts/eval-classification.ts` → `--llm` koşumunun sonuna **senaryo bazında kapı kararı tablosu** eklendi:
+  `id · beklenen … · model kararı … · çıktı … · kayıt … · ✓ uygun / ✗ UYGUNSUZ / · kapı çalışmadı` + `Özet: uygun n · UYGUNSUZ n · kapı çalışmadı n`. Altına, varsa **sağlayıcı hata metinleri (anahtar maskeli, en fazla 3 farklı metin)** yazılır. Böylece raporda "yanlış karar" ile "ulaşılamadı" karışmaz.
+- `tests/ai-kapisi-olcum.test.ts` (5 test): doğru karar → `uygun`, farklı karar → `uygunsuz`, ham karar yok → `kapi-calismadi`, yasaklı tür → `uygunsuz`, fixture'da enjeksiyon kaydı + yasaklıların beklenenle çakışmaması. `tests/fixtures/eval/ai-kapisi-senaryolari.json` → `kapi-C-enjeksiyon` için `forbiddenContentTypes: ["personnel_recruitment"]`.
+
+**3) Ücretsiz doğrulama (sahte sağlayıcı, gerçek API çağrısı yok):** yerel sahte sağlayıcı (port 8899) ile `--llm` koşumu yapıldı; 1., 2. ve 4. isteğe geçerli JSON verildi, 3. istek bilinçli olarak **503** yapıldı. Sonuç tablosu:
+```
+kapi-A-ilan        beklenen personnel_recruitment          model kararı ilan          ✓ uygun
+kapi-B-surec       beklenen personnel_process_announcement model kararı surec         ✓ uygun
+kapi-C-enjeksiyon  beklenen other                          model kararı dogrulanamadi · kapı çalışmadı
+kapi-D-haber       beklenen news                           model kararı dogrulanamadi · kapı çalışmadı
+Özet: uygun 2 · UYGUNSUZ 0 · kapı çalışmadı 2
+```
+(İlk denemede bu doğrulama **hatalı kurgu** yüzünden kilitlendi: sahte sunucunun `listen` geri çağrısı içinde `spawnSync` çağrılınca olay döngüsü bloke oldu ve 4 istek de zaman aşımına düştü — "hata 4 / kapı çalışmadı 4" görüntüsü bu yüzden çıktı. `spawn` ile düzeltilip yeniden koşuldu; yukarıdaki tablo **ikinci, doğru koşumun** çıktısıdır.) Kanıt doğrulaması geçmeyen yanıtların `dogrulanamadi` sayılıp kaydı `review`'da bıraktığı böylece doğrulandı.
+
+**4) Bu kanıtla ne KANITLANDI, ne KANITLANMADI (dürüst sınır):**
+- Kanıtlandı: 404 gitti, uç nokta doğru, model sağlayıcıda mevcut, kapı yanıt aldı ve **gerçek yanıtta doğru içerik türünü** verdi; şema/kanıt doğrulaması ve "kapı çalışmadı" ayrımı çalışıyor; hata kaydı ilanı bozmuyor.
+- Kanıtlanmadı: 4 senaryonun **3'ü** sağlayıcı yoğunluğu nedeniyle ölçülemedi; bu nedenle "sınıflandırma dört senaryoda da doğru" iddiası **kurulmaz**.
+- **Üretim verisi DEĞİŞTİRİLMEDİ** (`jobs:reclassify --apply` çalıştırılmadı); bu ölçümün çıktısı yalnız geçici dosya deposuna yazıldı.
+
+---
+
 ## H) Sonraki adımlar (teknik bilgisi sınırlı kullanıcı için, sırayla)
 
 > **Kullanıcının sonraki TEK adımı (16.10.2026 kararı):** veri değişikliği **şimdilik yapılmıyor**; önce **yapay zekâ kapısının gerçek çağrıda doğru çalıştığı** kanıtlanacak. Aşağıdaki **1 → 2 → 3 → 4** adımları sırayla çalıştırın; sonuçları bana yapıştırın. Veri onarımı (3b/3c) siz "devam" dedikten sonra ele alınacak.
@@ -268,16 +308,21 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 
 1. **Kodu al ve hazırla:** proje klasöründe `git pull` → `npm ci`.
 2. **Bilgisayarında kontrol et:** `npm run env:check` çalıştır. Çıktıda "email: dosya (geliştirme; e-posta gönderilmez)" yazmalı. Gerçek kaynaklara çıkmak İSTEMİYORSAN `.env` dosyanda `SOURCE_LIVE_FETCH=0` yap.
-3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1256 test PASS, derleme başarılı.
-4. **Yapay zekâ kapısını GERÇEK çağrıyla doğrula (en fazla 4 çağrı, üretim verisine yazmaz):**
+3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: **1261 test PASS**, derleme başarılı (sizin makinenizde ölçülen: 1256 test → 1233 geçti, 23 atlandı, 0 başarısız).
+4. **Yapay zekâ kapısını GERÇEK çağrıyla doğrula (en fazla 4 çağrı, üretim verisine yazmaz)** — **bu adımı 16.10.2026'da çalıştırdınız, sonuç yarım kaldı:**
    ```
-   npm run llm:doctor -- --json raporlar\llm-doktor.json
-   npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm --json raporlar\ai-kapisi.json
+   npm run llm:doctor -- --json data\llm-doktor.json
+   npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm --json data\ai-kapisi.json
    ```
-   İkinci komutun çıktısında şu satırları bana yapıştırın:
-   - `kararlar: ilan … · süreç … · kanıtlı ret … · belirsiz kaldı … · doğrulanamadı … · hata …`
-   - `API çağrısı …` ve `gecikme`/`token`/`hata oranı` satırları.
-   **Beklenen (başarı ölçütü):** 4 kayıt da kapıdan geçer; `hata=0`; (A) personel alımı **ilan**, (B) sınav/kura duyurusu **süreç** olarak sınıflanır; (C) istem enjeksiyonu metni **ilan kabul edilmez**; `doğrulanamadı` yüksekse modelin gösterdiği kanıt kaynak metinde birebir bulunamamış demektir (bu da raporlanmalıdır).
+   - **404 sorunu bitti (kanıt):** doctor artık `transport: gemini-native`, uç `…/v1beta/models/gemini-3.8-flash:generateContent`, model listesi **HTTP 200 / 63 model**, `generateContent` destekli ve `endpointRisk: null` diyor.
+   - **Yeni engel geçici:** canlı çağrı **HTTP 503 "model is currently experiencing high demand"** döndü (2 deneme, 2603 ms) → sınıflandırma 4 çağrının **1'inde** doğru sonuç verdi (`personnel_recruitment`), kalan 3'ü hata olarak kaydedildi. **503 yoğunluk demektir; kod değişikliği veya ayar şişirme GEREKMEZ.**
+   - **Sizin yapacağınız tek şey:** birkaç saat sonra (yoğunluk geçince) **aynı iki komutu yineleyip** aşağıdaki satırları bana yapıştırmak:
+     - `kararlar: ilan … · süreç … · kanıtlı ret … · belirsiz kaldı … · doğrulanamadı … · hata …`
+     - `API çağrısı …`, `gecikme`, `token`, `hata oranı` satırları
+     - yeni çıktıdaki **senaryo tablosu** satırları: `kapi-A-ilan … ✓ uygun`, `kapi-B-surec …`, `kapi-C-enjeksiyon …`, `kapi-D-haber …` ve **`Özet: uygun n · UYGUNSUZ n · kapı çalışmadı n`**
+     - varsa **"Bu koşumdaki sağlayıcı hataları"** satırları (anahtar maskeli yazılır, sır sızmaz).
+   - **Başarı ölçütü:** `Özet` satırında **`uygun 4 · UYGUNSUZ 0 · kapı çalışmadı 0`** (C'de `UYGUNSUZ` çıkarsa istem enjeksiyonu ilana dönüşmüş demektir → ciddi bulgu). `kapı çalışmadı` sayısı 0 değilse bu **"yanlış sınıflandırma" DEĞİLDİR**; o koşum ölçülemedi demektir, kayıtlar inceleme kuyruğunda kalır ve uydurma alan yazılmaz.
+   - `--json` bayrağına **dosya yolu** verilmezse JSON yazılmaz (`--json` tek başına etkisizdir). `data` klasörü projede zaten var; `raporlar` klasörünü kendiniz oluşturmanız gerekir.
    Bu adım geçerse sıradaki konu, veri onarımı (3b/3c) ve 12 kaynağın canlı doğrulanmasıdır.
 3b. **Veriyi onar (ÖNCE kuru çalıştırma) — siz "devam" dediğinizde:**
    ```
