@@ -706,15 +706,51 @@ export function extractApplicationWindow(
   return { start: null, end: null, startSnippet: null, endSnippet: null };
 }
 
+/** Noktalı (14.10.2026) ya da yazıyla ay (14 Ekim 2026) tarih biçimi. */
+const TR_DATE_FORM = '(?:\\d{1,2}[./]\\d{1,2}[./]\\d{4}|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}\\s+[A-Za-zÇĞİÖŞÜçğıöşü]{3,12}\\s+\\d{4})';
+
+/**
+ * Yasal atıf tarihlerini metinden çıkarır: "26 Eylül 2004 tarihli ve 25585 sayılı
+ * Yönetmelik", "15 Temmuz 2018 tarihli 30479 sayılı Kararname" gibi.
+ *
+ * Neden gerekli: bu tarih İLANIN yayım tarihi değil, atıf yapılan mevzuatın
+ * tarihidir. Ayıklanmazsa 2026'da yayımlanan bir ilan 2004/2008/2018 tarihli
+ * görünür; "tarih yok + eski yayım" kuralı yüzünden güncel ilan kapanmış sayılır.
+ */
+function stripLegalCitationDates(text: string): string {
+  const spelledOrDotted = `\\d{1,2}(?:[./]\\d{1,2}[./]\\d{4}|\\s+[A-Za-zÇĞİÖŞÜçğıöşü]{3,12}\\s+\\d{4})`;
+  const citation = new RegExp(
+    `${spelledOrDotted}\\s+tarihli\\s+(?:ve\\s+)?(?:\\d{1,5}\\s*)?(?:sayılı|Sayılı)[^.\\n]{0,80}`,
+    'giu',
+  );
+  return text.replace(citation, ' ');
+}
+
 export function extractPublishedAt(text: string): string | null {
-  const patterns: readonly RegExp[] = [
-    /(?:yay[ıi]m|ilan|duyuru)\s*(?:tarihi|tarihinde)?\s*[:.]?\s*([^.\n]{0,60})/iu,
-    /([^.\n]{0,40}?tarihli)/iu,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(text);
-    if (!match?.[1]) continue;
-    const parsed = parseTurkishDate(match[1]);
+  const cleaned = stripLegalCitationDates(text);
+  // Etiketli yayım tarihi: "Yayım Tarihi: 14.10.2026", "İlan tarihi 14 Ekim 2026".
+  // Etiket ile tarih AYNI SATIRDA olmalıdır: satır atlanırsa komşu cümlenin
+  // (ör. son başvuru ya da bir başka duyurunun) tarihi yayım tarihi sanılırdı.
+  // NOT: `i` bayrağı "İ" (U+0130) ile "i"yi eşleştirmez; Türkçe büyük harf
+  // açıkça yazılır (bkz. src/sources/listing-utils.ts aynı tuzağı not ediyor).
+  const labelPattern = new RegExp(
+    `(?:yay[ıi]m|yay[ıi]nlanma|yay[ıi]mlanma|duyuru|duyurulma|[İIiı]lan)[ \\t]*(?:tarihi|tarihinde)?[ \\t]*[:.]?[ \\t]*(${TR_DATE_FORM})`,
+    'giu',
+  );
+  for (const match of cleaned.matchAll(labelPattern)) {
+    const parsed = parseTurkishDate(match[1] ?? '');
+    if (parsed) return parsed.iso;
+  }
+  // "… tarihli …" kalıbı: yasal atıflar ayıklandıktan sonra kalanlar ilanın
+  // kendi tarihi olabilir. Ardından "sayılı"/"Resmî Gazete" geliyorsa yine atıftır.
+  const suffixPattern = /([^.\n]{0,40}?tarihli)/giu;
+  for (const match of cleaned.matchAll(suffixPattern)) {
+    const after = cleaned.slice(
+      (match.index ?? 0) + match[0].length,
+      (match.index ?? 0) + match[0].length + 40,
+    );
+    if (/sayılı|resm[îi]\s+gazete/iu.test(after)) continue;
+    const parsed = parseTurkishDate(match[1] ?? '');
     if (parsed) return parsed.iso;
   }
   return null;

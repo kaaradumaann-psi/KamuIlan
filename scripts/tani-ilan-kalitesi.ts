@@ -91,11 +91,72 @@ function topEntries(map: Map<string, number>, limit = 12): [string, number][] {
   return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 }
 
+const TR_MONTHS = [
+  'Ocak',
+  'Şubat',
+  'Mart',
+  'Nisan',
+  'Mayıs',
+  'Haziran',
+  'Temmuz',
+  'Ağustos',
+  'Eylül',
+  'Ekim',
+  'Kasım',
+  'Aralık',
+];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Kayıttaki yayım tarihinin metinde GEÇTİĞİ yeri ve çevresini gösterir.
+ *
+ * Neden gerekli: `publishedAt` bir yasal atıftan ("26.09.2004 tarihli ve 25585
+ * sayılı Yönetmelik") okunmuş olabilir. Bu durumda ilan 2026'da yayımlanmış
+ * olsa bile kayıt 2004 tarihli görünür ve yanlışlıkla "süresi geçmiş" sayılır.
+ * Alıntı, kök nedeni kanıtlamak (ya da çürütmek) için yazdırılır.
+ */
+function dateEvidence(excerpt: string, iso: string): string | null {
+  const dateOnly = iso.slice(0, 10);
+  const [year, month, day] = dateOnly.split('-');
+  if (!year || !month || !day) return null;
+  const dayNumber = String(Number(day));
+  const monthNumber = String(Number(month));
+  const monthName = TR_MONTHS[Number(month) - 1] ?? '';
+  const forms = [
+    `${day}.${month}.${year}`,
+    `${day}/${month}/${year}`,
+    `${dayNumber}.${monthNumber}.${year}`,
+    `${dayNumber}/${monthNumber}/${year}`,
+    ...(monthName ? [`${dayNumber} ${monthName} ${year}`] : []),
+    `${dayNumber} ${month} ${year}`,
+  ];
+  const text = excerpt.replace(/\s+/g, ' ');
+  if (!text) return null;
+  for (const form of forms) {
+    const match = new RegExp(escapeRegExp(form), 'iu').exec(text);
+    if (!match || match.index === undefined) continue;
+    const start = Math.max(0, match.index - 95);
+    const end = Math.min(text.length, match.index + form.length + 95);
+    return `…${text.slice(start, end).trim()}…`;
+  }
+  const yearOnly = new RegExp(`\\b${escapeRegExp(year)}\\b`).exec(text);
+  if (yearOnly && yearOnly.index !== undefined) {
+    const start = Math.max(0, yearOnly.index - 95);
+    const end = Math.min(text.length, yearOnly.index + year.length + 95);
+    return `(yalnızca yıl geçiyor) …${text.slice(start, end).trim()}…`;
+  }
+  return null;
+}
+
 interface Finding {
   code: string;
   label: string;
   job: JobDoc;
   detail: string;
+  evidence?: string | null;
 }
 
 async function main(): Promise<void> {
@@ -116,8 +177,8 @@ async function main(): Promise<void> {
 
   const lines: string[] = [];
   const findings: Finding[] = [];
-  const push = (code: string, label: string, job: JobDoc, detail: string) =>
-    findings.push({ code, label, job, detail });
+  const push = (code: string, label: string, job: JobDoc, detail: string, evidence?: string | null) =>
+    findings.push({ code, label, job, detail, evidence: evidence ?? null });
 
   lines.push('');
   lines.push('════════════════════════════════════════════════════════════════');
@@ -190,7 +251,13 @@ async function main(): Promise<void> {
       push('T1', 'Başlık/kurumda sayfa kabuğu (menü, oturum, çerez) ifadesi', job, `başlık="${short(title, 60)}"`);
     }
     if (published && yearsBetween(published, today) >= 2) {
-      push('T2', 'Yayım tarihi 2+ yıl eski (arşiv içerik 2026 listesinde)', job, `publishedAt=${published}`);
+      push(
+        'T2',
+        'Yayım tarihi 2+ yıl eski (arşiv içerik 2026 listesinde)',
+        job,
+        `publishedAt=${published}`,
+        dateEvidence(job.textExcerpt ?? '', job.publishedAt ?? ''),
+      );
     }
     if (published) {
       const gap = daysBetween(`${published}T00:00:00Z`, job.createdAt);
@@ -200,6 +267,7 @@ async function main(): Promise<void> {
           `Eski içerik sonradan keşfedilmiş (yayım → ilk görülme > ${options.staleDays} gün)`,
           job,
           `publishedAt=${published} · ilk görülme=${job.createdAt.slice(0, 10)} · fark=${gap} gün`,
+          dateEvidence(job.textExcerpt ?? '', job.publishedAt ?? ''),
         );
       }
     }
@@ -252,8 +320,28 @@ async function main(): Promise<void> {
     );
   }
 
-  lines.push('3) ŞÜPHELİ KAYIT SINIFLARI');
-  if (findings.length === 0) {
+  const sameDateBySource = new Map<string, JobDoc[]>();
+  for (const job of jobs) {
+    if (!job.publishedAt) continue;
+    const key = `${job.primarySourceKey}|${String(job.publishedAt).slice(0, 10)}`;
+    const group = sameDateBySource.get(key) ?? [];
+    group.push(job);
+    sameDateBySource.set(key, group);
+  }
+  const repeatedDateGroups = [...sameDateBySource.values()].filter((group) => group.length >= 5);
+  for (const group of repeatedDateGroups) {
+    const first = group[0];
+    if (!first) continue;
+    push(
+      'T11',
+      'Aynı kaynakta 5+ kayıt aynı yayım tarihinde (liste sayfası tarihi şüphesi)',
+      first,
+      `${group.length} kayıt · publishedAt=${String(first.publishedAt).slice(0, 10)} · kaynak=${first.primarySourceKey}`,
+      dateEvidence(first.textExcerpt ?? '', first.publishedAt ?? ''),
+    );
+  }
+
+  lines.push('3) ŞÜPHELİ KAYIT SINIFLARI');  if (findings.length === 0) {
     lines.push('   Şüpheli kayıt bulunamadı.');
   } else {
     const byCode = countBy(findings, (finding) => `${finding.code} ${finding.label}`);
@@ -337,6 +425,29 @@ async function main(): Promise<void> {
   }
   lines.push('');
 
+  // ------------------------------------------------- tarih kanıtı (kök neden)
+  lines.push('7) YAYIM TARİHİ KANITI (eski tarihli kayıtlar: tarih metinde nereden okunmuş?)');
+  const datedFindings = findings.filter(
+    (finding) => (finding.code === 'T2' || finding.code === 'T3') && finding.job.publishedAt,
+  );
+  const printedEvidence = new Set<string>();
+  let evidenceLines = 0;
+  for (const finding of datedFindings) {
+    if (printedEvidence.has(finding.job.id) || evidenceLines >= 12) continue;
+    printedEvidence.add(finding.job.id);
+    evidenceLines += 1;
+    const job = finding.job;
+    const sourceKind = job.fieldSources?.publishedAt?.kind ?? 'bilinmiyor';
+    lines.push(
+      `   ${short(job.title, 62)}\n` +
+        `     publishedAt=${String(job.publishedAt).slice(0, 10)} · alan kaynağı=${sourceKind} · durum=${job.status}` +
+        ` · kaynak=${job.primarySourceKey}`,
+    );
+    lines.push(`     metin: ${finding.evidence ?? 'metinde bulunamadı (kaynak/başlık katmanından gelmiş olabilir)'}`);
+  }
+  if (evidenceLines === 0) lines.push('   Eski tarihli kayıt yok.');
+  lines.push('');
+
   // ------------------------------------------------------------------ özet
   const verdict =
     findings.length === 0 && duplicates.length === 0 && staleVersion.length === 0
@@ -380,6 +491,8 @@ async function main(): Promise<void> {
             code: finding.code,
             label: finding.label,
             detail: finding.detail,
+            evidence: finding.evidence ?? null,
+            publishedAtSourceKind: finding.job.fieldSources?.publishedAt?.kind ?? null,
             id: finding.job.id,
             title: finding.job.title,
             institution: finding.job.institution,
