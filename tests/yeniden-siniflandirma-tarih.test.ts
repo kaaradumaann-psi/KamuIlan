@@ -164,6 +164,23 @@ describe('desteksiz yayım tarihi temizlenir', () => {
     expect(reclassifyJob(job, NOW).patch.publishedAt).toBeNull();
   });
 
+  it('yayım tarihi silinince son başvuru kapısı yalnızca 2000 alt sınırını uygular (bilinen sınır)', () => {
+    // Yayım tarihi desteksiz çıkarsa karşılaştırma tabanı kalkar; tarih 2000'den
+    // sonra olduğu sürece KORUNUR. Kural uydurmamak için bilinçli sınır: kayıtta
+    // kalır, uygulama öncesi kuru çalıştırma sayacı ("imkânsız son başvuru")
+    // kullanıcıya gerçek etkiyi gösterir.
+    const job = makeJob({
+      publishedAt: '2013-07-11',
+      fieldSources: { publishedAt: { kind: 'detail', snippet: '2013-07-11' } },
+      textExcerpt:
+        '11 Temmuz 2013 tarihli ve 28704 sayılı Resmî Gazete’de yayımlanan Yönetmelik uyarınca giriş sınavı yapılacaktır.',
+      applicationEndDate: '2019-05-05',
+    });
+    const result = reclassifyJob(job, NOW);
+    expect(result.patch.publishedAt).toBeNull();
+    expect(result.patch.applicationEndDate).toBeUndefined();
+  });
+
   it('alan kaynağı olmayan eski kayıtta çökmez', () => {
     const job = makeJob({ publishedAt: '2013-07-11', fieldSources: {} });
     const result = reclassifyJob(job, NOW);

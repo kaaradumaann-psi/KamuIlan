@@ -179,13 +179,38 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 **Değişen üretim dosyaları:** `src/ai/classifier.ts`, `src/ai/candidates.ts`, `src/ai/suggest.ts`, `src/ingest/pipeline.ts`.
 **Dokunulmayanlar:** şema/migration, API sözleşmeleri, arayüz bileşenleri, `.env*`, `package.json`, gerçek veri.
 
+### G.6 (ek tur, commit `2b03d4c`) Saklı verideki üç tarih hatası onarılamıyordu (P1)
+- **Kanıt:** Kullanıcının kendi kuru çalıştırma raporu (16.10.2026 08:56Z): `applicationEndDate = 1991-01-01` (Savunma Sanayii, Özelleştirme), `applicationEndDate = 2025-12-20` + `publishedAt = 2026-10-12` (Adalet ×3), ayrıca `tani:ilan` raporunda 8 kayıt 2004/2008/2013/2018/2019 yayım tarihiyle görünüyordu.
+- **Kök neden (kaynak koddan):**
+  1. `scripts/reclassify-jobs.ts` → `buildReport` kayıttaki **ham** `publishedAt`/`applicationEndDate` alanını yazdırıyordu; `reclassifyJob`'un yazacağı değer raporda **hiç görünmüyordu** → "kapı çalışmıyor" izlenimi.
+  2. `reclassifyJob` tarihleri onarıyordu ama **"desteksiz tarih" kararı yoktu**: yasaldan okunmuş eski yayım tarihi yalnızca gelecek tarih olduğunda siliniyordu, 2004/2013 tarihleri kayıtta kalıyordu.
+  3. `plausibleApplicationEnd` (2000 alt sınırı + yayımdan önce olamaz) yalnızca **yeni** çıkarımlarda çalışıyordu; hatanın oluştuğu anda kayda yazılmış değer geriye dönük temizlenemiyordu.
+- **Değişiklik:**
+  - `src/ingest/reclassify.ts` → `PUBLISHED_DATE_REGRESSION_DAYS` (400) + `UNSUPPORTED_PUBLISHED_DATE_NOTE`; yayım tarihi **gövdeden türetilmişse** (`fieldSources.publishedAt.kind !== 'listing'`), güncel `extractPublishedAt` kayıttaki metinde tarih bulamıyorsa ve tarih ilk görülmeden 400+ gün önceyse tarih **kaldırılır** ve `uncertainties` alanına gerekçe eklenir. Liste katmanından gelen tarih (kaynağın kendi listesi) sorgulanmaz.
+  - `src/ingest/reclassify-batch.ts` → özet sayaçları `publishedAtCleared`, `applicationEndCleared`; rapor satırına `publishedAtAfter` ve `applicationEndDateAfter` (ham değer ile **yazılacak** değer bir arada).
+  - `scripts/reclassify-jobs.ts` → kuru çalıştırmada silinecek tarih sayıları görünür.
+  - `src/domain/text.ts` → `UI_CHROME_PHRASES` canlı koşumda gövdeye yapıştığı görülen erişilebilirlik çubuğu ve çerez dizeleriyle genişletildi (depodaki canlı çıktı kayıtlarından alındı; "Kontrast", "Filtrele" gibi genel kelimeler bilinçli olarak dışarıda).
+  - `src/config/app.ts` → `EXTRACTION_VERSION` `2026.10.3`.
+- **Test:** `tests/yeniden-siniflandirma-tarih.test.ts` (17 test): Göç 2013 / AFAD 2004 yasaldan okumuş tarihleri temizlenir, 2026-10-14 tarihli gerçek tarih korunur, YÖK 2026-04-20 (pencere içi) korunur, liste tarihi korunur, gelecek tarih reddi sürer; 1991 ve yayım-öncesi bitiş tarihleri temizlenir, geçerli bitiş korunur; kabuk temizliği; boş yamada yazma yok; özet sayaçları; raporun ham/sonrası değerleri.
+- **Uyumluluk:** Yeni veri yazımı yok, yalnız var olan kayıtlar yeniden sınıflandırıldığında onarılır. Geri dönüş: `npm run jobs:restore -- <yedek>` (yedek `--apply` öncesi otomatik alınır). Yan etki: yayım tarihi silinen kayıtlar için son başvuru kapısı yalnızca 2000 alt sınırını uygular (test ile sabitlendi, bilinçli sınır).
+- **Doğrulama:** tam süit **95 dosya / 1230 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
+
 ---
 
 ## H) Sonraki adımlar (teknik bilgisi sınırlı kullanıcı için, sırayla)
 
 1. **Kodu al ve hazırla:** proje klasöründe `git pull` → `npm ci`.
 2. **Bilgisayarında kontrol et:** `npm run env:check` çalıştır. Çıktıda "email: dosya (geliştirme; e-posta gönderilmez)" yazmalı. Gerçek kaynaklara çıkmak İSTEMİYORSAN `.env` dosyanda `SOURCE_LIVE_FETCH=0` yap.
-3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1196 test PASS, derleme başarılı.
+3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1230 test PASS, derleme başarılı.
+3b. **Veriyi onar (ÖNCE kuru çalıştırma):**
+   ```
+   npm run jobs:reclassify -- --report raporlar\reclassify-kuru.json
+   ```
+   Çıktıda şu iki satırı oku: "Desteksiz yayım tarihi silinecek" ve "İmkânsız son başvuru silinecek". Sayılar makul görünüyorsa (bu denetimde beklenen: yayım tarihi ≈ 8 kayıt, son başvuru ≈ 5 kayıt) ve **hiçbir kayıt silinmiyor**, aşağıdaki komutla uygula:
+   ```
+   npm run jobs:reclassify -- --apply
+   ```
+   Bu komut önce `data/backups/` altına **tam yedek** yazar. Beğenmezsen geri dönüş: `npm run jobs:restore -- data\backups\jobs-before-reclassify-<tarih>.json` (önce aynı komutu `--apply` olmadan çalıştırıp önizlemek de mümkündür).
 4. **Yapay zekâyı AÇMADAN doğrula:** `npm run llm:doctor` — kapıların "kapalı" göründüğünü gör. Bu yanıt **sınıflandırmanın çalıştığını göstermez**; yalnız "hazır değil" bilgisidir.
 5. **Gerçek Gemini'yi dene (isteğe bağlı, ücretli olabilir):** `.env` içinde `AI_ASSISTANT_ENABLED=1`, `LLM_CLASSIFIER_ENABLED=1`, `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`. Sonra **yine `npm run llm:doctor`** çalıştır ve **iki kapının ayrı ayrı** yeşil olduğunu gör (kapı 1: sınıflandırma, kapı 2: panel asistanı). Doctor tek başına yeterli değildir; bir sonraki adımda gerçek senaryoyu dene.
 6. **Tek kaynakla sınırlı deneme:** panelden **tek bir kaynağı** elle tara (Kaynaklar sayfası), ardından **İnceleme kuyruğu** ve **Kaynak sağlığı** ekranlarını kontrol et. Birden çok kaynağı aynı anda taramayın.
