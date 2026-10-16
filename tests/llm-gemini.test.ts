@@ -31,18 +31,34 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  ALLOWED_REQUEST_ID_HEADERS,
+  MAX_RETRY_AFTER_MS,
   buildGeminiRequestBody,
   callChatCompletion,
+  callChatCompletionWithRetry,
   chatCompletionsEndpoint,
+  computeRetryDelayMs,
   describeTransport,
+  extractAllowedRequestId,
+  inspectHttpErrorResponse,
   normalizeGeminiModel,
   parseGeminiResponse,
+  parseRetryAfterMs,
   providerErrorMessage,
   redactSecret,
   resolveLlmEndpoint,
   type LlmConfig,
   type LlmFetch,
 } from '../src/ai/llm';
+import {
+  DOCTOR_PROBE_MAX_TOKENS,
+  evaluateDoctorChecks,
+  formatDoctorReport,
+  probeModelList,
+  probeThinkingBudgetForModel,
+  runLlmDoctor,
+  type DoctorHttpFetch,
+} from '../scripts/llm-doctor';
 import { FileStore } from '../src/db/file-store';
 import { createRepos, type Repos } from '../src/db/repos';
 import type { LlmAnalysisDoc } from '../src/db/schemas';
@@ -734,3 +750,521 @@ describe('inceleme kuyruğu ve Gemini taşıyıcısı', () => {
     expect(permanentCalls).toBe(1);
   });
 });
+
+/* ---------------------------------------------------------------------------
+ * 8) Güvenli HTTP hata gövdesi tanısı, Retry-After, istek kimliği ve MAX_TOKENS
+ * ------------------------------------------------------------------------- */
+
+describe('HTTP hata gövdesi tanısı ve başlık güvenliği', () => {
+  it('HTTP 503 ve JSON hata mesajını (standart ve dizi zarfı) ayrıştırır', async () => {
+    const demandMessage =
+      'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.';
+    const nativePayload = JSON.stringify({
+      error: {
+        code: 503,
+        message: demandMessage,
+        status: 'UNAVAILABLE',
+      },
+    });
+    const result = await callChatCompletion(config, [{ role: 'user', content: 'hazır' }], {
+      fetchImpl: async () => ({
+        status: 503,
+        headers: {
+          'content-type': 'application/json; charset=UTF-8',
+          'x-goog-request-id': 'req-native-503',
+        },
+        text: async () => nativePayload,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(503);
+    expect(result.retryable).toBe(true);
+    expect(result.failureCategory).toBe('service-unavailable');
+    expect(result.reason).toContain(demandMessage);
+    expect(result.diagnostics).toMatchObject({
+      status: 503,
+      contentType: 'application/json; charset=UTF-8',
+      bodyKind: 'json',
+      errorCode: 503,
+      errorStatus: 'UNAVAILABLE',
+      errorMessage: demandMessage,
+      requestId: 'req-native-503',
+      requestIdHeader: 'x-goog-request-id',
+    });
+
+    // Google OpenAI uyumluluk katmanının dizi biçimindeki hata zarfı ([{ error: ... }])
+    const compatArrayPayload = JSON.stringify([
+      {
+        error: {
+          code: 503,
+          message: demandMessage,
+          status: 'UNAVAILABLE',
+        },
+      },
+    ]);
+    const compatDiag = inspectHttpErrorResponse(
+      compatArrayPayload,
+      { 'content-type': 'application/json' },
+      API_KEY,
+      503,
+    );
+    expect(compatDiag.bodyKind).toBe('json');
+    expect(compatDiag.errorCode).toBe(503);
+    expect(compatDiag.errorStatus).toBe('UNAVAILABLE');
+    expect(compatDiag.errorMessage).toBe(demandMessage);
+  });
+
+  it('HTTP 503 ve boş, HTML, düz metin veya beklenmeyen JSON gövdelerini ayırt eder', () => {
+    const emptyDiag = inspectHttpErrorResponse('', { 'content-type': 'text/plain' }, API_KEY, 503);
+    expect(emptyDiag.bodyKind).toBe('empty');
+    expect(emptyDiag.bodyLength).toBe(0);
+    expect(emptyDiag.bodySummary).toContain('boş gövde');
+
+    const htmlBody = '<!DOCTYPE html><html><head><title>503 Service Temporarily Unavailable</title></head><body>GFE</body></html>';
+    const htmlDiag = inspectHttpErrorResponse(htmlBody, { 'content-type': 'text/html; charset=UTF-8' }, API_KEY, 503);
+    expect(htmlDiag.bodyKind).toBe('html');
+    expect(htmlDiag.bodyLength).toBe(Buffer.byteLength(htmlBody, 'utf8'));
+    expect(htmlDiag.bodySummary).toContain('HTML hata gövdesi');
+
+    const textDiag = inspectHttpErrorResponse('upstream connect error or disconnect/reset before headers', { 'content-type': 'text/plain' }, API_KEY, 503);
+    expect(textDiag.bodyKind).toBe('text');
+    expect(textDiag.bodySummary).toContain('düz metin');
+
+    // Belgelenmiş hata alanı olmayan beklenmeyen JSON gövdesi olduğu gibi yazdırılmaz
+    const unexpectedJson = JSON.stringify({ arbitraryInternalField: 'gizli-veri-olabilir', foo: 123 });
+    const unexpectedDiag = inspectHttpErrorResponse(unexpectedJson, { 'content-type': 'application/json' }, API_KEY, 503);
+    expect(unexpectedDiag.bodyKind).toBe('unexpected-json');
+    expect(unexpectedDiag.errorMessage).toBeNull();
+    expect(unexpectedDiag.bodySummary).toContain('beklenmeyen JSON biçimi');
+    expect(unexpectedDiag.bodySummary).not.toContain('gizli-veri-olabilir');
+  });
+
+  it('Retry-After saniye ve HTTP tarih biçimlerini ayrıştırır ve güvenli üst sınır uygular', () => {
+    const nowMs = Date.parse('2026-10-16T09:00:00.000Z');
+    expect(parseRetryAfterMs('4', nowMs)).toBe(4_000);
+    expect(parseRetryAfterMs('1.5', nowMs)).toBe(1_500);
+    expect(parseRetryAfterMs('0', nowMs)).toBe(0);
+    // Güvenli üst sınır (10_000 ms) aşılırsa kırpılır
+    expect(parseRetryAfterMs('3600', nowMs)).toBe(MAX_RETRY_AFTER_MS);
+
+    // HTTP tarih biçimi
+    expect(parseRetryAfterMs('Fri, 16 Oct 2026 09:00:06 GMT', nowMs)).toBe(6_000);
+    expect(parseRetryAfterMs('Fri, 16 Oct 2026 10:00:00 GMT', nowMs)).toBe(MAX_RETRY_AFTER_MS);
+    // Geçmiş tarih → 0 ms
+    expect(parseRetryAfterMs('Fri, 16 Oct 2026 08:59:50 GMT', nowMs)).toBe(0);
+    // Geçersiz biçim → null
+    expect(parseRetryAfterMs('hemen-dene', nowMs)).toBeNull();
+    expect(parseRetryAfterMs(null, nowMs)).toBeNull();
+  });
+
+  it('istek kimliğini yalnızca sabit izin listesindeki başlıklardan okur', () => {
+    expect(ALLOWED_REQUEST_ID_HEADERS).toContain('x-request-id');
+    expect(ALLOWED_REQUEST_ID_HEADERS).toContain('x-goog-request-id');
+
+    const allowed = extractAllowedRequestId(
+      {
+        'set-cookie': 'session=gizli-cerez',
+        'x-custom-internal': 'gizli-izleme',
+        'x-goog-request-id': 'goog-trace-998877',
+      },
+      API_KEY,
+    );
+    expect(allowed).toEqual({ header: 'x-goog-request-id', value: 'goog-trace-998877' });
+
+    const disallowedOnly = extractAllowedRequestId(
+      {
+        'set-cookie': 'session=gizli-cerez',
+        authorization: `Bearer ${API_KEY}`,
+        'x-goog-api-key': API_KEY,
+      },
+      API_KEY,
+    );
+    expect(disallowedOnly).toBeNull();
+  });
+
+  it('API anahtarı, Authorization ve x-goog-api-key değerleri hata özetinde asla görünmez', () => {
+    const leakyRaw = JSON.stringify({
+      error: {
+        code: 503,
+        message: `Upstream failed for key=${API_KEY} and Authorization: Bearer sk-secrettoken9876543210 and x-goog-api-key: ${API_KEY}`,
+        status: 'UNAVAILABLE',
+      },
+    });
+    const diag = inspectHttpErrorResponse(leakyRaw, { 'content-type': 'application/json' }, API_KEY, 503);
+    expect(diag.errorMessage).not.toContain(API_KEY);
+    expect(diag.errorMessage).not.toContain('sk-secrettoken9876543210');
+    expect(diag.bodySummary).not.toContain(API_KEY);
+    expect(diag.bodySummary).not.toContain('sk-secrettoken9876543210');
+  });
+
+  it('zaman aşımını HTTP 503 hatasından ayrı sınıflandırır', async () => {
+    const abortingFetch: LlmFetch = (_url, init) =>
+      new Promise<never>((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('timed out')), { once: true });
+      });
+    const timeoutResult = await callChatCompletion({ ...config, timeoutMs: 40 }, [{ role: 'user', content: 'hazır' }], {
+      fetchImpl: abortingFetch,
+    });
+    const http503Result = await callChatCompletion(config, [{ role: 'user', content: 'hazır' }], {
+      fetchImpl: async () => ({ status: 503, text: async () => '' }),
+    });
+
+    expect(timeoutResult.ok).toBe(false);
+    expect(http503Result.ok).toBe(false);
+    if (timeoutResult.ok || http503Result.ok) return;
+
+    expect(timeoutResult.timedOut).toBe(true);
+    expect(timeoutResult.status).toBeNull();
+    expect(timeoutResult.failureCategory).toBe('timeout');
+
+    expect(http503Result.timedOut).toBeUndefined();
+    expect(http503Result.status).toBe(503);
+    expect(http503Result.failureCategory).toBe('service-unavailable');
+    expect(timeoutResult.failureCategory).not.toBe(http503Result.failureCategory);
+  });
+
+  it('HTTP 200 + MAX_TOKENS + boş içerik (veya yalnızca düşünme parçası) başarısız üretim sayılır', async () => {
+    // Gemini 2.5'te maxOutputTokens=8 düşünme tokenlarıyla dolduğunda parts boş döner
+    const maxTokensEmptyParts = JSON.stringify({
+      candidates: [{ content: { role: 'model' }, finishReason: 'MAX_TOKENS', index: 0 }],
+      usageMetadata: { promptTokenCount: 20, totalTokenCount: 28, thoughtsTokenCount: 8 },
+    });
+    const res1 = await callChatCompletion(config, [{ role: 'user', content: 'hazır' }], {
+      fetchImpl: async () => ({ status: 200, text: async () => maxTokensEmptyParts }),
+    });
+    expect(res1.ok).toBe(false);
+    if (!res1.ok) {
+      expect(res1.status).toBe(200);
+      expect(res1.retryable).toBe(false);
+      expect(res1.failureCategory).toBe('empty-output');
+      expect(res1.reason).toContain('MAX_TOKENS');
+      expect(res1.reason).toContain('thoughtsTokenCount: 8');
+    }
+
+    // Yalnızca thought: true parçası dönüp görünür metin üretilmediğinde de başarısız sayılır
+    const thoughtOnly = parseGeminiResponse({
+      candidates: [
+        {
+          content: { role: 'model', parts: [{ text: 'iç düşünme metni', thought: true }] },
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
+      usageMetadata: { promptTokenCount: 15, thoughtsTokenCount: 8, totalTokenCount: 23 },
+    });
+    expect(thoughtOnly.content).toBeNull();
+    expect(thoughtOnly.failure).toContain('MAX_TOKENS');
+
+    // Düşünme tokenları bütçenin 63 tokenını tüketip 1 token ("haz") üretildikten sonra
+    // MAX_TOKENS ile kesilen kısmi yanıt da başarılı üretim SAYILMAZ
+    const truncatedAtMaxTokens = parseGeminiResponse({
+      candidates: [
+        {
+          content: { role: 'model', parts: [{ text: 'haz' }] },
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
+      usageMetadata: { promptTokenCount: 23, candidatesTokenCount: 1, thoughtsTokenCount: 63, totalTokenCount: 87 },
+    });
+    expect(truncatedAtMaxTokens.content).toBeNull();
+    expect(truncatedAtMaxTokens.failure).toContain('MAX_TOKENS');
+    expect(truncatedAtMaxTokens.failure).toContain('thoughtsTokenCount: 63');
+  });
+
+  it('HTTP 200 + kullanılabilir metin başarılı üretim sayılır ve thought parçaları ayıklanır', async () => {
+    const withThoughtAndText = JSON.stringify({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [
+              { text: 'Kullanıcı tek kelime istedi.', thought: true },
+              { text: 'hazır' },
+            ],
+          },
+          finishReason: 'STOP',
+          index: 0,
+        },
+      ],
+      usageMetadata: { promptTokenCount: 18, candidatesTokenCount: 2, thoughtsTokenCount: 6, totalTokenCount: 26 },
+    });
+    const res = await callChatCompletion(config, [{ role: 'user', content: 'hazır' }], {
+      fetchImpl: async () => ({ status: 200, text: async () => withThoughtAndText }),
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.content).toBe('hazır');
+      expect(res.content).not.toContain('Kullanıcı tek kelime');
+      expect(res.usage).toEqual({ promptTokens: 18, completionTokens: 2 });
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * 9) Tanı aracı (llm:doctor), supportedGenerationMethods, ayrı kapılar ve yeniden deneme sınırı
+ * ------------------------------------------------------------------------- */
+
+describe('llm:doctor — kanıta dayalı kontroller ve iki kapının ayrı doğrulanması', () => {
+  it('tanı çağrısı 8 token yerine gerekçelendirilmiş makul sınır (DOCTOR_PROBE_MAX_TOKENS >= 64) kullanır', () => {
+    expect(DOCTOR_PROBE_MAX_TOKENS).toBeGreaterThanOrEqual(64);
+    expect(DOCTOR_PROBE_MAX_TOKENS).toBeLessThanOrEqual(256);
+    expect(probeThinkingBudgetForModel('gemini-2.5-flash', 'gemini-native')).toBe(0);
+    expect(probeThinkingBudgetForModel('models/gemini-2.5-flash', 'gemini-native')).toBe(0);
+    expect(probeThinkingBudgetForModel('gemini-2.5-flash', 'openai-compat')).toBeUndefined();
+  });
+
+  it('supportedGenerationMethods içinde generateContent denetimini yapar ve yanlış kesinlik ifadesi üretmez', async () => {
+    const listPayload = JSON.stringify({
+      models: [
+        {
+          name: 'models/gemini-2.5-flash',
+          supportedGenerationMethods: ['generateContent', 'countTokens'],
+        },
+        {
+          name: 'models/text-embedding-004',
+          supportedGenerationMethods: ['embedContent'],
+        },
+      ],
+    });
+
+    const listRes = await probeModelList(config, 'gemini-native', {
+      fetchImpl: async () => ({ status: 200, text: async () => listPayload }),
+    });
+    expect(listRes.ok).toBe(true);
+    expect(listRes.entries).toEqual([
+      { name: 'gemini-2.5-flash', supportedGenerationMethods: ['generateContent', 'countTokens'] },
+      { name: 'text-embedding-004', supportedGenerationMethods: ['embedContent'] },
+    ]);
+
+    // Senaryo: ListModels 200 ve model listede VAR ama generateContent 503 döndü
+    const env = getEnv({
+      NODE_ENV: 'test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      AI_ASSISTANT_ENABLED: '0',
+      LLM_BASE_URL: GOOGLE_BASE,
+      LLM_API_KEY: API_KEY,
+      LLM_CLASSIFIER_MODEL: 'gemini-2.5-flash',
+      LLM_RETRY_MAX: '0',
+    } as never);
+
+    const mockFetch: DoctorHttpFetch = async (url) => {
+      if (url.includes('/models?')) {
+        return { status: 200, text: async () => listPayload };
+      }
+      return {
+        status: 503,
+        headers: { 'content-type': 'application/json', 'x-goog-request-id': 'req-503-test' },
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 503,
+              message: 'This model is currently experiencing high demand.',
+              status: 'UNAVAILABLE',
+            },
+          }),
+      };
+    };
+
+    const report = await runLlmDoctor({ env, fetchImpl: mockFetch, maxRetriesPerCall: 0 });
+    expect(report.gates.classifier.checks).toEqual({
+      modelListed: 'başarılı',
+      supportsGenerateContent: 'başarılı',
+      httpResponseReceived: 'başarılı',
+      // ListModels 200 olsa bile üretim başarısız olduğundan yetkilendirme "başarılı" sayılmaz!
+      authorizationCheck: 'bilinmiyor',
+      usableTextGenerated: 'başarısız',
+    });
+
+    const formatted = formatDoctorReport(report).join('\n');
+    expect(formatted).not.toContain('Anahtar ve model GEÇERLİ; hata sohbet UCUNDAN kaynaklanıyor');
+    expect(formatted).not.toContain(API_KEY);
+    expect(formatted).toContain('This model is currently experiencing high demand.');
+    expect(formatted).toContain('req-503-test');
+
+    // generateContent desteklemeyen bir model (ör. text-embedding-004) seçildiğinde:
+    const embeddingEnv = getEnv({
+      NODE_ENV: 'test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      LLM_BASE_URL: GOOGLE_BASE,
+      LLM_API_KEY: API_KEY,
+      LLM_CLASSIFIER_MODEL: 'text-embedding-004',
+      LLM_RETRY_MAX: '0',
+    } as never);
+    const embeddingReport = await runLlmDoctor({ env: embeddingEnv, fetchImpl: mockFetch, maxRetriesPerCall: 0 });
+    expect(embeddingReport.gates.classifier.checks.modelListed).toBe('başarılı');
+    expect(embeddingReport.gates.classifier.checks.supportsGenerateContent).toBe('başarısız');
+  });
+
+  it('HTTP 200 + MAX_TOKENS + boş içerik durumunda tanı aracı üretimi başarısız sayar', async () => {
+    const env = getEnv({
+      NODE_ENV: 'test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      LLM_BASE_URL: GOOGLE_BASE,
+      LLM_API_KEY: API_KEY,
+      LLM_CLASSIFIER_MODEL: 'gemini-2.5-flash',
+      LLM_RETRY_MAX: '0',
+    } as never);
+
+    const mockFetch: DoctorHttpFetch = async (url) => {
+      if (url.includes('/models?')) {
+        return {
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }],
+            }),
+        };
+      }
+      return {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        text: async () =>
+          JSON.stringify({
+            candidates: [{ content: { role: 'model' }, finishReason: 'MAX_TOKENS', index: 0 }],
+            usageMetadata: { promptTokenCount: 18, thoughtsTokenCount: 64, totalTokenCount: 82 },
+          }),
+      };
+    };
+
+    const report = await runLlmDoctor({ env, fetchImpl: mockFetch, maxRetriesPerCall: 0 });
+    expect(report.call?.status).toBe(200);
+    expect(report.call?.ok).toBe(false);
+    expect(report.call?.failureCategory).toBe('empty-output');
+    expect(report.checks.httpResponseReceived).toBe('başarılı');
+    expect(report.checks.usableTextGenerated).toBe('başarısız');
+    expect(report.checks.authorizationCheck).toBe('bilinmiyor');
+  });
+
+  it('panel öneri asistanı (LLM_MODEL) ve ilan sınıflandırıcısının (LLM_CLASSIFIER_MODEL) farklı modellerini ayrı doğrular', async () => {
+    const env = getEnv({
+      NODE_ENV: 'test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      AI_ASSISTANT_ENABLED: '1',
+      LLM_BASE_URL: GOOGLE_BASE,
+      LLM_API_KEY: API_KEY,
+      LLM_CLASSIFIER_MODEL: 'gemini-2.5-flash',
+      LLM_MODEL: 'gemini-bozuk-model',
+      LLM_RETRY_MAX: '0',
+    } as never);
+
+    const mockFetch: DoctorHttpFetch = async (url) => {
+      if (url.includes('/models?')) {
+        return {
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }],
+            }),
+        };
+      }
+      if (url.includes('gemini-2.5-flash:generateContent')) {
+        return { status: 200, text: async () => geminiReply('hazır') };
+      }
+      return {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+        text: async () =>
+          JSON.stringify({ error: { code: 404, message: 'models/gemini-bozuk-model is not found', status: 'NOT_FOUND' } }),
+      };
+    };
+
+    const report = await runLlmDoctor({ env, fetchImpl: mockFetch, maxRetriesPerCall: 0 });
+
+    // Sınıflandırıcı başarılı, panel asistanı başarısız: biri diğerini başarılı göstermez!
+    expect(report.gates.classifier.model).toBe('gemini-2.5-flash');
+    expect(report.gates.classifier.modelSource).toBe('LLM_CLASSIFIER_MODEL');
+    expect(report.gates.classifier.call?.ok).toBe(true);
+    expect(report.gates.classifier.checks.usableTextGenerated).toBe('başarılı');
+    expect(report.gates.classifier.checks.modelListed).toBe('başarılı');
+
+    expect(report.gates.assistant.model).toBe('gemini-bozuk-model');
+    expect(report.gates.assistant.modelSource).toBe('LLM_MODEL');
+    expect(report.gates.assistant.call?.ok).toBe(false);
+    expect(report.gates.assistant.call?.status).toBe(404);
+    expect(report.gates.assistant.checks.usableTextGenerated).toBe('başarısız');
+    expect(report.gates.assistant.checks.modelListed).toBe('başarısız');
+
+    const formatted = formatDoctorReport(report).join('\n');
+    expect(formatted).toContain('İlan sınıflandırma kapısı');
+    expect(formatted).toContain('Panel öneri asistanı');
+    expect(formatted).toContain('gemini-2.5-flash');
+    expect(formatted).toContain('gemini-bozuk-model');
+  });
+
+  it('yeniden denemeler belirlenen sınırı aşmaz, artan bekleme ve Retry-After uygular, 401/403 için tekrar yapmaz', async () => {
+    const delays: number[] = [];
+    let transientCalls = 0;
+    const transientRes = await callChatCompletionWithRetry(
+      config,
+      [{ role: 'user', content: 'hazır' }],
+      {
+        maxRetries: 2,
+        baseDelayMs: 500,
+        sleepImpl: async (ms) => {
+          delays.push(ms);
+        },
+        fetchImpl: async () => {
+          transientCalls += 1;
+          return {
+            status: 503,
+            headers: transientCalls === 1 ? { 'retry-after': '2' } : {},
+            text: async () => JSON.stringify({ error: { code: 503, message: 'high demand', status: 'UNAVAILABLE' } }),
+          };
+        },
+      },
+    );
+
+    expect(transientRes.ok).toBe(false);
+    expect(transientCalls).toBe(3); // 1 ilk çağrı + en fazla 2 yeniden deneme
+    expect(transientRes.attempts).toBe(3);
+    // İlk beklemede Retry-After=2s (2000 ms > 500*1), ikinci beklemede 500*2=1000 ms
+    expect(delays).toEqual([2_000, 1_000]);
+
+    // Artan bekleme doğrulaması (Retry-After yokken: 300ms, 600ms, 900ms)
+    expect(computeRetryDelayMs(1, 300, null)).toBe(300);
+    expect(computeRetryDelayMs(2, 300, null)).toBe(600);
+    expect(computeRetryDelayMs(3, 300, null)).toBe(900);
+
+    // 401/403 yetkilendirme hatasında yeniden deneme yapılmaz (tek çağrı)
+    let authCalls = 0;
+    const authRes = await callChatCompletionWithRetry(
+      config,
+      [{ role: 'user', content: 'hazır' }],
+      {
+        maxRetries: 3,
+        baseDelayMs: 10,
+        sleepImpl: async () => undefined,
+        fetchImpl: async () => {
+          authCalls += 1;
+          return {
+            status: 403,
+            text: async () => JSON.stringify({ error: { code: 403, message: 'API key not valid', status: 'PERMISSION_DENIED' } }),
+          };
+        },
+      },
+    );
+    expect(authRes.ok).toBe(false);
+    expect(authCalls).toBe(1);
+    expect(authRes.attempts).toBe(1);
+
+    // evaluateDoctorChecks 401/403 durumunda authorizationCheck='başarısız' verir
+    const authChecks = evaluateDoctorChecks(
+      {
+        attempted: true,
+        ok: false,
+        status: 403,
+        elapsedMs: 10,
+        attempts: 1,
+        detail: authRes.ok ? '' : authRes.reason,
+        failureCategory: 'auth',
+        contentPreview: null,
+        diagnostics: null,
+      },
+      null,
+    );
+    expect(authChecks.authorizationCheck).toBe('başarısız');
+    expect(authChecks.usableTextGenerated).toBe('başarısız');
+  });
+});
+

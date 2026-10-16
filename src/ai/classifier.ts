@@ -49,7 +49,7 @@ import {
 } from '../domain/types';
 import { RECRUITMENT_EVIDENCE_PATTERN, PROCESS_TITLE_SIGNAL_PATTERN } from '../classification/rules';
 import type { Logger } from '../lib/logger';
-import { callChatCompletion, redactSecret, type LlmConfig, type LlmFetch } from './llm';
+import { callChatCompletion, computeRetryDelayMs, redactSecret, type LlmConfig, type LlmFetch } from './llm';
 
 /**
  * İstem sürümü. İstem metni veya çıktı şeması değiştiğinde ARTIRILMALIDIR:
@@ -611,14 +611,15 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     // deneme süreleri dahil toplam süre, gecikme yüzdelerinin (p50/p95) gerçek kalması için gerekir.
     const overallStartedAt = Date.now();
     let attempts = 0;
-    let lastFailure: { reason: string; status: 'error' | 'timeout' } = {
+    let lastFailure: { reason: string; status: 'error' | 'timeout'; retryAfterMs?: number | null } = {
       reason: 'Sağlayıcı çağrısı yapılmadı',
       status: 'error',
     };
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       attempts += 1;
       if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryBackoffMs * attempt));
+        const waitMs = computeRetryDelayMs(attempt, retryBackoffMs, lastFailure.retryAfterMs);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
       const startedAt = Date.now();
       await semaphore.acquire();
@@ -640,6 +641,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       lastFailure = {
         reason: result.reason,
         status: result.timedOut ? 'timeout' : 'error',
+        retryAfterMs: result.diagnostics?.retryAfterMs ?? null,
       };
       if (!result.retryable) break;
     }
