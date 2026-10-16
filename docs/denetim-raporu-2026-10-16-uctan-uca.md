@@ -13,7 +13,7 @@
 |---|---|---|
 | Gerçek API anahtarı / `.env` | **Yok** | `npm run env:check` → `envFile: yok (yalnızca ortam değişkenleri)` |
 | Gerçek LLM çağrısı (denetim sandbox'ı) | **Test edilemedi** (anahtar yok) | `npm run llm:doctor -- --json` → `classifierEnabled:false`, `assistantEnabled:false`, `checks.*: "bilinmiyor"` |
-| Gerçek LLM çağrısı (kullanıcının makinesi, 16.10.2026) | **Kısmen doğrulandı** | Doctor: uç `…/v1beta/models/gemini-3.8-flash:generateContent`, model listesi **HTTP 200 / 63**, `generateContent` VAR, `endpointRisk: null`; canlı çağrı **503 (sağlayıcı yoğunluğu)**. Senaryo koşumu: 4 çağrı → **1 doğru sınıflandırma** (personel alımı → `personnel_recruitment`), 3 çağrı 503. Ayrıntı: C.5, G.11 |
+| Gerçek LLM çağrısı (kullanıcının makinesi, 16.10.2026) | **DOĞRULANDI — tek senaryo, 1 gerçek çağrı** | Doctor tam yeşil (HTTP 200, `usableTextGenerated: başarılı`, model listede). Tek çağrılık kapı koşumu: **`ok 1 · invalid 0 · error 0 · timeout 0`**, `personnel_recruitment` 1/1 (f1 1.0), gecikme 4041 ms, **1154 girdi + 198 çıktı token**. Gerçek dünya doğruluk oranı DEĞİL (`humanRealCount: 0`). Ayrıntı: C.5, G.11, G.13 |
 | İki LLM kapısının davranışı | **Sahte sağlayıcı (fake fetch) + mock sunucu ile test edildi** | `tests/llm-gate.test.ts`, `tests/llm-provider-mock-server.test.ts`, yeni `tests/senaryo-siniflandirma-ai.test.ts`, `tests/senaryo-panel-oneri.test.ts` |
 | Gerçek kaynak HTML'i | **Test edilemedi** (canlı tarama yapılmadı) | Sahte adaptör + kayıtlı fixture'larla çalışıldı (`tests/fixtures/`, `tests/senaryo-toplama-akisi.test.ts`) |
 | Veritabanı | **Dosya deposu** (üretim DB'si değil) | `env:check` → `database: file:./data`, `dbTls: yok` |
@@ -143,6 +143,7 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 | `npx vitest run` (ilk tur sonu) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
 | `npx vitest run` (**son durum, 16.10.2026**) | **102 dosya / 1276 test PASS**, 115.0 s | +14 dosya, +141 test (baseline'a göre) |
 | `npx vitest run tests/ai-kapisi-tek-senaryo.test.ts` | 3 PASS | Tek çağrılık doğrulama seti bütünlüğü |
+| `npm run eval:classification -- --file …ai-kapisi-tek-senaryo.json --llm` (**kullanıcının makinesi, gerçek sağlayıcı**) | **1 çağrı · ok 1 · invalid 0 · error 0 · f1 1.0** · 4041 ms · 1154/198 token | **AI kapısı gerçek çağrıda geçerli + doğru çıktı üretti** |
 | `npx vitest run tests/llm-429-kota-teshisi.test.ts tests/json-cikti-arg.test.ts` | 12 PASS | Yeni: 429 kota ipucu + `--json` davranışı |
 | `npm run llm:doctor -- --offline --json /tmp/doktor-test.json` | Dosya yazıldı (2348 bayt) | `--json <dosya>` artık gerçekten yazıyor |
 | `npm run llm:doctor -- --offline --json /tmp/yok-klasor/d.json` | `✖ … YAZILAMADI (ENOENT)` + çıkış kodu 1 | Sessiz kayıp yok |
@@ -359,7 +360,13 @@ kapi-D-haber       beklenen news                           model kararı dogrula
 - Beklenen: `kararlar: ilan 1 · … hata 0`, senaryo satırı `✓ uygun`, `Özet: uygun 1 · UYGUNSUZ 0 · kapı çalışmadı 0`. Bu satır görüldüğünde "kapı gerçek yanıtta geçerli JSON + kaynaktan birebir kanıt + doğru içerik türü üretti" kanıtı **tam** olur.
 - Bütünlük testi: `tests/ai-kapisi-tek-senaryo.test.ts` (3 test) — kayıt 4'lü setteki `kapi-A-ilan` ile birebir aynı mı, beklenen tür doğru mu, kural motoru kaydı gerçekten `review`da bırakıyor mu (bırakmazsa kapı hiç çağrılmaz).
 
-**4) Bu turda doğrulanan düzeltme (canlı):** `--json` yolu verilmediğinde artık **açık uyarı** basılıyor — kullanıcının çıktısının son satırı tam olarak bu: `⚠ --json için dosya yolu verilmedi; makine okunur rapor YAZILMADI (ör. --json data\ai-kapisi-sonuc.json).` Düzeltme kullanıcının makinesinde çalıştı.
+**5) KANIT TAMAMLANDI — tek çağrılık koşum yeşil (16.10.2026, kullanıcının makinesi)**
+- Komut: `npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-tek-senaryo.json --llm --json data\ai-kapisi-tek.json`
+- Sonuç (JSON raporu, özet): `llm.analyses 1 · ok 1 · invalid 0 · error 0 · timeout 0 · apiCalls 1 · cacheHits 0 · errorRate 0`; karışıklık matrisi **`personnel_recruitment → personnel_recruitment (1)`**; `precision/recall/f1 = 1.0`; gecikme **4041 ms**; token **1154 girdi + 198 çıktı** (`reportedShare 1`); maliyet `null` ("sağlayıcı fiyatı doğrulanmadı" — doğru davranış); `sufficiency.sufficient: false` + `humanRealCount: 0` (araç kendisi "gerçek doğruluk iddiası değil" diyor).
+- **Kanıt zinciri (koddan doğrulandı, `src/ai/classifier.ts` → `validateClassifierOutput`):** bu sonucun alınabilmesi için yanıtın **şemadan geçmesi** (`invalid 0`), kanıtın **kaynak metinde birebir bulunması** (`evidenceAppearsIn`), kanıtın **deterministik alım kalıbıyla eşleşmesi** (`RECRUITMENT_EVIDENCE_PATTERN`) ve karar/tür tutarlılığı (`karar=ilan` ↔ `personnel_recruitment`) gerekir. Dördü de sağlandı → **kapı yalnızca "HTTP 200" değil, GEÇERLİ ve DOĞRU çıktı üretti.**
+- **Ne kanıtlanmadı:** bu tek **sentetik** senaryodur; gerçek dünya doğruluk oranı iddiası değildir (bunu yalnız `origin: real` + `labelProvenance: human` etiketli kayıtlar üretir → `npm run eval:build-set`). Ayrıca 4 senaryoluk setin kalan üçü (süreç / istem enjeksiyonu / haber) kota elverdiğinde koşulmalıdır.
+
+**6) Doğrulanan düzeltme (canlı):** `--json` yolu verilmediğinde artık **açık uyarı** basılıyor — kullanıcının çıktısının son satırı tam olarak bu: `⚠ --json için dosya yolu verilmedi; makine okunur rapor YAZILMADI (ör. --json data\ai-kapisi-sonuc.json).` Düzeltme kullanıcının makinesinde çalıştı.
 
 ---
 
@@ -377,9 +384,7 @@ kapi-D-haber       beklenen news                           model kararı dogrula
    npm run llm:doctor -- --json data\llm-doktor.json
    npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-tek-senaryo.json --llm --json data\ai-kapisi-tek.json
    ```
-   - **Tek çağrılık set ne yapar:** yalnızca gerçek bir personel alımı duyurusunu kapıdan geçirir; beklenen `personnel_recruitment`.
-   - **Başarı ölçütü:** `kararlar: ilan 1 … hata 0` + senaryo satırı `✓ uygun` + `Özet: uygun 1 · UYGUNSUZ 0 · kapı çalışmadı 0`.
-   - **Bu görülürse "HTTP 200 tek başına kanıt değil" koşulu karşılanır:** kapı geçerli JSON üretmiş, kanıtı kaynak metinden birebir doğrulamış ve **doğru içerik türünü** vermiş olur.
+   - ✅ **BU ADIM 16.10.2026'DA GEÇTİ:** `ok 1 · invalid 0 · error 0` · `personnel_recruitment` 1/1 (f1 1.0) · 4041 ms · 1154/198 token. Kapı geçerli JSON üretmiş, kanıtı kaynak metinden **birebir** doğrulamış ve **doğru içerik türünü** vermiş olarak kanıtlandı (ayrıntı: G.13 §5).
    - Dört senaryoluk tam set, kota elverdiğinde aynı komutla `--file tests/fixtures/eval/ai-kapisi-senaryolari.json` verilerek çalıştırılır (4 çağrı).
    - **429/503 alıyorsanız:** bu sizin hesabınızın kotası/yoğunluk; kod veya ayar değiştirmeyin. Plan/kotayı sağlayıcı panelinden kontrol edin ya da **listede olan başka bir Flash modelini** deneyin (`LLM_CLASSIFIER_MODEL` + `LLM_MODEL`, ör. `gemini-2.5-flash`) ve önce `npm run llm:doctor` ile doğrulayın. Her başarısız kayıt 2 istek harcar.
    - **404 sorunu bitti (kanıt):** doctor artık `transport: gemini-native`, uç `…/v1beta/models/gemini-3.8-flash:generateContent`, model listesi **HTTP 200 / 63 model**, `generateContent` destekli ve `endpointRisk: null` diyor.
