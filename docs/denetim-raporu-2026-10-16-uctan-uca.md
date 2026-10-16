@@ -74,6 +74,14 @@ Yöntem: iki yeni "senaryo" seti yazıldı ve gerçek üretim koduyla koşturuld
 ### C.4 Bulgu (düzeltilmedi, kayıtlı)
 - `classification.llm.cacheHit`, **merge** yolunda önbellekten dönüldüğü hâlde `false` kalıyor. Çalışma özeti (`gate.summary()`) ve telemetri (`llmAnalyses`) doğru. Etki: yalnızca gözlemlenebilirlik/teşhis (P3). Karar doğruluğu etkilenmiyor → davranış değiştirilmedi.
 
+### C.5 Kullanıcının gördüğü "Sağlayıcı HTTP 404" — kök neden KANITLANDI ve zaten düzeltildi
+- **Kullanıcı kanıtı (üretim Supabase, `tani:ilan` bölüm 8):** 2 analiz / 2 API çağrısı / 2 hata (%100), gecikme 324 ms ve 367 ms, **token 0**, maskeli metin: `Sağlayıcı HTTP 404 döndü.` (çağrılar 16.10.2026 00:06 ve 00:08, Türkiye saati).
+- **Kök neden (kaynak koddan + depo içi tutanak):** İstemci `${LLM_BASE_URL}/chat/completions` adresine gidiyordu. Google kökü verildiğinde bu adres `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` oluyordu; Google'ın OpenAI uyumluluk kabuğu bu yolu her anahtar/model için sunmuyor → **404**. Aynı anahtarla `/v1beta/openai/models` **200** döndüğü için `llm:doctor` "hazır" görünüyordu (63 model listelendi) — bu yüzden 404 teşhis edilemiyordu.
+- **Kanıt izi (tahmin değil):** `src/ai/llm.ts` başlığı olayı ve kanıtını yazıyor; `tests/llm-uc-nokta.test.ts` başlığı "2026-10-16 canlı panel: … Sağlayıcı HTTP 404 döndü, LLM ölçümleri %100 hata · 0 token. Kök neden yapılandırmaydı" diyor; `src/config/env.ts` (LLM kapısı uyarısı) aynı panel sayılarını anıyor.
+- **Durum: DÜZELTİLDİ (bu denyimde ek iş yok).** Düzeltme `main` dalında **`a777f38`** (16.10.2026 03:14 +03) ile geldi: Google kökü artık birincil (yerel) API'yi kullanır → `POST {kök}/v1beta/models/{model}:generateContent`, anahtar `x-goog-api-key`. Kullanıcının çağrıları bu düzeltmeden **~3 saat önce** yapılmıştı. `resolveLlmEndpoint` + `googleApiVersionPath` (`/v1beta/openai` → `/v1beta` indirgenir) + `normalizeGeminiModel` (`models/` öneki atılır) kodda doğrulandı; sınıflandırma kapısı da, `llm:doctor` da **aynı** `callChatCompletion` yolunu kullanıyor.
+- **Kalan tek koşul:** kullanıcının kendi kopyası güncel olmalı (`git pull`) ve `LLM_BASE_URL` Google kökünü göstermeli. Doğrulama: `npm run llm:doctor` → taşıyıcı `gemini-native`, HTTP 200, model listede, kullanılabilir metin üretildi. Bu adım **1 gerçek çağrı** yapar (kullanıcı onaylı sınır: ≤5 çağrı).
+- **Not:** `LLM_COST_USD_PER_MTOK_*` boş olduğu için bu çağrıların maliyeti **doğrulanmış sayılmaz** (fiyat uydurulmadı).
+
 ---
 
 ## D) İlan doğruluğu
@@ -131,7 +139,11 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 | `npm run typecheck` (`tsc --noEmit`) | **Temiz** | Son durumda hata yok |
 | `npm run lint` (`eslint .`) | **Temiz** (0 hata/0 uyarı) | Probe dosyaları silindikten sonra |
 | `npm run build` (`tsc --noEmit && vite build`) | **Başarılı** (113 modül, ~0.33 s) | Üretim derlemesi |
-| `npx vitest run` (**son durum**) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
+| `npx vitest run` (ilk tur sonu) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
+| `npx vitest run` (**son durum, 16.10.2026**) | **96 dosya / 1245 test PASS**, 116.1 s | +8 dosya, +110 test (baseline'a göre) |
+| `npx vitest run tests/govde-iskelet-olcumu.test.ts` | 10 PASS | Yeni: gövde iskelet ölçümü |
+| `npx vitest run tests/yeniden-siniflandirma-tarih.test.ts` | 21 PASS | 17 tarih/rapor + 4 kabuk temizliği |
+| `npm run tani:ilan -- --kaynak …` (sentetik dosya deposu) | Çalıştı; 9. bölüm + `sourceReview` + T12 doğru | Gerçek veri yazılmadı |
 | `npx vitest run tests/senaryo-siniflandirma-ai.test.ts` | 30 PASS | Yeni |
 | `npx vitest run tests/senaryo-panel-oneri.test.ts` | 17 PASS | Yeni |
 | `npx vitest run tests/senaryo-toplama-akisi.test.ts` | 10 PASS | Yeni |
@@ -202,26 +214,52 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 - **Kök neden:** `UI_CHROME_PHRASES` bu dizeleri içermiyordu; `stripUiChrome` yalnızca tanıdığı ifadeleri siliyor, kalan menü/çerez metni gövde olarak kalıyordu. Alan çıkarımı (şehir, son tarih, kadro) bu metinde kanıt bulamıyor → bu kayıtlarda `status: unknown`, alanlar boş.
 - **Değişiklik:** `src/domain/text.ts` → liste kayıtlardan birebir dizelerle genişletildi (genel kelimeler "Kontrast", "Filtrele", "temizle" hariç). Temizlik hem yeni çıkarımda hem yeniden sınıflandırmada uygulanır.
 - **Test:** `tests/yeniden-siniflandirma-tarih.test.ts` → 4 test: Karayolları/İŞKUR/DSİ/İçişleri metinleri temizlenir, gerçek ilan içeriği korunur.
-- **Not (kayıt altına alındı):** `readableAnnouncementText` (src/lib/html.ts) aday kapsayıcıyı **80 karakterden uzun ilk metin** olarak seçiyor; menüsü uzun sayfalarda menü metni bu eşiği geçebiliyor. KGM kayıtlarının detay adresi kaynağın liste adresiydi (bkz. G.6/`599e097`) → engel eklendi. Diğer kaynaklarda gövdenin menü olup olmadığı canlı örnek olmadan **kanıtlanmadı**.
+- **Not (16.10.2026 güncellemesi — bkz. G.8):** canlı örnek geldi. Kullanıcının üretim verisindeki 4 kaynakta (DSİ 2/2, Karayolları 4/4, TMSF 3/3, İŞKUR 1/1 = 10 kayıt) gövde metninin tamamı menü/çerez/erişilebilirlik iskeleti; gerçek ilan cümlesi ancak 2500 karakterlik kesitin **sonrasında** başlıyor. Bu kayıtların alan çıkarımı gövdeye dayanamaz. Gövde seçici düzeltmesi hâlâ yapılmadı: hangi kapsayıcının doğru olduğunu söylemek için **kaynağın canlı HTML'i** (DevTools'tan kopyalanmış) gerekiyor.
 
-- **Doğrulama:** tam süit **95 dosya / 1231 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
+### G.8 (commit `d70a8d3`) Tek kaynağın gerçek kayıtlarını tam gövde metniyle inceleme (`tani:ilan --kaynak`)
+- **Neden:** "gövde menü mü, ilan mı?" sorusu yalnız 2500 karakterlik kesitle değil, tam metinle yanıtlanabilmeliydi.
+- **Değişiklik:** `scripts/tani-ilan-kalitesi.ts` → `--kaynak <anahtar>` ve `--kaynak-sayi <n>` (varsayılan 10). 9. bölüm her kayıt için kimlik/başlık/kurum/karar-tür/durum/yayım(+kaynağı)/son başvuru/ilan+başvuru adresi/ilk-son görülme/**tam gövde** yazar; JSON çıktısına `sourceReview` eklenir. **Salt okuma.**
+- **Doğrulama (sentetik depo):** `DATABASE_DRIVER=file DATA_DIR=/tmp/tani-data5 … --kaynak dsi-duyurular --json /tmp/tani5.json` → 9. bölüm ve `sourceReview` doğru; probe ve geçici dosyalar silindi.
+
+### G.9 (bu tur) Gövde metni iskelet ölçümü + gerçek kaynak incelemesi kanıtı
+- **Kullanıcı kanıtı (üretim Supabase, `--kaynak` çıktıları; uzunluklar 2499–2500 karakter = kesit sınırı):**
+  - **DSİ (2 kayıt):** `…cf2ff2cd…` "PERSONEL DAİRESİ BAŞKANLIĞI" (yayım 2018-07-10, `detail`, kapalı) ve `…76dfaa3f…` "ARAZİ TOPLULAŞTIRMASI … DAİRESİ BAŞKANLIĞI" (bitiş 2026-10-23, aktif, adres `dsi.gov.tr/duyuru/duyuruListe` = **liste sayfası**). Gövdelerin %100'ü menü.
+  - **Karayolları (4 kayıt):** biri kabuk başlıklı ("Daha yüksek erişilebilirlik modunu aç"), adresi `Duyurular.aspx` (liste sayfası); diğer üçü (50 işçi noter kurası, 50 işçi personel alımı, Erzurum 1 engelli işçi) gerçek ilan metni içeriyor ama metin menüden **sonra** başlıyor ve 2500 karakterlik kesitte yarıda kalıyor.
+  - **TMSF (3 kayıt):** üçünün gövdesi birebir aynı menü ("Mevduat Sigortacılığı … Kayyımlık …"); detay içeriği hiç alınamıyor. (Biri "TMSF Personel Alım İlanı 2026", yayım tarihi `listing` kaynaklı 2026-10-12.)
+  - **İŞKUR (1 kayıt):** adres `iskur.gov.tr/ilanlar/kurumdisi-kamu-isci-alim-ilanlari` (liste sayfası), gövde çerez + menü.
+- **Sonuç:** 10 kayıt için karar ve alan çıkarımı gövdeye **dayanamaz**; bu kayıtların "şehir/kadro/son tarih yok, durum bilinmiyor" görünmesinin nedeni budur. KGM kayıtlarının adresi kaynağın **liste** sayfası olduğundan `isSourceListingUrl` (`599e097`) bu kayıtları reddeder; DSİ `…76dfaa3f…` için de aynı sonuç geçerli — "olası yanlış ret" endişesi bu adresle büyük ölçüde kalkar (nihai karar kullanıcıda, **kayıt silinmez**).
+- **Ölçüm aracı (yeni, yalnız ölçüm — toplama davranışını DEĞİŞTİRMEZ):** `src/domain/text.ts` → `looksLikePageChromeText` + `pageChromeShare` + `PAGE_CHROME_SHARE_THRESHOLD = 0.15` + `PAGE_CHROME_NAV_TERMS`. Kural: metin ≥300 karakter, **ilan cümlesi kalıbı yok** (`alınacaktır`, `son başvuru`, `kadro`…) ve bilinen arayüz/menü ifadelerinin payı ≥ %15 ise "gövde iskelet" sayılır.
+- **Kalibrasyon (ölçülen paylar):** menü dökümleri 0,18–0,54; gerçek ilan metinleri 0,00–0,03 → ayrım boşluğu ~6 kat. Testler: `tests/govde-iskelet-olcumu.test.ts` (10 test: 4 pozitif, 4 negatif, ayrım boşluğu, kısa metin kuralı). Kaynak sınırlaması dürüstçe: pozitif metinler kullanıcının **panele yapıştırdığı** kayıt gövdelerinden yeniden kuruldu; birebir 2499 karakterlik gövdeler `--kaynak --json` çıktısıyla yeniden doğrulanmalı.
+- **Tanı entegrasyonu:** `tani:ilan` bölüm 3'e **T12** bulgusu eklendi — "gövde metni sayfa iskeleti (menü/çerez) — alan çıkarımı gövdeye dayanamaz". Sentetik depoyla doğrulandı: iskelet gövde işaretlendi (pay 1,00), gerçek ilan gövdesi işaretlenmedi.
+- **Yapılmayan (gerekçeli):** gövde **seçici** düzeltmesi yapılmadı. Hangi kapsayıcının alınacağını belirlemek kaynağın canlı HTML'ini gerektirir; canlı HTML örneği olmadan kural eklemek "kanıtsız kural" olurdu.
+
+- **Doğrulama:** tam süit **96 dosya / 1245 test PASS**; `npm run typecheck`, `npm run lint`, `npm run build` temiz.
 
 ---
 
 ## H) Sonraki adımlar (teknik bilgisi sınırlı kullanıcı için, sırayla)
 
+> **Kullanıcının sonraki TEK adımı:** aşağıdaki **3b** (kuru çalıştırma) + **3c** (uygula) kararı. Bunun dışındaki adımlar isteğe bağlıdır. Yapay zekâ kapısı 404 sorunu **zaten düzeltilmiş durumda** (bkz. C.5) — bunun için yeni kod gerekmiyor, yalnız `git pull` yeterli.
+
 1. **Kodu al ve hazırla:** proje klasöründe `git pull` → `npm ci`.
 2. **Bilgisayarında kontrol et:** `npm run env:check` çalıştır. Çıktıda "email: dosya (geliştirme; e-posta gönderilmez)" yazmalı. Gerçek kaynaklara çıkmak İSTEMİYORSAN `.env` dosyanda `SOURCE_LIVE_FETCH=0` yap.
-3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1231 test PASS, derleme başarılı.
+3. **Sağlık kontrolü:** `npm test` (hepsi geçmeli) ve `npm run build` (hatasız bitmeli). Bu rapordaki sonuçlar: 1245 test PASS, derleme başarılı.
 3b. **Veriyi onar (ÖNCE kuru çalıştırma):**
    ```
    npm run jobs:reclassify -- --report raporlar\reclassify-kuru.json
    ```
-   Çıktıda şu iki satırı oku: "Desteksiz yayım tarihi silinecek" ve "İmkânsız son başvuru silinecek". Sayılar makul görünüyorsa (bu denetimde beklenen: yayım tarihi ≈ 8 kayıt, son başvuru ≈ 5 kayıt) ve **hiçbir kayıt silinmiyor**, aşağıdaki komutla uygula:
+   Çıktıda şu iki satırı oku: "Desteksiz yayım tarihi silinecek" ve "İmkânsız son başvuru silinecek". Sayılar makul görünüyorsa (bu denetimde beklenen: yayım tarihi ≈ 8 kayıt, son başvuru ≈ 4–5 kayıt) ve **hiçbir kayıt silinmiyor**, aşağıdaki komutla uygula:
    ```
    npm run jobs:reclassify -- --apply
    ```
    Bu komut önce `data/backups/` altına **tam yedek** yazar. Beğenmezsen geri dönüş: `npm run jobs:restore -- data\backups\jobs-before-reclassify-<tarih>.json` (önce aynı komutu `--apply` olmadan çalıştırıp önizlemek de mümkündür).
+
+   **DİKKAT — silinecekler listesini mutlaka gözden geçir.** Kuru çalıştırma, sileceği tarihleri kayıt kayıt listeler. Silme kuralı (koddan doğrulandı, `src/ingest/reclassify.ts` + `src/domain/dates.ts`):
+   - **Yayım tarihi**, kaydın ilk görülme tarihinden **400 günden fazla eskiyse** ve sayfadaki tarih gerçekten yayım tarihi değilse (yasal atıf vb.) silinir.
+   - **Son başvuru tarihi** şu iki durumda silinir: (a) 01.01.2000'den eskiyse, (b) **yayım tarihinden önceyse** (mantıken imkânsız).
+   - Hiçbir kayıt **silinmez**; yalnız bu iki tarih alanı `null` olur ve kayıt inceleme kuyruğunda kalır.
+   - Kararın değişmez: listeyi okuduktan sonra "bu tarihler gerçekten yanlış" diyorsan `--apply` çalıştır. Tereddüt edersen **çalıştırma**; çıktıyı bana yapıştır, kayıt kayıt birlikte bakarız.
+   - Başvuru bağlantısı, kaynak adresi, ilan metni ve diğer tüm alanlar **değişmez**.
 4. **Yapay zekâyı AÇMADAN doğrula:** `npm run llm:doctor` — kapıların "kapalı" göründüğünü gör. Bu yanıt **sınıflandırmanın çalıştığını göstermez**; yalnız "hazır değil" bilgisidir.
 5. **Gerçek Gemini'yi dene (isteğe bağlı, ücretli olabilir):** `.env` içinde `AI_ASSISTANT_ENABLED=1`, `LLM_CLASSIFIER_ENABLED=1`, `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`. Sonra **yine `npm run llm:doctor`** çalıştır ve **iki kapının ayrı ayrı** yeşil olduğunu gör (kapı 1: sınıflandırma, kapı 2: panel asistanı). Doctor tek başına yeterli değildir; bir sonraki adımda gerçek senaryoyu dene.
 6. **Tek kaynakla sınırlı deneme:** panelden **tek bir kaynağı** elle tara (Kaynaklar sayfası), ardından **İnceleme kuyruğu** ve **Kaynak sağlığı** ekranlarını kontrol et. Birden çok kaynağı aynı anda taramayın.

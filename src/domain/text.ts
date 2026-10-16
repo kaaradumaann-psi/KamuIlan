@@ -269,6 +269,147 @@ export const UI_CHROME_PHRASES: readonly string[] = [
 ];
 const UI_CHROME_PATTERN = new RegExp(UI_CHROME_PHRASES.map((phrase) => escapeRegExp(phrase)).join('|'), 'gi');
 
+/**
+ * Menü/gezinme etiketleri: gövde metni yerine sayfa iskeleti düşmüşse bu
+ * etiketler metnin çoğunluğunu kaplar.
+ *
+ * 16.10.2026 gerçek kayıt incelemesi (kullanıcının Supabase verisi): Karayolları,
+ * TMSF, DSİ ve İŞKUR kayıtlarının 2500 karakterlik gövdesi BAŞTAN SONA bu tür
+ * iskelet metniydi; ilan başlığı ve son başvuru tarihi ancak 2400. karakterden
+ * sonra geliyordu ve kırpma sınırı yüzünden kayda hiç girmemişti. Bu kayıtlar
+ * "şehir/kadro/son tarih yok" ve "durum: bilinmiyor" olarak görünüyordu.
+ *
+ * Ölçüm: metnin ne kadarı bu etiketlerden oluşuyor? Yarısından fazlası ise gövde
+ * ilan metni değil, sayfa iskeletidir. Etiketler menüye özgüdür; ilan cümlesinde
+ * geçen genel kelimeler (ör. "personel", "başvuru") listeye ALINMAZ.
+ */
+export const PAGE_CHROME_NAV_TERMS: readonly string[] = [
+  'ana sayfa',
+  'anasayfa',
+  'kurumsal kimlik',
+  'kurumsal yapı',
+  'teşkilat şeması',
+  'organizasyon şeması',
+  'organizasyon yapısı',
+  'görev ve sorumluluklarımız',
+  'görevleri',
+  'yönetim',
+  'tarihçe',
+  'hakkımızda',
+  'mevzuat',
+  'etik komisyonu',
+  'faaliyet raporları',
+  'faaliyet raporu',
+  'hizmet standartları',
+  'bilgi edinme',
+  'sıkça sorulan sorular',
+  'görüş & öneri',
+  'dilek ve şikayet',
+  'iletişim',
+  'duyuru detayı',
+  'tüm haberler',
+  'duyuru arşivi',
+  'tüm duyurular arşiv',
+  'yayınlar',
+  'istatistikler',
+  'sunumlar',
+  'başkanın mesajı',
+  'vizyonumuz',
+  'misyonumuz',
+  'bilgi güvenliği politikamız',
+  'kişisel verilerin işlenmesi ve korunması',
+  'mevduat sigortacılığı',
+  'banka çözümleme',
+  'kayyımlık',
+  'zaman aşımı',
+  'il müdürlükleri',
+  'iş arayan',
+  'işveren',
+  'teşvikler',
+  'özel istihdam büroları',
+  'aktif işgücü',
+  'işsizlik sigortası',
+  'mesleki eğitim kursları',
+  'işbaşı eğitim programları',
+  'personel bilgileri',
+  'merkez teşkilatı',
+  'bölgeler',
+  'yol ağı bilgileri',
+  'bütçe ödenekleri',
+  'stratejik planlama',
+  'performans programı',
+  'uluslararası ilişkiler',
+  'basın ve halkla ilişkiler',
+  'destek hizmetleri',
+  'bilgi teknolojileri',
+  'hukuk müşavirliği',
+  'iç denetim birimi',
+  'kamu hizmet standartları',
+  'hızlıerişim',
+  'önceki başkanlar',
+  'genel sekreterlik',
+  'daire başkanlıkları',
+];
+
+/** Ölçüm eşiği: 16.10.2026 gerçek kayıtlarıyla kalibre edildi (bkz. test govde-iskelet-olcumu). */
+export const PAGE_CHROME_SHARE_THRESHOLD = 0.15;
+
+/** İlan metni sinyali: gerçek ilan gövdesinde bulunup menü dökümünde bulunmayan kalıplar. */
+export const NOTICE_TEXT_PATTERN =
+  /(alın|yapıl|istihdam edil|atan|görevlendiril|seçil|yerleştiril|başvurul|çağrıl|başlatıl)\w*(acak|ecek)tır|son başvuru|başvuru (tarih|şart|için|süre)|(kadro|kontenjan)\w*|şartlar\w*/i;
+
+/**
+ * Gövde metni ilan metni mi, sayfa iskeleti mi?
+ *
+ * İki sinyal birlikte aranır: metinde hiç ilan cümlesi kalıbı YOKSA ve metnin
+ * büyük bölümü bilinen arayüz/menü ifadelerinden oluşuyorsa "ilan metni yok"
+ * denir. Kısa metinler bu ölçümle yargılanmaz.
+ *
+ * Bu fonksiyon yalnızca DENETİM/ÖLÇÜM amaçlıdır: kaydın gövdesi menü dökümü
+ * olduğunda alan çıkarımının neye dayandığını görünür kılar. Toplama hattının
+ * davranışını değiştirmez (düzeltme canlı HTML örneği gerektirir).
+ */
+export function looksLikePageChromeText(value: string): boolean {
+  const raw = collapseWhitespace(value ?? '');
+  if (raw.length < 300) return false;
+  if (NOTICE_TEXT_PATTERN.test(raw)) return false;
+  const folded = normalizeTr(raw);
+  const stripped = collapseWhitespace(stripUiChrome(raw));
+  let matched = Math.max(0, raw.length - stripped.length);
+  for (const term of PAGE_CHROME_NAV_TERMS) {
+    const needle = normalizeTr(term);
+    if (!needle) continue;
+    let index = folded.indexOf(needle);
+    while (index >= 0) {
+      matched += needle.length;
+      index = folded.indexOf(needle, index + needle.length);
+    }
+  }
+  return matched / raw.length >= PAGE_CHROME_SHARE_THRESHOLD;
+}
+
+/**
+ * Metnin ne kadarı bilinen arayüz/menü ifadelerinden oluşuyor (oran, 0–1)?
+ * Denetim çıktısında sayı olarak raporlanır.
+ */
+export function pageChromeShare(value: string): number {
+  const raw = collapseWhitespace(value ?? '');
+  if (!raw) return 0;
+  const folded = normalizeTr(raw);
+  const stripped = collapseWhitespace(stripUiChrome(raw));
+  let matched = Math.max(0, raw.length - stripped.length);
+  for (const term of PAGE_CHROME_NAV_TERMS) {
+    const needle = normalizeTr(term);
+    if (!needle) continue;
+    let index = folded.indexOf(needle);
+    while (index >= 0) {
+      matched += needle.length;
+      index = folded.indexOf(needle, index + needle.length);
+    }
+  }
+  return Math.min(1, matched / raw.length);
+}
+
 /** Sayfa kabuğu ifadelerini çıkarır ve boşlukları toparlar. */
 export function stripUiChrome(text: string): string {
   return collapseWhitespace(text.replace(UI_CHROME_PATTERN, ' '));

@@ -27,7 +27,7 @@ import { getEnv } from '../src/config/env';
 import { createRepos } from '../src/db/repos';
 import type { JobDoc, ReviewQueueDoc, SourceDoc } from '../src/db/schemas';
 import { closeStore, describeDriver, effectiveDriver, initStore } from '../src/db/store';
-import { UI_CHROME_PHRASES } from '../src/domain/text';
+import { UI_CHROME_PHRASES, looksLikePageChromeText, pageChromeShare } from '../src/domain/text';
 import { APPLICATION_URL_HOSTS } from '../src/extraction/dictionaries';
 
 interface Options {
@@ -365,6 +365,21 @@ async function main(): Promise<void> {
       first,
       `${group.length} kayıt · publishedAt=${String(first.publishedAt).slice(0, 10)} · kaynak=${first.primarySourceKey}`,
       dateEvidence(first.textExcerpt ?? '', first.publishedAt ?? ''),
+    );
+  }
+
+  // T12: gövde metni ilan metni değil, sayfa iskeleti (menü/çerez/erişilebilirlik).
+  // Bu kayıtların alan çıkarımı gövdeye DAYANAMAZ; başlık ve liste sayfası
+  // alanlarıyla değerlendirilirler. Kararı değiştirmez, yalnızca görünür kılar.
+  for (const job of jobs) {
+    const body = job.textExcerpt ?? '';
+    if (!looksLikePageChromeText(body)) continue;
+    push(
+      'T12',
+      'Gövde metni sayfa iskeleti (menü/çerez) — alan çıkarımı gövdeye dayanamaz',
+      job,
+      `gövde=${body.length} karakter · iskelet payı=${pageChromeShare(body).toFixed(2)} · düzenlenen alan=0`,
+      short(body, 160),
     );
   }
 
