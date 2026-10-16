@@ -7,6 +7,7 @@
  */
 import type { Repos } from '../db/repos';
 import type { JobDoc } from '../db/schemas';
+import { computeStatus } from '../ingest/jobs-service';
 import { explainProfileMatch, type ProfileMatchExplanation } from '../lib/profile-match';
 import { toPublicJobDetail, toPublicJobSummary } from '../server/serializers';
 import type { CandidateProfile, PublicJobDetail } from '../types';
@@ -55,6 +56,17 @@ export async function selectCandidates(
 
   const scored: JobCandidate[] = [];
   for (const job of page.items) {
+    // Durum alanı son `deadline-refresh` görevine kadar bayat olabilir; başvuru
+    // penceresi BURADA yeniden hesaplanır. Aksi halde süresi geçmiş bir ilan
+    // "başvurmaya değer" diye önerilebilirdi (durum güncellenmeden önce).
+    const effectiveStatus = computeStatus({
+      applicationStartAt: job.applicationStartAt,
+      applicationEndAt: job.applicationEndAt,
+      applicationEndDate: job.applicationEndDate,
+      publishedAt: job.publishedAt,
+      now,
+    });
+    if (effectiveStatus !== 'active' && effectiveStatus !== 'upcoming') continue;
     // Sunucu serileştirici tipi, istemci tipinin (`src/types`) ALTKÜMESİDİR; ön eleme
     // sezgisi yalnızca ilan alanlarını okur, bu yüzden dönüşüm güvenlidir.
     const detail = toPublicJobDetail(job, { sources: [], now }) as unknown as PublicJobDetail;
