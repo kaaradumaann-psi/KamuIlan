@@ -51,7 +51,7 @@ platform. npm paketi: `kamuilan@0.1.0`, Node ≥ 22.15.0.
 | Oturum sonu süiti | **102 test dosyası / 1276 test (hepsi geçti)** |
 | Dal ↔ main | Dal, `origin/main`'in **22 commit önünde**, 0 commit geride (`git rev-list --left-right --count origin/main...HEAD` → `0 22`) |
 | Çalışma ağacı | Temiz (`git status --short` boş) |
-| PR | Bu belgeyle açılan kapanış PR'ı — **numarası ve bağlantısı: `docs/DEVAM-NOTU-PR-KAYDI` bölümünde** (PR açıldıktan sonra aynı PR'a küçük bir commit ile işlendi) |
+| PR | **#21** — https://github.com/kaaradumaann-psi/kamuradar/pull/21 (base `main`, head `arena/7ae2fdfa-kamuradar`) |
 | Önceki PR'lar | #20 ve öncesi **merge edilmiş**; oturum başında açık PR yoktu (`gh pr list --state open` → boş) |
 
 Değişiklik özeti (taban → dal ucu): **38 dosya, +6070 / −52 satır**; 17 test dosyası, 14 kaynak dosyası.
