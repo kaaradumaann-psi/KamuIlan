@@ -40,6 +40,10 @@ export interface ReclassifySummary {
   statusChanged: number;
   kindChanged: number;
   changed: number;
+  /** Desteksiz yayım tarihi kaldırılacak kayıtlar (yasaldan okunmuş eski tarihler). */
+  publishedAtCleared: number;
+  /** İmkânsız son başvuru tarihi kaldırılacak kayıtlar (2000 öncesi / yayımdan önce). */
+  applicationEndCleared: number;
   acceptedBefore: number;
   acceptedAfter: number;
 }
@@ -59,6 +63,8 @@ export function planReclassification(
     statusChanged: 0,
     kindChanged: 0,
     changed: 0,
+    publishedAtCleared: 0,
+    applicationEndCleared: 0,
     acceptedBefore: 0,
     acceptedAfter: 0,
   };
@@ -76,6 +82,8 @@ export function planReclassification(
     if (result.titleCleaned) summary.titlesCleaned += 1;
     if (result.statusFrom !== result.statusTo) summary.statusChanged += 1;
     if (result.kindFrom !== result.kindTo) summary.kindChanged += 1;
+    if (result.patch.publishedAt === null) summary.publishedAtCleared += 1;
+    if (result.patch.applicationEndDate === null) summary.applicationEndCleared += 1;
     if (result.changed) summary.changed += 1;
   }
   return { planned, summary };
@@ -100,8 +108,14 @@ export interface ReclassifyReportRow {
   reasons: string[];
   excerpt: string;
   sourceKeys: string[];
+  /** Kayıtta SAKLI yayım tarihi (ham değer; düzeltilmiş değeri göstermez). */
   publishedAt: string | null;
+  /** Uygulandığında yazılacak yayım tarihi (null = desteksiz tarih kaldırılır). */
+  publishedAtAfter: string | null;
+  /** Kayıtta SAKLI son başvuru tarihi (ham değer). */
   applicationEndDate: string | null;
+  /** Uygulandığında yazılacak son başvuru tarihi (null = imkânsız tarih kaldırılır). */
+  applicationEndDateAfter: string | null;
 }
 
 /** Okunabilir ve sınırlı büyüklükte rapor satırları. Yalnızca okur; veritabanına yazmaz. */
@@ -126,7 +140,13 @@ export async function buildReport(store: StoragePort, planned: PlannedJob[]): Pr
       excerpt: (job.textExcerpt ?? '').replace(/\s+/g, ' ').trim().slice(0, 600),
       sourceKeys: job.sourceKeys,
       publishedAt: job.publishedAt ?? null,
+      publishedAtAfter:
+        result.patch.publishedAt !== undefined ? result.patch.publishedAt : (job.publishedAt ?? null),
       applicationEndDate: job.applicationEndDate ?? null,
+      applicationEndDateAfter:
+        result.patch.applicationEndDate !== undefined
+          ? result.patch.applicationEndDate
+          : (job.applicationEndDate ?? null),
     });
   }
   return rows;

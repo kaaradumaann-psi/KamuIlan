@@ -209,11 +209,34 @@ export function maskEmail(email: string): string {
  * Sitelerin arayüz (sayfa kabuğu) ifadeleri. Bunlar ilan metni değildir; başlığa,
  * kuruma ya da gövdeye karışırsa "Daha yüksek erişilebilirlik modunu aç" gibi sahte
  * başlıklar üretir. Yalnızca açık arayüz ifadeleri çıkarılır; ilan içeriğine dokunulmaz.
+ *
+ * 16.10.2026 denetimi: çıkarım aşaması bu ifadeleri HTML seviyesinde
+ * (PAGE_CHROME_SELECTORS) zaten atıyor; ancak kayıt bu temizlikten ÖNCE
+ * alınmışsa gövdeye yapışmış kabuk metni kalıyordu ve yeniden sınıflandırma
+ * kayıttaki metni temizleyemiyordu. Liste, depodaki canlı koşum kanıtlarında
+ * birebir geçen dizelerle genişletildi (Karayolları erişilebilirlik çubuğu,
+ * İŞKUR/İçişleri liste sayfaları çerez + araç çubuğu metni). İlan metninde
+ * masum şekilde geçebilecek genel kelimeler (ör. "Kontrast", "Filtrele",
+ * "Ara") bilinçli olarak DIŞARIDA bırakıldı.
  */
 export const UI_CHROME_PHRASES: readonly string[] = [
   'Ana içeriğe atla',
   'Daha yüksek erişilebilirlik modunu aç',
+  'Daha yüksek erişilebilirlik modunu kapat',
   'Erişilebilirlik modunu aç',
+  'Erişilebilirlik Menüsü',
+  'Ekran Okuyucu',
+  'Seçili Alan Okuyucu',
+  'Bağlantı Vurgula',
+  'Büyük Metin',
+  'Metni Sola Hizala',
+  'İmleç Okuma Kılavuzu',
+  'Okuma Maskesi',
+  'Solgunlaştır',
+  'Sizlere daha iyi hizmet',
+  'Sitemizde çerezlere yer veriyoruz',
+  'Çerez Ayarları',
+  'Gizlilik ve Çerez Politikası',
   'Oturum Aç',
   'SharePoint',
   'Takip Et',

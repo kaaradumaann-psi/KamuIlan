@@ -3,7 +3,35 @@ import type { ClassificationKind, ClassificationResult } from '../domain/types';
 import { classify } from '../classification/engine';
 import { plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeTr, stripUiChrome } from '../domain/text';
+import { extractPublishedAt } from '../extraction/engine';
 import { computeStatus, statusReasonFor } from './jobs-service';
+
+/**
+ * Desteksiz yayım tarihi için geriye dönük pencere (gün).
+ *
+ * 16.10.2026 gerçek veri denetimi: eski çıkarıcı, gövdedeki YASAL ATIF tarihini
+ * ("26 Eylül 2004 tarihli ve 25585 sayılı Yönetmelik") ilanın yayım tarihi
+ * sanıyordu; 2026 tarihli altı kayıt 2004/2008/2013/2018/2019 görünüyordu.
+ * Çıkarıcı düzeltildi ama ESKİ kayıtların tarihi yerinde kaldı: yeniden
+ * sınıflandırma yayım tarihini yalnızca gelecek tarih için reddediyordu.
+ *
+ * Kural: tarih gövdeden türetilmişse (liste katmanı otorite değilse), güncel
+ * çıkarıcı kayıttaki metinde yayım tarihi BULAMIYORSA ve tarih kaydın ilk
+ * görülmesinden bu pencereden daha önceyse tarih desteksizdir → kaldırılır.
+ * Yanlış bir tarih göstermektense "bilinmiyor" demek doğrudur.
+ */
+export const PUBLISHED_DATE_REGRESSION_DAYS = 400;
+
+/** Kaldırılan desteksiz tarih için kullanıcıya görünen belirsizlik notu. */
+export const UNSUPPORTED_PUBLISHED_DATE_NOTE =
+  'Yayım tarihi kaynak metninde doğrulanamadı (eski çıkarım hatası); tarih kayıttan kaldırıldı.';
+
+function daysBetween(fromDateOnly: string, toDateOnly: string): number {
+  const from = Date.parse(`${fromDateOnly}T00:00:00Z`);
+  const to = Date.parse(`${toDateOnly}T00:00:00Z`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return 0;
+  return Math.round((to - from) / 86_400_000);
+}
 
 /** Mevcut bir ilan kaydını güncel kurallarla yeniden değerlendirir. Saf fonksiyon; veritabanı yazmaz. */
 export interface ReclassifyResult {
@@ -98,7 +126,20 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
   }
 
   // 3) Durum ve yayım tarihi (bozuk yayım tarihleri ve eski ilanlar yeniden değerlendirilir).
-  const publishedAt = sanePublishedDate(job.publishedAt, today);
+  let publishedAt = sanePublishedDate(job.publishedAt, today);
+  const publishedSourceKind = job.fieldSources?.publishedAt?.kind ?? null;
+  if (publishedAt && publishedSourceKind !== 'listing') {
+    const firstSeenDate = String(job.firstSeenAt ?? '').slice(0, 10);
+    const unsupported =
+      extractPublishedAt(job.textExcerpt ?? '') === null &&
+      firstSeenDate.length === 10 &&
+      daysBetween(publishedAt, firstSeenDate) > PUBLISHED_DATE_REGRESSION_DAYS;
+    if (unsupported) {
+      publishedAt = null;
+      const uncertainties = new Set([...(job.uncertainties ?? []), UNSUPPORTED_PUBLISHED_DATE_NOTE]);
+      patch.uncertainties = [...uncertainties];
+    }
+  }
   if (publishedAt !== job.publishedAt) patch.publishedAt = publishedAt;
   // Yanlış çıkarılmış son başvuru (yayından önce ya da 2000 öncesi) kayıttan da temizlenir.
   const deadline = plausibleApplicationEnd({
