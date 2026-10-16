@@ -374,11 +374,20 @@ async function main(): Promise<void> {
   for (const job of jobs) {
     const body = job.textExcerpt ?? '';
     if (!looksLikePageChromeText(body)) continue;
+    // Iskelet payı tek başına karar vermez: alanlar yine de çıkarılmış olabilir.
+    // Bu yüzden satır, çıkarılan alanları da yazar (yanlış alarm ayrımı).
+    const extracted = [
+      job.city ? 'şehir' : null,
+      job.quota ? 'kadro' : null,
+      job.applicationEndDate ? 'son başvuru' : null,
+      job.publishedAt ? 'yayım' : null,
+    ].filter((value): value is string => value !== null);
     push(
       'T12',
       'Gövde metni sayfa iskeleti (menü/çerez) — alan çıkarımı gövdeye dayanamaz',
       job,
-      `gövde=${body.length} karakter · iskelet payı=${pageChromeShare(body).toFixed(2)} · düzenlenen alan=0`,
+      `gövde=${body.length} karakter · iskelet payı=${pageChromeShare(body).toFixed(2)} · ` +
+        `çıkarılan alan=${extracted.length}/4${extracted.length > 0 ? ` (${extracted.join(', ')})` : ''}`,
       short(body, 160),
     );
   }
@@ -531,6 +540,10 @@ async function main(): Promise<void> {
     if (row.status === 'ok') continue;
     const text = `${row.status} ${row.error ?? ''}`.toLowerCase();
     const signals: [string, RegExp][] = [
+      // 404 = istek GİTTİ, uç nokta/model yolu yok (yapılandırma). Yetki hatası
+      // 401/403, kota hatası 429 döner; 404'ü "sınıflandırılamayan" bırakmak
+      // 16.10.2026'da teşhisi zorlaştırdı (2 kayıt / %100 hata / 0 token).
+      ['404 (uç nokta/model yolu bulunamadı — yapılandırma)', /404|not found|not_found/],
       ['429 (kota/hız sınırı)', /429|rate limit|resource_exhausted|kota/],
       ['503/500 (sağlayıcı hatası)', /50[03]|unavailable|internal/],
       ['zaman aşımı', /timeout|zaman a/],

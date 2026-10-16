@@ -51,7 +51,13 @@ export const CLASSIFICATION_VERSION = '2026.10.4';
 // çerez metni dizeleri eklendi. Temizlikten önce kaydedilmiş gövdeler
 // `npm run jobs:reclassify -- --apply` ile arındırılır; aynı komut gövdedsiz
 // kalan eski yayım tarihlerini ve imkânsız son başvuru tarihlerini de temizler.
-export const EXTRACTION_VERSION = '2026.10.3';
+// 2026.10.4: gövde SEÇİMİ bağlantı yoğunluğuna göre yapılır. Gerçek kayıt
+// kanıtı (16.10.2026): Karayolları/TMSF/DSİ/İŞKUR detay sayfalarında ilk
+// "80+ karakterlik" kap menüydü ve gövdenin tamamını menü dolduruyordu; ilan
+// metni menünün SONUNDA, kesme sınırının ötesinde kalıyordu. Artık metninin
+// yarısından fazlası bağlantı olan aday ilan gövdesi sayılmaz (menü atlanır);
+// sayfa tümüyle menüyse en az bağlantı yoğun adaya düşülür, kayıt boş kalmaz.
+export const EXTRACTION_VERSION = '2026.10.4';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */
