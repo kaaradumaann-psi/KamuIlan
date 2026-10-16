@@ -141,7 +141,11 @@ Sözleşme dışı tarih (son başvuru, yayım tarihinden **önce**) kayda hiç 
 | `npm run lint` (`eslint .`) | **Temiz** (0 hata/0 uyarı) | Probe dosyaları silindikten sonra |
 | `npm run build` (`tsc --noEmit && vite build`) | **Başarılı** (113 modül, ~0.33 s) | Üretim derlemesi |
 | `npx vitest run` (ilk tur sonu) | **92 dosya / 1196 test PASS**, 121.5 s | +4 dosya, +61 test |
-| `npx vitest run` (**son durum, 16.10.2026**) | **99 dosya / 1261 test PASS**, 114.6 s | +11 dosya, +126 test (baseline'a göre) |
+| `npx vitest run` (**son durum, 16.10.2026**) | **101 dosya / 1273 test PASS**, 117.5 s | +13 dosya, +138 test (baseline'a göre) |
+| `npx vitest run tests/llm-429-kota-teshisi.test.ts tests/json-cikti-arg.test.ts` | 12 PASS | Yeni: 429 kota ipucu + `--json` davranışı |
+| `npm run llm:doctor -- --offline --json /tmp/doktor-test.json` | Dosya yazıldı (2348 bayt) | `--json <dosya>` artık gerçekten yazıyor |
+| `npm run llm:doctor -- --offline --json /tmp/yok-klasor/d.json` | `✖ … YAZILAMADI (ENOENT)` + çıkış kodu 1 | Sessiz kayıp yok |
+| `npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --json` | `⚠ dosya yolu verilmedi… YAZILMADI` | Sessizlik kaldırıldı |
 | `npx vitest run tests/ai-kapisi-olcum.test.ts tests/ai-kapisi-senaryo-seti.test.ts` | 9 PASS | Yeni: kapı kararı ölçümü + senaryo seti bütünlüğü |
 | `npx vitest run` (**kullanıcının kendi makinesi**, `git pull` + `npm ci` sonrası) | **98 dosya / 1256 test**: 1233 geçti, 23 atlandı, 0 başarısız | Önceki commit'te alınan sonuç; bu turda 1261'e çıktı |
 | `npm run lint` + `npm run build` (son durum) | Temiz · 113 modül · ✓ built in 304 ms | `dist/` yeniden üretildi |
@@ -300,6 +304,36 @@ kapi-D-haber       beklenen news                           model kararı dogrula
 
 ---
 
+### G.12 (bu tur) Canlı kanıt: 404 → 503 → **429 kota**; iki teşhis düzeltmesi (kota ipucu + `--json` davranışı)
+
+**1) Kullanıcının yeni koşumu (16.10.2026, kendi makinesi — güncel kod):**
+- `npm run llm:doctor -- --json data\llm-doktor.json` →
+  - `transport: gemini-native`, `endpoint: …/v1beta/models/gemini-3.8-flash:generateContent`, `endpointRisk: null`, **model listesi HTTP 200 / 63 model**, `supportedGenerationMethods` içinde `createCachedContent`/`batchGenerateContent` dahil ve **`generateContent` VAR**.
+  - Canlı çağrı: **HTTP 429 `RESOURCE_EXHAUSTED`** — sağlayıcı mesajı *"You exceeded your current quota, please check your plan and billing details."*, `failureCategory: rate-limit`, **2 deneme / 1141 ms**, **token 0**, `usableTextGenerated: başarısız`, `authorizationCheck: bilinmiyor`.
+  - Sıra: **404 (yanlış uç, yapılandırma) → 503 (geçici yoğunluk) → 429 (hesap kotası)**. Üçü de sağlayıcı tarafında; kod doğru davrandı (yeniden deneme sınırı 1, kayıt bozulmadı, uydurma yok).
+- `npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm` →
+  - **4 API çağrısı**, `kararlar: hata 4`, `token: 0 + 0`, gecikme ortalama 1168 ms; senaryo tablosu dört satırda **`· kapı çalışmadı`**; `Özet: uygun 0 · UYGUNSUZ 0 · kapı çalışmadı 4`.
+  - Maskeli sağlayıcı hatası satırı ekrana düştü (anahtar sızmadı) → ölçüm ayrımı **kullanıcının makinesinde de** çalışıyor.
+  - **Yorum:** bu koşum sınıflandırmayı ölçmedi (kota). "UYGUNSUZ 0" teselli değildir; **kapı çalışmadı** demektir ve kayıtlar incelemede kalır.
+  - **Sayaç tutarlılığı doğrulandı:** konsoldaki 4 "başarısız" satırı ile kapının sayacı (`hata 4`, `token 0+0`, hata oranı %100) birebir uyumlu. Aynı davranış yerel sahte sağlayıcıyla da ölçüldü (4 başarısız kayıt → 4 uyarı satırı): hata satırı sayısı = başarısız kayıt sayısı.
+  - **Anahtar/ayar değil, KOTA:** model listesi HTTP 200 döndüğü için **API anahtarı geçerli**; sınır yalnız üretim (generateContent) kotasında. Bu yüzden `.env` değişikliği GEREKMEZ.
+- **Kullanıcının komut hatası tekrarlandı:** `--json` yanına dosya yolu verilmedi → rapor yazılmadı. (Aşağıdaki düzeltme bu sessizliği kaldırdı.)
+
+**2) Kanıtlı düzeltme — 429 ipucu sınırı YANLIŞ yere yazıyordu (P2, gözlemlenebilirlik):**
+- **Kanıt:** eski ipucu `"Sağlayıcı hız/kota sınırı uyguluyor; günlük sınır (LLM_DAILY_CALL_LIMIT) düşürülebilir."` diyordu. Kullanıcının gördüğü sınır ise **sağlayıcı hesabının kotasıydı**; uygulama ayarı bunu çözmez. Operatör bu yüzden yanlış yeri kurcalar (ayar değiştirir) ve gerçek çözümü (plan/kota) geciktirir.
+- **Değişiklik:** `src/ai/llm.ts` → `PROVIDER_QUOTA_PATTERN` (`quota|billing|resource_exhausted|rate_limit|plan`) sağlayıcı mesajında eşleşirse yeni ipucu: *"Sağlayıcı KOTA/PLAN sınırı bildirdi (HTTP 429). Bu sınır SAĞLAYICIDA (hesap/plan/günlük kota); uygulamanın kendi sayacı (LLM_DAILY_CALL_LIMIT) ya da yeniden deneme ayarı bu hatayı ÇÖZMEZ. Sağlayıcı panelinden kotayı/planı kontrol edin; kota yenilendiğinde komutu yineleyin."* Kota ifadesi yoksa eski genel ipucu korunur (geriye dönük uyumlu).
+- **Test:** `tests/llm-429-kota-teshisi.test.ts` (5 test): kota mesajı → sınır sağlayıcıya yazılır ve anahtar sızmaz; kota ifadesiz 429 → eski ipucu; 503 → kota ipucu basılmaz; **kota hatası yeniden denemesi 2 denemeyle sınırlı** (sonsuz döngü yok); sınıf ayrımı (429→`rate-limit`, 503→`service-unavailable`, 404→`not-found`, 401→`auth`).
+
+**3) Kanıtlı düzeltme — `--json` iki komutta farklı davranıyordu ve sessiz kalıyordu (P3, UX):**
+- **Kanıt:** `eval:classification`'da `--json` yol bekliyordu; yol verilmeyince **hiçbir dosya yazılmadı ve uyarı çıkmadı**. `llm:doctor`'da `--json` yalnızca bayraktı; yanına yazılan `data\llm-doktor.json` **yok sayıldı** (JSON konsola bastı). Kullanıcı iki kez rapor dosyası bekledi, dosya oluşmadı.
+- **Değişiklik:** yeni `src/lib/json-output.ts` → `parseJsonOutputArg()` + `writeJsonReport()`. İki komut da aynı kuralı kullanır: `--json` (yol yok) → konsola; `--json <dosya>` → dosyaya; `eval:classification`'da yol yoksa **açık uyarı** basılır; dosya yazılamazsa (ör. olmayan klasör) **anlaşılır hata + çıkış kodu 1**, sessiz kayıp yok. Bayraktan sonra başka bir bayrak gelirse (`--json --llm`) yol sayılmaz.
+- **Doğrulama (sandbox, gerçek çalıştırma):** `npm run llm:doctor -- --offline --json /tmp/doktor-test.json` → dosya yazıldı (2348 bayt) + `Makine okunur rapor: …` satırı; olmayan klasör → `✖ … YAZILAMADI (ENOENT …)` ve **çıkış kodu 1**; `npm run eval:classification … --json` → `⚠ --json için dosya yolu verilmedi; makine okunur rapor YAZILMADI`; yolla → dosya yazıldı (3431 bayt).
+- **Test:** `tests/json-cikti-arg.test.ts` (7 test): bayrak yok/yol yok/başka bayrak/yol var/Windows yolu, başarılı yazım (JSON ayrıştırılabilir, satır sonu var), olmayan klasörde fırlatmama ve dosya bırakmama.
+
+**4) Bu turda KANITLANMAYAN (dürüst sınır):** gerçek sınıflandırma hâlâ ölçülemedi — üç sağlayıcı hatası (404→503→429) üst üste geldi ve **kota** hesap tarafında. "Sınıflandırma gerçek veride doğru çalışıyor" iddiası, kota yenilendiğinde **4 çağrılık** senaryo koşumu tekrarlanana kadar **kurulmaz**. Not: her `llm:doctor` koşumu 2, her `--llm` eval koşumu 4 gerçek çağrı harcar; günlük kotayı bunlar tüketir.
+
+---
+
 ## H) Sonraki adımlar (teknik bilgisi sınırlı kullanıcı için, sırayla)
 
 > **Kullanıcının sonraki TEK adımı (16.10.2026 kararı):** veri değişikliği **şimdilik yapılmıyor**; önce **yapay zekâ kapısının gerçek çağrıda doğru çalıştığı** kanıtlanacak. Aşağıdaki **1 → 2 → 3 → 4** adımları sırayla çalıştırın; sonuçları bana yapıştırın. Veri onarımı (3b/3c) siz "devam" dedikten sonra ele alınacak.
@@ -315,14 +349,15 @@ kapi-D-haber       beklenen news                           model kararı dogrula
    npm run eval:classification -- --file tests/fixtures/eval/ai-kapisi-senaryolari.json --llm --json data\ai-kapisi.json
    ```
    - **404 sorunu bitti (kanıt):** doctor artık `transport: gemini-native`, uç `…/v1beta/models/gemini-3.8-flash:generateContent`, model listesi **HTTP 200 / 63 model**, `generateContent` destekli ve `endpointRisk: null` diyor.
-   - **Yeni engel geçici:** canlı çağrı **HTTP 503 "model is currently experiencing high demand"** döndü (2 deneme, 2603 ms) → sınıflandırma 4 çağrının **1'inde** doğru sonuç verdi (`personnel_recruitment`), kalan 3'ü hata olarak kaydedildi. **503 yoğunluk demektir; kod değişikliği veya ayar şişirme GEREKMEZ.**
+   - **Engelin türü zamanla değişti, üçü de SAĞLAYICIDA:** 1) 404 (yanlış uç — yapılandırma, düzeltildi) → 2) 503 "high demand" (geçici yoğunluk; bir koşumda 4 çağrıdan 1'i doğru sonuç verdi) → 3) **429 `RESOURCE_EXHAUSTED`: "You exceeded your current quota, please check your plan and billing details."** (hesap/plan kotası). **Üçü için de kod değişikliği veya ayar şişirme GEREKMEZ**; `LLM_DAILY_CALL_LIMIT`/`LLM_RETRY_MAX` sağlayıcı kotasını değiştirmez. Her `llm:doctor` koşumu 2, her `--llm` eval koşumu 4 gerçek çağrı harcar — kotayı bunlar tüketir.
+   - **Kota yenilenince ne yapılır:** sağlayıcı panelinden kotayı/planı kontrol edin (mesajın kendisi "plan and billing details" diyor) ve **aynı iki komutu** yineleyin. Ölçüm yapılamazsa çıktı `kapı çalışmadı` yazar — bu "yanlış sınıflandırma" değildir; kayıtlar incelemede kalır ve **uydurma alan yazılmaz**.
    - **Sizin yapacağınız tek şey:** birkaç saat sonra (yoğunluk geçince) **aynı iki komutu yineleyip** aşağıdaki satırları bana yapıştırmak:
      - `kararlar: ilan … · süreç … · kanıtlı ret … · belirsiz kaldı … · doğrulanamadı … · hata …`
      - `API çağrısı …`, `gecikme`, `token`, `hata oranı` satırları
      - yeni çıktıdaki **senaryo tablosu** satırları: `kapi-A-ilan … ✓ uygun`, `kapi-B-surec …`, `kapi-C-enjeksiyon …`, `kapi-D-haber …` ve **`Özet: uygun n · UYGUNSUZ n · kapı çalışmadı n`**
      - varsa **"Bu koşumdaki sağlayıcı hataları"** satırları (anahtar maskeli yazılır, sır sızmaz).
    - **Başarı ölçütü:** `Özet` satırında **`uygun 4 · UYGUNSUZ 0 · kapı çalışmadı 0`** (C'de `UYGUNSUZ` çıkarsa istem enjeksiyonu ilana dönüşmüş demektir → ciddi bulgu). `kapı çalışmadı` sayısı 0 değilse bu **"yanlış sınıflandırma" DEĞİLDİR**; o koşum ölçülemedi demektir, kayıtlar inceleme kuyruğunda kalır ve uydurma alan yazılmaz.
-   - `--json` bayrağına **dosya yolu** verilmezse JSON yazılmaz (`--json` tek başına etkisizdir). `data` klasörü projede zaten var; `raporlar` klasörünü kendiniz oluşturmanız gerekir.
+   - `--json` davranışı bu turda düzeltildi: **`--json <dosya>`** raporu dosyaya yazar (doctor dahil), yol verilmezse `eval:classification` artık **açık uyarı** basar, dosya yazılamazsa **anlaşılır hata + çıkış kodu 1** verir. `data` klasörü projede vardır; `raporlar` klasörünü kendiniz oluşturmanız gerekir (`mkdir raporlar`). Yolu bir **komut gibi** yazmayın (çıktı: "The system cannot find the path specified").
    Bu adım geçerse sıradaki konu, veri onarımı (3b/3c) ve 12 kaynağın canlı doğrulanmasıdır.
 3b. **Veriyi onar (ÖNCE kuru çalıştırma) — siz "devam" dediğinizde:**
    ```

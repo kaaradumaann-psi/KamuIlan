@@ -7,6 +7,7 @@
  *   npm run eval:classification -- --llm        → kurallar + LLM kapısı (env'de LLM_CLASSIFIER_*
  *                                                  yapılandırması gereklidir; gerçek API çağrısı yapar)
  *   npm run eval:classification -- --json r.json→ makine okunur tam rapor (ayrı dosyaya)
+ *                                                  (yol verilmezse rapor YAZILMAZ ve uyarı basılır)
  *
  * `--llm` modunda deterministik motorun `review` dediği örnekler LLM kapısından geçirilir;
  * kapının çözdüğü ve çözemediği örnek sayıları, ölçülen gecikme/token/maliyet ayrıca
@@ -22,9 +23,10 @@
  *
  * Salt okunur: üretim veritabanına yazmaz (--llm modu geçici bir dosya deposu kullanır).
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { parseJsonOutputArg, writeJsonReport } from '../src/lib/json-output';
 import { classify } from '../src/classification/engine';
 import { CONTENT_TYPES, type ContentType } from '../src/domain/types';
 import {
@@ -171,7 +173,7 @@ function printFieldAccuracy(records: readonly LabeledRecord[], extracted: Map<st
 
 async function main(): Promise<void> {
   const file = argValue('--file') ?? join(process.cwd(), 'tests/fixtures/eval/labeled-set.json');
-  const jsonOut = argValue('--json');
+  const jsonArg = parseJsonOutputArg(process.argv);
   const useLlm = process.argv.includes('--llm');
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as { records: LabeledRecord[] };
 
@@ -346,25 +348,30 @@ async function main(): Promise<void> {
     );
   }
 
-  if (jsonOut) {
-    writeFileSync(
-      resolve(jsonOut),
-      JSON.stringify(
-        {
-          generatedAt: new Date().toISOString(),
-          mode: useLlm ? 'rules+llm' : 'rules',
-          provider: useLlm ? { baseUrl: env.LLM_BASE_URL, model: env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL, kind: providerKind } : null,
-          file,
-          report,
-          humanRealReport: realReport,
-          llm: telemetry,
-        },
-        null,
-        2,
-      ),
-      'utf8',
+  if (jsonArg.mode === 'stdout') {
+    // Sessiz kalmak yanıltıcıydı: kullanıcı raporun yazıldığını sandı (canlı kanıt 16.10.2026).
+    console.log(
+      '\n⚠ --json için dosya yolu verilmedi; makine okunur rapor YAZILMADI (ör. --json data\\ai-kapisi-sonuc.json).',
     );
-    console.log(`\nMakine okunur rapor: ${jsonOut}`);
+  } else if (jsonArg.mode === 'dosya') {
+    const written = writeJsonReport(jsonArg.path, {
+      generatedAt: new Date().toISOString(),
+      mode: useLlm ? 'rules+llm' : 'rules',
+      provider: useLlm ? { baseUrl: env.LLM_BASE_URL, model: env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL, kind: providerKind } : null,
+      file,
+      report,
+      humanRealReport: realReport,
+      llm: telemetry,
+    });
+    if (written.ok) {
+      console.log(`\nMakine okunur rapor: ${written.path}`);
+    } else {
+      console.error(
+        `\n✖ Makine okunur rapor YAZILAMADI (${jsonArg.path}): ${written.message}\n` +
+          '  Klasörün var olduğundan emin olun (ör. data) ya da yolu tam verin.',
+      );
+      process.exitCode = 1;
+    }
   }
 
   if (gateStore) await gateStore.close();
