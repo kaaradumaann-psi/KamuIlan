@@ -162,6 +162,122 @@ export function evidenceAppearsIn(evidence: string, haystack: string): boolean {
   return normalizeTr(haystack).includes(needle);
 }
 
+/** Türkçe ay adları (normalize edilmiş biçim) → ay numarası. */
+const FOLDED_MONTHS: Record<string, number> = {
+  ocak: 1,
+  subat: 2,
+  mart: 3,
+  nisan: 4,
+  mayis: 5,
+  haziran: 6,
+  temmuz: 7,
+  agustos: 8,
+  eylul: 9,
+  ekim: 10,
+  kasim: 11,
+  aralik: 12,
+};
+
+const NUMERIC_DATE_PATTERN = /(?<!\d)(\d{1,4})[.\-/](\d{1,2})[.\-/](\d{1,4})(?!\d)/g;
+const MONTH_NAME_DATE_PATTERN =
+  /(?<!\d)(\d{1,2})\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)\s+(\d{4})(?!\d)/g;
+
+/**
+ * Metindeki tarih ifadelerini `y-a-g` anahtarına indirger (sıfır dolgusu ve
+ * ayraç farkı gözetilmez: `01.12.2026`, `1/12/2026` ve `15 Aralık 2026`).
+ */
+function looseDateKeys(text: string): Set<string> {
+  const keys = new Set<string>();
+  for (const match of text.matchAll(NUMERIC_DATE_PATTERN)) {
+    const first = match[1];
+    const second = match[2];
+    const third = match[3];
+    if (!first || !second || !third) continue;
+    const year = first.length === 4 ? Number(first) : Number(third) < 100 ? 2000 + Number(third) : Number(third);
+    const month = first.length === 4 ? Number(second) : Number(second);
+    const day = first.length === 4 ? Number(third) : Number(first);
+    if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > 2200) continue;
+    keys.add(`${year}-${month}-${day}`);
+  }
+  for (const match of text.matchAll(MONTH_NAME_DATE_PATTERN)) {
+    const day = Number(match[1]);
+    const month = FOLDED_MONTHS[match[2] ?? ''];
+    const year = Number(match[3]);
+    if (!month || day < 1 || day > 31) continue;
+    keys.add(`${year}-${month}-${day}`);
+  }
+  return keys;
+}
+
+/** Sayı + birim eşleşmesi (normalize edilmiş metin): "5 kişi", "70 puan", "3 yıl". */
+const NUMBER_UNIT_PATTERN = /(\d{1,5})\s*(kisi|kadro|kontenjan|puan|yil|yas|personel)/g;
+
+/** Aynı eşleşmenin özgün (Türkçe karakterli) karşılığı: etiket okunur olsun. */
+const RAW_NUMBER_UNIT_PATTERN = /(\d{1,5})\s*(kişi\w*|kadro\w*|kontenjan\w*|puan\w*|yıl\w*|yaş\w*|personel\w*)/g;
+
+/**
+ * Model özetinde KAYNAK METİNDE bulunmayan sayı/tarih var mı?
+ *
+ * Neden gerekli: özet serbest metindir; model "150 kişilik kontenjan",
+ * "01.12.2026'a kadar başvuru" gibi kaynakta OLMAYAN olgular yazabilir. Bu
+ * metin ilan kaydına olduğu gibi yazılırsa doğrulanmamış bilgi, doğrulanmış
+ * kanıtla aynı satırda kayda geçer ve herkese açık uçtan okunabilir.
+ * Dönen dizi: kaynakta doğrulanamayan jetonlar (telemetri/gerekçe için).
+ */
+export function unbackedSummaryFacts(summary: string, haystack: string): string[] {
+  const normalizedSummary = normalizeTr(summary);
+  const normalizedHaystack = normalizeTr(haystack);
+  const facts: string[] = [];
+
+  const pad2 = (value: string) => value.padStart(2, '0');
+  const sourceDates = looseDateKeys(normalizedHaystack);
+  for (const key of looseDateKeys(normalizedSummary)) {
+    if (sourceDates.has(key)) continue;
+    // Etiket okunur biçimde: 2026-12-1 -> 2026-12-01.
+    const [year, month, day] = key.split('-');
+    facts.push(`${year}-${pad2(month ?? '')}-${pad2(day ?? '')}`);
+  }
+
+  const sourceNumbers = new Set<number>();
+  for (const match of normalizedHaystack.matchAll(/\d+/g)) sourceNumbers.add(Number(match[0]));
+
+  // Etiketler özgün metinden alınır (Türkçe karakterler korunsun): "150 kişilik".
+  const readable = new Map<string, string>();
+  for (const match of summary.matchAll(RAW_NUMBER_UNIT_PATTERN)) {
+    const digits = match[1];
+    if (!digits || readable.has(digits)) continue;
+    readable.set(digits, `${digits} ${match[2] ?? ''}`.trim());
+  }
+  for (const match of normalizedSummary.matchAll(NUMBER_UNIT_PATTERN)) {
+    const digits = match[1];
+    if (!digits) continue;
+    if (sourceNumbers.has(Number(digits))) continue;
+    facts.push(readable.get(digits) ?? `${digits} ${match[2] ?? ''}`.trim());
+  }
+
+  return facts;
+}
+
+/**
+ * Kayda yazılacak model gerekçesi. Kaynakta doğrulanamayan sayı/tarih varsa
+ * özetin KENDİSİ kayda alınmaz; yerine doğrulama durumu yazılır. Özet her
+ * durumda "doğrulanmamış" olarak etiketlenir (model görüşü, doğrulanmış kanıt
+ * değildir).
+ */
+export function modelSummaryForRecord(
+  summary: string,
+  haystack: string,
+): { text: string; unbacked: string[] } {
+  const unbacked = unbackedSummaryFacts(summary, haystack);
+  if (unbacked.length > 0) {
+    return {
+      text: 'model özeti kaynak metinle doğrulanamayan sayı/tarih içerdiği için kayda alınmadı',
+      unbacked,
+    };
+  }
+  return { text: `doğrulanmamış model özeti: ${summary}`, unbacked };
+}
+
 export interface ClassifierMessagesInput {
   sourceKey: string;
   sourceName?: string | null;
@@ -477,12 +593,16 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     validated: { verdict: LlmVerdict; contentType: ContentType; evidence: string };
     audit: ClassificationLlmAudit;
     cacheHit: boolean;
+    haystack: string;
   }): LlmGateOutcome {
-    const { gateInput, output, validated, audit, cacheHit } = input;
+    const { gateInput, output, validated, audit, cacheHit, haystack } = input;
     const base = gateInput.base;
     const evidenceNote = validated.evidence
       ? ` Doğrulanmış kanıt: “${validated.evidence.slice(0, 160)}”`
       : '';
+    // Model özeti serbest metindir: kaynakta doğrulanamayan sayı/tarih içeriyorsa
+    // kayda olduğu gibi yazılmaz (bkz. modelSummaryForRecord).
+    const modelSummary = modelSummaryForRecord(output.ozet, haystack);
 
     if (validated.verdict === 'ilan') {
       totals.upgradedToJob += 1;
@@ -501,7 +621,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           confidence: llmAcceptConfidence(output.guven),
           reasons: [
             ...base.reasons,
-            `LLM (${audit.model}) personel alımı olarak sınıflandırdı: ${output.ozet}${evidenceNote}`,
+            `LLM (${audit.model}) personel alımı olarak sınıflandırdı; ${modelSummary.text}${evidenceNote}`,
             'Kanıt kaynak metinde birebir doğrulandı ve deterministik alım kalıbıyla eşleşti',
           ],
           rules: [...base.rules, 'llm.kanitli-kabul'],
@@ -530,7 +650,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           confidence: llmAcceptConfidence(output.guven),
           reasons: [
             ...base.reasons,
-            `LLM (${audit.model}) alım süreci duyurusu olarak sınıflandırdı: ${output.ozet}${evidenceNote}`,
+            `LLM (${audit.model}) alım süreci duyurusu olarak sınıflandırdı; ${modelSummary.text}${evidenceNote}`,
             'Kanıt kaynak metinde birebir doğrulandı ve deterministik süreç kalıbıyla eşleşti',
           ],
           rules: [...base.rules, 'llm.surec-duyurusu'],
@@ -560,11 +680,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           confidence: Math.min(0.85, 0.55 + output.guven * 0.3),
           reasons: [
             ...base.reasons,
-            `LLM (${audit.model}) personel alımı olmadığını belirledi: ${output.ozet}${evidenceNote}`,
+            `LLM (${audit.model}) personel alımı olmadığını belirledi; ${modelSummary.text}${evidenceNote}`,
             'Olumsuz kanıt kaynak metinde birebir doğrulandı ve içerik türü kalıbıyla eşleşti',
           ],
           rules: [...base.rules, 'llm.kanitli-ret'],
-          negativeSignals: [...base.negativeSignals, output.ozet],
+          negativeSignals: [...base.negativeSignals, modelSummary.text],
           llm: audit,
         },
         opinion: {
@@ -584,7 +704,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     return {
       classification: {
         ...base,
-        reasons: [...base.reasons, `LLM (${audit.model}) de belirsiz buldu: ${output.ozet}`],
+        reasons: [...base.reasons, `LLM (${audit.model}) de belirsiz buldu; ${modelSummary.text}`],
         llm: audit,
       },
       opinion: {
@@ -732,6 +852,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
             validated: revalidated,
             audit,
             cacheHit: true,
+            haystack,
           });
         }
         // İçerik aynı olsa da doğrulama başarısız (ör. kurallar sıkılaştı):
@@ -962,6 +1083,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         validated: { verdict: validated.verdict, contentType: validated.contentType, evidence: validated.evidence },
         audit,
         cacheHit: false,
+        haystack,
       });
     },
   };

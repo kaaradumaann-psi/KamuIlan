@@ -19,6 +19,48 @@ import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceDoc, SourceItemDecisio
 import type { Repos } from '../db/repos';
 import { DEDUPE_THRESHOLDS, decideDedupe, matchBySourceIdentity } from './dedupe';
 import type { DedupeCandidateJob, DedupeDecision } from './dedupe';
+import { findSourceDefinition } from '../config/sources';
+
+/** Şema, `www.` ve sorgu dizesi farkını yok sayarak aynı sayfayı mı gösteriyor? */
+function samePageUrl(left: string, right: string): boolean {
+  try {
+    const a = new URL(left);
+    const b = new URL(right);
+    const host = (value: URL) => value.host.toLowerCase().replace(/^www\./, '');
+    const path = (value: URL) => value.pathname.replace(/\/+$/, '').toLowerCase();
+    return host(a) === host(b) && path(a) === path(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * İlan bağlantısı kaynağın KENDİ liste/dizin ya da ana sayfası mı?
+ *
+ * Gerçek veri kanıtı (16.10.2026 denetimi): iki kayıt böyle çöpe dönüştü —
+ * Karayolları kaydının başlığı "Daha yüksek erişilebilirlik modunu aç" (sayfadaki
+ * erişilebilirlik düğmesi), İçişleri kaydının başlığı sayfanın tüm menüsüydü;
+ * ikisinin de detay bağlantısı kaynağın liste adresiydi. Bir liste sayfası ilan
+ * değildir: başlık ve tarih sayfa iskeletinden gelir, kayıt uydurma olur.
+ */
+export async function isSourceListingUrl(url: string, sourceKey: string, repos: Repos): Promise<boolean> {
+  const targets = new Set<string>();
+  const definition = findSourceDefinition(sourceKey);
+  if (definition) {
+    targets.add(definition.listingUrl);
+    targets.add(definition.homepageUrl);
+  }
+  // Kayıtlı kaynak satırı (kullanıcı panelden düzenlemiş olabilir) otoritedir.
+  const stored = await repos.sources.getByKey(sourceKey);
+  if (stored) {
+    targets.add(stored.listingUrl);
+    targets.add(stored.homepageUrl);
+  }
+  for (const target of targets) {
+    if (target && samePageUrl(url, target)) return true;
+  }
+  return false;
+}
 
 export interface IngestOutcome {
   action: 'created' | 'merged' | 'updated' | 'review' | 'rejected' | 'withdrawal-signal';
@@ -381,6 +423,31 @@ export async function applyRawAnnouncement(
   ctx: ApplyContext,
   options: { classificationOverride?: ClassificationResult } = {},
 ): Promise<IngestOutcome> {
+  // Güvenlik süzgeci: kaynağın kendi liste/dizin sayfası ilan kaydı olamaz.
+  // Kayıt oluşmadan reddedilir ve karar tarama belleğine yazılır ki sonraki
+  // taramada "yeni" sayılıp yeniden işlenmesin (bakım: recordIngestDecision).
+  if (await isSourceListingUrl(raw.url, raw.sourceKey, ctx.repos)) {
+    const listingClassification =
+      options.classificationOverride ??
+      classify({
+        title: raw.title,
+        body: raw.bodyText ?? raw.rawExcerpt ?? '',
+        sourceCategory: raw.sourceCategory ?? null,
+        sourceKey: raw.sourceKey,
+        documentTextMissing: true,
+      });
+    await recordIngestDecision(raw, ctx, 'rejected');
+    return {
+      action: 'rejected',
+      jobId: null,
+      decision: null,
+      classification: listingClassification,
+      changes: [],
+      reviewId: null,
+      revisionCreated: false,
+    };
+  }
+
   let classification =
     options.classificationOverride ??
     classify({

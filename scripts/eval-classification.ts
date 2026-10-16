@@ -7,6 +7,7 @@
  *   npm run eval:classification -- --llm        → kurallar + LLM kapısı (env'de LLM_CLASSIFIER_*
  *                                                  yapılandırması gereklidir; gerçek API çağrısı yapar)
  *   npm run eval:classification -- --json r.json→ makine okunur tam rapor (ayrı dosyaya)
+ *                                                  (yol verilmezse rapor YAZILMAZ ve uyarı basılır)
  *
  * `--llm` modunda deterministik motorun `review` dediği örnekler LLM kapısından geçirilir;
  * kapının çözdüğü ve çözemediği örnek sayıları, ölçülen gecikme/token/maliyet ayrıca
@@ -22,24 +23,28 @@
  *
  * Salt okunur: üretim veritabanına yazmaz (--llm modu geçici bir dosya deposu kullanır).
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { parseJsonOutputArg, writeJsonReport } from '../src/lib/json-output';
 import { classify } from '../src/classification/engine';
 import { CONTENT_TYPES, type ContentType } from '../src/domain/types';
 import {
+  assessGateScenario,
   computeEvalReport,
   computeHumanRealReport,
   formatRate,
   type EvalOrigin,
   type EvalRecord,
   type EvalReport,
+  type GateScenarioOutcome,
 } from '../src/classification/eval';
 import { extract, type ExtractedJob } from '../src/extraction/engine';
 import { getEnv } from '../src/config/env';
 import { FileStore } from '../src/db/file-store';
 import { createRepos } from '../src/db/repos';
 import { createLogger } from '../src/lib/logger';
+import { redactSecret } from '../src/ai/llm';
 import { computeLlmTelemetry, createLlmClassificationGate, llmClassifierConfig, type LlmTelemetryStats } from '../src/ai/classifier';
 
 const NEWS_BODY =
@@ -62,6 +67,13 @@ interface LabeledRecord {
   labelProvenance?: 'human' | 'machine' | 'spec';
   /** İnsan tarafından doğrulanmış beklenen alanlar (alan çıkarımı doğruluğu için). */
   expectedFields?: Partial<Record<keyof ExtractedJob, string | number | null>>;
+  /**
+   * Bu senaryoda kabul EDİLMEMESİ gereken içerik türleri.
+   * Örnek: istem enjeksiyonu metninde `personnel_recruitment` (uydurma alım kararı).
+   */
+  forbiddenContentTypes?: ContentType[];
+  /** Senaryonun geçme kuralını açıklayan not (insan okur). */
+  note?: string;
 }
 
 function argValue(flag: string): string | null {
@@ -161,7 +173,7 @@ function printFieldAccuracy(records: readonly LabeledRecord[], extracted: Map<st
 
 async function main(): Promise<void> {
   const file = argValue('--file') ?? join(process.cwd(), 'tests/fixtures/eval/labeled-set.json');
-  const jsonOut = argValue('--json');
+  const jsonArg = parseJsonOutputArg(process.argv);
   const useLlm = process.argv.includes('--llm');
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as { records: LabeledRecord[] };
 
@@ -191,6 +203,7 @@ async function main(): Promise<void> {
 
   const evalRecords: EvalRecord[] = [];
   const extracted = new Map<string, ExtractedJob>();
+  const gateRows: GateScenarioOutcome[] = [];
   let reviewCount = 0;
   let llmResolved = 0;
   for (const record of parsed.records) {
@@ -210,6 +223,18 @@ async function main(): Promise<void> {
         });
         predicted = outcome.classification.contentType ?? 'uncertain';
         if (outcome.classification.decision !== 'review') llmResolved += 1;
+        const verdict = outcome.opinion?.verdict ?? null;
+        gateRows.push({
+          id: record.id,
+          expected: record.expectedContentType,
+          predicted,
+          verdict,
+          decision: outcome.classification.decision,
+          evidenceVerified:
+            (verdict === 'ilan' || verdict === 'surec' || verdict === 'ilan-degil') &&
+            outcome.opinion?.contentType != null,
+          forbidden: record.forbiddenContentTypes ?? [],
+        });
       }
     }
     evalRecords.push({
@@ -280,6 +305,41 @@ async function main(): Promise<void> {
     console.log(
       `  maliyet: ${telemetry.cost.usd === null ? 'raporlanmadı' : `~$${telemetry.cost.usd.toFixed(4)}`} · ${telemetry.cost.note}`,
     );
+    if (gateRows.length > 0) {
+      console.log('\nSenaryo bazında kapı kararı (bu koşum):');
+      for (const row of gateRows) {
+        const assessment = assessGateScenario(row);
+        const etiket =
+          assessment === 'uygun' ? '✓ uygun' : assessment === 'uygunsuz' ? '✗ UYGUNSUZ' : '· kapı çalışmadı';
+        console.log(
+          `  ${pad(row.id, 20)} beklenen ${pad(row.expected, 30)} model kararı ${pad(String(row.verdict ?? '—'), 16)}` +
+            ` çıktı ${pad(row.predicted, 30)} kayıt ${pad(row.decision, 9)} ${etiket}`,
+        );
+      }
+      const sayim = {
+        uygun: gateRows.filter((row) => assessGateScenario(row) === 'uygun').length,
+        uygunsuz: gateRows.filter((row) => assessGateScenario(row) === 'uygunsuz').length,
+        kapicalismadi: gateRows.filter((row) => assessGateScenario(row) === 'kapi-calismadi').length,
+      };
+      console.log(
+        `  Özet: uygun ${sayim.uygun} · UYGUNSUZ ${sayim.uygunsuz} · kapı çalışmadı ${sayim.kapicalismadi}` +
+          ` (kapı çalışmadıysa kayıt incelemede kalır; uydurma bilgi yazılmaz)`,
+      );
+      if (sayim.kapicalismadi > 0) {
+        console.log('  Kapının çalışmadığı senaryolarda sağlayıcı hatası varsa koşumu yoğunluk geçtikten sonra YİNELEYİN.');
+      }
+    }
+    const errorTexts = [
+      ...new Set(
+        rows
+          .filter((row) => row.status !== 'ok' && (row.error ?? '').trim().length > 0)
+          .map((row) => redactSecret(String(row.error), env.LLM_API_KEY).replace(/\s+/g, ' ').trim().slice(0, 200)),
+      ),
+    ];
+    if (errorTexts.length > 0) {
+      console.log('\nBu koşumdaki sağlayıcı hataları (anahtar maskeli, en fazla 3 farklı metin):');
+      for (const text of errorTexts.slice(0, 3)) console.log(`  · ${text}`);
+    }
     console.log('Not: --llm modu GERÇEK sağlayıcı çağrısı yapar; maliyet ve veri koşulları sağlayıcıya tabidir.');
   } else if (useLlm === false) {
     console.log(
@@ -288,25 +348,30 @@ async function main(): Promise<void> {
     );
   }
 
-  if (jsonOut) {
-    writeFileSync(
-      resolve(jsonOut),
-      JSON.stringify(
-        {
-          generatedAt: new Date().toISOString(),
-          mode: useLlm ? 'rules+llm' : 'rules',
-          provider: useLlm ? { baseUrl: env.LLM_BASE_URL, model: env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL, kind: providerKind } : null,
-          file,
-          report,
-          humanRealReport: realReport,
-          llm: telemetry,
-        },
-        null,
-        2,
-      ),
-      'utf8',
+  if (jsonArg.mode === 'stdout') {
+    // Sessiz kalmak yanıltıcıydı: kullanıcı raporun yazıldığını sandı (canlı kanıt 16.10.2026).
+    console.log(
+      '\n⚠ --json için dosya yolu verilmedi; makine okunur rapor YAZILMADI (ör. --json data\\ai-kapisi-sonuc.json).',
     );
-    console.log(`\nMakine okunur rapor: ${jsonOut}`);
+  } else if (jsonArg.mode === 'dosya') {
+    const written = writeJsonReport(jsonArg.path, {
+      generatedAt: new Date().toISOString(),
+      mode: useLlm ? 'rules+llm' : 'rules',
+      provider: useLlm ? { baseUrl: env.LLM_BASE_URL, model: env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL, kind: providerKind } : null,
+      file,
+      report,
+      humanRealReport: realReport,
+      llm: telemetry,
+    });
+    if (written.ok) {
+      console.log(`\nMakine okunur rapor: ${written.path}`);
+    } else {
+      console.error(
+        `\n✖ Makine okunur rapor YAZILAMADI (${jsonArg.path}): ${written.message}\n` +
+          '  Klasörün var olduğundan emin olun (ör. data) ya da yolu tam verin.',
+      );
+      process.exitCode = 1;
+    }
   }
 
   if (gateStore) await gateStore.close();

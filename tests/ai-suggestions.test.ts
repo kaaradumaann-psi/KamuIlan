@@ -232,7 +232,11 @@ describe('üretim akışı (sahte LLM)', () => {
     });
     expect(outcome.result.mode).toBe('ai');
     expect(outcome.result.suggestions.map((item) => item.jobId)).toEqual([target.id]);
-    expect(outcome.result.suggestions[0]?.fit).toBe('strong');
+    // Uyum derecesi kodda belirlenen ön eleme sinyalini AŞAMAZ: bu aday için
+    // deterministik sinyal 'medium' olduğundan modelin "güçlü" iddiası
+    // 'possible' derecesine indirilir ve gerekçe olarak eklenir.
+    expect(outcome.result.suggestions[0]?.fit).toBe('possible');
+    expect((outcome.result.suggestions[0]?.caveats ?? []).join(' ')).toContain('sınırlandırıldı');
     expect(outcome.result.cached).toBe(false);
     expect(llm.calls).toHaveLength(1);
     expect(llm.calls[0]?.url).toBe('https://llm.test/v1/chat/completions');

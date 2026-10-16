@@ -12,6 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { uniquePreserve } from '../domain/text';
 import type { Repos } from '../db/repos';
 import type { JobDoc, NotificationPreferenceDoc } from '../db/schemas';
 import { EMPLOYMENT_TYPE_LABELS } from '../domain/types';
@@ -72,6 +73,29 @@ function fitFromSignal(signal: JobCandidate['match']['signal']): SuggestionFit {
   if (signal === 'high') return 'strong';
   if (signal === 'medium') return 'possible';
   return 'weak';
+}
+
+/**
+ * Modelin verdiği uyum derecesi, DETERMİNİSTİK ön eleme sinyalinin üstüne
+ * çıkamaz. Neden: öneri bir "ön eleme"dir ve kesin uygunluk kural motorunun
+ * bulduğu kanıta dayanır. Aksi halde model, kural motorunun "uyuşmuyor"
+ * dediği bir ilan için "Güçlü uyum" yazabilir ve kullanıcı bunu doğrulanmış
+ * bir karar sanabilirdi.
+ */
+export function capFitBySignal(
+  modelFit: SuggestionFit,
+  signal: JobCandidate['match']['signal'],
+): SuggestionFit {
+  const cap: Record<JobCandidate['match']['signal'], SuggestionFit> = {
+    high: 'strong',
+    medium: 'possible',
+    low: 'weak',
+    unknown: 'weak',
+  };
+  const allowed = cap[signal] ?? 'weak';
+  // FIT_ORDER'da küçük değer daha güçlü uyumdur: model ancak ön eleme
+  // sinyalinin izin verdiği dereceye kadar iddia edebilir.
+  return FIT_ORDER[modelFit] >= FIT_ORDER[allowed] ? modelFit : allowed;
 }
 
 function baseItem(candidate: JobCandidate): Omit<SuggestionItem, 'fit' | 'reasons' | 'caveats'> {
@@ -230,7 +254,9 @@ export async function generateSuggestions(options: GenerateOptions): Promise<Gen
   });
 
   if (!options.llm) {
-    return fallback('Yapay zekâ hizmeti yapılandırılmadığı için profil eşleştirmesi gösteriliyor.', 0);
+    // Kota bilgisi yanlış raporlanmasın: kullanılmış çağrılar okunur.
+    const used = await repos.rateLimits.peek(`ai-daily:${userId}`, DAILY_WINDOW_SECONDS);
+    return fallback('Yapay zekâ hizmeti yapılandırılmadığı için profil eşleştirmesi gösteriliyor.', used);
   }
 
   // Günlük kota: yalnızca model çağrısı yapılacaksa sayılır.
@@ -280,7 +306,24 @@ export async function generateSuggestions(options: GenerateOptions): Promise<Gen
     .map((item) => {
       const candidate = byId.get(item.jobId);
       if (!candidate) return null;
-      return { ...baseItem(candidate), fit: item.fit, reasons: item.reasons, caveats: item.caveats };
+      const fit = capFitBySignal(item.fit, candidate.match.signal);
+      const capped = fit !== item.fit;
+      return {
+        ...baseItem(candidate),
+        fit,
+        // Model gerekçeleri korunur; kural motorunun kanıta dayalı gerekçeleri
+        // (ve uyarıları) HER ZAMAN eklenir — model bunları gizleyemez.
+        reasons: uniquePreserve([...item.reasons, ...candidate.match.reasons.slice(0, 2)]).slice(0, 4),
+        caveats: uniquePreserve([
+          ...item.caveats,
+          ...(capped
+            ? [
+                'Model bu ilan için daha yüksek uyum belirtmişti; gösterilen derece kural tabanlı ön eleme sinyaliyle sınırlandırıldı.',
+              ]
+            : []),
+          ...candidate.match.caveats.slice(0, 2),
+        ]).slice(0, 4),
+      };
     })
     .filter((item): item is SuggestionItem => item !== null)
     .sort((a, b) => FIT_ORDER[a.fit] - FIT_ORDER[b.fit]);

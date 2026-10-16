@@ -375,7 +375,11 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           totals.errors.push(`${item.url}: ${message}`);
-          logger.error({ err: message, url: item.url }, 'ilan işlenemedi');
+          // Log alanları aranabilirlik içindir: hangi kaynak, hangi aşama, hangi kayıt.
+          logger.error(
+            { err: message, url: item.url, sourceKey: source.key, stage: 'item' },
+            'ilan işlenemedi',
+          );
         }
       }
 
@@ -432,7 +436,15 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         ? `Kaynak yapısı beklenenden farklı (HTML değişmiş olabilir): ${fatalError.message}`
         : `Tarama başarısız: ${fatalError.message}`;
     totals.errors.push(resultMessage);
-    logger.error({ err: fatalError.message, sourceKey: source.key }, 'tarama başarısız');
+    logger.error(
+      {
+        err: fatalError.message,
+        sourceKey: source.key,
+        stage: 'adapter',
+        errorType: classifyErrorType(fatalError, totals.errors.length),
+      },
+      'tarama başarısız',
+    );
   } finally {
     if (ownedHttp) {
       // Kaynak başına yeni istemci açıldıysa bağlantılar bırakılır.

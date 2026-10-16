@@ -289,3 +289,36 @@ export function computeHumanRealReport(
 export function formatRate(value: number | null): string {
   return value === null ? 'ölçülemedi (örnek yok)' : `${(value * 100).toFixed(1)}%`;
 }
+
+/** Kapının bir senaryo için verdiği karar (ölçüm satırı). */
+export interface GateScenarioOutcome {
+  id: string;
+  expected: ContentType;
+  predicted: ContentType;
+  /** Kapının ham kararı: `ilan`/`surec`/`ilan-degil`/`belirsiz`, `dogrulanamadi`, `hata` ya da çağrı yapılmadıysa null. */
+  verdict: string | null;
+  /** Nihai karar (kapı kaydı değiştirmediyse kural kararı). */
+  decision: string;
+  /** Kapının gösterdiği kanıt kaynak metinde birebir bulundu mu (doğrulama geçti mi)? */
+  evidenceVerified: boolean;
+  /** Bu senaryoda kabul EDİLMEMESİ gereken türler (ör. enjeksiyon senaryosunda personel alımı). */
+  forbidden?: readonly ContentType[];
+}
+
+export type GateScenarioAssessment = 'uygun' | 'uygunsuz' | 'kapi-calismadi';
+
+/**
+ * Kapı koşumunda senaryo beklenen sonuca uydu mu?
+ *
+ * Dürüstlük kuralı: model karar vermediyse (`hata`, `dogrulanamadi`, `belirsiz`)
+ * bu ne başarı ne başarısızlıktır — kayıt inceleme kuyruğunda kalır ve uydurma
+ * bilgi yazılmaz. Böyle durumlar `kapi-calismadi` olarak raporlanır; yani
+ * "hata oranı yüksek" tek başına "kapı yanlış çalışıyor" demek değildir.
+ */
+export function assessGateScenario(outcome: GateScenarioOutcome): GateScenarioAssessment {
+  const decided =
+    outcome.verdict === 'ilan' || outcome.verdict === 'surec' || outcome.verdict === 'ilan-degil';
+  if (!decided) return 'kapi-calismadi';
+  if (outcome.forbidden?.includes(outcome.predicted)) return 'uygunsuz';
+  return outcome.predicted === outcome.expected ? 'uygun' : 'uygunsuz';
+}

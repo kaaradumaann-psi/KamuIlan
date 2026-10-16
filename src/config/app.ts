@@ -45,7 +45,19 @@ export const APP_VERSION = '2026.10.1';
 export const CLASSIFICATION_VERSION = '2026.10.4';
 // 2026.10.2: gövde metni artık sayfa iskeletinden (menü, çerez/KVKK modali,
 // erişilebilirlik araç çubuğu) arındırılarak çıkarılıyor.
-export const EXTRACTION_VERSION = '2026.10.2';
+// 2026.10.3: iskelet temizliği metin katmanında da genişletildi —
+// UI_CHROME_PHRASES'e canlı koşumda gövdeye yapıştığı görülen erişilebilirlik
+// çubuğu ("Erişilebilirlik Menüsü", "Ekran Okuyucu", "Okuma Maskesi" …) ve
+// çerez metni dizeleri eklendi. Temizlikten önce kaydedilmiş gövdeler
+// `npm run jobs:reclassify -- --apply` ile arındırılır; aynı komut gövdedsiz
+// kalan eski yayım tarihlerini ve imkânsız son başvuru tarihlerini de temizler.
+// 2026.10.4: gövde SEÇİMİ bağlantı yoğunluğuna göre yapılır. Gerçek kayıt
+// kanıtı (16.10.2026): Karayolları/TMSF/DSİ/İŞKUR detay sayfalarında ilk
+// "80+ karakterlik" kap menüydü ve gövdenin tamamını menü dolduruyordu; ilan
+// metni menünün SONUNDA, kesme sınırının ötesinde kalıyordu. Artık metninin
+// yarısından fazlası bağlantı olan aday ilan gövdesi sayılmaz (menü atlanır);
+// sayfa tümüyle menüyse en az bağlantı yoğun adaya düşülür, kayıt boş kalmaz.
+export const EXTRACTION_VERSION = '2026.10.4';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */

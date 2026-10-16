@@ -8,7 +8,7 @@
  */
 import { load, type CheerioAPI, type Cheerio } from 'cheerio';
 import { isTag, type AnyNode } from 'domhandler';
-import { collapseWhitespace, stripHtmlTags } from '../domain/text';
+import { collapseWhitespace, looksLikePageChromeText, stripHtmlTags } from '../domain/text';
 
 export type { CheerioAPI, Cheerio, AnyNode };
 
@@ -201,6 +201,20 @@ export function describePageStructure(html: string, baseUrl: string): PageStruct
  * back to body/root. Candidate selectors are ordered from most specific to
  * broadest by the adapter.
  */
+/**
+ * Bağlantı yoğunluğu eşiği: metnin bu orandan fazlası `<a>` içindeyse aday
+ * "menü/gezinme kabı" sayılır ve ilan gövdesi olarak KULLANILMAZ.
+ *
+ * Gerçek veri kanıtı (16.10.2026, kullanıcının üretim kayıtları): 2500
+ * karakterlik gövdenin tamamı menüydü — Karayolları, TMSF, DSİ ve İŞKUR
+ * kayıtlarında gövde "ANA SAYFA KURUMSAL … Tüm Duyurular Arşiv …" gibi
+ * bağlantı listelerinden oluşuyordu ve gerçek ilan cümlesi ancak bu listenin
+ * SONUNDA, kesme sınırının ötesinde başlıyordu. Menü metni neredeyse tümüyle
+ * `<a>` etiketlerinin içinde, ilan metni ise düz paragraflarda durur; bu yüzden
+ * aday seçimi bağlantı yoğunluğuna göre yapılır.
+ */
+export const LINK_DENSE_CANDIDATE_SHARE = 0.5;
+
 export function readableAnnouncementText(
   $: CheerioAPI,
   selectors: readonly string[],
@@ -220,14 +234,34 @@ export function readableAnnouncementText(
     stripPageChrome(cloned);
     return blockElementText(cloned, limit + 1);
   };
+  /** Aday metninin ne kadarı bağlantı metni (0–1)? Menü kaplarında ~1'e yakındır. */
+  const linkTextShare = (node: AnyNode, textLength: number): number => {
+    if (textLength <= 0) return 0;
+    const anchors = $(node).find('a');
+    if (anchors.length === 0) return 0;
+    let linkLength = 0;
+    anchors.each((_index, element) => {
+      linkLength += elementText($(element), 400).length;
+    });
+    return Math.min(1, linkLength / textLength);
+  };
+  const clamp = (text: string): string => (text.length > limit ? text.slice(0, limit + 1) : text);
+
+  // Hiçbir aday içerik kabı değilse (sayfa tümüyle menü/içerik metni yok) en az
+  // bağlantı yoğun adaya düşülür: davranış eskisinden kötü olmaz, boş dönülmez.
+  let fallback: { text: string; share: number } | null = null;
   for (const selector of candidates) {
     for (const node of $(selector).toArray()) {
       if (seen.has(node)) continue;
       seen.add(node);
       const text = textOf(node);
-      if (text.length >= 80) return text.length > limit ? text.slice(0, limit + 1) : text;
+      if (text.length < 80) continue;
+      const share = linkTextShare(node, text.length);
+      if (share < LINK_DENSE_CANDIDATE_SHARE && !looksLikePageChromeText(text)) return clamp(text);
+      if (fallback === null || share < fallback.share) fallback = { text, share };
     }
   }
+  if (fallback) return clamp(fallback.text);
   const root = $.root();
   if (!stripChrome) return blockElementText(root, limit + 1).slice(0, limit + 1);
   const clonedRoot = root.clone();

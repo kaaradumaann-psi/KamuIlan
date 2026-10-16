@@ -13,7 +13,8 @@
  *   npm run llm:doctor -- --offline   → yalnızca yapılandırma denetimi (ağ yok)
  *   npm run llm:doctor -- --compat    → Google kökünde OpenAI uyumlu ucu dene
  *   npm run llm:doctor -- --native    → taşıyıcıyı Gemini yerel API'sine zorla
- *   npm run llm:doctor -- --json      → makine okunur çıktı
+ *   npm run llm:doctor -- --json            → makine okunur çıktı (konsola)
+ *   npm run llm:doctor -- --json data\d.json → makine okunur çıktı (dosyaya)
  *
  * Güvenlik: API anahtarı, Authorization ve x-goog-api-key değerleri hiçbir
  * biçimde yazdırılmaz (yalnızca anahtar uzunluğu). Ham istem/yanıt gövdesi
@@ -36,6 +37,7 @@ import {
   type LlmTransport,
 } from '../src/ai/llm';
 import { llmClassifierConfig } from '../src/ai/classifier';
+import { parseJsonOutputArg, writeJsonReport } from '../src/lib/json-output';
 
 const HELP = `LLM kapısı tanısı
 
@@ -44,7 +46,8 @@ Kullanım:
   npm run llm:doctor -- --offline   yalnızca yapılandırma (ağ çağrısı yok)
   npm run llm:doctor -- --compat    Google kökünde OpenAI uyumlu ucu DENE (karşılaştırma için)
   npm run llm:doctor -- --native    taşıyıcıyı Gemini yerel API'sine zorla
-  npm run llm:doctor -- --json      makine okunur çıktı
+  npm run llm:doctor -- --json                  makine okunur çıktı (konsola)
+  npm run llm:doctor -- --json data\doktor.json makine okunur çıktı (dosyaya)
   npm run llm:doctor -- --help      bu yardım
 
 Taşıyıcılar:
@@ -828,7 +831,7 @@ async function main(): Promise<void> {
     return;
   }
   const offline = hasFlag('--offline');
-  const asJson = hasFlag('--json');
+  const jsonArg = parseJsonOutputArg(process.argv);
   const forcedTransport: LlmTransport | undefined = hasFlag('--compat')
     ? 'openai-compat'
     : hasFlag('--native')
@@ -838,12 +841,25 @@ async function main(): Promise<void> {
   const env = getEnv();
   const report = await runLlmDoctor({ env, offline, forcedTransport });
 
-  if (asJson) {
+  if (jsonArg.mode === 'stdout') {
+    // Makine okunur mod: konsola YALNIZCA JSON yazılır (API anahtarı satırı dahil edilmez).
     console.log(JSON.stringify(report, null, 2));
   } else {
     console.log(`  API anahtarı         : ${describeSecret(env.LLM_API_KEY)}`);
     for (const line of formatDoctorReport(report, { offline, forcedTransport })) {
       console.log(line);
+    }
+    if (jsonArg.mode === 'dosya') {
+      const written = writeJsonReport(jsonArg.path, report);
+      if (written.ok) {
+        console.log(`\nMakine okunur rapor: ${written.path}`);
+      } else {
+        console.error(
+          `\n✖ Makine okunur rapor YAZILAMADI (${jsonArg.path}): ${written.message}\n` +
+            '  Klasörün var olduğundan emin olun (ör. data) ya da yolu tam verin.',
+        );
+        process.exitCode = 1;
+      }
     }
   }
 

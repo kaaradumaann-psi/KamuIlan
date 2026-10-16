@@ -799,8 +799,18 @@ export function describeLlmEndpointRisk(baseUrl: string, model: string): string 
   return null;
 }
 
+/**
+ * Sağlayıcının 429 gövdesi KOTA/PLAN sınırını mı anlatıyor?
+ * Canlı kanıt (16.10.2026): Google `RESOURCE_EXHAUSTED` + "You exceeded your current
+ * quota, please check your plan and billing details." döndürdü. Eski ipucu yalnızca
+ * "günlük sınır (LLM_DAILY_CALL_LIMIT) düşürülebilir" diyordu; bu, sınırı YANLIŞ yere
+ * (uygulamanın kendi sayacına) yıkıyordu. Ayrım operatör için kritiktir: uygulama ayarı
+ * sağlayıcı kotasını değiştirmez.
+ */
+const PROVIDER_QUOTA_PATTERN = /(quota|billing|resource[_\s-]?exhausted|rate[_\s-]?limit|plan)/i;
+
 /** HTTP durum koduna göre operatörün deneyebileceği ilk adım (sır içermez). */
-function statusHint(status: number, endpoint: LlmEndpoint): string {
+function statusHint(status: number, endpoint: LlmEndpoint, providerMessage?: string | null): string {
   if (status === 404) {
     if (endpoint.transport === 'gemini-native') {
       return (
@@ -823,7 +833,16 @@ function statusHint(status: number, endpoint: LlmEndpoint): string {
       ? ' İstek gövdesi Gemini biçimiyle uyumsuz olabilir (model adı, maxOutputTokens, systemInstruction ya da ardışık aynı roldeki mesajlar).'
       : ' İstek gövdesi sağlayıcıyla uyumsuz olabilir (model adı, max_tokens ya da response_format desteği).';
   }
-  if (status === 429) return ' Sağlayıcı hız/kota sınırı uyguluyor; günlük sınır (LLM_DAILY_CALL_LIMIT) düşürülebilir.';
+  if (status === 429) {
+    if (providerMessage && PROVIDER_QUOTA_PATTERN.test(providerMessage)) {
+      return (
+        ' Sağlayıcı KOTA/PLAN sınırı bildirdi (HTTP 429). Bu sınır SAĞLAYICIDA (hesap/plan/günlük kota); ' +
+        'uygulamanın kendi sayacı (LLM_DAILY_CALL_LIMIT) ya da yeniden deneme ayarı bu hatayı ÇÖZMEZ. ' +
+        'Sağlayıcı panelinden kotayı/planı kontrol edin; kota yenilendiğinde komutu yineleyin.'
+      );
+    }
+    return ' Sağlayıcı hız/kota sınırı uyguluyor; günlük sınır (LLM_DAILY_CALL_LIMIT) düşürülebilir.';
+  }
   if (status === 413) return ' İstem çok büyük; LLM_MAX_INPUT_CHARS değerini düşürün.';
   return '';
 }
@@ -909,7 +928,7 @@ export async function callChatCompletion(
         reason:
           `Sağlayıcı HTTP ${response.status} döndü [${describeTransport(endpoint.transport)}].` +
           (providerMessage ? ` Sağlayıcı mesajı: ${providerMessage}.` : '') +
-          statusHint(response.status, endpoint),
+          statusHint(response.status, endpoint, providerMessage),
         status: response.status,
         retryable,
         failureCategory: classifyHttpFailureStatus(response.status),
