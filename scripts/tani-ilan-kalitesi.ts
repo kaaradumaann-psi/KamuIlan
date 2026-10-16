@@ -79,6 +79,21 @@ function pct(part: number, total: number): string {
   return `${((part / total) * 100).toFixed(1)}%`;
 }
 
+/**
+ * Sağlayıcı hata metnini güvenle gösterir: anahtar/token benzeri diziler
+ * maskelenir, uzunluk sınırlanır. Hata metni teşhis için gerekli, sır için değil.
+ */
+function maskSecrets(text: string): string {
+  return text
+    .replace(/([?&](?:key|api_key|access_token|token)=)[^&\s]+/giu, '$1***')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/giu, 'Bearer ***')
+    .replace(/\bAIza[A-Za-z0-9_-]{10,}\b/gu, '***')
+    .replace(/\b[A-Za-z0-9_-]{24,}\b/gu, '***')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
+
 function countBy<T>(items: T[], key: (item: T) => string): Map<string, number> {
   const map = new Map<string, number>();
   for (const item of items) {
@@ -513,6 +528,24 @@ async function main(): Promise<void> {
       lines.push(`     ${String(count).padStart(5)}  ${label}`);
     }
   }
+  const maskedFailures = telemetryRows
+    .filter((row) => row.status !== 'ok')
+    .slice(0, 3)
+    .map((row) => ({
+      at: row.createdAt,
+      status: row.status,
+      latencyMs: row.latencyMs,
+      error: maskSecrets(row.error ?? ''),
+    }));
+  if (maskedFailures.length > 0) {
+    lines.push('   Son başarısız çağrıların hata metni (anahtar/token MASKELENMİŞ, 160 karakter):');
+    for (const failure of maskedFailures) {
+      lines.push(
+        `     ${failure.at.slice(0, 19).replace('T', ' ')} · ${failure.status} · ${failure.latencyMs}ms\n` +
+          `       ${failure.error || '(hata metni boş)'}`,
+      );
+    }
+  }
   const callsByDay = new Map<string, number>();
   for (const row of telemetryRows) {
     if (row.cacheHit) continue;
@@ -576,6 +609,7 @@ async function main(): Promise<void> {
             costUsd: telemetry.cost.usd,
             costNote: telemetry.cost.note,
             failureSignals: Object.fromEntries(failureSignals),
+            recentFailures: maskedFailures,
             callsByDay: Object.fromEntries(callsByDay),
           },
           duplicateGroups: duplicates.map((group) => ({
