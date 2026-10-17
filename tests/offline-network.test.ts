@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { connect } from 'node:net';
 import { get as httpsGet } from 'node:https';
@@ -6,10 +7,19 @@ import { describe, expect, it } from 'vitest';
 import { Agent } from 'undici';
 import { HttpClient } from '../src/sources/fetcher';
 
+const require = createRequire(import.meta.url);
+const rawTls = require('node:tls') as { connect: (...args: unknown[]) => unknown };
+
 describe('offline network guard', () => {
   it('blocks raw HTTPS and TCP attempts before they can open an external socket', () => {
     expect(() => httpsGet('https://example.invalid/path')).toThrow(/offline guard blocked raw external HTTP/);
     expect(() => connect(443, 'example.invalid')).toThrow(/offline guard blocked an external socket/);
+  });
+
+  it('checks the third options argument in the raw TLS port overload', () => {
+    expect(() => rawTls.connect(443, undefined, { host: 'example.invalid' })).toThrow(
+      /offline guard blocked an external socket/,
+    );
   });
 
   it('blocks an externally injected real Undici Agent before its dispatcher can connect', async () => {

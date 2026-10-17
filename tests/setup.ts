@@ -86,6 +86,7 @@ function httpUrl(protocol: 'http:' | 'https:', target: unknown, extraOptions?: u
     }
   }
   const options = { ...optionRecord(target), ...optionRecord(extraOptions) };
+  if (typeof options['lookup'] === 'function') return `${protocol}//<custom-lookup>/`;
   const socketPath = options['socketPath'];
   if (typeof socketPath === 'string' && socketPath.length > 0) return `${protocol}//localhost/`;
   const rawHost = String(options['hostname'] ?? options['host'] ?? 'localhost');
@@ -108,15 +109,49 @@ function httpUrl(protocol: 'http:' | 'https:', target: unknown, extraOptions?: u
   return `${protocol}//${host}${port}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-function socketUrl(target: unknown, next?: unknown, protocol: 'tcp:' | 'tls:' = 'tcp:'): string {
-  const options = optionRecord(target);
-  if (typeof options['socketPath'] === 'string') return `${protocol}//localhost/`;
-  if (typeof target === 'number') {
-    const host = typeof next === 'string' ? next : 'localhost';
-    return `${protocol}//${host}:${target}/`;
+function socketUrl(args: unknown[], protocol: 'tcp:' | 'tls:' = 'tcp:'): string {
+  const target = args[0];
+  const records = args.map(optionRecord);
+  // A custom lookup can resolve an apparently local name to an external address.
+  // Tests do not need this escape hatch, so classify it as external and fail closed.
+  if (records.some((options) => typeof options['lookup'] === 'function')) return `${protocol}//<custom-lookup>/`;
+  if (records.some((options) => typeof options['socketPath'] === 'string' && options['socketPath'].length > 0)) {
+    return `${protocol}//localhost/`;
   }
-  const host = String(options['host'] ?? options['hostname'] ?? options['servername'] ?? 'localhost');
-  const port = options['port'] === undefined ? '' : `:${String(options['port'])}`;
+
+  let host: string;
+  let port: string;
+  if (typeof target === 'number') {
+    // tls.connect has a (port, host, options, callback) overload. In particular,
+    // tls.connect(port, undefined, { host: 'external.example' }) must not be
+    // mistaken for a loopback connection just because the host is argument 3.
+    const trailing = args.slice(1);
+    const explicitHost = trailing.find((value): value is string => typeof value === 'string' && value.length > 0);
+    const optionHost = records
+      .slice(1)
+      .map((options) => options['host'] ?? options['hostname'])
+      .find((value): value is string => typeof value === 'string' && value.length > 0);
+    const serverName = records
+      .slice(1)
+      .map((options) => options['servername'])
+      .find((value): value is string => typeof value === 'string' && value.length > 0);
+    host = explicitHost ?? optionHost ?? serverName ?? 'localhost';
+    port = `:${target}`;
+  } else if (typeof target === 'string') {
+    // The string overload is a Unix-domain socket path, not a host name.
+    return `${protocol}//localhost/`;
+  } else {
+    const optionHost = records
+      .map((options) => options['host'] ?? options['hostname'])
+      .find((value): value is string => typeof value === 'string' && value.length > 0);
+    const serverName = records
+      .map((options) => options['servername'])
+      .find((value): value is string => typeof value === 'string' && value.length > 0);
+    host = optionHost ?? serverName ?? 'localhost';
+    const optionPort = records.map((options) => options['port']).find((value) => value !== undefined);
+    port = optionPort === undefined ? '' : `:${String(optionPort)}`;
+  }
+
   const authority = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
   return `${protocol}//${authority}${port}/`;
 }
@@ -127,8 +162,8 @@ function guardRawHttp(protocol: 'http:' | 'https:', args: unknown[]): void {
   }
 }
 
-function guardRawSocket(target: unknown, next: unknown, protocol: 'tcp:' | 'tls:'): void {
-  if (shouldBlockExternalHttpInTest(socketUrl(target, next, protocol), 'raw-socket')) {
+function guardRawSocket(args: unknown[], protocol: 'tcp:' | 'tls:'): void {
+  if (shouldBlockExternalHttpInTest(socketUrl(args, protocol), 'raw-socket')) {
     throw new Error('Vitest offline guard blocked an external socket before connecting.');
   }
 }
@@ -151,17 +186,17 @@ function installNodeNetworkGuards(): void {
     return Reflect.apply(originalHttpsGet, this, args);
   };
   netModule.connect = function (this: unknown, ...args: unknown[]): unknown {
-    guardRawSocket(args[0], args[1], 'tcp:');
+    guardRawSocket(args, 'tcp:');
     return Reflect.apply(originalNetConnect, this, args);
   };
   if (originalNetCreateConnection) {
     netModule.createConnection = function (this: unknown, ...args: unknown[]): unknown {
-      guardRawSocket(args[0], args[1], 'tcp:');
+      guardRawSocket(args, 'tcp:');
       return Reflect.apply(originalNetCreateConnection, this, args);
     };
   }
   tlsModule.connect = function (this: unknown, ...args: unknown[]): unknown {
-    guardRawSocket(args[0], args[1], 'tls:');
+    guardRawSocket(args, 'tls:');
     return Reflect.apply(originalTlsConnect, this, args);
   };
   syncBuiltinESMExports();
