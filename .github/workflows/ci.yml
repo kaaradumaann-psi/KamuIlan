@@ -64,6 +64,11 @@ jobs:
             echo "ADMIN_PASSWORD=$admin_password"
           } >> "$GITHUB_ENV"
 
+      # API tek başına worker gibi kaynak envanterini seed etmez. Sadece statik
+      # tanımları file-backed test deposuna yaz; worker/planlayıcı başlatma.
+      - name: E2E statik kaynak envanteri
+        run: npm run seed:e2e-sources
+
       # Hesap yalnızca bu işin geçici DATA_DIR'inde yaşar.
       - name: E2E yönetici hesabı
         run: npm run seed:admin
