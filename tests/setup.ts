@@ -77,6 +77,18 @@ function optionRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
+function isLoopbackHost(value: unknown): boolean {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  const raw = value.trim();
+  const authority = (raw.match(/:/g)?.length ?? 0) > 1 && !raw.startsWith('[') ? `[${raw}]` : raw;
+  try {
+    const hostname = new URL(`tcp://${authority}`).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return hostname === 'localhost' || hostname === '::1' || /^127\./.test(hostname);
+  } catch {
+    return false;
+  }
+}
+
 function httpUrl(protocol: 'http:' | 'https:', target: unknown, extraOptions?: unknown): string {
   if (typeof target === 'string' || target instanceof URL) {
     try {
@@ -86,7 +98,13 @@ function httpUrl(protocol: 'http:' | 'https:', target: unknown, extraOptions?: u
     }
   }
   const options = { ...optionRecord(target), ...optionRecord(extraOptions) };
-  if (typeof options['lookup'] === 'function') return `${protocol}//<custom-lookup>/`;
+  const lookupHost = options['hostname'] ?? options['host'];
+  if (
+    typeof options['lookup'] === 'function' &&
+    (typeof lookupHost !== 'string' || !isLoopbackHost(lookupHost))
+  ) {
+    return `${protocol}//<custom-lookup>/`;
+  }
   const socketPath = options['socketPath'];
   if (typeof socketPath === 'string' && socketPath.length > 0) return `${protocol}//localhost/`;
   const rawHost = String(options['hostname'] ?? options['host'] ?? 'localhost');
@@ -112,11 +130,21 @@ function httpUrl(protocol: 'http:' | 'https:', target: unknown, extraOptions?: u
 function socketUrl(args: unknown[], protocol: 'tcp:' | 'tls:' = 'tcp:'): string {
   const target = args[0];
   const records = args.map(optionRecord);
-  // A custom lookup can resolve an apparently local name to an external address.
-  // Tests do not need this escape hatch, so classify it as external and fail closed.
-  if (records.some((options) => typeof options['lookup'] === 'function')) return `${protocol}//<custom-lookup>/`;
   if (records.some((options) => typeof options['socketPath'] === 'string' && options['socketPath'].length > 0)) {
     return `${protocol}//localhost/`;
+  }
+  // A custom lookup may resolve an apparently local name externally. Permit it
+  // only when the connection explicitly targets a literal loopback host (used by
+  // the in-process TLS fixture); absent/non-loopback hosts fail closed.
+  const explicitHost = typeof target === 'number'
+    ? args.slice(1).find((value): value is string => typeof value === 'string' && value.length > 0) ??
+      records.slice(1).map((options) => options['host'] ?? options['hostname']).find((value): value is string => typeof value === 'string' && value.length > 0)
+    : records.map((options) => options['host'] ?? options['hostname']).find((value): value is string => typeof value === 'string' && value.length > 0);
+  if (
+    records.some((options) => typeof options['lookup'] === 'function') &&
+    !isLoopbackHost(explicitHost)
+  ) {
+    return `${protocol}//<custom-lookup>/`;
   }
 
   let host: string;
