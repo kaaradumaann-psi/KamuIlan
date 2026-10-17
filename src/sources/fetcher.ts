@@ -12,7 +12,7 @@
  *  - CAPTCHA/erişim kontrolü AŞILMAZ; engellenirse hata kaydedilir.
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
-import { request, Agent, type Dispatcher } from 'undici';
+import { request, Agent, MockAgent, type Dispatcher } from 'undici';
 import {
   loadCaStore as tlsLoadCaStore,
   systemCaStoreAvailable as tlsTrustStoreAvailable,
@@ -25,6 +25,7 @@ import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
 import { createLogger, type Logger } from '../lib/logger';
 import { createPublicOnlyLookup } from './network-safety';
+import { shouldBlockExternalHttpInTest } from '../lib/offline-network';
 import {
   completeCertificateChain,
   isChainIncompleteError,
@@ -242,6 +243,10 @@ export interface HttpClientOptions {
   dispatcher?: Dispatcher;
   /** Tarama istemcileri arasında host hız sınırını paylaşmak için. */
   rateLimiter?: HostRateLimiter;
+  /** İsteğe bağlı toplam HTTP attempt sınırı; redirect/retry dahil. */
+  maxRequests?: number;
+  /** İsteğe bağlı fetchText belge sınırı; canlı probe'da sayfa + detay için tutucu üst sınır. */
+  maxTextRequests?: number;
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -337,6 +342,11 @@ export class HttpClient {
   private readonly userAgent: string;
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly signal: AbortSignal | undefined;
+  private readonly maxRequests: number | null;
+  private readonly maxTextRequests: number | null;
+  private requestCount = 0;
+  private requestReservations = 0;
+  private textRequestCount = 0;
   /** Birleşik güven deposu (Node + sistem + NODE_EXTRA_CA_CERTS) PEM listesi. */
   private readonly baseCa: readonly string[];
   /**
@@ -353,6 +363,16 @@ export class HttpClient {
 
   constructor(options: HttpClientOptions = {}) {
     this.ownsAgent = options.dispatcher === undefined;
+    this.isMockDispatcher = options.dispatcher instanceof MockAgent;
+    if (options.dispatcher instanceof MockAgent && process.env.NODE_ENV === 'test') options.dispatcher.disableNetConnect();
+    if (options.maxRequests !== undefined && (!Number.isSafeInteger(options.maxRequests) || options.maxRequests < 1)) {
+      throw new Error('HttpClient maxRequests pozitif güvenli tamsayı olmalıdır.');
+    }
+    if (options.maxTextRequests !== undefined && (!Number.isSafeInteger(options.maxTextRequests) || options.maxTextRequests < 1)) {
+      throw new Error('HttpClient maxTextRequests pozitif güvenli tamsayı olmalıdır.');
+    }
+    this.maxRequests = options.maxRequests ?? null;
+    this.maxTextRequests = options.maxTextRequests ?? null;
     this.limiter = options.rateLimiter ?? PROCESS_HOST_RATE_LIMITER;
     this.logger = options.logger ?? createLogger('fetch');
     this.signal = options.signal;
@@ -370,6 +390,22 @@ export class HttpClient {
     const trustBundle = loadTrustBundle();
     this.baseCa = trustBundle ?? [];
     this.agent = options.dispatcher ?? this.createAgent(trustBundle);
+  }
+
+  get requestsMade(): number {
+    return this.requestCount;
+  }
+
+  get textFetchesMade(): number {
+    return this.textRequestCount;
+  }
+
+  get remainingRequestBudget(): number | null {
+    return this.maxRequests === null ? null : Math.max(0, this.maxRequests - this.requestReservations);
+  }
+
+  get remainingTextRequestBudget(): number | null {
+    return this.maxTextRequests === null ? null : Math.max(0, this.maxTextRequests - this.textRequestCount);
   }
 
   private createAgent(ca?: readonly string[]): Agent {
@@ -442,6 +478,7 @@ export class HttpClient {
   }
 
   private readonly ownsAgent: boolean;
+  private readonly isMockDispatcher: boolean;
 
   async close(): Promise<void> {
     if (!this.ownsAgent) return;
@@ -454,6 +491,10 @@ export class HttpClient {
 
   /** Metin (HTML/XML/JSON) getirir. */
   async fetchText(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    if (this.maxTextRequests !== null && this.textRequestCount >= this.maxTextRequests) {
+      throw new FetchError(url, `Tutucu text/page request bütçesi doldu (${this.maxTextRequests}).`, null, false);
+    }
+    this.textRequestCount += 1;
     const response = await this.fetch(url, {
       ...options,
       expectedContentTypes: options.expectedContentTypes ?? [...HTML_TYPES, ...JSON_TYPES],
@@ -589,12 +630,26 @@ export class HttpClient {
 
     for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
       const url = new URL(currentUrl);
+      if (!this.isMockDispatcher && shouldBlockExternalHttpInTest(currentUrl, 'source-http')) {
+        throw new FetchError(
+          currentUrl,
+          'Vitest offline guard: gerçek kaynak HTTP isteği engellendi; MockAgent kullanın.',
+          null,
+          false,
+        );
+      }
+      if (this.maxRequests !== null && this.requestReservations >= this.maxRequests) {
+        throw new FetchError(currentUrl, `Tutucu toplam HTTP istek bütçesi doldu (${this.maxRequests}).`, null, false);
+      }
+      // Eşzamanlı adapter Promise'leri aynı kalan bütçeyi göremez.
+      this.requestReservations += 1;
       await this.limiter.wait(
         url.hostname,
         options.minIntervalMs ?? env.SOURCE_MIN_REQUEST_INTERVAL_MS,
         options.signal,
       );
 
+      this.requestCount += 1;
       const response = await request(currentUrl, {
         method,
         headers: requestHeaders,

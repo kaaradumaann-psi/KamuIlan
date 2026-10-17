@@ -20,9 +20,14 @@ araçlarını ve kurallarını tanımlar.
 
 ## 2. Akış
 
-```bash
-# 0) Gerçek kayıtların depoda olması gerekir: canlı tarama (ağ erişimi olan ortamda)
-npm run start:worker           # ya da tek seferlik: npm run test:live (kurulu kaynaklar)
+```powershell
+New-Item -ItemType Directory -Force data | Out-Null
+# 0) Kaynak erişimi ayrı ve opt-in kanıttır; test:live üretim DB'sine yazmaz.
+#    Gerçek kayıt oluşturmak/worker çalıştırmak için yalnızca ayrılmış staging/file DB kullanın.
+$env:SOURCE_LIVE_FETCH = '1'
+npm run test:live -- --live --source=osym-duyurular --max-requests=5 --max-pages=2 --max-details=1 --min-delay-ms=1000
+Remove-Item Env:SOURCE_LIVE_FETCH
+# Worker'ı production DB'ye yönlendirerek eval kümesi oluşturmayın.
 
 # 1) Etiketleme sayfası üret (SALT OKUNUR; veritabanına yazmaz)
 npm run eval:build-set -- --filter review --limit 60 --out data/eval-worksheet.json
@@ -36,10 +41,12 @@ npm run eval:build-set -- --filter accepted --limit 60 --out data/eval-worksheet
 npm run eval:build-set -- --import data/eval-worksheet.json --set tests/fixtures/eval/labeled-set.json
 npm run eval:build-set -- --import data/eval-worksheet.json --set tests/fixtures/eval/labeled-set.json --apply
 
-# 4) Ölç
-npm run eval:classification                                  # yalnızca kurallar
-npm run eval:classification -- --llm                         # kurallar + LLM kapısı
-npm run eval:classification -- --llm --json data/eval.json   # makine okunur çıktı
+# 4) Ölç (deterministik; insan etiketleri yoksa sonuç VERİ YETERSİZ)
+npm run eval:classification -- --json data/eval-offline.json
+
+# Ücretli/provider eval yalnızca veri paylaşımına izin verilmiş, incelenmiş veriyle:
+# --reviewed-public-data ve tüm üç bütçe bayrağı zorunludur.
+npm run eval:classification -- --file tests/fixtures/eval/labeled-set.json --llm --reviewed-public-data --max-calls 1 --max-output-tokens 128 --max-cost-usd 0.01 --json data/eval-live.json
 ```
 
 **Not (veri küçültme):** depoda tam ilan gövdesi saklanmaz; yalnızca sınırlandırılmış,
@@ -72,20 +79,21 @@ Tamamlayıcı zorunlu örnekler (hedefin içinde seçilir, ayrıca izlenir):
 
 ## 4. Bu ortamda neden hâlâ 0 gerçek kayıt var?
 
-Sandbox'ın gidiş ağ izinleri yalnızca `github.com`, `npmjs.org`, `pypi.org` ile sınırlıdır.
-`npm run test:live` bu ortamda her kurum kaynağında `ECONNRESET` (TLS el sıkışması kesiliyor)
-verdi; `ilan.gov.tr` ve `resmigazete.gov.tr` okunamadı. Bu, **ENGELLENDİ** durumudur:
-araçlar ve akış hazırdır, veri ağ erişimi olan bir ortamda toplanabilir. Bu durumda üretilen
-tek şey kod ve testleridir; gerçek etiket sayısı 0 olarak rapor edilir.
+Önceki tarihli sandbox koşumlarında gidiş ağı `github.com`, `npmjs.org`, `pypi.org`
+ile sınırlıydı; `ilan.gov.tr` ve `resmigazete.gov.tr` okunamadı. Bu, **ENGELLENDİ**
+kanıtıdır; canlı doğruluk/sağlık sonucu değildir. Bu çalışma turunda yeni canlı kaynak,
+provider veya insan etiket koşumu yapılmadı. Güncel kontrolün sonucu yalnızca gerçek
+komut çıkışlarından raporlanmalıdır; gerçek insan etiketli kayıt sayısı halen **0**.
+Yeni izolasyon ve dar kapsamlı operatör adımları: [quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md).
 
 ## 5. Ölçülen metrikler
 
 `npm run eval:classification` çıktısında:
 
 - sınıf bazında destek/tahmin/DOĞRU, precision, recall, F1,
-- yanlış kabul oranı (ilan olmayan → ilan) + kayıt kimlikleri,
-- yanlış ret oranı (ilan → ilan değil) + kayıt kimlikleri,
-- belirsiz inceleme oranı (`uncertain`) + kimlikler,
+- yanlış kabul oranı (ilan olmayan → ilan) + raporda hash'lenmiş kayıt kimlikleri,
+- yanlış ret oranı (ilan → ilan değil) + raporda hash'lenmiş kayıt kimlikleri,
+- belirsiz inceleme oranı (`uncertain`) + hash'lenmiş kimlikler,
 - karışıklık matrisi (sıfır olmayan hücreler),
 - origin kırılımı (`real` / `synthetic` / `spec-title`, her birinde insan etiket sayısı),
 - kaynak bazlı hata ve belirsizlik oranları (`sourceKey` dolu kayıtlarda),

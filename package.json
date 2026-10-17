@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "verify:all": "tsx scripts/verify-all.ts",
     "test:e2e": "playwright test",
     "test:e2e:local": "playwright test e2e/smoke.spec.ts --project=chromium",
     "test:live": "tsx scripts/live-check.ts",

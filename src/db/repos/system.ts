@@ -108,7 +108,9 @@ export class RateLimitRepo {
   async hit(
     bucket: string,
     windowSeconds: number,
+    amount = 1,
   ): Promise<{ count: number; windowStart: string; resetAt: string }> {
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Hız sınırı artışı pozitif güvenli tamsayı olmalıdır.');
     const now = this.clock.now();
     const windowStartMs = Math.floor(now.getTime() / (windowSeconds * 1000)) * windowSeconds * 1000;
     const windowStart = new Date(windowStartMs).toISOString();
@@ -116,32 +118,81 @@ export class RateLimitRepo {
     // KVKK: kova anahtarı IP/e-posta içerebilir → hash'lenir.
     const hashedBucket = sha256Hex(bucket).slice(0, 32);
 
-    const existing = await this.store.findOne('rateLimits', { bucket: hashedBucket, windowStart });
-    if (existing) {
-      const updated = await this.store.updateOne(
-        'rateLimits',
-        { id: existing.id },
-        { count: existing.count + 1 },
-      );
-      return { count: updated?.count ?? existing.count + 1, windowStart, resetAt };
-    }
+    // Artış storage sürücüsünde atomiktir: worker'lar aynı değeri okuyup
+    // birbirlerinin sayacını ezemez. İlk belge oluşturulurken benzersiz
+    // (bucket, windowStart) indeksi yarışın tek kazananını belirler.
+    for (let retry = 0; retry < 5; retry += 1) {
+      const existing = await this.store.findOne('rateLimits', { bucket: hashedBucket, windowStart });
+      if (existing) {
+        const updated = await this.store.incrementOne('rateLimits', { id: existing.id }, 'count', amount);
+        if (updated) return { count: updated.count, windowStart, resetAt };
+        // Eşzamanlı purge/silme olduysa yeniden bulup oluşturmayı dene.
+        continue;
+      }
 
-    const doc: RateLimitDoc = {
-      id: createId('rlm'),
-      bucket: hashedBucket,
-      windowStart,
-      count: 1,
-      expiresAt: resetAt,
-    };
-    validateDocument('rateLimits', doc);
-    const inserted = await this.store.insertIfAbsent('rateLimits', doc);
-    if (inserted.inserted) return { count: 1, windowStart, resetAt };
-    const updated = await this.store.updateOne(
-      'rateLimits',
-      { id: inserted.document.id },
-      { count: inserted.document.count + 1 },
-    );
-    return { count: updated?.count ?? inserted.document.count + 1, windowStart, resetAt };
+      const doc: RateLimitDoc = {
+        id: createId('rlm'),
+        bucket: hashedBucket,
+        windowStart,
+        count: amount,
+        expiresAt: resetAt,
+      };
+      validateDocument('rateLimits', doc);
+      const inserted = await this.store.insertIfAbsent('rateLimits', doc);
+      if (inserted.inserted) return { count: amount, windowStart, resetAt };
+      const updated = await this.store.incrementOne('rateLimits', { id: inserted.document.id }, 'count', amount);
+      if (updated) return { count: updated.count, windowStart, resetAt };
+    }
+    throw new Error('Hız sınırı sayacı eşzamanlı depolama değişikliği nedeniyle güncellenemedi.');
+  }
+
+  /**
+   * Atomik bütçe rezervasyonu: artış ancak `count + amount <= maximum` ise yapılır.
+   * Günlük LLM çağrı/harcama limitlerinde iki worker aynı kalan bütçeyi göremez.
+   */
+  async reserve(
+    bucket: string,
+    windowSeconds: number,
+    amount: number,
+    maximum: number,
+  ): Promise<{ allowed: boolean; count: number; windowStart: string; resetAt: string }> {
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Bütçe rezervasyonu pozitif güvenli tamsayı olmalıdır.');
+    if (!Number.isSafeInteger(maximum) || maximum < 0) throw new Error('Bütçe üst sınırı geçersiz.');
+    const now = this.clock.now();
+    const windowStartMs = Math.floor(now.getTime() / (windowSeconds * 1000)) * windowSeconds * 1000;
+    const windowStart = new Date(windowStartMs).toISOString();
+    const resetAt = new Date(windowStartMs + windowSeconds * 1000).toISOString();
+    const hashedBucket = sha256Hex(bucket).slice(0, 32);
+    if (amount > maximum) return { allowed: false, count: 0, windowStart, resetAt };
+
+    for (let retry = 0; retry < 5; retry += 1) {
+      const existing = await this.store.findOne('rateLimits', { bucket: hashedBucket, windowStart });
+      if (existing) {
+        const updated = await this.store.incrementOneIfBelow(
+          'rateLimits',
+          { id: existing.id },
+          'count',
+          amount,
+          maximum,
+        );
+        if (updated) return { allowed: true, count: updated.count, windowStart, resetAt };
+        const current = await this.store.findOne('rateLimits', { bucket: hashedBucket, windowStart });
+        if (current) return { allowed: false, count: current.count, windowStart, resetAt };
+        continue;
+      }
+
+      const doc: RateLimitDoc = {
+        id: createId('rlm'),
+        bucket: hashedBucket,
+        windowStart,
+        count: amount,
+        expiresAt: resetAt,
+      };
+      validateDocument('rateLimits', doc);
+      const inserted = await this.store.insertIfAbsent('rateLimits', doc);
+      if (inserted.inserted) return { allowed: true, count: amount, windowStart, resetAt };
+    }
+    throw new Error('Bütçe rezervasyonu eşzamanlı depolama değişikliği nedeniyle tamamlanamadı.');
   }
 
   async purgeOlderThan(iso: string): Promise<number> {

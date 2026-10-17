@@ -3,13 +3,16 @@
 ## Komutlar
 
 ```bash
-npm test             # birim + entegrasyon (vitest, gerçek kaynaklara çıkmaz)
-npm run test:watch   # geliştirme sırasında izleme
+npm run verify:all   # typecheck + lint + test + coverage + build + offline contracts/reports
+npm test              # birim + entegrasyon (Vitest, dış erişim engellenir)
+npm run test:watch    # geliştirme sırasında izleme
 npm run test:coverage
-npm run test:e2e     # Playwright; izole API/DB ve yönetici hesabı gerekir
-npm run test:e2e:local  # smoke.spec.ts; aynı izole API/DB ve yönetici hesabı gerekir
-SOURCE_LIVE_FETCH=1 npm run test:live   # yalnız açık yetki/uygun koşullarda canlı kaynak doğrulama
+npm run test:e2e      # Playwright; izole API/DB ve yönetici hesabı gerekir
+npm run test:e2e:local # smoke.spec.ts; aynı izole API/DB ve yönetici hesabı gerekir
 ```
+
+`verify:all` ve canlı doğrulama komutlarının izolasyon, rapor ve operatör koşulları:
+[quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md). Live kaynaklar bu komutun parçası değildir.
 
 Vitest testleri sahte adaptör/fetcher, fixture HTML/PDF ve süreç içi SMTP
 sunucusu kullanır; gerçek resmi kaynaklara istek atmaz. E2E Playwright testi
@@ -20,9 +23,10 @@ başarısız olur. Varsayılan Playwright webServer yalnızca Vite'ı başlatır
 ayrıca başlatılmalıdır. Üretim veritabanı veya gerçek hesap kullanmayın. GitHub
 Actions her iş için rastgele test sırrı ve E2E hesabı üretir.
 
-14 Ekim 2026 denetiminde **40 test dosyası / 390 Vitest testi** ve **12 Playwright
-E2E testi** geçti. Test sayısı değişebileceğinden güncel sonuç için komutları
-çalıştırın. Dosya deposu kullanan test verileri geçici dizinlerde tutulur.
+14 Ekim 2026 denetimindeki **40 test dosyası / 390 Vitest testi** ve **12 Playwright
+E2E testi** tarihsel baseline'dır, bu değişikliklerin sonucu değildir. Güncel
+sonuç için `npm run verify:all` ve E2E'yi ayrı çalıştırın; rapordaki gerçek
+çıkış kodlarını esas alın. Dosya deposu kullanan test verileri geçici dizinlerde tutulur.
 
 ### Tasarım sözleşmesi testi
 
@@ -57,7 +61,7 @@ GitHub depolarını çağırmadığı için gelecekteki çapraz-depo eşitliğin
 | `tests/file-store.test.ts`       | Dosya deposu: süreçler arası kayıt kaybı yok, bozuk dosya yedeklenir                                                                                                                                      |
 | `tests/ingest.test.ts`           | Kayıt, sürümleme, tekilleştirme, inceleme kuyruğu, bildirim olayı, kilit, kaynak hatası                                                                                                                   |
 | `tests/email.test.ts`            | Şablon, koşullar (doğrulanmamış/duraklatılmış kullanıcı), idempotency, yeniden deneme, ölü mektup, abonelikten çıkma                                                                                      |
-| `tests/email-delivery.test.ts`   | Uçtan uca gönderim: fixture → DB → eşleşme → outbox → gerçek SMTP → teslim kaydı                                                                                                                          |
+| `tests/email-delivery.test.ts`   | Uçtan uca gönderim: fixture → izole DB → eşleşme → outbox → süreç içi SMTP test sunucusu → teslim kaydı (gerçek sağlayıcı yok)                                                                          |
 | `tests/worker.test.ts`           | Zamanlayıcı, kuyruk, kilit, yeniden başlatma sonrası devam, DLQ                                                                                                                                           |
 | `tests/server.test.ts`           | API: sağlık, ilan listesi/detayı, kapsam, kimlik akışı (kapalı kayıt + davet), CSRF, RBAC, hız sınırı                                                                                                     |
 | `tests/postgres-store.test.ts`   | Supabase/Postgres deposu (PGlite = gerçek Postgres 16): tablo/indeks kurulumu, JSONB ön filtresi ↔ dosya sürücüsü eşdeğerliği, benzersiz indeks çakışması, satır kilidi, zod doğrulaması                  |
@@ -96,8 +100,9 @@ GitHub depolarını çağırmadığı için gelecekteki çapraz-depo eşitliğin
 | 21  | Hız sınırı ve güvenlik başlıkları               | `server` → "kimlik uçlarında sınır aşılırsa 429 ve retry-after döner", "health gerçek ölçümleri döner, güvenlik başlıkları ekli"                                             |
 | 22  | Kaynağın HTML yapısı değişince hata raporlanır  | `ingest` → "kaynak yapısı değişince hata kaydeder ve mevcut ilanları SİLMEZ"                                                                                                 |
 
-Ek olarak uçtan uca akış (fixture → DB → eşleşme → outbox → test posta sunucusu →
-teslim kaydı) `tests/email-delivery.test.ts` içinde **gerçek SMTP turu** ile koşar.
+Ek olarak uçtan uca akış (fixture → izole DB → eşleşme → outbox → süreç içi
+SMTP test sunucusu → teslim kaydı) `tests/email-delivery.test.ts` içinde çalışır;
+gerçek e-posta sağlayıcısına gönderim yapılmaz.
 
 ## Fixture'lar
 
@@ -106,22 +111,21 @@ teslim kaydı) `tests/email-delivery.test.ts` içinde **gerçek SMTP turu** ile 
 - `fixtures/pdf/` — `npm run fixtures:pdf` ile üretilir; metin katmanı olan ve
   olmayan iki PDF. Üretici kod: `tests/support/pdf-fixtures.ts`. `tests/pdf.test.ts`
   kayıtlı fixture ile üretilen çıktının aynı olduğunu doğrular.
-- `fixtures/html/` ve `fixtures/live/` — canlı yakalamalar için ayrılmıştır;
-  `SOURCE_LIVE_FETCH=1 npm run fixtures:capture` ile doldurulur (`.gitignore`'da
-  `fixtures/live/` hariç tutulur).
+- `fixtures/html/` — yalnız tek kaynak için açık opt-in capture komutunun yerel
+  çıktısıdır; `fixtures/html/manifest.json` hash/provenans/scrub beyanını taşır.
+  Otomatik redaction kusursuz değildir; insan PII/lisans/ToS incelemeden commit etmeyin.
+  `fixtures/live/` tarihsel olarak ayrılmıştır ve manifestli HTML/JSON snapshot
+  sözleşmesinin yerine geçmez.
 
 ## Canlı doğrulama (`test:live`)
 
-Yalnızca gerçek ağ erişimi olan ortamda çalıştırılır:
-
-```bash
-SOURCE_LIVE_FETCH=1 npm run test:live                 # tüm doğrulanmış kaynaklar
-SOURCE_LIVE_FETCH=1 npm run test:live -- --source=osym-duyurular --dry-run
-```
-
-Kuru çalıştırma veritabanına YAZMAZ. Bu betik, kaynakta o an ne olduğunu (kaç
-kayıt, hangi başlıklar, tarih var mı) raporlar; doğrulama kanıtı bu çıktıdan
-`src/config/sources.ts` içine yazılır.
+Yalnızca açık yetki ve gerçek ağ erişimi bulunan operatör ortamında çalıştırılır;
+`--live`, kaynak seçimi ve tüm istek/page/detail sınırları zorunludur. Dar bir
+PowerShell örneği, rapor biçimi ve kapsam açıklaması için
+[quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md) bölümüne bakın.
+`test:live` üretim DB'sine bağlanmaz/yazmaz; HTTP denemelerini global bütçeyle
+sınırlar ve başlık örnekleri yerine hash üretir. Kaynak sağlığı ancak bu canlı
+koşumun çıktısı ve tarihiyle kanıtlanabilir; statik envanter canlı kanıt değildir.
 
 ## Kapsam dışı (bilinçli)
 

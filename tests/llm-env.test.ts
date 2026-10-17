@@ -4,7 +4,7 @@
  * Kanıtlanan sözleşmeler:
  *  - LLM_CLASSIFIER_ENABLED=1 için LLM_BASE_URL + LLM_API_KEY + model zorunludur.
  *  - Üretimde LLM_BASE_URL https:// olmalıdır (hem panel hem kapı).
- *  - Varsayılan yapılandırmada kapı kapalıdır (opt-in; maliyet kontrolü kullanıcıda).
+ *  - Varsayılan yapılandırmada kapı kapalıdır; production'da iki fiyat varsayımı ve koşu/gün USD tavanı gerekir.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { getEnv, resetEnvCache } from '../src/config/env';
@@ -66,6 +66,32 @@ describe('LLM kapısı ortam doğrulaması', () => {
         LLM_CLASSIFIER_MODEL: 'model',
       }),
     ).toThrow(/https:\/\//);
+  });
+
+  it('production LLM iki USD tavanı ve pozitif fiyat varsayımı olmadan açılamaz', () => {
+    const base = {
+      NODE_ENV: 'production',
+      APP_SECRET: 'a'.repeat(40),
+      DATABASE_DRIVER: 'postgres',
+      POSTGRES_URL: 'postgresql://user:pass@db.example.test:5432/kamuilan',
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      LLM_BASE_URL: 'https://llm.example.test/v1',
+      LLM_API_KEY: 'sk-test',
+      LLM_CLASSIFIER_MODEL: 'test-model',
+    };
+    expect(() => getEnv(base)).toThrow(/LLM_RUN_COST_LIMIT_USD.*LLM_DAILY_COST_LIMIT_USD/);
+
+    const env = getEnv({
+      ...base,
+      LLM_RUN_COST_LIMIT_USD: '0.25',
+      LLM_DAILY_COST_LIMIT_USD: '2.00',
+      LLM_COST_USD_PER_MTOK_INPUT: '1',
+      LLM_COST_USD_PER_MTOK_OUTPUT: '2',
+    });
+    expect(env.LLM_RUN_COST_LIMIT_USD).toBe(0.25);
+    expect(env.LLM_DAILY_COST_LIMIT_USD).toBe(2);
   });
 
   it('bütçe varsayılanları maliyet freni sağlar', () => {

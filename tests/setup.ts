@@ -8,10 +8,33 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { beforeEach, vi } from 'vitest';
+import { assertNoInsecureTlsOverrideAtTestStartup, shouldBlockExternalHttpInTest } from '../src/lib/offline-network';
+
+assertNoInsecureTlsOverrideAtTestStartup();
+
+// Never inherit credentials or production endpoints into the offline test process.
+for (const name of [
+  'DATABASE_URL', 'POSTGRES_URL', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY',
+  'PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD', 'PGSSLMODE',
+  'MONGODB_URI', 'MONGODB_URL', 'MONGODB_DB', 'REDIS_URL', 'LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL',
+  'LLM_CLASSIFIER_MODEL', 'RESEND_API_KEY', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_PASSWORD',
+  'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_BOT_USERNAME', 'ADMIN_EMAIL', 'ADMIN_PASSWORD',
+  'SMTP_PORT', 'LLM_COST_USD_PER_MTOK_INPUT', 'LLM_COST_USD_PER_MTOK_OUTPUT',
+  'LLM_RUN_COST_LIMIT_USD', 'LLM_DAILY_COST_LIMIT_USD',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+  'NODE_USE_ENV_PROXY',
+]) delete process.env[name];
 
 process.env.NODE_ENV = 'test';
-process.env.APP_SECRET = process.env.APP_SECRET ?? 'test-secret-please-ignore-0123456789abcdef';
+process.env.DATABASE_DRIVER = 'file';
+process.env.AI_ASSISTANT_ENABLED = '0';
+process.env.LLM_CLASSIFIER_ENABLED = '0';
+process.env.SCHEDULER_ENABLED = '0';
+process.env.EMAIL_PROVIDER = 'file';
+process.env.EMAIL_DEV_FILE_TRANSPORT = '1';
+process.env.APP_SECRET = 'test-secret-please-ignore-0123456789abcdef';
 process.env.SOURCE_LIVE_FETCH = '0';
 // Chromium gerçek ağa çıkar: sahte HTTP istemcisiyle çalışan adaptör testlerinde
 // tarayıcı yedeği AÇIK kalırsa test canlı siteyi okur ve sonuç makineye göre
@@ -19,11 +42,146 @@ process.env.SOURCE_LIVE_FETCH = '0';
 // testlerde kapalıdır; tarayıcı katmanının kendi testleri (playwright mock'lu)
 // anahtarı kendi içinde geçici olarak açar.
 process.env.SOURCE_BROWSER_FALLBACK = '0';
+process.env.SOURCE_TLS_AIA_COMPLETION = '0';
 
 const testDataDir = mkdtempSync(join(tmpdir(), 'kamuilan-test-'));
-process.env.DATA_DIR = process.env.DATA_DIR ?? testDataDir;
+process.env.DATA_DIR = testDataDir;
 process.env.KAMUILAN_TEST_DATA_DIR = testDataDir;
 
+// Guard raw node:http(s), net and tls paths too; a module that bypasses global
+// fetch must still fail before a real external socket is opened. Loopback is
+// retained for local fixture servers and MockAgent-backed tests.
+const require = createRequire(import.meta.url);
+type CjsFunction = (...args: unknown[]) => unknown;
+interface MutableHttpModule {
+  request: CjsFunction;
+  get: CjsFunction;
+}
+interface MutableSocketModule {
+  connect: CjsFunction;
+  createConnection?: CjsFunction;
+}
+const httpModule = require('node:http') as MutableHttpModule;
+const httpsModule = require('node:https') as MutableHttpModule;
+const netModule = require('node:net') as MutableSocketModule;
+const tlsModule = require('node:tls') as MutableSocketModule;
+const originalHttpRequest = httpModule.request;
+const originalHttpGet = httpModule.get;
+const originalHttpsRequest = httpsModule.request;
+const originalHttpsGet = httpsModule.get;
+const originalNetConnect = netModule.connect;
+const originalNetCreateConnection = netModule.createConnection;
+const originalTlsConnect = tlsModule.connect;
+
+function optionRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function httpUrl(protocol: 'http:' | 'https:', target: unknown, extraOptions?: unknown): string {
+  if (typeof target === 'string' || target instanceof URL) {
+    try {
+      return new URL(String(target), `${protocol}//localhost/`).toString();
+    } catch {
+      return `${protocol}//<invalid-url>`;
+    }
+  }
+  const options = { ...optionRecord(target), ...optionRecord(extraOptions) };
+  const socketPath = options['socketPath'];
+  if (typeof socketPath === 'string' && socketPath.length > 0) return `${protocol}//localhost/`;
+  const rawHost = String(options['hostname'] ?? options['host'] ?? 'localhost');
+  let host = rawHost;
+  let port = options['port'] === undefined ? '' : `:${String(options['port'])}`;
+  const hostPortSeparator = rawHost.lastIndexOf(':');
+  const hostPort = rawHost.slice(hostPortSeparator + 1);
+  const hostPortIsNumeric = hostPort.length > 0 && [...hostPort].every((char) => char >= '0' && char <= '9');
+  if (
+    options['port'] === undefined &&
+    hostPortSeparator > 0 &&
+    rawHost.indexOf(':') === hostPortSeparator &&
+    hostPortIsNumeric
+  ) {
+    host = rawHost.slice(0, hostPortSeparator);
+    port = rawHost.slice(hostPortSeparator);
+  }
+  if (host.includes(':') && !host.startsWith('[')) host = `[${host}]`;
+  const path = String(options['path'] ?? '/');
+  return `${protocol}//${host}${port}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function socketUrl(target: unknown, next?: unknown, protocol: 'tcp:' | 'tls:' = 'tcp:'): string {
+  const options = optionRecord(target);
+  if (typeof options['socketPath'] === 'string') return `${protocol}//localhost/`;
+  if (typeof target === 'number') {
+    const host = typeof next === 'string' ? next : 'localhost';
+    return `${protocol}//${host}:${target}/`;
+  }
+  const host = String(options['host'] ?? options['hostname'] ?? options['servername'] ?? 'localhost');
+  const port = options['port'] === undefined ? '' : `:${String(options['port'])}`;
+  const authority = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  return `${protocol}//${authority}${port}/`;
+}
+
+function guardRawHttp(protocol: 'http:' | 'https:', args: unknown[]): void {
+  if (shouldBlockExternalHttpInTest(httpUrl(protocol, args[0], args[1]), 'raw-http')) {
+    throw new Error('Vitest offline guard blocked raw external HTTP(S) before opening a socket.');
+  }
+}
+
+function guardRawSocket(target: unknown, next: unknown, protocol: 'tcp:' | 'tls:'): void {
+  if (shouldBlockExternalHttpInTest(socketUrl(target, next, protocol), 'raw-socket')) {
+    throw new Error('Vitest offline guard blocked an external socket before connecting.');
+  }
+}
+
+function installNodeNetworkGuards(): void {
+  httpModule.request = function (this: unknown, ...args: unknown[]): unknown {
+    guardRawHttp('http:', args);
+    return Reflect.apply(originalHttpRequest, this, args);
+  };
+  httpModule.get = function (this: unknown, ...args: unknown[]): unknown {
+    guardRawHttp('http:', args);
+    return Reflect.apply(originalHttpGet, this, args);
+  };
+  httpsModule.request = function (this: unknown, ...args: unknown[]): unknown {
+    guardRawHttp('https:', args);
+    return Reflect.apply(originalHttpsRequest, this, args);
+  };
+  httpsModule.get = function (this: unknown, ...args: unknown[]): unknown {
+    guardRawHttp('https:', args);
+    return Reflect.apply(originalHttpsGet, this, args);
+  };
+  netModule.connect = function (this: unknown, ...args: unknown[]): unknown {
+    guardRawSocket(args[0], args[1], 'tcp:');
+    return Reflect.apply(originalNetConnect, this, args);
+  };
+  if (originalNetCreateConnection) {
+    netModule.createConnection = function (this: unknown, ...args: unknown[]): unknown {
+      guardRawSocket(args[0], args[1], 'tcp:');
+      return Reflect.apply(originalNetCreateConnection, this, args);
+    };
+  }
+  tlsModule.connect = function (this: unknown, ...args: unknown[]): unknown {
+    guardRawSocket(args[0], args[1], 'tls:');
+    return Reflect.apply(originalTlsConnect, this, args);
+  };
+  syncBuiltinESMExports();
+}
+
+const nativeFetch = globalThis.fetch.bind(globalThis);
+function installOfflineFetchGuard(): void {
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (shouldBlockExternalHttpInTest(rawUrl, 'global-fetch')) {
+      return Promise.reject(new Error('Vitest offline guard blocked external HTTP; use an injected fake or loopback server.'));
+    }
+    return nativeFetch(input, init);
+  }) as typeof globalThis.fetch;
+}
+
+installNodeNetworkGuards();
+installOfflineFetchGuard();
 beforeEach(() => {
   vi.restoreAllMocks();
+  installNodeNetworkGuards();
+  installOfflineFetchGuard();
 });

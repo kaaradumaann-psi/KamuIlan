@@ -1,108 +1,166 @@
 /**
- * Fixture yakalama: `npm run fixtures:capture`
+ * Tek-kaynak fixture yakalama: `npm run fixtures:capture -- --live --source=<key>`
  *
- * Gerçek kaynak sayfalarını indirip `fixtures/html` (ve varsa `fixtures/pdf`)
- * altına kaydeder. Böylece birim testleri canlı ağ olmadan gerçek HTML ile
- * çalışır (HTML değişince hata raporu da bu dosyalarla üretilir).
- *
- * Gerçek ağ erişimi gerekir; indirilen sayfalar yalnızca teste yönelik saklanır
- * ve kaynak sitelerin telif/şartlarına saygı gösterilir (yalnızca herkese açık
- * ilan listeleri, tek istek, hız sınırı).
+ * Fail-closed: yalnız `--live`, `SOURCE_LIVE_FETCH=1`, tek etkin sourceKey ve
+ * `--reviewed-public-data` birlikte verildiğinde en çok bir HTML/JSON listing
+ * isteği yapılır. Ham response header/cookie kaydedilmez; body kişisel/secret
+ * işaretleri için scrub edilir, SHA-256 ve provenans manifesti üretilir.
+ * PDF/ek/detay indirilmez. Kaynak şartları ve scrub sonucu commit öncesi insan
+ * tarafından ayrıca gözden geçirilmelidir. Bu komut bu oturumda çalıştırılmadı.
  */
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { getEnv } from '../src/config/env';
+import { getEnv, resetEnvCache } from '../src/config/env';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
 import { HttpClient } from '../src/sources/fetcher';
 import { createLogger } from '../src/lib/logger';
 import { toIstanbulDateOnly } from '../src/domain';
+import { inspectFixtureManifest } from '../src/sources/inventory';
+import { scrubSnapshot, scrubSourceUrl } from '../src/sources/fixture-redaction';
 
 interface FixtureEntry {
   sourceKey: string;
-  url: string;
+  sourceUrl: string;
   file: string;
-  fetchedAt: string;
+  capturedAt: string;
   bytes: number;
   status: number;
-  contentType: string | null;
+  contentType: string;
+  sha256: string;
+  captureMethod: string;
+  redacted: true;
+  redactionNotes: string[];
+}
+
+const MAX_ALLOWED_BYTES = 5_000_000;
+
+function option(name: string): string | null {
+  const prefix = `--${name}=`;
+  const values = process.argv.filter((argument) => argument.startsWith(prefix));
+  return values.length === 1 ? values[0]!.slice(prefix.length) : null;
+}
+
+function hasDuplicateOption(name: string): boolean {
+  const prefix = `--${name}=`;
+  return process.argv.filter((argument) => argument.startsWith(prefix)).length > 1;
 }
 
 async function main(): Promise<void> {
+  if (hasDuplicateOption('source') || hasDuplicateOption('max-bytes')) {
+    console.error('Bir --source ve bir --max-bytes değerinden fazlası geçersiz; hiçbir istek yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  if (!process.argv.includes('--live')) {
+    console.error('Canlı fixture yakalama için --live zorunludur; hiçbir istek yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  if (!process.argv.includes('--reviewed-public-data')) {
+    console.error('Kaynak kullanım şartlarını ve herkese açık veri uygunluğunu incelediğinizi belirtmek için --reviewed-public-data gerekli; hiçbir istek yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  const sourceKey = option('source');
+  if (!sourceKey) {
+    console.error('Tam olarak bir --source=<sourceKey> seçin; tüm kaynakları yakalama bu komutta desteklenmez.');
+    process.exitCode = 2;
+    return;
+  }
+  const parsedMaxBytes = Number(option('max-bytes') ?? '1000000');
+  if (!Number.isSafeInteger(parsedMaxBytes) || parsedMaxBytes < 1 || parsedMaxBytes > MAX_ALLOWED_BYTES) {
+    console.error(`--max-bytes 1 ile ${MAX_ALLOWED_BYTES} arasında pozitif tamsayı olmalıdır.`);
+    process.exitCode = 2;
+    return;
+  }
+
+  process.env.SOURCE_BROWSER_FALLBACK = '0';
+  process.env.SOURCE_TLS_AIA_COMPLETION = '0';
+  resetEnvCache();
   const env = getEnv();
+  if (env.NODE_ENV === 'test') {
+    console.error('NODE_ENV=test iken canlı fixture yakalama reddedildi; hiçbir istek yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+    console.error('TLS doğrulaması kapalı; canlı fixture yakalama reddedildi. NODE_TLS_REJECT_UNAUTHORIZED değiştirilmedi.');
+    process.exitCode = 2;
+    return;
+  }
   if (!env.SOURCE_LIVE_FETCH) {
-    console.error('✖ SOURCE_LIVE_FETCH=0: fixture yakalamak için gerçek ağ erişimi gerekir (.env → SOURCE_LIVE_FETCH=1).');
-    process.exitCode = 1;
+    console.error('SOURCE_LIVE_FETCH=0: canlı fixture yakalama reddedildi; hiçbir istek yapılmadı.');
+    process.exitCode = 2;
     return;
   }
-
-  const only = process.argv.find((argument) => argument.startsWith('--source='))?.split('=')[1];
-  const targets = SOURCE_DEFINITIONS.filter((source) => source.status === 'verified').filter(
-    (source) => !only || source.key === only,
-  );
-  if (targets.length === 0) {
-    console.error('✖ Yakalanacak doğrulanmış kaynak yok.');
-    process.exitCode = 1;
+  const source = SOURCE_DEFINITIONS.find((item) => item.key === sourceKey);
+  if (!source || !source.enabled || source.status === 'disabled' || source.method === 'manual-entry') {
+    console.error(`Etkin ve otomatik bir sourceKey gerekli: ${sourceKey}. Hiçbir istek yapılmadı.`);
+    process.exitCode = 2;
     return;
   }
-
-  const htmlDir = resolve('fixtures/html');
-  const pdfDir = resolve('fixtures/pdf');
-  mkdirSync(htmlDir, { recursive: true });
-  mkdirSync(pdfDir, { recursive: true });
+  const existingManifest = inspectFixtureManifest();
+  if (existingManifest.status === 'invalid') {
+    console.error('Mevcut fixture manifesti geçersiz/provenansı eksik; elle inceleyip düzeltmeden canlı yakalama yapılmayacak.');
+    process.exitCode = 2;
+    return;
+  }
 
   const logger = createLogger('fixtures', { level: 'info' });
-  const http = new HttpClient({ logger });
-  const date = toIstanbulDateOnly(new Date());
-  const manifest: FixtureEntry[] = [];
-
-  for (const source of targets) {
-    try {
-      const response = await http.fetchText(source.listingUrl, {
-        allowedHosts: source.allowedHosts,
-        minIntervalMs: source.minRequestIntervalMs,
-      });
-      const file = join(htmlDir, `${source.key}-${date}.html`);
-      writeFileSync(file, response.body);
-      manifest.push({
-        sourceKey: source.key,
-        url: source.listingUrl,
-        file: `fixtures/html/${source.key}-${date}.html`,
-        fetchedAt: new Date().toISOString(),
-        bytes: response.bytes,
-        status: response.status,
-        contentType: response.contentType,
-      });
-      console.log(`✓ ${source.key}: ${response.bytes} bayt → ${file}`);
-
-      // Resmî Gazete gibi PDF tabanlı kaynaklar için ilk PDF de saklanır (metin katmanı testi).
-      if (source.method === 'pdf-index') {
-        const pdfMatch = /href="([^"]+\.pdf)"/i.exec(response.decoded?.text ?? response.body.toString('utf8'));
-        if (pdfMatch?.[1]) {
-          const pdfUrl = new URL(pdfMatch[1], source.homepageUrl).toString();
-          const pdf = await http.fetchBinary(pdfUrl, { allowedHosts: source.allowedHosts });
-          const pdfFile = join(pdfDir, `${source.key}-${date}.pdf`);
-          writeFileSync(pdfFile, pdf.body);
-          console.log(`  ↳ PDF: ${pdfUrl} (${pdf.bytes} bayt)`);
-        }
-      }
-    } catch (error) {
-      console.error(`✖ ${source.key}: ${error instanceof Error ? error.message : String(error)}`);
-      process.exitCode = 1;
+  const http = new HttpClient({ logger, maxRequests: 1, maxTextRequests: 1 });
+  try {
+    const response = await http.fetchText(source.listingUrl, {
+      allowedHosts: source.allowedHosts,
+      minIntervalMs: source.minRequestIntervalMs,
+      maxBytes: parsedMaxBytes,
+      retries: 0,
+      timeoutMs: Math.min(env.SCRAPE_TIMEOUT_MS, 30_000),
+    });
+    if (!response.contentType || !/text\/html|application\/xhtml\+xml|application\/json/i.test(response.contentType)) {
+      throw new Error(`Fixture içerik türü kabul edilmedi: ${response.contentType ?? 'bilinmiyor'}`);
     }
-  }
+    const sourceText = response.decoded?.text ?? response.body.toString('utf8');
+    const scrubbed = scrubSnapshot(sourceText);
+    const bytes = Buffer.from(scrubbed.text, 'utf8');
+    const date = toIstanbulDateOnly(new Date());
+    const extension = /application\/json/i.test(response.contentType) ? 'json' : 'html';
+    const filename = `${source.key}-${date}.${extension}`;
+    const root = resolve('fixtures/html');
+    const filePath = join(root, filename);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(filePath, bytes, { mode: 0o600 });
+    const capturedAt = new Date().toISOString();
+    const entry: FixtureEntry = {
+      sourceKey: source.key,
+      sourceUrl: scrubSourceUrl(source.listingUrl),
+      file: `fixtures/html/${filename}`,
+      capturedAt,
+      bytes: bytes.length,
+      status: response.status,
+      contentType: response.contentType,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      captureMethod: 'capture-fixtures/v1 HttpClient.fetchText (one listing request; no PDF/detail)',
+      redacted: true,
+      redactionNotes: scrubbed.notes,
+    };
 
-  await http.close();
-  const manifestPath = join(htmlDir, 'manifest.json');
-  writeFileSync(
-    manifestPath,
-    JSON.stringify({ generatedAt: new Date().toISOString(), entries: manifest }, null, 2),
-    'utf8',
-  );
-  console.log(`\n✔ ${manifest.length} fixture kaydedildi. Bildirim: ${manifestPath}`);
-  console.log('Bu dosyalar testlerde kullanılır; üretim verisi değildir.');
+    const manifestPath = join(root, 'manifest.json');
+    const previousEntries: FixtureEntry[] = existingManifest.entries
+      .filter((item) => item.valid)
+      .map(({ valid: _valid, errors: _errors, ...item }) => ({ ...item, redacted: true as const }));
+    const entries = [...previousEntries.filter((item) => item.file !== entry.file), entry];
+    const manifest = { version: 1, generatedAt: capturedAt, entries };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { encoding: 'utf8', mode: 0o600 });
+    console.log(`Fixture yakalandı: ${entry.file} (${entry.bytes} redakte bayt, SHA-256 ${entry.sha256}).`);
+    console.log(`Provenans manifesti: fixtures/html/manifest.json; HTTP status ${entry.status}.`);
+    console.log('Tek HTTP listing çağrısı yapıldı; PDF/detay indirilmedi. İnsan PII/ToS/lisans incelemesi olmadan commit etmeyin.');
+  } finally {
+    await http.close();
+  }
 }
 
 main().catch((error: unknown) => {
-  console.error('Fixture yakalama başarısız:', error instanceof Error ? error.message : error);
+  console.error('Fixture yakalama başarısız:', error instanceof Error ? error.message : 'beklenmeyen hata');
   process.exitCode = 1;
 });

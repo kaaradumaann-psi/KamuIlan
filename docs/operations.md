@@ -192,8 +192,10 @@ faaliyetlerini durdurmak için worker sürecini durdurun.
 - **Ne zaman çalışır**: yalnızca worker taramasında ve yalnızca kural motorunun `review` dediği kayıtlarda.
   `LLM_CLASSIFIER_ENABLED=1` + `LLM_BASE_URL/LLM_API_KEY/LLM_CLASSIFIER_MODEL` (veya `LLM_MODEL`) gereklidir.
 - **Maliyet frenleri**: koşu başına `LLM_MAX_CALLS_PER_RUN` (12), günlük `LLM_DAILY_CALL_LIMIT` (400,
-  `llm-classifier-daily` kovası), eşzamanlılık `LLM_MAX_CONCURRENCY` (2), retry `LLM_RETRY_MAX` (1; yalnız
-  429/5xx/zaman aşımı). Önbellek (içerik özeti + model + istem sürümü) tekrar eden içeriği ücretsiz yapar.
+  global/classifier kovaları), eşzamanlılık `LLM_MAX_CONCURRENCY` (2), retry `LLM_RETRY_MAX` (1; yalnız
+  429/5xx/zaman aşımı). Üretimde ayrıca `LLM_RUN_COST_LIMIT_USD` + `LLM_DAILY_COST_LIMIT_USD` ve iki
+  pozitif `LLM_COST_USD_PER_MTOK_*` fiyat varsayımı zorunludur; gerçek resmi fiyat bilinmiyorsa
+  doldurulmaz. Tahmin fatura garantisi değildir. Önbellek (içerik özeti + model + istem sürümü) tekrar eden içeriği ücretsiz yapar.
 - **Telemetri**: `llmAnalyses` koleksiyonu (çağrı, önbellek isabeti, token, gecikme, hata, doğrulanamayan
   çıktı). Panel: Yönetici → Genel bakış → LLM kartı. Ham ilan metni ve API anahtarı yazılmaz/loglanmaz.
 - **Güvenli davranış**: sağlayıcı hatası/geçersiz çıktı/kanıt doğrulanamadı → kayıt inceleme kuyruğunda
@@ -201,5 +203,8 @@ faaliyetlerini durdurmak için worker sürecini durdurun.
 - **Bakım**: 90 günden eski telemetri kayıtları worker bakım görevinde temizlenir. İstem/model sürümü
   değişince `src/ai/classifier.ts` içindeki `LLM_PROMPT_VERSION` artırılmalıdır (önbellek kontrollü yenilenir).
 - **Acil kapatma**: `LLM_CLASSIFIER_ENABLED=0` + worker yeniden başlat; yayımlanmış ilanlar etkilenmez.
-- **Eski kayıt birikimi**: `npm run llm:review-assist -- --report rapor.json` (kuru çalıştırma; ana
-  veritabanına yazmaz). Uygulama: panel → İnceleme kararları veya kapı açıkken sonraki tarama.
+- **Eski kayıt birikimi**: review-assist provider'a veri gönderebilen canlı komuttur. `--live`,
+  `--allow-provider-data`, `--max-records`, `--max-calls`, `--max-output-tokens`, `--max-cost-usd`
+  olmadan çalışmaz; ana DB salt okunur, telemetri geçici depoda, rapor kimlik/metinleri hash'lenmiştir.
+  Yalnız veri paylaşımına izin veren operatör çalıştırmalıdır. Güncel örnek: [quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md).
+  Uygulama: panel → İnceleme kararları veya kapı açıkken sonraki tarama.

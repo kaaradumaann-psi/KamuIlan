@@ -17,6 +17,7 @@ import type { Repos } from '../db/repos';
 import type { JobDoc, NotificationPreferenceDoc } from '../db/schemas';
 import { EMPLOYMENT_TYPE_LABELS } from '../domain/types';
 import { callChatCompletion, type LlmConfig, type LlmFetch } from './llm';
+import { LlmBudget } from './budget';
 import { buildMessages } from './prompt';
 import { selectCandidates, type JobCandidate } from './candidates';
 
@@ -195,6 +196,9 @@ export interface GenerateOptions {
   now: Date;
   llm: LlmConfig | null;
   dailyLimit: number;
+  /** Shared, worker-safe application budget. Route supplies the validated Env policy. */
+  budget?: LlmBudget;
+  globalDailyLimit?: number;
   fetchImpl?: LlmFetch;
 }
 
@@ -259,20 +263,44 @@ export async function generateSuggestions(options: GenerateOptions): Promise<Gen
     return fallback('Yapay zekâ hizmeti yapılandırılmadığı için profil eşleştirmesi gösteriliyor.', used);
   }
 
-  // Günlük kota: yalnızca model çağrısı yapılacaksa sayılır.
-  const usage = await repos.rateLimits.hit(`ai-daily:${userId}`, DAILY_WINDOW_SECONDS);
-  if (usage.count > options.dailyLimit) {
+  // Kullanıcı kotası, bütün worker'larda atomik rezerve edilir.
+  const usage = await repos.rateLimits.reserve(
+    `ai-daily:${userId}`,
+    DAILY_WINDOW_SECONDS,
+    1,
+    options.dailyLimit,
+  );
+  if (!usage.allowed) {
     return fallback(
       'Bugünkü yapay zekâ öneri hakkınız doldu. Aşağıda profil eşleştirmesine göre sıralanmış öneriler var.',
       options.dailyLimit,
     );
   }
   const remainingToday = Math.max(0, options.dailyLimit - usage.count);
+  const messages = buildMessages(profile, candidates);
+  const budget =
+    options.budget ??
+    new LlmBudget(repos, {
+      dailyCallLimit: options.globalDailyLimit ?? 400,
+      maxCallsPerRun: 1,
+      dailyCostLimitUsd: null,
+      runCostLimitUsd: null,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      additionalDailyCallBucket: 'llm-assistant-daily',
+    });
+  const reservation = await budget.reserve(messages, 1_200);
+  if (!reservation.allowed) {
+    return fallback(
+      'Yapay zekâ öneri bütçesi/kotası dolu veya güvenli biçimde doğrulanamadı. Profil eşleştirmesi gösteriliyor.',
+      usage.count,
+    );
+  }
 
   const llmResult = await callChatCompletion(
     options.llm,
-    buildMessages(profile, candidates),
-    options.fetchImpl ? { fetchImpl: options.fetchImpl } : {},
+    messages,
+    { ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}), maxTokens: 1_200 },
   );
   if (!llmResult.ok) {
     return fallback(

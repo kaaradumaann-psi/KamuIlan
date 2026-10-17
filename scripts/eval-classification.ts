@@ -4,8 +4,8 @@
  *
  *   npm run eval:classification                 → tests/fixtures/eval/labeled-set.json (yalnız kurallar)
  *   npm run eval:classification -- --file <yol> → başka etiketli dosya
- *   npm run eval:classification -- --llm        → kurallar + LLM kapısı (env'de LLM_CLASSIFIER_*
- *                                                  yapılandırması gereklidir; gerçek API çağrısı yapar)
+ *   npm run eval:classification -- --llm --reviewed-public-data --max-calls 2 --max-output-tokens 128 --max-cost-usd 0.01
+ *                                                → açık opt-in, scrub uygulanmış veriyle sınırlı gerçek provider değerlendirmesi
  *   npm run eval:classification -- --json r.json→ makine okunur tam rapor (ayrı dosyaya)
  *                                                  (yol verilmezse rapor YAZILMAZ ve uyarı basılır)
  *
@@ -17,12 +17,16 @@
  * kayıt gerçek başarı iddiası üretmez. Gerçek etiket yoksa rapor "VERİ YETERSİZ" yazar
  * ve oranlar `null` kalır; sentetik kümedeki %100 gerçek başarı sayılmaz.
  *
- * `--llm` modu gerçek sağlayıcıya gider. Yerel/izole bir sağlayıcı taklidiyle çalıştırmak
- * için LLM_BASE_URL'i o adrese verin (ör. http://127.0.0.1:8787/v1); rapor bunu
- * "doğrulama amaçlı yerel uç nokta" olarak etiketler — gerçek sağlayıcı testi diye sunmaz.
+ * `--llm` modu yalnızca `--reviewed-public-data` ve zorunlu --max-calls/--max-output-tokens/
+ * --max-cost-usd sınırlarıyla çalışır. LLM'ye gönderilen başlık/gövde PII-benzeri e-posta,
+ * telefon ve 11 basamaklı kimlik numarasından scrub edilir; rules değerlendirmesi ham fixture
+ * üzerinde kalır. Fiyat varsayımları `.env` içindeki pozitif LLM_*_USD_PER_MTOK alanlarıdır.
+ * Yerel/izole bir sağlayıcı taklidi de açık bütçe bayrakları ister; rapor bunu gerçek sağlayıcı
+ * testi diye sunmaz.
  *
  * Salt okunur: üretim veritabanına yazmaz (--llm modu geçici bir dosya deposu kullanır).
  */
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -77,12 +81,59 @@ interface LabeledRecord {
 }
 
 function argValue(flag: string): string | null {
-  const index = process.argv.indexOf(flag);
-  return index >= 0 ? (process.argv[index + 1] ?? null) : null;
+  const indexes = process.argv.flatMap((argument, index) => (argument === flag ? [index] : []));
+  if (indexes.length > 1) throw new Error(`${flag} bir kez verilmelidir.`);
+  return indexes.length === 1 ? (process.argv[indexes[0]! + 1] ?? null) : null;
 }
 
 function pad(value: string, width: number): string {
   return value.length > width ? `${value.slice(0, width - 1)}` : value.padEnd(width);
+}
+
+function safeRecordId(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
+
+function positiveIntegerOption(name: string, max: number): number | null {
+  const raw = argValue(`--${name}`);
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 1 && value <= max ? value : null;
+}
+
+function positiveUsdOption(name: string): number | null {
+  const raw = argValue(`--${name}`);
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 && value <= 10 ? value : null;
+}
+
+function redactProviderUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return '[INVALID-URL]';
+  }
+}
+
+function scrubProviderText(value: string): string {
+  return value
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[EMAIL REDACTED]')
+    .replace(/\b[1-9]\d{10}\b/g, '[TCKN-LIKE REDACTED]')
+    .replace(/\b(?:\+90|0090|0)?[\s().-]*\(?5\d{2}\)?[\s.-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}\b/g, '[PHONE REDACTED]')
+    .replace(/([?&](?:token|access_token|api[_-]?key|apikey|session(?:id)?|sid|csrf|nonce|auth|password|secret)=)[^&\s"'<>#]+/gi, '$1[REDACTED]')
+    .replace(/(authorization|x-goog-api-key|api[_-]?key|apikey|access_token|token|password|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]');
+}
+
+function redactProviderDiagnostic(value: string, apiKey: string): string {
+  return redactSecret(value, apiKey)
+    .replace(/https?:\/\/[^\s"'<>]+/gi, (url) => redactProviderUrl(url))
+    .replace(/(authorization|x-goog-api-key|api[_-]?key|apikey|access_token|password|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]');
 }
 
 function printReport(report: EvalReport): void {
@@ -172,12 +223,50 @@ function printFieldAccuracy(records: readonly LabeledRecord[], extracted: Map<st
 }
 
 async function main(): Promise<void> {
-  const file = argValue('--file') ?? join(process.cwd(), 'tests/fixtures/eval/labeled-set.json');
   const jsonArg = parseJsonOutputArg(process.argv);
   const useLlm = process.argv.includes('--llm');
+  const budgetOptionsPresent = ['--max-calls', '--max-output-tokens', '--max-cost-usd'].some((flag) =>
+    process.argv.includes(flag),
+  );
+  if (!useLlm && (budgetOptionsPresent || process.argv.includes('--reviewed-public-data'))) {
+    console.error('LLM bütçe/inceleme bayrakları yalnızca --llm ile kullanılabilir; provider çağrısı yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+
+  let maxLlmCalls: number | undefined;
+  let maxOutputTokens: number | undefined;
+  let maxCostUsd: number | undefined;
+  if (useLlm) {
+    maxLlmCalls = positiveIntegerOption('max-calls', 20) ?? undefined;
+    maxOutputTokens = positiveIntegerOption('max-output-tokens', 900) ?? undefined;
+    maxCostUsd = positiveUsdOption('max-cost-usd') ?? undefined;
+    if (
+      !process.argv.includes('--reviewed-public-data') ||
+      maxLlmCalls === undefined ||
+      maxOutputTokens === undefined ||
+      maxCostUsd === undefined
+    ) {
+      console.error('Canlı eval için --llm --reviewed-public-data --max-calls 1..20 --max-output-tokens 1..900 --max-cost-usd <USD> zorunludur. Provider çağrısı yapılmadı.');
+      process.exitCode = 2;
+      return;
+    }
+  }
+
+  const file = argValue('--file') ?? join(process.cwd(), 'tests/fixtures/eval/labeled-set.json');
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as { records: LabeledRecord[] };
 
   const env = getEnv();
+  if (useLlm && env.NODE_ENV === 'test') {
+    console.error('NODE_ENV=test iken canlı eval provider çağrısı reddedildi.');
+    process.exitCode = 2;
+    return;
+  }
+  if (useLlm && process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+    console.error('TLS doğrulaması kapalı; canlı eval provider çağrısı reddedildi.');
+    process.exitCode = 2;
+    return;
+  }
   let gateDir: string | null = null;
   let gateStore: FileStore | null = null;
   let gate: ReturnType<typeof createLlmClassificationGate> | null = null;
@@ -197,6 +286,9 @@ async function main(): Promise<void> {
     gate = createLlmClassificationGate({
       repos: gateRepos,
       env,
+      maxCallsPerRun: maxLlmCalls,
+      maxOutputTokens,
+      runCostLimitUsd: maxCostUsd,
       logger: createLogger('eval-llm', { level: 'warn' }),
     });
   }
@@ -207,6 +299,7 @@ async function main(): Promise<void> {
   let reviewCount = 0;
   let llmResolved = 0;
   for (const record of parsed.records) {
+    const reportId = safeRecordId(record.id);
     const body = record.body ?? (record.bodyKind === 'recruitment' ? RECRUITMENT_BODY : NEWS_BODY);
     const result = classify({ title: record.title, body, sourceCategory: record.sourceCategory });
     let predicted = result.contentType ?? ('uncertain' as ContentType);
@@ -214,18 +307,18 @@ async function main(): Promise<void> {
       reviewCount += 1;
       if (gate) {
         const outcome = await gate.evaluate({
-          title: record.title,
-          body,
+          title: scrubProviderText(record.title),
+          body: scrubProviderText(body),
           sourceCategory: record.sourceCategory ?? null,
           sourceKey: 'eval',
-          url: `https://eval.test/${encodeURIComponent(record.id)}`,
+          url: `https://eval.test/${reportId}`,
           base: result,
         });
         predicted = outcome.classification.contentType ?? 'uncertain';
         if (outcome.classification.decision !== 'review') llmResolved += 1;
         const verdict = outcome.opinion?.verdict ?? null;
         gateRows.push({
-          id: record.id,
+          id: reportId,
           expected: record.expectedContentType,
           predicted,
           verdict,
@@ -238,7 +331,7 @@ async function main(): Promise<void> {
       }
     }
     evalRecords.push({
-      id: record.id,
+      id: reportId,
       expected: record.expectedContentType,
       predicted,
       origin: record.origin,
@@ -248,12 +341,17 @@ async function main(): Promise<void> {
     extracted.set(record.id, extract({ title: record.title, body }));
   }
 
+  const providerBaseUrl = redactProviderUrl(env.LLM_BASE_URL);
   const providerKind = /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(:\d+)?\//.test(`${env.LLM_BASE_URL}/`)
     ? 'yerel/izole uç nokta (doğrulama amaçlı; GERÇEK SAĞLAYICI TESTİ DEĞİLDİR)'
     : 'uzak sağlayıcı';
   console.log(
     `Mod: ${useLlm ? `kurallar + LLM kapısı — ${providerKind}` : 'yalnız kurallar (deterministik)'}` +
-      (useLlm ? `\nSağlayıcı: ${env.LLM_BASE_URL} · model: ${env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL}` : '') +
+      (useLlm
+        ? `\nSağlayıcı: ${providerBaseUrl} · model: ${env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL} · ` +
+          `azami çağrı ${maxLlmCalls}, çıktı ${maxOutputTokens} token, koşu maliyet tavanı ~$${maxCostUsd?.toFixed(6)} ` +
+          '(muhafazakâr tahmin; sağlayıcı faturası değildir; girdi/çıktı fiyatları .env varsayımıdır)'
+        : '') +
       `\nKüme: ${file}\n`,
   );
   const report = computeEvalReport(evalRecords, CONTENT_TYPES);
@@ -333,7 +431,7 @@ async function main(): Promise<void> {
       ...new Set(
         rows
           .filter((row) => row.status !== 'ok' && (row.error ?? '').trim().length > 0)
-          .map((row) => redactSecret(String(row.error), env.LLM_API_KEY).replace(/\s+/g, ' ').trim().slice(0, 200)),
+          .map((row) => redactProviderDiagnostic(String(row.error), env.LLM_API_KEY).replace(/\s+/g, ' ').trim().slice(0, 200)),
       ),
     ];
     if (errorTexts.length > 0) {
@@ -357,7 +455,15 @@ async function main(): Promise<void> {
     const written = writeJsonReport(jsonArg.path, {
       generatedAt: new Date().toISOString(),
       mode: useLlm ? 'rules+llm' : 'rules',
-      provider: useLlm ? { baseUrl: env.LLM_BASE_URL, model: env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL, kind: providerKind } : null,
+      provider: useLlm
+        ? {
+            baseUrl: providerBaseUrl,
+            model: env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL,
+            kind: providerKind,
+            redaction: 'email/TCKN-like/phone scrubbed before LLM; deterministic rules use fixture text',
+            budgets: { maxCalls: maxLlmCalls, maxOutputTokens, maxEstimatedCostUsd: maxCostUsd },
+          }
+        : null,
       file,
       report,
       humanRealReport: realReport,

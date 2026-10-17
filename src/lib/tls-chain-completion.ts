@@ -31,6 +31,7 @@
 import { X509Certificate } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { shouldBlockExternalHttpInTest } from './offline-network';
 import { connect as tlsConnect } from 'node:tls';
 import { createPublicOnlyLookup } from '../sources/network-safety';
 
@@ -400,6 +401,11 @@ function downloadOnce(
       return;
     }
     if (url.username || url.password) {
+      resolve(null);
+      return;
+    }
+    // AIA is a secondary raw node:http(s) path; check every redirect hop as well.
+    if (shouldBlockExternalHttpInTest(rawUrl, 'source-http')) {
       resolve(null);
       return;
     }

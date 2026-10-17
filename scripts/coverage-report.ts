@@ -10,12 +10,40 @@ import { createRepos } from '../src/db/repos';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
 import { listAdapters } from '../src/sources/registry';
 import { toIstanbulDateOnly } from '../src/domain';
+import { buildStaticSourceInventory } from '../src/sources/inventory';
 
 function pad(value: string, width: number): string {
   return value.length > width ? `${value.slice(0, width - 1)}…` : value.padEnd(width);
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes('--static')) {
+    const report = buildStaticSourceInventory();
+    if (process.argv.includes('--json')) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(`\nSalt-okunur statik kaynak envanteri — ${report.summary.total} tanım, ${report.summary.enabled} etkin`);
+      console.log(`Adaptör eşleşmesi: ${report.sourceContract.missingAdapters.length === 0 ? 'PASS' : 'FAIL'}`);
+      console.log(`Snapshot manifesti: ${report.fixtureManifest.status} (${report.summary.fixtureSnapshots} doğrulanmış dosya)`);
+      console.log('Canlı kaynak: NOT RUN · Üretim DB: NOT READ · Sağlık/0-sonuç nedeni: UNKNOWN');
+      if (report.sourceContract.missingAdapters.length > 0) {
+        for (const missing of report.sourceContract.missingAdapters) console.log(`  ✖ adaptör eksik: ${missing}`);
+      }
+      if (report.fixtureManifest.errors.length > 0) {
+        for (const error of report.fixtureManifest.errors) console.log(`  ✖ fixture: ${error}`);
+      }
+    }
+    if (
+      !report.sourceContract.sourceKeysUnique ||
+      report.sourceContract.missingAdapters.length > 0 ||
+      report.sourceContract.listingHostNotAllowlisted.length > 0 ||
+      report.fixtureManifest.status === 'invalid'
+    ) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const store = await initStore();
   const repos = createRepos(store);
   await repos.sources.seed(SOURCE_DEFINITIONS);

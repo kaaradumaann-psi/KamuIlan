@@ -24,13 +24,17 @@ const silentLogger = {
 
 const clients: HttpClient[] = [];
 const agents: MockAgent[] = [];
-function makeClient(mockAgent: MockAgent): HttpClient {
+function makeClient(
+  mockAgent: MockAgent,
+  budget: { maxRequests?: number; maxTextRequests?: number } = {},
+): HttpClient {
   agents.push(mockAgent);
   const client = new HttpClient({
     logger: silentLogger,
     sleep: async () => undefined,
     dispatcher: mockAgent,
     rateLimiter: new HostRateLimiter(),
+    ...budget,
   });
   clients.push(client);
   return client;
@@ -58,6 +62,64 @@ describe('HttpClient ağ davranışı', () => {
     });
     expect(response.status).toBe(200);
     expect(response.decoded?.text).toContain('İLAN');
+  });
+
+  it('global HTTP budget redirect ve retry denemelerini sayar; bütçe aşımında yeni istek göndermez', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/redirect-budget', method: 'GET' })
+      .reply(302, '', { headers: { location: '/redirect-target' } });
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/redirect-target', method: 'GET' })
+      .reply(200, '<html>ok</html>', { headers: { 'content-type': 'text/html' } });
+    const client = makeClient(mock, { maxRequests: 2, maxTextRequests: 1 });
+
+    const response = await client.fetchText(`${ORIGIN}/redirect-budget`, {
+      allowedHosts: ALLOWED,
+      retries: 1,
+      minIntervalMs: 0,
+    });
+    expect(response.status).toBe(200);
+    expect(client.requestsMade).toBe(2);
+    expect(client.remainingRequestBudget).toBe(0);
+    expect(client.textFetchesMade).toBe(1);
+    expect(client.remainingTextRequestBudget).toBe(0);
+
+    await expect(
+      client.fetchText(`${ORIGIN}/never-sent`, { allowedHosts: ALLOWED, retries: 0, minIntervalMs: 0 }),
+    ).rejects.toThrow(/text\/page request bütçesi doldu/);
+    await expect(
+      client.fetchBinary(`${ORIGIN}/binary-never-sent`, { allowedHosts: ALLOWED, retries: 0, minIntervalMs: 0 }),
+    ).rejects.toThrow(/toplam HTTP istek bütçesi doldu/);
+    expect(client.requestsMade).toBe(2);
+    expect(client.textFetchesMade).toBe(1);
+  });
+
+  it('eşzamanlı istekler ortak sert HTTP sınırını atomik olarak rezerve eder', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/parallel-a', method: 'GET' })
+      .reply(200, '<html>a</html>', { headers: { 'content-type': 'text/html' } });
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/parallel-b', method: 'GET' })
+      .reply(200, '<html>b</html>', { headers: { 'content-type': 'text/html' } });
+    const client = makeClient(mock, { maxRequests: 1 });
+
+    const results = await Promise.allSettled([
+      client.fetchText(`${ORIGIN}/parallel-a`, { allowedHosts: ALLOWED, retries: 0, minIntervalMs: 0 }),
+      client.fetchText(`${ORIGIN}/parallel-b`, { allowedHosts: ALLOWED, retries: 0, minIntervalMs: 0 }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(client.requestsMade).toBe(1);
+    expect(client.remainingRequestBudget).toBe(0);
   });
 
   it('POST jsonBody isteğini JSON gövdesi ve content-type ile gönderir', async () => {

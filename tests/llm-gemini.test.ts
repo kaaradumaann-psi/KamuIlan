@@ -1006,6 +1006,50 @@ describe('HTTP hata gövdesi tanısı ve başlık güvenliği', () => {
  * ------------------------------------------------------------------------- */
 
 describe('llm:doctor — kanıta dayalı kontroller ve iki kapının ayrı doğrulanması', () => {
+  it('offline rapor endpoint userinfo ve query değerlerini sızdırmaz', async () => {
+    const env = getEnv({
+      NODE_ENV: 'test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      AI_ASSISTANT_ENABLED: '0',
+      LLM_BASE_URL: 'https://user:password@llm.example.invalid/v1?tenant=private-value&api_key=query-secret',
+      LLM_API_KEY: API_KEY,
+      LLM_CLASSIFIER_MODEL: 'test-model',
+    } as never);
+
+    const report = await runLlmDoctor({ env, offline: true });
+    const serialized = JSON.stringify(report);
+
+    expect(report.baseUrl).toBe('https://llm.example.invalid/v1');
+    expect(serialized).not.toContain('password@');
+    expect(serialized).not.toContain('private-value');
+    expect(serialized).not.toContain('query-secret');
+    expect(serialized).not.toContain(API_KEY);
+  });
+
+  it('zero çağrı bütçesini yükseltmez ve geçersiz bütçeyi reddeder', async () => {
+    const env = getEnv({
+      NODE_ENV: 'test',
+      LLM_CLASSIFIER_ENABLED: '1',
+      LLM_BASE_URL: GOOGLE_BASE,
+      LLM_API_KEY: API_KEY,
+      LLM_CLASSIFIER_MODEL: 'gemini-2.5-flash',
+    } as never);
+    let fetchCalls = 0;
+    const report = await runLlmDoctor({
+      env,
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return { status: 200, text: async () => '{}'};
+      },
+      maxApiCalls: 0,
+    });
+
+    expect(report.apiBudget).toMatchObject({ maxCalls: 0, usedCalls: 0 });
+    expect(fetchCalls).toBe(0);
+    await expect(runLlmDoctor({ env, fetchImpl: async () => ({ status: 200, text: async () => '{}' }), maxApiCalls: 6 }))
+      .rejects.toThrow(/0–5/);
+  });
+
   it('tanı çağrısı 8 token yerine gerekçelendirilmiş makul sınır (DOCTOR_PROBE_MAX_TOKENS >= 64) kullanır', () => {
     expect(DOCTOR_PROBE_MAX_TOKENS).toBeGreaterThanOrEqual(64);
     expect(DOCTOR_PROBE_MAX_TOKENS).toBeLessThanOrEqual(256);

@@ -53,8 +53,10 @@ ortak). Yeni bağımlılık EKLENMEDİ; sağlayıcı ortam değişkeniyle seçil
 **Doğrulama durumu (dürüstlük notu):** Fiyat/hız verileri 15 Ekim 2026'da üçüncü taraf fiyat
 izleyicilerinden (aipricing.guru, costbench, pricepertoken) derlenmiştir; bu geliştirme ortamından
 sağlayıcı API'lerine canlı erişim YOKTUR (izinli hostlar: github, npm, pypi). Karar öncesi
-`npm run test:live` benzeri bir canlı doğrulama ve resmî fiyat sayfası kontrolü kullanıcı ortamında
-yapılmalıdır. Model kalitesi etiketli kümeyle ölçülmelidir: `npm run eval:classification -- --llm`.
+Kaynak erişimi için explicit, bütçeli `test:live -- --live --source=…` komutu ve
+resmî fiyat sayfası kontrolü yetkili operatör ortamında yapılmalıdır. LLM model
+değerlendirmesi de yalnız açık consent ve calls/tokens/USD caps ile mümkündür;
+`docs/quality/OFFLINE-VERIFY.md` güncel komut örneklerini içerir.
 
 Neden Groq önerisi: mevcut dokümantasyonda zaten örnek gösterilen sağlayıcı (`AI_PROVIDER_LABEL`
 örneği "Groq"), OpenAI uyumlu uç, düşük birim maliyet, yüksek hız (tarama bütçesi içinde kalır).
@@ -73,14 +75,25 @@ Karar `LLM_BASE_URL/LLM_CLASSIFIER_MODEL` ile tek satırda değiştirilebilir �
   değil, küçük modeller Türkçe resmî metinde zayıf. Veri ikametgâhı zorunluluğu doğarsa aynı
   istemciyle Ollama'ya geçilebilir (mimari hazır).
 
-## 3. Maliyet modeli (tahmini)
+## 3. Maliyet modeli ve bütçe kapısı (tahmini; fatura değil)
 
-Tipik çağrı: ~700 token sistem istemi + 1.500–4.000 token duyuru metni + ~200 token çıktı.
-Groq fiyatlarıyla çağrı başına ≈ $0.0015–0.003 (kabaca 0,05–0,10 TL). Üst sınır:
-`LLM_DAILY_CALL_LIMIT=400` → günde ≈ $0.6–1.2; `LLM_MAX_CALLS_PER_RUN=12` kaynak başına fren.
-Önbellek (içerik özeti + model + istem sürümü) tekrar eden içeriği ücretsiz hale getirir; 304
-(Not Modified) taramaları zaten kapıya hiç ulaşmaz. Gerçek maliyet kullanıcı panelinde ölçülür:
-Yönetici → Genel bakış → LLM kartı (24s çağrı, token, gecikme, hata).
+Bu belgede/üstteki karşılaştırma tablosunda geçen sağlayıcı fiyatları üçüncü taraf kaynaklardan
+aktarılmış tarihsel tahminlerdir; **güncel resmî fiyat veya canlı fiyat kanıtı sayılmaz**. Bunlarla
+üretim `.env` değerleri doldurulmamalıdır. Sağlayıcının güncel resmî tarifesi operatörce doğrulanıp
+iki pozitif `LLM_COST_USD_PER_MTOK_INPUT` / `LLM_COST_USD_PER_MTOK_OUTPUT` varsayımı olarak girilmeden
+USD tahmini raporlanmaz.
+
+Üretimde AI/LLM açılacaksa `LLM_RUN_COST_LIMIT_USD` ve `LLM_DAILY_COST_LIMIT_USD` de zorunludur;
+`env:check` eksik/sıfır fiyat veya tavanla fail-closed hata verir. Kapı her provider HTTP denemesi
+(yeniden deneme dâhil) için girdi JSON baytlarını girdi-token üst vekili, `maxOutputTokens` değerini
+çıktı-token üst sınırı sayarak maliyeti önceden rezerve eder. Günlük çağrı sayacı (`LLM_DAILY_CALL_LIMIT`)
+USD tavanının **yerine geçmez**; koşu/gün maliyet kovaları ayrı ve worker'lar arasında atomiktir.
+Başarısız HTTP isteği de sağlayıcıda ücretlenmiş olabileceği için rezervasyon iade edilmez.
+
+Bunlar yine de gerçek fatura garantisi değildir: tokenizer/provider fiyatı ve ücretlendirme yöntemi
+operatör varsayımına bağlıdır. Panelde Yönetici → Genel bakış → LLM kartı token/gecikme/hata ve
+fiyat yapılandırılmışsa sonradan hesaplanan maliyet tahminini gösterir; `verify:all` bu kartı canlı
+provider olmadan doğrulayamaz.
 
 ## 4. Güvenlik ve KVKK
 
@@ -97,12 +110,10 @@ Yönetici → Genel bakış → LLM kartı (24s çağrı, token, gecikme, hata).
 
 ## 5. Ölçüm ve değerlendirme
 
-- `npm run eval:classification` → yalnız kurallar (deterministik, ağ yok).
-- `npm run eval:classification -- --llm` → kurallar + kapı (gerçek sağlayıcı çağrısı; etiketli
-  kümede `review` kalan kayıtların kaçının çözüldüğünü ve sınıf metriklerini raporlar).
-- `npm run llm:review-assist [-- --report r.json]` → mevcut inceleme kuyruğu için KURU ÇALIŞTIRMA
-  öneri raporu (ana veritabanına yazmaz).
-- Panel telemetrisi: çağrı/önbellek/isabetsiz/hata/gecikme/token (24s + toplam).
+- `npm run eval:classification` → yalnız kurallar (deterministik, ağ yok); sentetik/spec-title metrikleri gerçek doğruluk iddiası değildir.
+- Canlı `eval:classification -- --llm` artık `--reviewed-public-data`, `--max-calls`, `--max-output-tokens` ve `--max-cost-usd` ister; başlık/gövde PII-benzeri kalıpları scrub edilir, rapor kimlikleri hash'lenir. İnsan etiketli gerçek kayıt yoksa **VERİ YETERSİZ**.
+- `llm:review-assist` gerçek DB'den salt okunur örnek alabilir ve veriyi sağlayıcıya gönderebilir; bu nedenle `--live --allow-provider-data` ile kayıt/çağrı/token/USD sınırlarının tamamı zorunludur. Telemetri geçici file DB'de kalır; ana DB'ye karar uygulamaz; rapor kimlik/metinleri hash'lenir.
+- Panel telemetrisi: çağrı/önbellek/isabetsiz/hata/gecikme/token (24s + toplam); tahmini maliyet yalnızca tanımlı fiyat varsayımlarıyla hesaplanır, sağlayıcı faturası değildir.
 - **Eksik:** gerçek etiketli küme (17 kayıt, tamamı sentetik/başlık kaynaklı). Gerçek
   precision/recall iddiası YOKTUR; küme `tests/fixtures/eval/labeled-set.json` içine
   `origin: "real"` kayıtlar eklendikçe rapor gerçekçi hale gelir (ağ erişimli ortamda
@@ -111,7 +122,9 @@ Yönetici → Genel bakış → LLM kartı (24s çağrı, token, gecikme, hata).
 ## 6. Operasyon
 
 - Açma: `.env` → `LLM_CLASSIFIER_ENABLED=1`, `LLM_BASE_URL`, `LLM_API_KEY`,
-  `LLM_CLASSIFIER_MODEL` (ayrıntı: `docs/setup.md` §10).
+  `LLM_CLASSIFIER_MODEL`, iki resmî pozitif token fiyatı ve pozitif
+  `LLM_RUN_COST_LIMIT_USD` / `LLM_DAILY_COST_LIMIT_USD` (ayrıntı: `docs/setup.md` §10).
+  Bu bütçe kapısı üretim kontrolüdür; sağlayıcı faturası garantisi vermez.
 - Acil kapatma: `LLM_CLASSIFIER_ENABLED=0` + worker yeniden başlat → sistem anında yalnız
   kurallara döner; yayımlanmış ilanlar etkilenmez (kapı kararı sınıflandırma denetim izini
   `classification.llm` içinde saklar, geriye dönük görülebilir).
@@ -126,19 +139,21 @@ Bu, modelin "kötü" olması değil **yapılandırma** sorunudur: istek hiç bir
 ulaşmaz, dolayısıyla token da üretilmez. Kararlar kurallarda kalır ve inceleme
 kuyruğu insana yığılır.
 
-Tanı komutu (tek gerçek çağrı yapar, veritabanına yazmaz, anahtarı yazdırmaz):
+`llm:doctor` varsayılan olarak offline'dır ve provider çağrısı yapmaz. Canlı smoke
+provider'a yalnız sabit tanı istemini gönderir; `--live` ve üç ayrı bütçe bayrağı
+zorunludur. Anahtar rapora yazılmaz, endpoint query secret'ları temizlenir.
 
-```bash
-npm run llm:doctor              # yapılandırma + canlı çağrı
-npm run llm:doctor -- --offline # yalnızca yapılandırma (ağ yok)
-npm run llm:doctor -- --json    # makine okunur
+```powershell
+New-Item -ItemType Directory -Force data | Out-Null
+npm run llm:doctor -- --offline --json data/llm-doctor-offline.json
+npm run llm:doctor -- --live --max-calls=1 --max-output-tokens=64 --max-estimated-cost-usd=0.01 --json data/llm-doctor-live.json
 ```
 
 En sık üç kök neden ve karşılığı:
 
 | Belirti | Kök neden | Karşılık |
 | --- | --- | --- |
-| HTTP 404, ~300 ms, 0 token | İstek, sağlayıcının **sunmadığı** bir sohbet ucuna gidiyor ya da model adı o sağlayıcıda yok | `npm run llm:doctor` taşıyıcıyı ve tam istek adresini yazar; başarısızlıkta sağlayıcının kendi mesajını ve **model listesi denetimini** gösterir. Google için kök `https://generativelanguage.googleapis.com/v1beta` yazılır — istemci birincil API'yi (`POST {kök}/models/{model}:generateContent`) kullanır. OpenAI için `https://api.openai.com/v1`, karma katalog için `https://openrouter.ai/api/v1` |
+| HTTP 404, ~300 ms, 0 token | İstek, sağlayıcının **sunmadığı** bir sohbet ucuna gidiyor ya da model adı o sağlayıcıda yok | Offline `llm:doctor` yalnız yapılandırmayı raporlar; gerçek uç/model davranışı ancak resmi fiyat varsayımları ve zorunlu çağrı/token/USD bütçeleriyle explicit `--live` koşumunda görülür. Google için kök `https://generativelanguage.googleapis.com/v1beta` yazılır — istemci birincil API'yi (`POST {kök}/models/{model}:generateContent`) kullanır. OpenAI için `https://api.openai.com/v1`, karma katalog için `https://openrouter.ai/api/v1` |
 | HTTP 401/403 | Anahtar geçersiz/süresi dolmuş ya da modele yetkisiz | `LLM_API_KEY`'yi yenileyin; `npm run env:setup` ile tek tek doldurun |
 | HTTP 429 / `Zaman aşımı` | Kota ya da ağ | `LLM_DAILY_CALL_LIMIT`, `LLM_MAX_CALLS_PER_RUN`, `LLM_TIMEOUT_MS` ayarları; ağ çıkışı |
 
@@ -185,14 +200,22 @@ Ortak kalan davranış: aynı `LlmResult` sözleşmesi, aynı zaman aşımı
 metinlerinden ayıklanır). `LlmResult` ve üst katmanlar (`classifier.ts`,
 `suggest.ts`, panel) DEĞİŞMEDİ.
 
-Karşılaştırma yapmak gerekirse: `npm run llm:doctor -- --compat` (kabuğu dener)
-ve `npm run llm:doctor -- --native` (birincil API'yi zorlar). Doktor başarısız
-çağrıda ayrıca **model listesi denetimi** yapar ve "model listede VAR ⇒ sorun
-uçta" ya da "model listede YOK ⇒ benzer modeller: …" sonucunu yazar.
+Karşılaştırma provider testi sayılır ve varsayılan offline modda yapılmaz. Yalnız
+operatör onayıyla `--live` ve dar çağrı/token/USD bütçeleri ekleyin; `--compat`
+ve `--native` bu live koşumda tek tek seçilebilir. Bir çağrı tavanı 1 ise model
+probe dışındaki model-listesi GET bütçe nedeniyle atlanabilir. Model listesi tek
+başına üretim yetkisi/sağlık kanıtı değildir.
 
 Doğrulama sonrası: maliyet satırının panelde görünmesi için
 `LLM_COST_USD_PER_MTOK_INPUT` / `LLM_COST_USD_PER_MTOK_OUTPUT` değerlerini
 sağlayıcının resmî fiyat sayfasından yazın (boşsa "maliyet raporlanmadı" yazar,
 rakam uydurulmaz). Kapı açıldıktan sonra inceleme kuyruğundaki eski kayıtlar
-kendiliğinden model denetiminden geçmez; `npm run llm:review-assist` (kuru
-çalıştırma) ya da sonraki taramalarda kapının aynı içeriği görmesi beklenir.
+kendiliğinden model denetiminden geçmez. İnceleme-kuyruğu aracı provider'a veri
+gönderebildiğinden güncel explicit opt-in/bütçe şartları olmadan çalıştırılamaz.
+
+## 8. Güncel offline/live güvenlik sözleşmesi
+
+`npm run verify:all` LLM provider çağrısı yapmadan typecheck/lint/test/coverage/build,
+statik kaynak sözleşmesi ve deterministik eval çalıştırır. Canlı doctor/eval/review-assist
+komutlarının PowerShell kullanımı, TLS/bütçe/PII şartları ve gerçek etiket kanıtı için
+[quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md) geçerli operatör rehberidir.
