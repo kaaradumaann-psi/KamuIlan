@@ -30,7 +30,7 @@ import { createLogger, type Logger } from '../lib/logger';
 import { addMilliseconds, type Clock } from '../lib/clock';
 import { FetchError, HttpClient } from '../sources/fetcher';
 import { requireAdapter } from '../sources/registry';
-import { AdapterStructureError, AdapterUnavailableError } from '../sources/errors';
+import { AdapterStructureError, AdapterUnavailableError, SourceAccessError } from '../sources/errors';
 import type { AdapterContext, SourceAdapter } from '../sources/types';
 import { queueNotificationsForJob } from '../notifications/service';
 import { createLlmClassificationGate, disabledLlmGate, llmClassifierConfig, type LlmClassificationGate } from '../ai/classifier';
@@ -51,6 +51,8 @@ export interface RunSourceOptions {
   scheduledFor?: string | null;
   /** Adaptörü doğrudan çalıştırmak için (test/kapsam denetimi). */
   adapter?: SourceAdapter;
+  /** Operatör staging koşumu için ek detay indirme tavanı (yöntem tavanını yükseltmez). */
+  maxDetailFetches?: number;
   /**
    * LLM sınıflandırma kapısı. Üretimde verilmez; ortam değişkenlerinden
    * (LLM_CLASSIFIER_ENABLED) koşu başına bir kapı kurulur. Testlerde sahte
@@ -77,6 +79,12 @@ export interface RunSourceResult {
   coverageNote: string;
   notes: string[];
   errors: string[];
+  /** Görülen HTTP durum kodları (en fazla 50; son yönlendirme hariç). */
+  httpStatuses: number[];
+  /** Fatal hatanın HTTP durumu (erişim kısıtı/HTTP hatası); yoksa null. */
+  httpStatus: number | null;
+  /** Fatal/ilan hatalarının sınıfı; başarıda null. */
+  errorType: 'unavailable' | 'structure' | 'fetch' | 'item' | 'other' | null;
   locked: boolean;
   /** LLM sınıflandırma kapısı özeti (kapı kapalıysa enabled:false, tüm sayaçlar 0). */
   llm: {
@@ -240,6 +248,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       coverageNote: 'Kilit alınamadığı için kaynak kapsamı kontrol edilmedi.',
       notes: ['Kilit alınamadı: başka bir tarama sürüyor.'],
       errors: [],
+      httpStatuses: [],
+      httpStatus: null,
+      errorType: null,
       locked: true,
       llm: disabledLlmGate().summary(),
     };
@@ -260,6 +271,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   let coverageStatus: ScrapeRunDoc['coverageStatus'] = 'unknown';
   let coverageNote = 'Adaptör bu çalışmada sayfa/arşiv kapsamı bildirmedi; tam kapsam doğrulanamıyor.';
   let fatalError: Error | null = null;
+  let fatalHttpStatus: number | null = null;
   let contentUnchanged = false;
   let adapterNotes: string[] = [];
   let etag: string | null = null;
@@ -311,7 +323,10 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         fetchedAt: now,
         knownItemIds,
         knownItemIdsWithDetail,
-        maxDetailFetches: detailFetchBudget(source.method),
+        maxDetailFetches:
+          options.maxDetailFetches === undefined
+            ? detailFetchBudget(source.method)
+            : Math.min(detailFetchBudget(source.method), Math.max(0, options.maxDetailFetches)),
       };
 
       const runResult = await withTimeout(adapter.run(ctx), timeoutMs, `${adapter.label} taraması`, () =>
@@ -429,12 +444,19 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
     fatalError = error instanceof Error ? error : new Error(String(error));
     const isUnavailable = error instanceof AdapterUnavailableError;
     const isStructure = error instanceof AdapterStructureError;
-    status = isUnavailable ? 'skipped' : 'failed';
+    const isAccess = error instanceof SourceAccessError;
+    if (isAccess) fatalHttpStatus = error.httpStatus;
+    if (fatalError instanceof FetchError) fatalHttpStatus = fatalError.status;
+    // Erişim kısıtı (WAF/geo/oturum) bir başarısızlık değil, ATLAMA olarak kaydedilir;
+    // kısıt aşılmaya çalışılmaz ve kaynak sağlığında ayrı hata türü olarak görünür.
+    status = isUnavailable || isAccess ? 'skipped' : 'failed';
     resultMessage = isUnavailable
       ? `Kaynak atlandı: ${fatalError.message}`
-      : isStructure
-        ? `Kaynak yapısı beklenenden farklı (HTML değişmiş olabilir): ${fatalError.message}`
-        : `Tarama başarısız: ${fatalError.message}`;
+      : isAccess
+        ? `Kaynak erişimi kısıtlı${fatalHttpStatus ? ` (HTTP ${fatalHttpStatus})` : ''}: ${fatalError.message}`
+        : isStructure
+          ? `Kaynak yapısı beklenenden farklı (HTML değişmiş olabilir): ${fatalError.message}`
+          : `Tarama başarısız: ${fatalError.message}`;
     totals.errors.push(resultMessage);
     logger.error(
       {
@@ -510,6 +532,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
     coverageNote,
     notes: totals.notes,
     errors: totals.errors,
+    httpStatuses: totals.httpStatuses,
+    httpStatus: fatalHttpStatus,
+    errorType: classifyErrorType(fatalError, totals.errors.length),
     locked: false,
     llm: llmGate.summary(),
   };

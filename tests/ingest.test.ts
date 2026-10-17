@@ -15,7 +15,7 @@ import { applyRawAnnouncement } from '../src/ingest/jobs-service';
 import { runSourceScrape } from '../src/ingest/pipeline';
 import { queueNotificationsForJob } from '../src/notifications/service';
 import { createLogger } from '../src/lib/logger';
-import { AdapterStructureError } from '../src/sources/errors';
+import { AdapterStructureError, SourceAccessError } from '../src/sources/errors';
 import type { SourceDefinition } from '../src/config/sources';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../src/sources/types';
 import type { RawAnnouncement } from '../src/domain';
@@ -554,6 +554,35 @@ describe('tarama hattı', () => {
     expect(await repos.store.count('jobs', {})).toBe(0);
     const runs = await repos.runs.list({ sourceKey: source.key });
     expect(runs[0]?.status).toBe('locked');
+  });
+
+  it('erişim kısıtı (WAF/HTTP 403) başarısızlık değil ATLAMA olarak kaydedilir', async () => {
+    const repos = await makeRepos();
+    const source = await seedSource(repos);
+    const blocked: SourceAdapter = {
+      key: 'test-liste',
+      label: 'Test listesi',
+      method: 'html-list',
+      notes: 'Erişim kısıtı taklidi; kısıt aşılmaya çalışılmaz.',
+      run: async () => {
+        throw new SourceAccessError('test-liste', 'Erişim kısıtlandı.', 403);
+      },
+    };
+    const result = await runSourceScrape({
+      repos,
+      source,
+      trigger: 'schedule',
+      workerId: WORKER,
+      adapter: blocked,
+      logger: createLogger('test', { level: 'silent' }),
+    });
+    expect(result.status).toBe('skipped');
+    expect(result.httpStatus).toBe(403);
+    expect(result.errors[0]).toContain('HTTP 403');
+    const run = await repos.runs.lastRun(source.key);
+    expect(run?.status).toBe('skipped');
+    const refreshed = await repos.sources.getByKey(source.key);
+    expect(refreshed?.health.consecutiveSkips).toBe(1);
   });
 
   it('kaynak yapısı değişince hata kaydeder ve mevcut ilanları SİLMEZ', async () => {
