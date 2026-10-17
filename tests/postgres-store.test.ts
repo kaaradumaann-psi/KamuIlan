@@ -77,6 +77,7 @@ function job(overrides: Partial<JobDoc> & Pick<JobDoc, 'id'>): JobDoc {
 let pg: PostgresStore;
 let file: FileStore;
 let pglite: PGlite;
+let tablesAfterConnectOnly = -1;
 const dataDir = mkdtempSync(join(tmpdir(), 'kamuilan-pg-'));
 
 beforeAll(async () => {
@@ -88,6 +89,10 @@ beforeAll(async () => {
   });
   file = new FileStore(dataDir, 'pg-oracle.json');
   await Promise.all([pg.init(), file.init()]);
+  const tablesBeforeEnsure = await pglite.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'kamuilan_test_%'`,
+  );
+  tablesAfterConnectOnly = tablesBeforeEnsure.rows.length;
   await Promise.all([pg.ensureIndexes(INDEXES), file.ensureIndexes(INDEXES)]);
 });
 
@@ -96,6 +101,10 @@ afterAll(async () => {
 });
 
 describe('Postgres depo sürücüsü', () => {
+  it('init salt okunur bağlantı kurar; tablo/indeks DDL yalnızca ensureIndexes ile oluşur', () => {
+    expect(tablesAfterConnectOnly).toBe(0);
+  });
+
   it('sağlık kontrolü ve sürücü kimliği doğru', async () => {
     const health = await pg.health();
     expect(health.ok).toBe(true);
@@ -403,6 +412,18 @@ describe('Postgres depo sürücüsü', () => {
     // Temizlik: karışım kayıtlarının kalanını iki sürücüden de kaldır.
     await pg.deleteMany('jobs', { id: { $in: mixIds } });
     await file.deleteMany('jobs', { id: { $in: mixIds } });
+  });
+
+  it('RateLimitRepo eşzamanlı Postgres artırımlarını atomik tutar', async () => {
+    const repos = createRepos(pg as unknown as StoragePort, systemClock);
+    const results = await Promise.all(
+      Array.from({ length: 48 }, () => repos.rateLimits.hit('pg-atomik-test', 3_600)),
+    );
+
+    expect(results.map((result) => result.count).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 48 }, (_, index) => index + 1),
+    );
+    expect(await repos.rateLimits.peek('pg-atomik-test', 3_600)).toBe(48);
   });
 
   it('repo katmanı Postgres üzerinde zod doğrulamasıyla çalışır', async () => {

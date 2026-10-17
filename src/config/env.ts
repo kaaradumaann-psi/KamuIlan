@@ -58,6 +58,19 @@ function usdPerMtokField(name: string) {
   });
 }
 
+/** Hard estimate limit: empty means unconfigured; zero cannot be used as a paid-call budget. */
+function usdBudgetLimitField(name: string) {
+  return z.string().default('').transform((value): number | null => {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100_000) {
+      throw new Error(`${name} 0'dan büyük ve 100000 USD veya daha az olmalıdır (ya da boş bırakılmalıdır).`);
+    }
+    return parsed;
+  });
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_DISPLAY_NAME: z.string().min(1).default('Kamuİlan'),
@@ -345,6 +358,10 @@ const envSchema = z.object({
    */
   LLM_COST_USD_PER_MTOK_INPUT: usdPerMtokField('LLM_COST_USD_PER_MTOK_INPUT'),
   LLM_COST_USD_PER_MTOK_OUTPUT: usdPerMtokField('LLM_COST_USD_PER_MTOK_OUTPUT'),
+  /** Operatörün fiyat varsayımıyla hesaplanan koşu maliyeti için üst rezervasyon. */
+  LLM_RUN_COST_LIMIT_USD: usdBudgetLimitField('LLM_RUN_COST_LIMIT_USD'),
+  /** Bütün worker/provider akışlarının ortak 24 saatlik tahmini maliyet rezervasyonu. */
+  LLM_DAILY_COST_LIMIT_USD: usdBudgetLimitField('LLM_DAILY_COST_LIMIT_USD'),
 
   /** Geliştirme posta görüntüleyicisinin portu (scripts/dev-smtp-server.ts). */
   DEV_MAIL_VIEWER_PORT: z.coerce.number().int().min(1).max(65_535).default(1080),
@@ -798,10 +815,39 @@ function collectEnvironmentProblems(
     const risk = describeLlmEndpointRisk(env.LLM_BASE_URL, llmModel);
     if (risk) warnings.push(`${risk} Doğrulamak için: npm run llm:doctor`);
   }
-  if (env.LLM_CLASSIFIER_ENABLED && !env.LLM_COST_USD_PER_MTOK_INPUT && !env.LLM_COST_USD_PER_MTOK_OUTPUT) {
+  const anyLlmEnabled = env.AI_ASSISTANT_ENABLED || env.LLM_CLASSIFIER_ENABLED;
+  const bothCostRatesConfigured =
+    env.LLM_COST_USD_PER_MTOK_INPUT !== null &&
+    env.LLM_COST_USD_PER_MTOK_OUTPUT !== null &&
+    env.LLM_COST_USD_PER_MTOK_INPUT > 0 &&
+    env.LLM_COST_USD_PER_MTOK_OUTPUT > 0;
+  const anyCostCapConfigured =
+    env.LLM_RUN_COST_LIMIT_USD !== null || env.LLM_DAILY_COST_LIMIT_USD !== null;
+  if (anyCostCapConfigured && !bothCostRatesConfigured) {
+    problems.push(
+      'LLM USD maliyet sınırı tanımlı ancak LLM_COST_USD_PER_MTOK_INPUT/OUTPUT eksik veya sıfır. ' +
+        'Fiyat doğrulanana kadar fail-closed bütçe hiçbir sağlayıcı çağrısına izin vermez.',
+    );
+  }
+  if (anyLlmEnabled && !bothCostRatesConfigured) {
     warnings.push(
-      'LLM_COST_USD_PER_MTOK_INPUT/OUTPUT boş: panelde LLM maliyeti "raporlanmadı" görünür. ' +
-        'Sağlayıcının 1M token fiyatını (USD) yazın; doğrulanmamış fiyat yayımlanmaz.',
+      'LLM_COST_USD_PER_MTOK_INPUT/OUTPUT sağlayıcı fiyatı varsayımı değildir: eksik/sıfırsa maliyet raporlanmaz. ' +
+        'Bu varsayımlar doğrulanmış resmi fiyat olmadan doldurulmamalıdır.',
+    );
+  }
+  if (env.NODE_ENV === 'production' && anyLlmEnabled) {
+    if (env.LLM_RUN_COST_LIMIT_USD === null || env.LLM_DAILY_COST_LIMIT_USD === null) {
+      problems.push(
+        'Üretimde AI/LLM etkinleştirildiğinde LLM_RUN_COST_LIMIT_USD ve LLM_DAILY_COST_LIMIT_USD ' +
+          'zorunludur; tahmini maliyet için iki LLM_COST_USD_PER_MTOK_* fiyat varsayımı da gerekir.',
+      );
+    }
+    if (!bothCostRatesConfigured) {
+      problems.push('Üretimde LLM etkinleştirilmişken iki pozitif LLM_COST_USD_PER_MTOK_* varsayımı zorunludur.');
+    }
+  } else if (anyLlmEnabled && (env.LLM_RUN_COST_LIMIT_USD === null || env.LLM_DAILY_COST_LIMIT_USD === null)) {
+    warnings.push(
+      'LLM koşu/gün USD rezervasyon tavanı tam yapılandırılmamış; üretimde AI etkinleştirmek env:check tarafından engellenir.',
     );
   }
   if (env.ADMIN_EMAIL === '' || env.ADMIN_PASSWORD === '') {

@@ -43,7 +43,8 @@ export class MongoStore implements StoragePort {
     await this.client.connect();
     this.db = this.client.db(this.options.dbName);
     await this.db.command({ ping: 1 });
-    await this.ensureIndexes();
+    // Indexes/validators are schema writes. initStore runs ensureIndexes only
+    // when explicitly enabled; read-only diagnostics may connect and read safely.
   }
 
   async close(): Promise<void> {
@@ -142,6 +143,40 @@ export class MongoStore implements StoragePort {
     const result = await this.collection(collection).findOneAndUpdate(
       toMongoFilter(filter),
       { $set: patch },
+      { returnDocument: 'after' },
+    );
+    return result ? stripMongoId<DocumentOf<K>>(result) : null;
+  }
+
+  async incrementOne<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount = 1,
+  ): Promise<DocumentOf<K> | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Sayaç alanı tek bir belge alanı olmalıdır.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Sayaç artışı pozitif güvenli tamsayı olmalıdır.');
+    const result = await this.collection(collection).findOneAndUpdate(
+      toMongoFilter(filter),
+      { $inc: { [field]: amount } },
+      { returnDocument: 'after' },
+    );
+    return result ? stripMongoId<DocumentOf<K>>(result) : null;
+  }
+
+  async incrementOneIfBelow<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount: number,
+    maximum: number,
+  ): Promise<DocumentOf<K> | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Sayaç alanı tek bir belge alanı olmalıdır.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Sayaç artışı pozitif güvenli tamsayı olmalıdır.');
+    if (!Number.isSafeInteger(maximum) || maximum < amount) throw new Error('Sayaç üst sınırı geçersiz.');
+    const result = await this.collection(collection).findOneAndUpdate(
+      { ...toMongoFilter(filter), [field]: { $lte: maximum - amount } },
+      { $inc: { [field]: amount } },
       { returnDocument: 'after' },
     );
     return result ? stripMongoId<DocumentOf<K>>(result) : null;

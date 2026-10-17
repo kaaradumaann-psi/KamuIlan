@@ -112,21 +112,22 @@ düşmeyin.
 
 ## 4. Canlı doğrulama (yalnızca gerçek ağ olan ortamda)
 
-```bash
-SOURCE_LIVE_FETCH=1 npm run test:live -- --source=ornek-kurum-ilanlar
-# veya kuru çalıştırma (DB'ye yazmaz):
-SOURCE_LIVE_FETCH=1 npx tsx scripts/live-check.ts --source=ornek-kurum-ilanlar --dry-run
+```powershell
+$env:SOURCE_LIVE_FETCH = '1'
+npm run test:live -- --live --source=ornek-kurum-ilanlar --max-requests=5 --max-pages=2 --max-details=1 --min-delay-ms=1000
+Remove-Item Env:SOURCE_LIVE_FETCH
 ```
 
-Çıktıdan doğrulananları `verificationEvidence` alanına yazın:
+Komut salt okunur ve üretim DB'sinden bağımsızdır. HTTP status, kapsam durumu,
+istek sayısı ve başlıklardan türetilen hash örneklerini verir; ham URL/gövde/başlık
+rapora yazılmaz. `verificationEvidence` içine yalnız bu koşumun gerçekten
+kanıtladığı tarih, HTTP status, item count ve coverage değerlerini girin. Başlık,
+detay/PDF veya son başvuru tarihi raporda yoksa bunları doğrulanmış gibi yazmayın;
+bunları ayrıca yetkili ortamda elle gözlemleyip kaynağını belgelemek gerekir.
 
-```
-2026-10-12 canlı doğrulama: <URL> açıldı; <N> ilan kaydı görüldü
-(ör. "<Kurum> — Hemşire Alım İlanı", son başvuru 30.10.2026); ayrıntı sayfası ve
-PDF metin katmanı okundu.
-```
-
-Sonra `status` alanını `verified` yapın ve `lastVerifiedAt` tarihini girin.
+Kanıt yeterli olduğunda `status` alanını `verified` yapın ve `lastVerifiedAt`
+tarihini girin; yalnız erişim/HTML yapısı gözlendiyse `accessible` veya
+`scraper-built` kullanın.
 
 - Yalnızca HTML yapısı doğrulandıysa: `status: 'accessible'` veya `'scraper-built'`.
 - Erişim engelliyse: `status: 'access-restricted'`, kanıta HTTP kodunu yazın.

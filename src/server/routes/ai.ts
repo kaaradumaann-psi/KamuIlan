@@ -16,6 +16,7 @@ import type { Repos } from '../../db/repos';
 import { hasProfileSignal } from '../../ai/candidates';
 import { clearSuggestionCache, generateSuggestions } from '../../ai/suggest';
 import type { LlmConfig } from '../../ai/llm';
+import { createLlmBudgetFromEnv } from '../../ai/budget';
 import { audit, requireUser } from '../context';
 import { ApiError } from '../errors';
 
@@ -123,6 +124,10 @@ export function registerAiRoutes(app: FastifyInstance, repos: Repos): void {
         now: repos.clock.now(),
         llm: llmConfigFrom(env),
         dailyLimit: env.AI_DAILY_LIMIT_PER_USER,
+        budget: createLlmBudgetFromEnv(repos, env, {
+          maxCallsPerRun: 1,
+          additionalDailyCallBucket: 'llm-assistant-daily',
+        }),
       });
 
       await audit(repos.audit, request, {

@@ -11,6 +11,14 @@ jobs:
     env:
       # CI'da hiçbir gerçek kaynağa istek atılmaz; testler sahte adaptör/fetcher kullanır.
       SOURCE_LIVE_FETCH: '0'
+      SOURCE_BROWSER_FALLBACK: '0'
+      SOURCE_TLS_AIA_COMPLETION: '0'
+      SCHEDULER_ENABLED: '0'
+      AI_ASSISTANT_ENABLED: '0'
+      LLM_CLASSIFIER_ENABLED: '0'
+      EMAIL_PROVIDER: file
+      EMAIL_DEV_FILE_TRANSPORT: '1'
+      DATABASE_DRIVER: file
       NODE_ENV: test
       DATA_DIR: ./.ci-data
     steps:
@@ -25,16 +33,24 @@ jobs:
           app_secret="$(openssl rand -hex 32)"
           echo "::add-mask::$app_secret"
           echo "APP_SECRET=$app_secret" >> "$GITHUB_ENV"
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+      - name: Çevrimdışı doğrulama (izole DB/ağ/provider/posta)
+        run: npm run verify:all
 
-      - name: Ortam değişkeni doğrulaması
-        run: npm run env:check
+      - name: Offline verification raporları
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-verification-report
+          path: |
+            artifacts/verify-all/*/report.json
+            artifacts/verify-all/*/source-inventory.json
+            artifacts/verify-all/*/classification-evaluation.json
+            artifacts/verify-all/*/llm-doctor-offline.json
+          if-no-files-found: ignore
+          retention-days: 7
 
-      - name: Kapsam raporu (makine okunur)
-        run: npm run sources:report -- --json > coverage-report.json
+      - name: Kapsam raporu (salt-okunur statik JSON)
+        run: npm run sources:report -- --static --json > coverage-report.json
 
       # --- Uçtan uca (tarayıcı) testler -------------------------------------
       # Sabit/sample kimlik bilgisi kullanma; her iş için tek kullanımlık giriş üret.
@@ -47,6 +63,11 @@ jobs:
             echo "ADMIN_EMAIL=$admin_email"
             echo "ADMIN_PASSWORD=$admin_password"
           } >> "$GITHUB_ENV"
+
+      # API tek başına worker gibi kaynak envanterini seed etmez. Sadece statik
+      # tanımları file-backed test deposuna yaz; worker/planlayıcı başlatma.
+      - name: E2E statik kaynak envanteri
+        run: npm run seed:e2e-sources
 
       # Hesap yalnızca bu işin geçici DATA_DIR'inde yaşar.
       - name: E2E yönetici hesabı

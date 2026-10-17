@@ -27,6 +27,7 @@ export interface InsertIfAbsentResult<K extends CollectionName> {
 export interface StoragePort {
   readonly driver: 'postgres' | 'mongodb' | 'file';
 
+  /** Bağlantı/yerel dosya deposunu hazırlar; kalıcı sürücülerde şema DDL'i çalıştırmaz. */
   init(): Promise<void>;
   close(): Promise<void>;
   health(): Promise<{ ok: boolean; driver: string; detail: string }>;
@@ -46,6 +47,26 @@ export interface StoragePort {
     collection: K,
     filter: Query,
     patch: Record<string, unknown>,
+  ): Promise<DocumentOf<K> | null>;
+
+  /**
+   * Eşleşen belgenin sayısal sayacını depoda atomik olarak artırır.
+   * Bulunamazsa null döner; çağıran, sayacı oku-yaz yaparak artırmamalıdır.
+   */
+  incrementOne<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount?: number,
+  ): Promise<DocumentOf<K> | null>;
+
+  /** Sayacın artış sonrası sınırı aşmayacağı durumda atomik artırır. */
+  incrementOneIfBelow<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount: number,
+    maximum: number,
   ): Promise<DocumentOf<K> | null>;
 
   /** Filtre eşleşiyorsa günceller, eşleşmiyorsa ekler. */

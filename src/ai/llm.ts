@@ -23,6 +23,8 @@
  *  - Zaman aşımı zorunludur; yanıt boyutu sınırlıdır.
  *  - Ham istem ve yanıt loglanmaz; sağlayıcının hata mesajı kısaltılarak alınır.
  */
+import { shouldBlockExternalHttpInTest } from '../lib/offline-network';
+
 export type LlmFetchHeaders =
   | { get?(name: string): string | null | undefined }
   | Record<string, string | string[] | undefined>;
@@ -854,6 +856,15 @@ export async function callChatCompletion(
 ): Promise<LlmResult> {
   const fetchImpl: LlmFetch = options.fetchImpl ?? ((url, init) => fetch(url, init as RequestInit) as never);
   const endpoint = resolveLlmEndpoint(config, options.transport ? { transport: options.transport } : {});
+  if (!options.fetchImpl && shouldBlockExternalHttpInTest(endpoint.url, 'llm-provider')) {
+    return {
+      ok: false,
+      reason: 'Vitest offline guard: dış sağlayıcı çağrısı engellendi; fake/loopback transport kullanın.',
+      status: null,
+      retryable: false,
+      failureCategory: 'config',
+    };
+  }
   const jsonMode = options.jsonMode === true;
 
   if (jsonMode && !endpoint.supportsJsonMode) {

@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { getEnv } from '../config/env';
 import { maskEmail } from '../domain/text';
+import { shouldBlockExternalHttpInTest } from '../lib/offline-network';
 
 /** Testlerde ağ çağrısını kesmek için kullanılan minimal fetch imzası. */
 export type FetchLike = (
@@ -103,6 +104,14 @@ export class ResendEmailTransport implements EmailTransport {
   }
 
   async send(message: EmailMessage): Promise<EmailSendResult> {
+    if (!this.options.fetchImpl && shouldBlockExternalHttpInTest(this.endpoint, 'email-provider')) {
+      return {
+        accepted: false,
+        providerMessageId: null,
+        providerResponse: null,
+        error: 'Vitest offline guard: gerçek e-posta sağlayıcısı çağrısı engellendi.',
+      };
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 20_000);
     const fetchImpl: FetchLike =
@@ -210,6 +219,14 @@ export class SmtpEmailTransport implements EmailTransport {
   }
 
   async send(message: EmailMessage): Promise<EmailSendResult> {
+    if (shouldBlockExternalHttpInTest(`smtp://${this.options.host}:${this.options.port}`, 'smtp')) {
+      return {
+        accepted: false,
+        providerMessageId: null,
+        providerResponse: null,
+        error: 'Vitest offline guard: loopback dışındaki SMTP teslimatı engellendi.',
+      };
+    }
     try {
       const info = await this.getTransporter().sendMail({
         from: this.options.from,

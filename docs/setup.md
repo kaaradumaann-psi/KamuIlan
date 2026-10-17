@@ -292,9 +292,15 @@ npm run test:e2e    # Playwright (tarayıcı kurulu olmalı)
 
 Gerçek kaynaklara karşı canlı doğrulama (yalnızca gerçek ağ olan ortamda):
 
-```bash
-SOURCE_LIVE_FETCH=1 npm run test:live
+```powershell
+$env:SOURCE_LIVE_FETCH = '1'
+npm run test:live -- --live --source=osym-duyurular --max-requests=5 --max-pages=2 --max-details=1 --min-delay-ms=1000
+Remove-Item Env:SOURCE_LIVE_FETCH
 ```
+
+Canlı doğrulama yalnızca yetkili/ağ erişimli operatör ortamında çalışır; tüm
+bütçe bayrakları zorunludur. Çevrimdışı CI, fixture, LLM ve E2E kapsamı:
+[quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md).
 
 Canlı doğrulama sonucunda her kaynağın durumu ya da hatası yazdırılır. Başarısız kaynaklar
 `config/sources.ts` içinde "doğrulanmış" olarak kalmaz; nedeni `statusNote` alanına yazılır.
@@ -403,6 +409,7 @@ Varsayılan **kapalıdır** (`AI_ASSISTANT_ENABLED=0`). Açmak için:
 - `AI_ASSISTANT_ENABLED=1`, `LLM_BASE_URL` (OpenAI uyumlu, `https://`), `LLM_API_KEY`, `LLM_MODEL` tanımlanmalıdır. Eksikse uygulama başlamaz (`npm run env:check` nedenini söyler).
 - `AI_PROVIDER_LABEL` kullanıcının rıza ekranında gördüğü sağlayıcı adıdır; gerçek sağlayıcıyı doğru yazın.
 - `AI_DAILY_LIMIT_PER_USER` (öntanımlı 5) kullanıcı başına günlük model çağrısını sınırlar; sınır dolunca profil eşleştirmesi gösterilir ve hata oluşmaz.
+- Üretimde herhangi bir AI/LLM kapısı için `LLM_RUN_COST_LIMIT_USD`, `LLM_DAILY_COST_LIMIT_USD` ve her iki `LLM_COST_USD_PER_MTOK_*` pozitif fiyat varsayımı zorunludur. Fiyatı sağlayıcının güncel resmi tarifesinden alın; bilinmiyorsa tahmin edip doldurmayın. Maliyet telemetrisi fatura garantisi değildir.
 - Açmadan önce gizlilik sayfasındaki (`/gizlilik`) KVKK metnini ve sağlayıcının veri işleme koşullarını gözden geçirin. Gönderilen alanlar `docs/security-kvkk.md` içinde listelidir.
 
 Akış: kullanıcı profilini doldurur → Panelim'de rızasını verir → kart, kural tabanlı aday ilanları (en çok 12) ve sağlayıcı yanıtını gösterir. Rıza geri çekildiğinde veya hesap silindiğinde önbellek temizlenir.
@@ -419,19 +426,28 @@ kalır (otomatik onay YOK). Karar ve sağlayıcı karşılaştırması: `docs/ll
    LLM_BASE_URL=https://api.groq.com/openai/v1   # OpenAI uyumlu herhangi bir uç
    LLM_API_KEY=gsk_...                            # yalnız sunucuda; loglanmaz
    LLM_CLASSIFIER_MODEL=llama-3.3-70b-versatile   # boşsa LLM_MODEL kullanılır
-   # Bütçe frenleri (varsayılanlar korunabilir):
+   # Çağrı frenleri:
    LLM_MAX_CALLS_PER_RUN=12
    LLM_DAILY_CALL_LIMIT=400
    LLM_MAX_CONCURRENCY=2
    LLM_RETRY_MAX=1
    LLM_MAX_INPUT_CHARS=12000
+   # Üretimde ayrıca resmi fiyat varsayımları + pozitif koşu/gün USD tavanı zorunlu:
+   LLM_COST_USD_PER_MTOK_INPUT=<sağlayıcının-resmi-girdi-fiyatı>
+   LLM_COST_USD_PER_MTOK_OUTPUT=<sağlayıcının-resmi-çıktı-fiyatı>
+   LLM_RUN_COST_LIMIT_USD=<operatörün-koşu-tavanı>
+   LLM_DAILY_COST_LIMIT_USD=<operatörün-24s-tavanı>
    ```
 2. `npm run env:check` ile doğrulayın (eksik/çelişkili yapılandırma başlamayı engeller).
 3. Worker'ı yeniden başlatın: kapı tarama hattında çalışır (`npm run dev:worker` / üretim servisi).
 4. Ölçün: Yönetici paneli → Genel bakış → "LLM sınıflandırma kapısı" kartı (24 saatlik çağrı,
-   önbellek isabeti, hata, gecikme, token). Etiketli kümeyle: `npm run eval:classification -- --llm`.
-5. Eski inceleme birikimi için kuru çalıştırma raporu: `npm run llm:review-assist -- --report rapor.json`
-   (ana veritabanına yazmaz; önerileri panel → İnceleme'den uygulayın).
+   önbellek isabeti, hata, gecikme, token). Gerçek provider eval ayrı ve ücretli opt-in'dir; yalnız
+   kamuya açık olduğu incelenmiş veri, `--reviewed-public-data` ve zorunlu çağrı/token/USD tavanıyla
+   çalıştırılır. İnsan etiketli gerçek küme yoksa **VERİ YETERSİZ** olarak kalır.
+5. Eski inceleme birikimi için kuru çalıştırma aracı salt okunur DB okur ama canlı sağlayıcıya veri
+   gönderebilir; artık `--live --allow-provider-data` ve kayıt/çağrı/token/USD tavanlarının tamamı
+   zorunludur. Çalıştırmadan önce kaynak verisinin paylaşım koşullarını inceleyin; örnek ve sınırlar:
+   [quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md). Önerileri otomatik uygulamaz.
 
 Acil kapatma: `LLM_CLASSIFIER_ENABLED=0` + worker yeniden başlat. Yayımlanmış ilanlar etkilenmez;
 sistem yalnız kurallara döner.

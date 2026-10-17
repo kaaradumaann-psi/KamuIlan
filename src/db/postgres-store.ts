@@ -393,22 +393,10 @@ export class PostgresStore implements StoragePort {
   }
 
   async init(): Promise<void> {
+    // Bağlantı başlatımı salt okunur olmalı: read-only tanı/rapor komutları
+    // ensureIndexes:false ile production DB'ye DDL yazmadan SELECT yapabilsin.
     this.prefix = safeIdentifier(this.prefix);
-    // Şemada koleksiyon başına bağımsız DDL var. Uzak Supabase bağlantısında
-    // seri gidiş-dönüşleri azaltmak için havuzun sınırlı eşzamanlılığını kullan.
-    await Promise.all(
-      this.collections.map(async (collection) => {
-        const table = this.table(collection);
-        await this.pool.query(
-          `CREATE TABLE IF NOT EXISTS ${table} (
-             id text PRIMARY KEY,
-             data jsonb NOT NULL,
-             updated_at timestamptz NOT NULL DEFAULT now()
-           )`,
-        );
-        await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
-      }),
-    );
+    await this.pool.query('SELECT 1');
   }
 
   async close(): Promise<void> {
@@ -429,6 +417,22 @@ export class PostgresStore implements StoragePort {
   }
 
   async ensureIndexes(indexes?: readonly IndexSpec[]): Promise<{ collection: string; name: string; created: boolean }[]> {
+    // Schema DDL is deliberately here, not init(): initStore(..., {ensureIndexes:false})
+    // must be safe for read-only diagnostics against a production database.
+    await Promise.all(
+      this.collections.map(async (collection) => {
+        const table = this.table(collection);
+        await this.pool.query(
+          `CREATE TABLE IF NOT EXISTS ${table} (
+             id text PRIMARY KEY,
+             data jsonb NOT NULL,
+             updated_at timestamptz NOT NULL DEFAULT now()
+           )`,
+        );
+        await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
+      }),
+    );
+
     // Diğer sürücülerle (dosya/Mongo) aynı sözleşme: argümansız çağrı
     // varsayılan `INDEXES` kümesini kurar. Varsayılan boş olursa Postgres'te
     // benzersizler dahil hiçbir ek indeks kurulmaz ve atomik ekleme bozulur.
@@ -617,6 +621,63 @@ export class PostgresStore implements StoragePort {
     } finally {
       client.release();
     }
+  }
+
+  async incrementOne<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount = 1,
+  ): Promise<DocumentOf<K> | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Sayaç alanı tek bir belge alanı olmalıdır.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Sayaç artışı pozitif güvenli tamsayı olmalıdır.');
+    const target = (await this.selectMatching(collection, filter))[0];
+    if (!target) return null;
+    const id = String((target as { id: string }).id);
+    const result = await this.pool.query<{ data: unknown }>(
+      `UPDATE ${this.table(collection)}
+       SET data = jsonb_set(
+         data,
+         $1::text[],
+         to_jsonb(COALESCE((data #>> $1::text[])::numeric, 0::numeric) + $2::numeric),
+         true
+       ), updated_at = now()
+       WHERE id = $3
+       RETURNING data`,
+      [[field], amount, id],
+    );
+    const row = result.rows[0] as { data: unknown } | undefined;
+    return row ? (row.data as DocumentOf<K>) : null;
+  }
+
+  async incrementOneIfBelow<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount: number,
+    maximum: number,
+  ): Promise<DocumentOf<K> | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Sayaç alanı tek bir belge alanı olmalıdır.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Sayaç artışı pozitif güvenli tamsayı olmalıdır.');
+    if (!Number.isSafeInteger(maximum) || maximum < amount) throw new Error('Sayaç üst sınırı geçersiz.');
+    const target = (await this.selectMatching(collection, filter))[0];
+    if (!target) return null;
+    const id = String((target as { id: string }).id);
+    const result = await this.pool.query<{ data: unknown }>(
+      `UPDATE ${this.table(collection)}
+       SET data = jsonb_set(
+         data,
+         $1::text[],
+         to_jsonb(COALESCE((data #>> $1::text[])::numeric, 0::numeric) + $2::numeric),
+         true
+       ), updated_at = now()
+       WHERE id = $3
+         AND COALESCE((data #>> $1::text[])::numeric, 0::numeric) + $2::numeric <= $4::numeric
+       RETURNING data`,
+      [[field], amount, id, maximum],
+    );
+    const row = result.rows[0] as { data: unknown } | undefined;
+    return row ? (row.data as DocumentOf<K>) : null;
   }
 
   async upsertOne<K extends CollectionName>(

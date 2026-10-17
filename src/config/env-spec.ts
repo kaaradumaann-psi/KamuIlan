@@ -1093,6 +1093,32 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     optional: true,
     validate: (value) => validateUsdPerMtok('LLM_COST_USD_PER_MTOK_OUTPUT', value),
   },
+  {
+    key: 'LLM_RUN_COST_LIMIT_USD',
+    group: 'llm',
+    label: 'Tek worker koşusu için tahmini USD tavanı',
+    help: 'Maliyet rezervasyonu için pozitif limit. Her iki resmi fiyat varsayımı olmadan LLM çağrısı fail-closed kalır; sağlayıcı faturası garantisi değildir.',
+    type: 'number',
+    min: 0.000001,
+    max: 100000,
+    optional: true,
+    dependsOn: (values) => truthy(values['AI_ASSISTANT_ENABLED']) || truthy(values['LLM_CLASSIFIER_ENABLED']),
+    skipReason: 'AI/LLM özellikleri kapalı.',
+    validate: (value) => validateUsdBudgetLimit('LLM_RUN_COST_LIMIT_USD', value),
+  },
+  {
+    key: 'LLM_DAILY_COST_LIMIT_USD',
+    group: 'llm',
+    label: 'Tüm worker’lar için 24 saatlik tahmini USD tavanı',
+    help: 'Atomik ortak maliyet rezervasyonu. Her iki resmi fiyat varsayımı olmadan LLM çağrısı fail-closed kalır; sağlayıcı faturası garantisi değildir.',
+    type: 'number',
+    min: 0.000001,
+    max: 100000,
+    optional: true,
+    dependsOn: (values) => truthy(values['AI_ASSISTANT_ENABLED']) || truthy(values['LLM_CLASSIFIER_ENABLED']),
+    skipReason: 'AI/LLM özellikleri kapalı.',
+    validate: (value) => validateUsdBudgetLimit('LLM_DAILY_COST_LIMIT_USD', value),
+  },
 
   /* --- Yönetim --- */
   {
@@ -1121,6 +1147,15 @@ function validateUsdPerMtok(name: string, value: string): string | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10_000) {
     return `${name} 0 ile 10000 arasında bir sayı ya da boş olmalıdır (USD / milyon token).`;
+  }
+  return null;
+}
+
+function validateUsdBudgetLimit(name: string, value: string): string | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100_000) {
+    return `${name} 0'dan büyük ve 100000 USD veya daha az olmalıdır.`;
   }
   return null;
 }

@@ -24,6 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   aiaIssuerUrls,
+  defaultFetchIssuer,
   certificatesFromBuffer,
   CHAIN_INCOMPLETE_ERROR_CODES,
   completeCertificateChain,
@@ -296,6 +297,14 @@ describeWithCerts('AIA ile zincir tamamlama', () => {
 });
 
 describe('HTTP istemcisinin tamamlama kararı (SOURCE_TLS_AIA_COMPLETION)', () => {
+  it('offline testte ham AIA HTTPS istemcisini dış host için ağdan önce engeller', async () => {
+    const result = await defaultFetchIssuer('https://issuer.example.invalid/intermediate.der', {
+      timeoutMs: 100,
+      maxBytes: 1_024,
+    });
+    expect(result).toBeNull();
+  });
+
   it('anahtar kapalıysa ya da hata eksik zincir değilse denenmez', () => {
     const base = {
       enabled: true,

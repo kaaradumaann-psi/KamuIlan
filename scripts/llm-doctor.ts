@@ -9,12 +9,14 @@
  * inceler, sınırlı sayıda gerçek çağrı yapar ve kanıta dayalı sonuç üretir.
  *
  * Kullanım:
- *   npm run llm:doctor                → yapılandırma + kontrollü canlı çağrı
- *   npm run llm:doctor -- --offline   → yalnızca yapılandırma denetimi (ağ yok)
- *   npm run llm:doctor -- --compat    → Google kökünde OpenAI uyumlu ucu dene
- *   npm run llm:doctor -- --native    → taşıyıcıyı Gemini yerel API'sine zorla
- *   npm run llm:doctor -- --json            → makine okunur çıktı (konsola)
- *   npm run llm:doctor -- --json data\d.json → makine okunur çıktı (dosyaya)
+ *   npm run llm:doctor -- --offline → varsayılan güvenli mod; yalnızca yapılandırma, ağ yok
+ *   npm run llm:doctor -- --live --max-calls=1 --max-output-tokens=64 --max-estimated-cost-usd=0.01
+ *   npm run llm:doctor -- --compat|--native (yalnızca --live ile)
+ *   npm run llm:doctor -- --json [rapor.json]
+ *
+ * Canlı doğrulama `--live` ile açıkça etkinleştirilir; çağrı, token ve tahmini USD
+ * tavanları zorunludur. Maliyet, `.env` fiyat varsayımlarından muhafazakâr üst
+ * tahmindir; sağlayıcı faturası değildir. TLS doğrulaması asla kapatılmaz.
  *
  * Güvenlik: API anahtarı, Authorization ve x-goog-api-key değerleri hiçbir
  * biçimde yazdırılmaz (yalnızca anahtar uzunluğu). Ham istem/yanıt gövdesi
@@ -38,21 +40,33 @@ import {
 } from '../src/ai/llm';
 import { llmClassifierConfig } from '../src/ai/classifier';
 import { parseJsonOutputArg, writeJsonReport } from '../src/lib/json-output';
+import { estimateLlmRequestCostUsd } from '../src/ai/budget';
 
-const HELP = `LLM kapısı tanısı
+const HELP = `LLM kapısı tanısı (varsayılan: tamamen offline)
 
 Kullanım:
-  npm run llm:doctor                yapılandırma + kontrollü canlı çağrı (taşıyıcı otomatik seçilir)
-  npm run llm:doctor -- --offline   yalnızca yapılandırma (ağ çağrısı yok)
-  npm run llm:doctor -- --compat    Google kökünde OpenAI uyumlu ucu DENE (karşılaştırma için)
-  npm run llm:doctor -- --native    taşıyıcıyı Gemini yerel API'sine zorla
-  npm run llm:doctor -- --json                  makine okunur çıktı (konsola)
-  npm run llm:doctor -- --json data\doktor.json makine okunur çıktı (dosyaya)
-  npm run llm:doctor -- --help      bu yardım
+  npm run llm:doctor -- --offline
+    Yalnızca yapılandırma denetimi; ağ çağrısı yok (varsayılan davranış).
+  npm run llm:doctor -- --live --max-calls=1 --max-output-tokens=64 --max-estimated-cost-usd=0.01
+    Açık opt-in canlı tanı. .env içinde iki pozitif LLM fiyatı ve API yapılandırması gerekir.
+  npm run llm:doctor -- --live --max-calls=1 --max-output-tokens=64 --max-estimated-cost-usd=0.01 --compat
+    Taşıyıcıyı OpenAI uyumlu uca zorla.
+  npm run llm:doctor -- --live --max-calls=1 --max-output-tokens=64 --max-estimated-cost-usd=0.01 --native
+    Taşıyıcıyı Gemini yerel API'sine zorla.
+  npm run llm:doctor -- --json [rapor.json]
+    Makine okunur çıktı (konsola veya belirtilen dosyaya).
+  npm run llm:doctor -- --help
+    Bu yardım.
+
+Bütçe: --max-calls 1–5, --max-output-tokens 1–256 ve
+--max-estimated-cost-usd pozitif ve en fazla 10 USD olmalıdır; tekrar deneme kapalıdır. Çağrı bütçesi
+model listesi GET dahil tüm provider HTTP çağrılarını sayar. Tahmini maliyet
+.env fiyat varsayımları ve muhafazakâr token üst sınırıdır, fatura değildir.
+TLS doğrulaması açık kalır.
 
 Taşıyıcılar:
-  gemini-native  POST {kök}/models/{model}:generateContent  (Google AI birincil API'si)
-  openai-compat  POST {kök}/chat/completions                (OpenAI, OpenRouter, Groq, Ollama …)`;
+  gemini-native  POST {kök}/models/{model}:generateContent
+  openai-compat  POST {kök}/chat/completions`;
 
 /**
  * Tanı çağrısı çıktı token sınırı.
@@ -168,6 +182,11 @@ export interface DoctorReport {
     maxCalls: number;
     usedCalls: number;
     maxRetriesPerCall: number;
+    maxOutputTokens: number;
+    maxEstimatedCostUsd: number | null;
+    estimatedCostUsd: number;
+    pricingConfigured: boolean;
+    preflightBlocked: boolean;
   };
 }
 
@@ -178,6 +197,55 @@ export type DoctorHttpFetch = (
 
 function hasFlag(flag: string, argv: readonly string[] = process.argv): boolean {
   return argv.includes(flag);
+}
+
+function optionValue(name: string, argv: readonly string[] = process.argv): string | null {
+  const prefix = `--${name}=`;
+  const found = argv.filter((argument) => argument.startsWith(prefix));
+  return found.length === 1 ? found[0]!.slice(prefix.length) : null;
+}
+
+function boundedOption(name: string, min: number, max: number): number | null {
+  const raw = optionValue(name);
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= min && value <= max ? value : null;
+}
+
+function redactEndpoint(raw: string): string {
+  try {
+    const url = new URL(raw);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '[INVALID-URL]';
+  }
+}
+
+function redactDiagnosticText(value: string): string {
+  return value
+    .replace(/https?:\/\/[^\s"'<>]+/gi, (url) => redactEndpoint(url))
+    .replace(/(authorization|x-goog-api-key|api[_-]?key|apikey|access_token|password|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]');
+}
+
+function redactDiagnostics(diagnostics: LlmHttpDiagnostics | null): LlmHttpDiagnostics | null {
+  if (!diagnostics) return null;
+  const redact = (value: string | null): string | null => (value === null ? null : redactDiagnosticText(value));
+  return {
+    ...diagnostics,
+    contentType: redact(diagnostics.contentType),
+    errorCode: typeof diagnostics.errorCode === 'string' ? redactDiagnosticText(diagnostics.errorCode) : diagnostics.errorCode,
+    errorStatus: redact(diagnostics.errorStatus),
+    errorMessage: redact(diagnostics.errorMessage),
+    bodySummary: redactDiagnosticText(diagnostics.bodySummary),
+    retryAfter: redact(diagnostics.retryAfter),
+    requestId: redact(diagnostics.requestId),
+    requestIdHeader: redact(diagnostics.requestIdHeader),
+    ...(diagnostics.finishReason === undefined ? {} : { finishReason: redact(diagnostics.finishReason) }),
+  };
 }
 
 /** Anahtarın kendisini değil yalnızca varlığını/uzunluğunu raporlar. */
@@ -474,25 +542,67 @@ export interface RunDoctorOptions {
   fetchImpl?: DoctorHttpFetch;
   maxRetriesPerCall?: number;
   maxApiCalls?: number;
+  maxOutputTokens?: number;
+  maxEstimatedCostUsd?: number;
   retryBaseDelayMs?: number;
   sleepImpl?: (ms: number) => Promise<void>;
 }
 
 export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<DoctorReport> {
   const env = options.env ?? getEnv();
-  const offline = options.offline ?? false;
+  // Helper calls without an explicitly injected transport are offline by default;
+  // the CLI must additionally pass --live and all budgets to opt in.
+  const offline = options.offline ?? !options.fetchImpl;
   const forcedTransport = options.forcedTransport;
-  const maxApiCalls = Math.max(1, options.maxApiCalls ?? DOCTOR_MAX_API_CALLS);
-  const maxRetriesPerCall = Math.min(
-    2,
-    Math.max(0, options.maxRetriesPerCall ?? Math.min(DOCTOR_MAX_RETRIES_PER_CALL, env.LLM_RETRY_MAX)),
-  );
+  const maxApiCalls = options.maxApiCalls ?? DOCTOR_MAX_API_CALLS;
+  if (!Number.isSafeInteger(maxApiCalls) || maxApiCalls < 0 || maxApiCalls > DOCTOR_MAX_API_CALLS) {
+    throw new Error(`Tanı API çağrı bütçesi 0–${DOCTOR_MAX_API_CALLS} arasında tamsayı olmalıdır.`);
+  }
+  const maxOutputTokens = options.maxOutputTokens ?? DOCTOR_PROBE_MAX_TOKENS;
+  if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > DOCTOR_PROBE_MAX_TOKENS) {
+    throw new Error(`Tanı çıktı token sınırı 1–${DOCTOR_PROBE_MAX_TOKENS} arasında tamsayı olmalıdır.`);
+  }
+  const maxEstimatedCostUsd = options.maxEstimatedCostUsd ?? null;
+  if (maxEstimatedCostUsd !== null && (!Number.isFinite(maxEstimatedCostUsd) || maxEstimatedCostUsd <= 0 || maxEstimatedCostUsd > 10)) {
+    throw new Error('Tanı tahmini maliyet tavanı 0 USD üzerinde ve en fazla 10 USD olmalıdır.');
+  }
+  const maxRetriesPerCall = options.maxRetriesPerCall ?? Math.min(DOCTOR_MAX_RETRIES_PER_CALL, env.LLM_RETRY_MAX);
+  if (!Number.isSafeInteger(maxRetriesPerCall) || maxRetriesPerCall < 0 || maxRetriesPerCall > DOCTOR_MAX_RETRIES_PER_CALL) {
+    throw new Error(`Tanı retry bütçesi 0–${DOCTOR_MAX_RETRIES_PER_CALL} arasında tamsayı olmalıdır.`);
+  }
   const retryBaseDelayMs = options.retryBaseDelayMs ?? 600;
+  const pricingConfigured =
+    env.LLM_COST_USD_PER_MTOK_INPUT !== null && env.LLM_COST_USD_PER_MTOK_INPUT > 0 &&
+    env.LLM_COST_USD_PER_MTOK_OUTPUT !== null && env.LLM_COST_USD_PER_MTOK_OUTPUT > 0;
+  const singleProbeEstimateUsd = estimateLlmRequestCostUsd(DOCTOR_PROBE_MESSAGES, maxOutputTokens, {
+    inputUsdPerMtok: env.LLM_COST_USD_PER_MTOK_INPUT,
+    outputUsdPerMtok: env.LLM_COST_USD_PER_MTOK_OUTPUT,
+  });
+  let preflightBlockReason: string | null = null;
+  if (maxEstimatedCostUsd !== null) {
+    if (!pricingConfigured || singleProbeEstimateUsd === null) {
+      preflightBlockReason = 'Pozitif girdi/çıktı fiyat varsayımları eksik; maliyet tavanı güvenle denetlenemedi.';
+    } else if (singleProbeEstimateUsd > maxEstimatedCostUsd) {
+      preflightBlockReason = `Tek tanı çağrısının tahmini üst maliyeti ($${singleProbeEstimateUsd.toFixed(8)}) koşu tavanını ($${maxEstimatedCostUsd.toFixed(8)}) aşıyor.`;
+    }
+  }
 
   let usedCalls = 0;
+  let estimatedCostUsd = 0;
   const countingFetch: DoctorHttpFetch = async (url, init) => {
     if (usedCalls >= maxApiCalls) {
       throw new Error(`Tanı aracı çağrı bütçesi doldu (azami ${maxApiCalls} gerçek API çağrısı).`);
+    }
+    if (init.method === 'POST' && maxEstimatedCostUsd !== null) {
+      if (!pricingConfigured || singleProbeEstimateUsd === null) {
+        throw new Error('Maliyet tavanı etkin ancak pozitif fiyat varsayımları yok; provider çağrısı engellendi.');
+      }
+      if (estimatedCostUsd + singleProbeEstimateUsd > maxEstimatedCostUsd) {
+        throw new Error(`Tanı maliyet tavanı doldu (tahmini $${maxEstimatedCostUsd.toFixed(8)}).`);
+      }
+      // Reserve the conservative estimate before the provider request; failed calls
+      // are not refunded because a provider may still have charged for them.
+      estimatedCostUsd += singleProbeEstimateUsd;
     }
     usedCalls += 1;
     if (options.fetchImpl) {
@@ -504,6 +614,11 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
 
   const classifierGate = buildGateBaseReport('classifier', env, forcedTransport);
   const assistantGate = buildGateBaseReport('assistant', env, forcedTransport);
+  for (const gate of [classifierGate, assistantGate]) {
+    if (gate.baseUrl) gate.baseUrl = redactEndpoint(gate.baseUrl);
+    if (gate.endpoint) gate.endpoint = redactEndpoint(gate.endpoint);
+    if (gate.endpointRisk) gate.endpointRisk = redactDiagnosticText(gate.endpointRisk);
+  }
 
   const primaryGate =
     classifierGate.enabled && classifierGate.configured
@@ -523,6 +638,9 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
       (warning.includes('LLM_') || warning.includes('AI_ASSISTANT')) &&
       !(endpointRisk !== null && warning.startsWith(endpointRisk)),
   );
+  if (maxEstimatedCostUsd !== null && preflightBlockReason) {
+    llmWarnings.push(`Canlı tanı maliyet preflight'ı BLOCKED: ${preflightBlockReason}`);
+  }
 
   if (
     classifierGate.model &&
@@ -556,7 +674,7 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
       [...DOCTOR_PROBE_MESSAGES],
       {
         fetchImpl: llmFetchAdapter,
-        maxTokens: DOCTOR_PROBE_MAX_TOKENS,
+        maxTokens: maxOutputTokens,
         temperature: 0,
         transport,
         ...(thinkingBudget !== undefined ? { thinkingBudget } : {}),
@@ -595,7 +713,7 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
     };
   }
 
-  if (!offline && env.LLM_BASE_URL.trim() && env.LLM_API_KEY) {
+  if (!offline && !preflightBlockReason && env.LLM_BASE_URL.trim() && env.LLM_API_KEY) {
     const callCache = new Map<string, DoctorCallReport>();
     const gatesToProbe: GateDiagnosticReport[] = [];
     if (classifierGate.configured) gatesToProbe.push(classifierGate);
@@ -640,6 +758,25 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
     assistantGate.checks = evaluateDoctorChecks(assistantGate.call, assistantGate.modelList);
   }
 
+  // Reports may be written to console or JSON: sanitize endpoint/query secrets in
+  // every user-visible provider diagnostic, not only the top-level URL fields.
+  for (const gate of [classifierGate, assistantGate]) {
+    if (gate.call) {
+      gate.call = {
+        ...gate.call,
+        detail: redactDiagnosticText(gate.call.detail),
+        contentPreview: gate.call.contentPreview === null ? null : redactDiagnosticText(gate.call.contentPreview),
+        diagnostics: redactDiagnostics(gate.call.diagnostics),
+      };
+    }
+    if (gate.modelList) {
+      gate.modelList = {
+        ...gate.modelList,
+        detail: redactDiagnosticText(gate.modelList.detail),
+        diagnostics: redactDiagnostics(gate.modelList.diagnostics),
+      };
+    }
+  }
   // Geriye dönük uyumluluk: llmClassifierConfig kontrolü
   const hasAnyConfig = Boolean(llmClassifierConfig(env) ?? (classifierGate.configured || assistantGate.configured));
   const primaryCall = hasAnyConfig ? (primaryGate.call ?? assistantGate.call) : null;
@@ -658,7 +795,7 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
     maxCallsPerRun: env.LLM_MAX_CALLS_PER_RUN,
     dailyCallLimit: env.LLM_DAILY_CALL_LIMIT,
     costConfigured: Boolean(env.LLM_COST_USD_PER_MTOK_INPUT || env.LLM_COST_USD_PER_MTOK_OUTPUT),
-    warnings: llmWarnings,
+    warnings: llmWarnings.map(redactDiagnosticText),
     call: primaryCall,
     modelList: primaryModelList,
     checks: primaryChecks,
@@ -670,6 +807,11 @@ export async function runLlmDoctor(options: RunDoctorOptions = {}): Promise<Doct
       maxCalls: maxApiCalls,
       usedCalls,
       maxRetriesPerCall,
+      maxOutputTokens,
+      maxEstimatedCostUsd,
+      estimatedCostUsd,
+      pricingConfigured,
+      preflightBlocked: preflightBlockReason !== null,
     },
   };
 }
@@ -752,7 +894,8 @@ export function formatDoctorReport(report: DoctorReport, options: { offline?: bo
   );
   lines.push(`  Zaman aşımı          : ${report.timeoutMs} ms · koşu başına ${report.maxCallsPerRun} çağrı · günlük ${report.dailyCallLimit} çağrı`);
   lines.push(
-    `  Tanı çağrı bütçesi   : ${report.apiBudget.usedCalls}/${report.apiBudget.maxCalls} gerçek API çağrısı kullanıldı (çağrı başına en fazla ${report.apiBudget.maxRetriesPerCall} yeniden deneme, tanı çıktı sınırı ${DOCTOR_PROBE_MAX_TOKENS} token)`,
+    `  Tanı çağrı bütçesi   : ${report.apiBudget.usedCalls}/${report.apiBudget.maxCalls} gerçek API çağrısı (yeniden deneme üst sınırı ${report.apiBudget.maxRetriesPerCall}, çıktı ${report.apiBudget.maxOutputTokens} token)`,
+    `  Maliyet üst tahmini  : $${report.apiBudget.estimatedCostUsd.toFixed(8)} / ${report.apiBudget.maxEstimatedCostUsd === null ? 'tavan belirtilmedi' : `$${report.apiBudget.maxEstimatedCostUsd.toFixed(8)} tavan`} · fiyat varsayımları ${report.apiBudget.pricingConfigured ? 'var' : 'yok'}${report.apiBudget.preflightBlocked ? ' · BLOCKED' : ''}`,
   );
   lines.push(`  Maliyet ayarı        : ${report.costConfigured ? 'tanımlı' : 'BOŞ (panelde maliyet "raporlanmadı" görünür)'}`);
 
@@ -830,7 +973,48 @@ async function main(): Promise<void> {
     console.log(HELP);
     return;
   }
-  const offline = hasFlag('--offline');
+  const live = hasFlag('--live');
+  const offlineFlag = hasFlag('--offline');
+  if (live && offlineFlag) {
+    console.error('--live ve --offline birlikte kullanılamaz. Hiçbir provider çağrısı yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  const offline = !live;
+  const forcedCount = Number(hasFlag('--compat')) + Number(hasFlag('--native'));
+  if (forcedCount > 1 || (!live && forcedCount > 0)) {
+    console.error('--compat/--native yalnızca birbirinden biriyle ve --live ile kullanılabilir. Hiçbir provider çağrısı yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+
+  const rawBudgetOptions = ['max-calls', 'max-output-tokens', 'max-estimated-cost-usd'];
+  if (!live && rawBudgetOptions.some((name) => process.argv.some((argument) => argument.startsWith(`--${name}=`)))) {
+    console.error('Canlı bütçe bayrakları yalnızca --live ile kullanılabilir. Hiçbir provider çağrısı yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  let maxApiCalls: number | undefined;
+  let maxOutputTokens: number | undefined;
+  let maxEstimatedCostUsd: number | undefined;
+  if (live) {
+    maxApiCalls = boundedOption('max-calls', 1, DOCTOR_MAX_API_CALLS) ?? undefined;
+    maxOutputTokens = boundedOption('max-output-tokens', 1, DOCTOR_PROBE_MAX_TOKENS) ?? undefined;
+    const rawCost = optionValue('max-estimated-cost-usd');
+    const parsedCost = rawCost === null ? NaN : Number(rawCost);
+    if (
+      maxApiCalls === undefined ||
+      maxOutputTokens === undefined ||
+      !Number.isFinite(parsedCost) ||
+      parsedCost <= 0 ||
+      parsedCost > 10
+    ) {
+      console.error(`Canlı tanı için zorunlu bütçeler: --max-calls=1..${DOCTOR_MAX_API_CALLS}, --max-output-tokens=1..${DOCTOR_PROBE_MAX_TOKENS}, --max-estimated-cost-usd pozitif ve en fazla 10 USD. Hiçbir provider çağrısı yapılmadı.`);
+      process.exitCode = 2;
+      return;
+    }
+    maxEstimatedCostUsd = parsedCost;
+  }
   const jsonArg = parseJsonOutputArg(process.argv);
   const forcedTransport: LlmTransport | undefined = hasFlag('--compat')
     ? 'openai-compat'
@@ -839,7 +1023,26 @@ async function main(): Promise<void> {
       : undefined;
 
   const env = getEnv();
-  const report = await runLlmDoctor({ env, offline, forcedTransport });
+  if (live && env.NODE_ENV === 'test') {
+    console.error('NODE_ENV=test iken canlı LLM tanısı reddedildi. Hiçbir provider çağrısı yapılmadı.');
+    process.exitCode = 2;
+    return;
+  }
+  if (live && process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+    console.error('TLS doğrulaması kapalı; canlı LLM tanısı reddedildi. NODE_TLS_REJECT_UNAUTHORIZED değiştirilmedi.');
+    process.exitCode = 2;
+    return;
+  }
+  const report = await runLlmDoctor({
+    env,
+    offline,
+    forcedTransport,
+    maxApiCalls,
+    maxOutputTokens,
+    maxEstimatedCostUsd,
+    // One attempt per provider request: no hidden retries in a bounded diagnostic.
+    maxRetriesPerCall: 0,
+  });
 
   if (jsonArg.mode === 'stdout') {
     // Makine okunur mod: konsola YALNIZCA JSON yazılır (API anahtarı satırı dahil edilmez).
@@ -864,13 +1067,17 @@ async function main(): Promise<void> {
   }
 
   const anyConfigured = report.gates.classifier.configured || report.gates.assistant.configured;
-  if (!anyConfigured) {
-    process.exitCode = 1;
-  } else if (offline) {
+  if (offline) {
+    // Offline absence of provider settings is an explicit BLOCKED/configuration result,
+    // not a failure that tempts an unbounded network retry.
     if (report.endpointRisk) process.exitCode = 1;
+  } else if (report.apiBudget.preflightBlocked) {
+    process.exitCode = 2;
+  } else if (!anyConfigured) {
+    process.exitCode = 1;
   } else {
-    // Etkin olan kapıların tamamı kullanılabilir metin üretmiş olmalıdır; hiçbir kapı etkin
-    // değilse yapılandırılmış kapının canlı çağrısı başarılı olmalıdır.
+    // Etkin kapıların tümü kullanılabilir metin üretmeli; canlı istek bütçesi
+    // (model listesi GET dahil) shared counter ile sert biçimde sınırlandırılmıştır.
     const enabledConfiguredGates = [report.gates.classifier, report.gates.assistant].filter(
       (gate) => gate.enabled && gate.configured,
     );
@@ -879,9 +1086,7 @@ async function main(): Promise<void> {
         ? enabledConfiguredGates
         : [report.gates.classifier, report.gates.assistant].filter((gate) => gate.configured);
     const allSucceeded = targetGates.length > 0 && targetGates.every((gate) => gate.call?.ok === true);
-    if (!allSucceeded) {
-      process.exitCode = 1;
-    }
+    if (!allSucceeded) process.exitCode = 1;
   }
 }
 

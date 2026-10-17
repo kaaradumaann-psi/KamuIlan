@@ -367,6 +367,44 @@ describe('LLM sınıflandırma kapısı', () => {
     await store.close();
   });
 
+  it('günlük sayaç deposu hata verirse fail-closed kalır; provider çağrılmaz', async () => {
+    const { repos, store } = await makeRepos();
+    repos.rateLimits.reserve = async () => {
+      throw new Error('test-only storage failure');
+    };
+    const provider = fakeProvider([ILAN_OUTPUT]);
+    const gate = createLlmClassificationGate({ repos, env: envFor(), logger: LOGGER, fetchImpl: provider.fetch });
+
+    const outcome = await gate.evaluate(gateInput());
+
+    expect(outcome.classification.decision).toBe('review');
+    expect(outcome.callMade).toBe(false);
+    expect(provider.calls).toHaveLength(0);
+    expect(gate.summary()).toMatchObject({ calls: 0, blocked: 1 });
+    await store.close();
+  });
+
+  it('retry ayrı bir atomik çağrı rezervasyonu tüketir ve koşu sınırında durur', async () => {
+    const { repos, store } = await makeRepos();
+    const provider = fakeProvider([500, ILAN_OUTPUT]);
+    const gate = createLlmClassificationGate({
+      repos,
+      env: envFor({ LLM_MAX_CALLS_PER_RUN: '1' }),
+      logger: LOGGER,
+      fetchImpl: provider.fetch,
+      retryBackoffMs: 1,
+    });
+
+    const outcome = await gate.evaluate(gateInput());
+
+    expect(outcome.classification.decision).toBe('review');
+    expect(outcome.callMade).toBe(true);
+    expect(provider.calls).toHaveLength(1);
+    expect(gate.summary()).toMatchObject({ calls: 1, blocked: 1, errors: 1 });
+    expect(await repos.rateLimits.peek('llm-global-daily', 24 * 3_600)).toBe(1);
+    await store.close();
+  });
+
   it('koşu bütçesi dolduğunda sonraki kayıtlar için çağrı yapılmaz', async () => {
     const { repos, store } = await makeRepos();
     const provider = fakeProvider([ILAN_OUTPUT]);

@@ -110,8 +110,9 @@ Per-source coverage mantığı `src/sources/adapters/` altında uygulanır:
 - API: `GET /api/sources`, `GET /api/sources/:key/status`.
 - Yönetim: **/yonetim → Kaynaklar / Taramalar**.
 - Komut satırı: `npm run sources:report` veya `npm run sources:report -- --json`.
-- Canlı doğrulama: yalnızca yetkili/ağ erişimli ortamda, kapsam notlarını ve
-  kaynak kurallarını izleyerek `SOURCE_LIVE_FETCH=1 npm run test:live`.
+- Canlı doğrulama: yalnız yetkili/ağ erişimli ortamda, explicit `--live` ve
+  `--max-requests/--max-pages/--max-details/--min-delay-ms` sınırlarıyla. PowerShell
+  örneği ve kanıt alanları: [quality/OFFLINE-VERIFY.md](./quality/OFFLINE-VERIFY.md).
 
 ## Yeni kaynak ekleme
 

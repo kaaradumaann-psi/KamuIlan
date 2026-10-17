@@ -285,6 +285,56 @@ export class FileStore implements StoragePort {
     });
   }
 
+  async incrementOne<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount = 1,
+  ): Promise<DocumentOf<K> | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Sayaç alanı tek bir belge alanı olmalıdır.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Sayaç artışı pozitif güvenli tamsayı olmalıdır.');
+    return this.mutate(() => {
+      const rows = this.data[collection] as unknown as Record<string, unknown>[];
+      const index = rows.findIndex((row) => matchesQuery(row, filter));
+      if (index < 0) return null;
+      const current = rows[index]?.[field];
+      if (typeof current !== 'number' || !Number.isSafeInteger(current)) {
+        throw new Error(`'${field}' atomik sayaç alanı güvenli tamsayı değil.`);
+      }
+      const next = current + amount;
+      if (!Number.isSafeInteger(next)) throw new Error(`'${field}' atomik sayaç sınırını aştı.`);
+      const updated = { ...rows[index], [field]: next } as unknown as DocumentOf<K>;
+      rows[index] = updated as unknown as Record<string, unknown>;
+      return updated;
+    });
+  }
+
+  async incrementOneIfBelow<K extends CollectionName>(
+    collection: K,
+    filter: Query,
+    field: string,
+    amount: number,
+    maximum: number,
+  ): Promise<DocumentOf<K> | null> {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(field)) throw new Error('Sayaç alanı tek bir belge alanı olmalıdır.');
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Sayaç artışı pozitif güvenli tamsayı olmalıdır.');
+    if (!Number.isSafeInteger(maximum) || maximum < amount) throw new Error('Sayaç üst sınırı geçersiz.');
+    return this.mutate(() => {
+      const rows = this.data[collection] as unknown as Record<string, unknown>[];
+      const index = rows.findIndex((row) => matchesQuery(row, filter));
+      if (index < 0) return null;
+      const current = rows[index]?.[field];
+      if (typeof current !== 'number' || !Number.isSafeInteger(current)) {
+        throw new Error(`'${field}' atomik sayaç alanı güvenli tamsayı değil.`);
+      }
+      const next = current + amount;
+      if (!Number.isSafeInteger(next) || next > maximum) return null;
+      const updated = { ...rows[index], [field]: next } as unknown as DocumentOf<K>;
+      rows[index] = updated as unknown as Record<string, unknown>;
+      return updated;
+    });
+  }
+
   async upsertOne<K extends CollectionName>(
     collection: K,
     filter: Query,

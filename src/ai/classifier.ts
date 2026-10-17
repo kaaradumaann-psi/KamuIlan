@@ -50,6 +50,7 @@ import {
 import { RECRUITMENT_EVIDENCE_PATTERN, PROCESS_TITLE_SIGNAL_PATTERN } from '../classification/rules';
 import type { Logger } from '../lib/logger';
 import { callChatCompletion, computeRetryDelayMs, redactSecret, type LlmConfig, type LlmFetch } from './llm';
+import { createLlmBudgetFromEnv, type LlmBudgetBlockReason } from './budget';
 
 /**
  * İstem sürümü. İstem metni veya çıktı şeması değiştiğinde ARTIRILMALIDIR:
@@ -401,6 +402,12 @@ export interface LlmGateDeps {
   fetchImpl?: LlmFetch;
   /** Yeniden deneme geri çekilme süresi (testlerde 1 ms verilir). */
   retryBackoffMs?: number;
+  /** Her provider isteğinin azami çıktı tokenı (CLI/eval için daraltılır). */
+  maxOutputTokens?: number;
+  /** Bu gate koşusunun azami gerçek HTTP/provider denemesi (Env sınırını yükseltemez). */
+  maxCallsPerRun?: number;
+  /** Bu gate koşusunun tahmini USD üst sınırı; Env sınırını yükseltemez. */
+  runCostLimitUsd?: number;
 }
 
 /** Eşzamanlı LLM isteği sınırlayıcısı (slot devri ile; kuyruk taşması yok). */
@@ -548,7 +555,28 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
   const config = llmClassifierConfig(env);
   const retryBackoffMs = deps.retryBackoffMs ?? 750;
   const semaphore = new Semaphore(env.LLM_MAX_CONCURRENCY);
-  const dailyWindowSeconds = 24 * 3_600;
+  const maxOutputTokens = deps.maxOutputTokens ?? 900;
+  if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 8_192) {
+    throw new Error('LLM maxOutputTokens 1–8192 arasında bir tamsayı olmalıdır.');
+  }
+  const maxCallsPerRun =
+    deps.maxCallsPerRun === undefined
+      ? env.LLM_MAX_CALLS_PER_RUN
+      : Math.min(env.LLM_MAX_CALLS_PER_RUN, deps.maxCallsPerRun);
+  if (!Number.isSafeInteger(maxCallsPerRun) || maxCallsPerRun < 0) {
+    throw new Error('LLM maxCallsPerRun sıfır veya pozitif tamsayı olmalıdır.');
+  }
+  const runCostLimitUsd =
+    deps.runCostLimitUsd === undefined
+      ? env.LLM_RUN_COST_LIMIT_USD
+      : env.LLM_RUN_COST_LIMIT_USD === null
+        ? deps.runCostLimitUsd
+        : Math.min(env.LLM_RUN_COST_LIMIT_USD, deps.runCostLimitUsd);
+  const budget = createLlmBudgetFromEnv(repos, env, {
+    maxCallsPerRun,
+    runCostLimitUsd,
+    additionalDailyCallBucket: 'llm-classifier-daily',
+  });
 
   const totals: LlmGateSummary = {
     enabled: config !== null,
@@ -724,7 +752,15 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     messages: { role: string; content: string }[],
   ): Promise<
     | { ok: true; content: string; usage: { promptTokens: number | null; completionTokens: number | null }; latencyMs: number }
-    | { ok: false; reason: string; status: 'error' | 'timeout'; latencyMs: number; attempts: number }
+    | {
+        ok: false;
+        reason: string;
+        status: 'error' | 'timeout';
+        latencyMs: number;
+        attempts: number;
+        blockedByBudget?: boolean;
+        budgetReason?: LlmBudgetBlockReason;
+      }
   > {
     const maxAttempts = 1 + Math.max(0, env.LLM_RETRY_MAX);
     // Hata yolunda da GECİKME ÖLÇÜLÜR: "sağlayıcı hatası bedava" değildir — kuyruk +
@@ -736,11 +772,28 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       status: 'error',
     };
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      attempts += 1;
       if (attempt > 0) {
         const waitMs = computeRetryDelayMs(attempt, retryBackoffMs, lastFailure.retryAfterMs);
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
+      const reservation = await budget.reserve(messages, maxOutputTokens);
+      if (!reservation.allowed) {
+        return {
+          ok: false,
+          reason:
+            attempts === 0
+              ? 'LLM günlük/koşu bütçesi için güvenli rezervasyon yapılamadı; kayıt incelemede kalıyor.'
+              : `${lastFailure.reason} Yeniden deneme LLM bütçesi/kotası nedeniyle yapılmadı.`,
+          status: lastFailure.status,
+          latencyMs: Date.now() - overallStartedAt,
+          attempts,
+          blockedByBudget: true,
+          budgetReason: reservation.reason,
+        };
+      }
+
+      attempts += 1;
+      totals.calls += 1;
       const startedAt = Date.now();
       await semaphore.acquire();
       let result;
@@ -748,7 +801,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         result = await callChatCompletion(config_, messages, {
           fetchImpl: deps.fetchImpl,
           temperature: 0.1,
-          maxTokens: 900,
+          maxTokens: maxOutputTokens,
           jsonMode: true,
         });
       } finally {
@@ -878,24 +931,9 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         };
       }
 
-      // 2) Günlük kota (tüm worker'lar ortak; rateLimits penceresi).
-      const dailyUsed = await repos.rateLimits.peek('llm-classifier-daily', dailyWindowSeconds);
-      if (dailyUsed >= env.LLM_DAILY_CALL_LIMIT) {
-        totals.blocked += 1;
-        logger.warn(
-          { dailyUsed, limit: env.LLM_DAILY_CALL_LIMIT },
-          'LLM günlük çağrı kotası doldu; belirsiz kayıtlar incelemede kalıyor',
-        );
-        return noop(input);
-      }
-
-      // 3) Koşu başına bütçe.
-      if (totals.calls >= env.LLM_MAX_CALLS_PER_RUN) {
-        totals.blocked += 1;
-        return noop(input);
-      }
-
-      // 4) Sağlayıcı çağrısı.
+      // Her gerçek HTTP denemesi (retry dahil) callProvider içinde günlük ve
+      // koşu başı bütçeden atomik olarak rezerve edilir. Böylece retry veya
+      // eşzamanlı evaluate() çağrıları sınırın çevresinden dolaşamaz.
       const messages = [
         { role: 'system', content: buildClassifierSystemPrompt() },
         {
@@ -911,11 +949,17 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         },
       ];
 
-      totals.calls += 1;
-      await repos.rateLimits.hit('llm-classifier-daily', dailyWindowSeconds).catch(() => undefined);
-
       const call = await callProvider(config, messages);
       if (!call.ok) {
+        if (call.attempts === 0) {
+          totals.blocked += 1;
+          logger.warn(
+            { sourceKey: input.sourceKey, reason: call.budgetReason ?? 'budget-denied' },
+            'LLM bütçe/kota rezervasyonu başarısız; sağlayıcı çağrısı yapılmadı ve kayıt incelemede kaldı',
+          );
+          return noop(input);
+        }
+        if (call.blockedByBudget) totals.blocked += 1;
         totals.errors += 1;
         await recordTelemetry({
           cacheKey,
