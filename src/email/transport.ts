@@ -21,7 +21,14 @@ import { shouldBlockExternalHttpInTest } from '../lib/offline-network';
 /** Testlerde ağ çağrısını kesmek için kullanılan minimal fetch imzası. */
 export type FetchLike = (
   input: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body: string;
+    signal?: AbortSignal;
+    /** Sağlayıcı yönlendirmesi API anahtarını başka host'a taşımasın. */
+    redirect?: 'error';
+  },
 ) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
 
 export interface EmailMessage {
@@ -124,6 +131,8 @@ export class ResendEmailTransport implements EmailTransport {
           authorization: `Bearer ${this.options.apiKey}`,
           'content-type': 'application/json',
         },
+        // API anahtarı 30x ile başka host'a taşınmasın.
+        redirect: 'error',
         body: JSON.stringify({
           from: this.options.from,
           to: [message.to],

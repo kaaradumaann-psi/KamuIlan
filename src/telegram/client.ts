@@ -195,4 +195,4 @@ export function classifyTelegramFailure(failure: TelegramFailure): 'blocked' | '
 }
 
 const defaultFetch: TelegramFetch = (url, init) =>
-  fetch(url, init as RequestInit) as unknown as ReturnType<TelegramFetch>;
+  fetch(url, { ...(init as RequestInit), redirect: 'error' }) as unknown as ReturnType<TelegramFetch>;

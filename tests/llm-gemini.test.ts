@@ -88,11 +88,11 @@ function geminiReply(text: string, usage = { promptTokenCount: 120, candidatesTo
 /** İstekleri yakalayan sahte fetch. */
 function recorder(reply: { status: number; body: string } | Error): {
   fetch: LlmFetch;
-  seen: { url: string; headers: Record<string, string>; body: string }[];
+  seen: { url: string; headers: Record<string, string>; body: string; redirect: string }[];
 } {
-  const seen: { url: string; headers: Record<string, string>; body: string }[] = [];
+  const seen: { url: string; headers: Record<string, string>; body: string; redirect: string }[] = [];
   const fetchImpl: LlmFetch = async (url, init) => {
-    seen.push({ url, headers: init.headers, body: init.body });
+    seen.push({ url, headers: init.headers, body: init.body, redirect: init.redirect });
     if (reply instanceof Error) throw reply;
     return { status: reply.status, text: async () => reply.body };
   };
@@ -302,6 +302,8 @@ describe('callChatCompletion — gemini-native', () => {
     expect(result.usage).toEqual({ promptTokens: 120, completionTokens: 60 });
 
     const request = seen[0]!;
+    // Sağlayıcı yönlendirmesi API anahtarını başka host'a taşımasın.
+    expect(request.redirect).toBe('error');
     expect(request.url).toBe(`${GOOGLE_BASE}/models/gemini-2.5-flash:generateContent`);
     expect(request.url).not.toContain(API_KEY); // anahtar sorguda taşınmaz
     expect(request.headers['x-goog-api-key']).toBe(API_KEY);
