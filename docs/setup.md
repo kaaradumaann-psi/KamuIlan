@@ -133,9 +133,11 @@ Geliştirme için çoğu değer boş kalabilir. En az:
   kapatır; üretimde uygulama başlamaz, diğer ortamlarda `env:check`/`test:live`
   çıktısının ilk satırında uyarı ve kaldırma adımları görünür. Tanımlıysa
   kaldırın: [database-tls.md → kaldırma](./database-tls.md#node_tls_reject_unauthorized0-zaten-tanımlıysa-kaldırma).
-- `SOURCE_LIVE_FETCH=1` — gerçek kaynaklara istek atılmasını sağlar. `0` iken
-  worker ağa çıkmaz (demo/test için): deneme `skipped` kaydedilir; başarılı tarama
-  zamanı/ilan bulundu sayısı üretilmez ve kaynak erişilmiş gibi gösterilmez.
+- `SOURCE_LIVE_FETCH=0` (**güvenli varsayılan**) — worker ağa çıkmaz (demo/test
+  için): deneme `skipped` kaydedilir; başarılı tarama zamanı/ilan bulundu sayısı
+  üretilmez ve kaynak erişilmiş gibi gösterilmez. `1` yapmak **tek başına**
+  yeterli değildir; zamanlanmış tarama için `SCHEDULER_ENABLED=1` de ayrıca
+  açılmalıdır. Tek kaynaklı güvenli akış: [STAGING-RUNBOOK.md](./quality/STAGING-RUNBOOK.md).
 - `SCAN_INTERVAL_MINUTES=0` (önerilen) — her kaynak kendi aralığıyla taranır.
   Pozitif bir değer tüm etkin kaynakların aralığını o değere eşitler; en küçük değer
   15 dakikadır (daha küçük değerler 15'e yükseltilir, çünkü resmî siteler dakikada bir
@@ -162,7 +164,7 @@ Geliştirme için çoğu değer boş kalabilir. En az:
 | `SUPABASE_SERVICE_ROLE_KEY`          | Supabase → API                                             | **Yalnızca sunucu**; tarayıcıya asla verilmez, repoya yazılmaz   |
 | `APP_DOMAIN`                         | —                                                          | `kamuilan.halilkaraduman.com.tr` (Cloudflare özel alan adı)      |
 | `APP_BASE_URL`                       | —                                                          | E-posta bağlantılarının üretildiği herkese açık adres            |
-| `EMAIL_PROVIDER=resend`              | bu dosya                                                   | `smtp` ve `file` alternatifleri vardır                           |
+| `EMAIL_PROVIDER=resend`              | bu dosya                                                   | `smtp` ve `file` alternatifleri vardır; şema varsayılanı `file`'dır. `.env.example` geliştirme için `smtp` (loopback 127.0.0.1:1025) kullanır; bu "e-posta teslim edildi" demek değildir |
 | `RESEND_API_KEY`                     | Resend → API Keys                                          | Sunucu tarafı; tarayıcıya verilmez                               |
 | `EMAIL_FROM`                         | Resend → Domains                                           | **Doğrulanmış** alan adından bir adres olmalıdır                 |
 | `ALLOW_PUBLIC_REGISTRATION=0`        | bu dosya                                                   | Dışarıdan kayıt kapalı; hesaplar yönetici davetiyle açılır       |
@@ -296,6 +298,8 @@ Gerçek kaynaklara karşı canlı doğrulama (yalnızca gerçek ağ olan ortamda
 $env:SOURCE_LIVE_FETCH = '1'
 npm run test:live -- --live --source=osym-duyurular --max-requests=5 --max-pages=2 --max-details=1 --min-delay-ms=1000
 Remove-Item Env:SOURCE_LIVE_FETCH
+# Alternatif (önerilen): tek kaynak + erişim şartı kapısı + izole dosya deposu
+npm run staging:capture -- --source=osym-duyurular --dry-run
 ```
 
 Canlı doğrulama yalnızca yetkili/ağ erişimli operatör ortamında çalışır; tüm

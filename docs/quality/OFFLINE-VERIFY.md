@@ -77,3 +77,14 @@ npm run llm:review-assist -- --live --allow-provider-data --max-records 5 --max-
 ```
 
 Canlı komutların her biri için çağrı, tahmini maliyet (resmi fiyat varsayımıyla; fatura garantisi değildir), çıkış kodu ve sağlayıcı sonucu ayrı kaydedilmelidir. Gerçek insan etiketi, kaynak erişimi veya sağlayıcı kanıtı yoksa sonuç sırasıyla **INSUFFICIENT DATA** veya **BLOCKED / NOT RUN** kalır.
+
+## İlgili kalite belgeleri
+
+- [STAGING-RUNBOOK.md](./STAGING-RUNBOOK.md) — tek kaynaklı, izole operatör staging akışı ve çıkış kodları.
+- [LABELING-RUNBOOK.md](./LABELING-RUNBOOK.md) — 145 gerçek kayıt, worksheet şeması, PowerShell sırası.
+- [EXTRACTION-EVAL.md](./EXTRACTION-EVAL.md) — alan çıkarımı ölçüm yöntemi ve gerçek INSUFFICIENT DATA çıktısı.
+- [EVIDENCE-MATRIX.md](./EVIDENCE-MATRIX.md) — iddia → komut → sonuç → sınır tablosu.
+- [SECURITY-REVIEW.md](./SECURITY-REVIEW.md) — çalıştırılan/çalıştırılmayan güvenlik kontrolleri.
+- [AI-MODEL-COST.md](./AI-MODEL-COST.md) — doğrulanmış fiyat, bütçe ve ölçüm protokolü.
+- [SOURCE-TERMS.md](./SOURCE-TERMS.md) — robots/ToS insan incelemesi ve saklama kapısı.
+- [PR22-POST-MERGE-REVIEW.md](./PR22-POST-MERGE-REVIEW.md) — PR #22 birleşme sonrası inceleme.

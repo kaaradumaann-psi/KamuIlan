@@ -66,9 +66,12 @@ Son denetim/uygulama turunun tam kaydı (ne yapıldı, ne test edildi, ne yapıl
 ## Güvenlik/hukuk
 
 1. Kaynakların kullanım koşulları ve `robots.txt` onboarding sırasında elle
-   incelenmeli; CAPTCHA veya oturum duvarı aşılmamalıdır. Bu sürüm `robots.txt`
-   uygunluğunu runtime'da otomatik zorlamaz; bu nedenle bu politika kod düzeyinde
-   bir erişim kontrolü değildir ve canlı yetki ayrıca doğrulanmalıdır.
+   incelenmeli; CAPTCHA veya oturum duvarı aşılmamalıdır. Operatör staging komutu
+   (`npm run staging:capture`) `config/source-terms.json` içindeki insan
+   incelemesini **zorunlu** kılar ve inceleme yoksa ağa çıkmaz. Buna karşılık
+   `start:worker`/zamanlanmış tarama yolu runtime'da ayrıca `robots.txt` sorgusu
+   yapmaz; üretimde açmadan önce onboarding ve insan incelemesi gerekir. Bu
+   politika kod düzeyinde genel bir erişim kontrolü değildir.
 2. İlanın tam gövdesi kamu API'sinde yayımlanmaz. Gövde 500 karakterden uzunsa ilan ayrıntısında en çok 400 karakterlik metin alıntısı gösterilebilir; daha kısa duyurular tam kopyayı önlemek için gösterilmez. Alıntı ve kanıt parçalarında yaygın e-posta/Türkiye telefon biçimleri sezgisel olarak maskelenir. Bu desen tabanlı önlem tüm kişisel verileri yakaladığı garantisi değildir; özgün duyuruya bağlantı verilir, kaynak kullanım koşulları ayrıca değerlendirilmelidir.
 3. Kişisel veri minimizasyonu uygulanır (bkz. [security-kvkk.md](./security-kvkk.md)).
    Kaynak bağı tam gövdeyi, kullanılmayan ham alıntıyı veya gövde hash'ini
