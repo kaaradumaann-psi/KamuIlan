@@ -12,6 +12,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
+interface StepSummary {
+  testFiles: number | null;
+  tests: number | null;
+  coverage: { statements: number; branches: number; functions: number; lines: number } | null;
+}
+
 interface StepResult {
   name: string;
   command: string;
@@ -19,6 +25,36 @@ interface StepResult {
   durationMs: number;
   stdoutLog: string;
   stderrLog: string;
+  /** Loglardan güvenle çıkarılabilen sayaçlar; bulunamazsa null (uydurulmaz). */
+  summary: StepSummary;
+}
+
+/** ANSI renk kodlarını temizler; vitest stdout'u TTY'de renkli yazar. */
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/gu, '');
+}
+
+/**
+ * Test/kapsam sayaçlarını yalnızca tanınan satırlardan çıkarır. Satır yoksa
+ * null döner; rapor "0 test" gibi yanıltıcı bir varsayım üretmez.
+ */
+function parseStepSummary(stdout: string): StepSummary {
+  const text = stripAnsi(stdout);
+  const files = /Test Files\s+(\d+) passed\s+\((\d+)\)/u.exec(text);
+  const tests = /^\s*Tests\s+(\d+) passed\s+\((\d+)\)/mu.exec(text);
+  const coverage = /All files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/u.exec(text);
+  return {
+    testFiles: files?.[1] ? Number(files[1]) : null,
+    tests: tests?.[1] ? Number(tests[1]) : null,
+    coverage: coverage
+      ? {
+          statements: Number(coverage[1]),
+          branches: Number(coverage[2]),
+          functions: Number(coverage[3]),
+          lines: Number(coverage[4]),
+        }
+      : null,
+  };
 }
 
 function timestamp(): string {
@@ -241,7 +277,15 @@ async function main(): Promise<void> {
     writeFileSync(stderrLog, stderr, { encoding: 'utf8', mode: 0o600 });
     const childExitCode = typeof result.status === 'number' ? result.status : 1;
     const exitCode = childExitCode === 0 && outputValidationError ? 1 : childExitCode;
-    steps.push({ name, command, exitCode, durationMs: Date.now() - started, stdoutLog, stderrLog });
+    steps.push({
+      name,
+      command,
+      exitCode,
+      durationMs: Date.now() - started,
+      stdoutLog,
+      stderrLog,
+      summary: parseStepSummary(stdout),
+    });
     console.log(`${exitCode === 0 ? 'PASS' : 'FAIL'}  ${name} (exit ${exitCode}, ${Date.now() - started} ms)`);
   };
 
@@ -363,6 +407,18 @@ async function main(): Promise<void> {
       executablePath: chromium.executablePath,
       securityE2ETests: 'e2e/security.spec.ts included in Playwright suite; not executed by this offline verifier.',
     },
+    testSummary: (() => {
+      const testStep = steps.find((step) => step.summary.tests !== null);
+      const coverageStep = steps.find((step) => step.summary.coverage !== null);
+      if (!testStep) return null;
+      return {
+        testFiles: testStep.summary.testFiles,
+        tests: testStep.summary.tests,
+        coverage: coverageStep?.summary.coverage ?? null,
+        source: testStep.name,
+        coverageSource: coverageStep?.name ?? null,
+      };
+    })(),
     steps,
     failedSteps: failed.map((step) => ({ name: step.name, exitCode: step.exitCode })),
     artifacts: {
