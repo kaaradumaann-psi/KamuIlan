@@ -3,7 +3,7 @@
 **PR:** https://github.com/kaaradumaann-psi/kamuradar/pull/22
 **Durum:** MERGED (2026-10-17T16:17:46Z), merge commit `ee45a23d5fde466a4d7803acfa73e8433d68d719`
 **İnceleme tarihi:** 2026-10-17
-**İncelenen ağaç:** `ee45a23` + bu dalın çalışma ağacı (aşağıdaki düzeltmeler)
+**İncelenen ağaç:** `ee45a23` (merge) + bu dalın 6 takip commit'i (`4793387`)
 **Kapsam:** `src/ai/*`, `src/server/routes/ai.ts`, `src/sources/fetcher.ts`,
 `src/lib/offline-network.ts`, DB store'ları, e-posta taşıyıcısı, env doğrulama,
 TLS, `scripts/verify-all.ts`, `live-check`, `capture-fixtures`, `llm-doctor`,

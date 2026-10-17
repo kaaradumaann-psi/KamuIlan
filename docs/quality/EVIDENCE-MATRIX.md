@@ -48,5 +48,5 @@ npm run eval:extraction            # INSUFFICIENT DATA beklenir
 npm run staging:capture -- --source=<izinli-kaynak> --dry-run
 ```
 
-Artefakt: `artifacts/verify-all/2026-10-17T17-44-06-338Z/report.json`
+Artefakt: `artifacts/verify-all/2026-10-17T17-52-02-596Z/report.json`
 (bu satır son çalıştırmayla güncellenir).
