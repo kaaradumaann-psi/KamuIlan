@@ -13,6 +13,7 @@ import { makeExcerpt, maskEmail } from '../domain/text';
 import { EMPLOYMENT_TYPE_LABELS, JOB_STATUS_LABELS, PROCESS_STATUS_LABEL } from '../domain/types';
 import type { JobDoc, JobRevisionDoc, JobSourceDoc, ScrapeRunDoc, SourceDoc, UserDoc } from '../db/schemas';
 import type { SourceCoverageEntry } from '../db/repos/sources';
+import { buildSourceObservation } from '../sources/observation';
 
 export interface PublicJobSummary {
   id: string;
@@ -378,6 +379,15 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
       unexpectedZero: entry.health.unexpectedZero,
     },
     lastRun: entry.lastRun,
+    /** Ayrı katmanlar: envanter/adaptör/HTTP/kapsam/0-sonuç nedeni. */
+    observation: buildSourceObservation({
+      inventoryStatus: entry.status,
+      adapterRegistered: entry.built,
+      health: entry.health,
+      lastRun: entry.lastRun
+        ? { status: entry.lastRun.status, coverageStatus: entry.lastRun.coverageStatus }
+        : null,
+    }),
   };
 }
 

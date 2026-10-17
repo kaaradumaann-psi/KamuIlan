@@ -10,6 +10,7 @@ fixtures/live/
 test-results/
 playwright-report/
 artifacts/
+.staging/
 .DS_Store
 *.tsbuildinfo
 .eslintcache
