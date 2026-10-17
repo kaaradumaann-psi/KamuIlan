@@ -12,13 +12,14 @@
  *   npm run eval:build-set                                  # sayfa üret → data/eval-worksheet.json
  *   npm run eval:build-set -- --filter review               # yalnızca belirsiz kayıtlar
  *   npm run eval:build-set -- --source resmigazete-cestili-ilanlar --limit 40
+ *   npm run eval:build-set -- --data-dir=.staging/<kosum>/data   # izole staging deposu
  *   npm run eval:build-set -- --import data/eval-worksheet.json            # doğrula + raporu yaz
  *   npm run eval:build-set -- --import data/eval-worksheet.json --apply    # kümeye birleştir
  *
  * Neden `--apply` ayrı: insan doğrulaması olmayan hiçbir kayıt kümeye giremez; betik
  * bunu red listesiyle gösterir. Küme dosyasına yazma YALNIZCA `--apply` ile olur.
  *
- * Kapsam hedefi 150–200 gerçek, insan doğrulamalı kayıttır (sınıf bazlı hedefler:
+ * Kapsam hedefi 145 gerçek, insan doğrulamalı kayıttır (sınıf bazlı hedefler:
  * `src/classification/eval-set.ts` COVERAGE_TARGETS). Bu sayı üretilmiş gibi
  * gösterilmez; rapor her seferinde "şu an kaç gerçek kayıt var"ı yazar.
  */
@@ -37,6 +38,13 @@ import {
 } from '../src/classification/eval-set';
 
 function optionValue(flag: string): string | null | undefined {
+  // Hem `--flag deger` hem `--flag=deger` desteklenir. Yalnız ikincisini
+  // desteklememek, sessizce varsayılan yola yazmaya yol açıyordu (denetim bulgusu).
+  const inline = process.argv.find((argument) => argument.startsWith(`${flag}=`));
+  if (inline !== undefined) {
+    const value = inline.slice(flag.length + 1);
+    return value.length > 0 ? value : null;
+  }
   const index = process.argv.indexOf(flag);
   if (index < 0) return undefined;
   const value = process.argv[index + 1];
@@ -48,7 +56,32 @@ function writeOut(path: string, contents: string): void {
   writeFileSync(resolve(path), contents, 'utf8');
 }
 
+function applyDataDirOption(): void {
+  const raw = optionValue('--data-dir');
+  if (raw === undefined) return;
+  if (raw === null) throw new Error('--data-dir için bir dizin yolu verin.');
+  if ((process.env.POSTGRES_URL ?? '').trim() || (process.env.DATABASE_URL ?? '').trim()) {
+    throw new Error('Üretim veritabanı değişkenleri dolu; --data-dir ile staging izolasyonu kurulamaz.');
+  }
+  if ((process.env.MONGODB_URI ?? '').trim()) {
+    throw new Error('MONGODB_URI dolu; --data-dir yalnızca dosya deposuyla çalışır.');
+  }
+  const dir = resolve(raw);
+  if (!existsSync(dir)) throw new Error(`Staging veri dizini yok: ${dir}`);
+  process.env.DATABASE_DRIVER = 'file';
+  process.env.DATA_DIR = dir;
+  process.env.SCHEDULER_ENABLED = '0';
+  process.env.SOURCE_LIVE_FETCH = '0';
+  process.env.AI_ASSISTANT_ENABLED = '0';
+  process.env.LLM_CLASSIFIER_ENABLED = '0';
+  process.env.EMAIL_PROVIDER = 'file';
+  for (const key of ['RESEND_API_KEY', 'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'TELEGRAM_BOT_TOKEN']) {
+    delete process.env[key];
+  }
+}
+
 async function buildWorksheet(): Promise<void> {
+  applyDataDirOption();
   const filterOption = optionValue('--filter');
   const sourceOption = optionValue('--source');
   const limitRaw = optionValue('--limit');
@@ -60,11 +93,15 @@ async function buildWorksheet(): Promise<void> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('--limit 1–500 arasında olmalıdır.');
   const outPath = optionValue('--out') ?? 'data/eval-worksheet.json';
 
-  const env = (await import('../src/config/env')).getEnv();
+  const { getEnv, resetEnvCache } = await import('../src/config/env');
+  resetEnvCache();
+  const env = getEnv();
   const driver = effectiveDriver(env);
   const store = await initStore();
   const repos = createRepos(store);
-  console.log(`Veritabanı: ${describeDriver(driver)} · MOD: KURU (salt okunur, hiçbir şey yazılmıyor)`);
+  console.log(
+    `Veritabanı: ${describeDriver(driver)}${process.env.DATA_DIR ? ` (${process.env.DATA_DIR})` : ''} · MOD: KURU (salt okunur, hiçbir şey yazılmıyor)`,
+  );
 
   const jobs = (await repos.store.find('jobs', {}, { limit: 5_000, sort: [['lastSeenAt', -1]] })) as JobDoc[];
   const filtered = jobs.filter((job) => {

@@ -25,6 +25,12 @@ export type JsonOutputArg =
  * böylece `--json --llm` yanlışlıkla `--llm` adlı bir dosyaya yazmaz.
  */
 export function parseJsonOutputArg(argv: readonly string[], flag = '--json'): JsonOutputArg {
+  // `--json=dosya` ve `--json dosya` aynı şekilde çalışır; `--json=` boşsa stdout.
+  const inline = argv.find((argument) => argument.startsWith(`${flag}=`));
+  if (inline !== undefined) {
+    const path = inline.slice(flag.length + 1);
+    return path.length > 0 ? { mode: 'dosya', path } : { mode: 'stdout' };
+  }
   const index = argv.indexOf(flag);
   if (index < 0) return { mode: 'yok' };
   const next = argv[index + 1];

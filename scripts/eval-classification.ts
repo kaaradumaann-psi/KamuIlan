@@ -43,7 +43,9 @@ import {
   type EvalReport,
   type GateScenarioOutcome,
 } from '../src/classification/eval';
-import { extract, type ExtractedJob } from '../src/extraction/engine';
+import { extract } from '../src/extraction/engine';
+import { evaluateExtraction } from '../src/evaluation/extraction';
+import type { ExpectedFieldValue } from '../src/evaluation/fields';
 import { getEnv } from '../src/config/env';
 import { FileStore } from '../src/db/file-store';
 import { createRepos } from '../src/db/repos';
@@ -70,7 +72,7 @@ interface LabeledRecord {
   /** Etiket provenansı; gerçek metrikler yalnızca 'human' ile iddia edilir. */
   labelProvenance?: 'human' | 'machine' | 'spec';
   /** İnsan tarafından doğrulanmış beklenen alanlar (alan çıkarımı doğruluğu için). */
-  expectedFields?: Partial<Record<keyof ExtractedJob, string | number | null>>;
+  expectedFields?: Record<string, ExpectedFieldValue>;
   /**
    * Bu senaryoda kabul EDİLMEMESİ gereken içerik türleri.
    * Örnek: istem enjeksiyonu metninde `personnel_recruitment` (uydurma alım kararı).
@@ -192,34 +194,43 @@ function printReport(report: EvalReport): void {
   }
 }
 
-function printFieldAccuracy(records: readonly LabeledRecord[], extracted: Map<string, ExtractedJob>): void {
-  const withFields = records.filter((record) => record.expectedFields && Object.keys(record.expectedFields).length > 0);
-  if (withFields.length === 0) {
+function printFieldAccuracy(records: readonly LabeledRecord[]): void {
+  const report = evaluateExtraction(records, { extractor: extract, now: new Date() });
+  if (report.counts.realScorable === 0) {
     console.log(
-      '\nAlan çıkarımı doğruluğu: ÖLÇÜLEMEDİ — etiketli kümede insan doğrulamalı beklenen alan yok ' +
-        '(expectedFields). Kurum/unvan/şehir/kontenjan/tarih/başvuru bağlantısı doğruluğu için ' +
-        'gerçek kayıt etiketlemesi gerekir (npm run eval:build-set).',
+      `\nAlan çıkarımı: VERİ YETERSİZ — gövdesi tam (>=200 karakter) insan doğrulamalı gerçek kayıt yok ` +
+        `(gerçek ${report.counts.real}, gövdesiz ${report.unscorable.noBody}, kısa gövde ${report.unscorable.shortBody}). ` +
+        'Kurum/unvan/şehir/kontenjan/tarih doğruluğu için gerçek kayıt etiketlemesi gerekir (npm run eval:build-set).',
     );
     return;
   }
-  const fields = [...new Set(withFields.flatMap((record) => Object.keys(record.expectedFields ?? {})))].sort();
-  console.log(`\nAlan çıkarımı doğruluğu (${withFields.length} etiketli kayıt, ${fields.length} alan):`);
-  for (const field of fields) {
-    let checked = 0;
-    let correct = 0;
-    let missing = 0;
-    for (const record of withFields) {
-      const expected = record.expectedFields?.[field as keyof ExtractedJob];
-      if (expected === undefined) continue;
-      checked += 1;
-      const actual = extracted.get(record.id)?.[field as keyof ExtractedJob];
-      if (actual === null || actual === undefined || (Array.isArray(actual) && actual.length === 0)) missing += 1;
-      if (String(actual ?? '') === String(expected ?? '')) correct += 1;
+  console.log(
+    `\nAlan çıkarımı: ${report.status} — ${report.counts.realScorable} ölçülebilir gerçek kayıt, ` +
+      `${report.fields.length} etiketli alan (evaluator ${report.evaluatorVersion}, extraction ${report.extractionVersion}).`,
+  );
+  for (const field of report.fields) {
+    if (field.ratesSuppressed) {
+      console.log(
+        `  ${pad(field.key, 22)} destek ${String(field.support).padStart(3)} · YETERSİZ (en az ${report.config.minFieldSupport})`,
+      );
+      continue;
     }
-    const rate = checked === 0 ? '—' : `${((correct / checked) * 100).toFixed(1)}%`;
-    console.log(`  ${pad(field, 24)} doğrulanan ${String(checked).padStart(3)} · doğru ${String(correct).padStart(3)} · boş ${String(missing).padStart(3)} · ${rate}`);
+    console.log(
+      `  ${pad(field.key, 22)} destek ${String(field.support).padStart(3)} · P ${formatRate(field.precision)} · ` +
+        `R ${formatRate(field.recall)} · F1 ${formatRate(field.f1)} · boş ${String(field.missed).padStart(3)} · ` +
+        `uydurma ${String(field.hallucinated).padStart(3)} · kanıtsız ${field.evidenceInvalid + field.evidenceMissing}`,
+    );
   }
-  console.log('  Not: yalnızca İNSAN tarafından doğrulanmış beklenen değerler kullanılır; çıkarımın kendi çıktısı etiket sayılmaz.');
+  console.log(
+    `  Kanıt: ${report.evidence.valid}/${report.evidence.checkedFacts} doğrulandı · geçersiz ${report.evidence.invalid} · ` +
+      `eksik ${report.evidence.missing} · liste-kaynaklı doğrulanamayan ${report.evidence.listingUnverified}`,
+  );
+  if (report.dateChecks.roleConfusions > 0 || report.dateChecks.consistencyIssues > 0) {
+    console.log(
+      `  Tarih kontrolü: rol karışması ${report.dateChecks.roleConfusions} · tutarsızlık ${report.dateChecks.consistencyIssues}`,
+    );
+  }
+  console.log('  Not: yalnızca İNSAN doğrulamalı gerçek kayıtlar; çıkarımın kendi çıktısı etiket sayılmaz.');
 }
 
 async function main(): Promise<void> {
@@ -294,7 +305,6 @@ async function main(): Promise<void> {
   }
 
   const evalRecords: EvalRecord[] = [];
-  const extracted = new Map<string, ExtractedJob>();
   const gateRows: GateScenarioOutcome[] = [];
   let reviewCount = 0;
   let llmResolved = 0;
@@ -338,7 +348,6 @@ async function main(): Promise<void> {
       labelProvenance: record.labelProvenance ?? (record.origin === 'real' ? 'human' : 'spec'),
       sourceKey: record.sourceKey ?? null,
     });
-    extracted.set(record.id, extract({ title: record.title, body }));
   }
 
   const providerBaseUrl = redactProviderUrl(env.LLM_BASE_URL);
@@ -373,7 +382,7 @@ async function main(): Promise<void> {
         `yanlış ret ${formatRate(realReport.falseRejectRate)} · belirsiz ${formatRate(realReport.uncertaintyRate)}`,
     );
   }
-  printFieldAccuracy(parsed.records, extracted);
+  printFieldAccuracy(parsed.records);
 
   let telemetry: LlmTelemetryStats | null = null;
   if (useLlm && gate && gateRepos) {

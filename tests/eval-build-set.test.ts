@@ -32,7 +32,7 @@ function jobRecord(overrides: Partial<WorksheetJobRecord> = {}): WorksheetJobRec
     id: 'job-00000001',
     title: 'Bakanlığımız taşra teşkilatında istihdam edilmek üzere personel alımı yapılacaktır',
     institution: 'Örnek Bakanlığı',
-    detailUrl: 'https://ornek.gov.tr/duyuru/1',
+    detailUrl: 'https://www.resmigazete.gov.tr/eskiilanlar/2026/10/20261012-4.htm',
     applicationUrl: null,
     city: 'Ankara',
     quota: 5,
@@ -88,14 +88,22 @@ describe('buildLabelingWorksheet', () => {
 });
 
 describe('importLabeledWorksheet', () => {
-  const filled = (overrides: Record<string, unknown> = {}) => ({
-    ...buildLabelingWorksheet([jobRecord()], new Date()).records[0],
-    expectedContentType: 'personnel_recruitment',
-    labelProvenance: 'human',
-    labeledBy: 'insan-adi',
-    labeledAt: '2026-10-15T10:00:00+03:00',
-    ...overrides,
-  });
+  const filled = (overrides: Record<string, unknown> = {}) => {
+    const record = buildLabelingWorksheet([jobRecord()], new Date()).records[0]!;
+    return {
+      ...record,
+      expectedContentType: 'personnel_recruitment',
+      labelProvenance: 'human',
+      labeledBy: 'insan-adi',
+      labeledAt: '2026-10-15T10:00:00+03:00',
+      labelEvidence: {
+        sourceUrl: record.url,
+        quote: 'Taşra teşkilatında istihdam edilmek üzere sözleşmeli personel alımı yapılacaktır.',
+        locator: 'paragraf 1',
+      },
+      ...overrides,
+    };
+  };
 
   function worksheetWith(records: unknown[]) {
     return {
@@ -134,7 +142,7 @@ describe('importLabeledWorksheet', () => {
       labelProvenance: 'human',
       labelVerifiedBy: 'insan-adi',
       sourceKey: 'resmigazete-cestili-ilanlar',
-      url: 'https://ornek.gov.tr/duyuru/1',
+      url: 'https://www.resmigazete.gov.tr/eskiilanlar/2026/10/20261012-4.htm',
     });
     expect(record.expectedFields).toMatchObject({ city: 'Ankara', quota: 5 });
     expect(result.report.withExpectedFields).toBe(1);
@@ -150,6 +158,58 @@ describe('importLabeledWorksheet', () => {
       worksheetWith([filled({ bodyExcerpt: longExcerpt, bodyCompleteness: 'truncated' })]),
     );
     expect(truncated.records[0]?.body).toBeUndefined();
+  });
+
+  it('gerçek kayıtta resmî kanıt (URL + >=20 karakter alıntı) zorunludur', () => {
+    const noEvidence = importLabeledWorksheet(worksheetWith([filled({ labelEvidence: null })]));
+    expect(noEvidence.records).toHaveLength(0);
+    expect(noEvidence.report.rejected[0]?.reason).toMatch(/labelEvidence/);
+
+    const shortQuote = importLabeledWorksheet(
+      worksheetWith([filled({ labelEvidence: { sourceUrl: 'https://www.resmigazete.gov.tr/eskiilanlar/2026/10/20261012-4.htm', quote: 'kısa', locator: '' } })]),
+    );
+    expect(shortQuote.records).toHaveLength(0);
+    expect(shortQuote.report.rejected[0]?.reason).toMatch(/20 karakter/);
+  });
+
+  it('allowlist dışı host ve farklı belge gösteren kanıt reddedilir', () => {
+    const wrongHost = importLabeledWorksheet(worksheetWith([filled({ url: 'https://ornek.gov.tr/duyuru/1' })]));
+    expect(wrongHost.records).toHaveLength(0);
+    expect(wrongHost.report.rejected[0]?.reason).toMatch(/allowlist host/);
+
+    const wrongDocument = importLabeledWorksheet(
+      worksheetWith([
+        filled({
+          labelEvidence: {
+            sourceUrl: 'https://www.resmigazete.gov.tr/baska-belge.htm',
+            quote: 'Taşra teşkilatında istihdam edilmek üzere sözleşmeli personel alımı yapılacaktır.',
+            locator: '',
+          },
+        }),
+      ]),
+    );
+    expect(wrongDocument.records).toHaveLength(0);
+    expect(wrongDocument.report.rejected[0]?.reason).toMatch(/aynı belgeyi göstermiyor/);
+  });
+
+  it('bilinmeyen alan anahtarı sessizce yutulmaz; kayıt reddedilir', () => {
+    const result = importLabeledWorksheet(
+      worksheetWith([filled({ expectedFields: { city: 'Ankara', yanlisAlan: 'x' } })]),
+    );
+    expect(result.records).toHaveLength(0);
+    expect(result.report.rejected[0]?.reason).toMatch(/yanlisAlan/);
+  });
+
+  it('eski/insan dostu anahtar kanonikleştirilir ve raporlanır', () => {
+    const result = importLabeledWorksheet(worksheetWith([filled({ expectedFields: { il: 'Ankara', kontenjan: 5 } })]));
+    expect(result.report.aliasNormalizedFields).toEqual(['il', 'kontenjan']);
+    expect(result.records[0]?.expectedFields).toEqual({ city: 'Ankara', quota: 5 });
+  });
+
+  it('yinelenen kayıt/ilan ailesi ikinci kez kabul edilmez (leakage kontrolü)', () => {
+    const result = importLabeledWorksheet(worksheetWith([filled(), filled({ id: 'job-00000009' })]));
+    expect(result.records).toHaveLength(1);
+    expect(result.report.rejected[0]?.reason).toMatch(/yinelenen/);
   });
 
   it('kapsam hedefinin altındaki kategoriler gap olarak döner', () => {
@@ -196,6 +256,11 @@ describe('mergeLabeledSets', () => {
           labelProvenance: 'human',
           labeledBy: 'kişi',
           labeledAt: '2026-10-15',
+          labelEvidence: {
+            sourceUrl: 'https://www.resmigazete.gov.tr/eskiilanlar/2026/10/20261012-4.htm',
+            quote: 'Taşra teşkilatında istihdam edilmek üzere sözleşmeli personel alımı yapılacaktır.',
+            locator: 'paragraf 1',
+          },
         },
       ],
     }).records;
@@ -251,7 +316,7 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
       applicationEndAt: null,
       applicationEndDate: null,
       publishedAt: '2026-10-01',
-      detailUrl: 'https://ornek.gov.tr/duyuru/1',
+      detailUrl: 'https://www.resmigazete.gov.tr/eskiilanlar/2026/10/20261012-4.htm',
       normalizedUrl: 'https://ornek.gov.tr/duyuru/1',
       applicationUrl: null,
       applicationMethod: null,
@@ -320,7 +385,7 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
       jobId: 'job-test-0001',
       sourceKey: 'resmigazete-cestili-ilanlar',
       sourceItemId: 'RG-1',
-      url: 'https://ornek.gov.tr/duyuru/1',
+      url: 'https://www.resmigazete.gov.tr/eskiilanlar/2026/10/20261012-4.htm',
       title: 'Personel alımı duyurusu',
       institution: 'Örnek Kurumu',
       sourceCategory: null,
@@ -341,7 +406,8 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
   });
 
   it('sayfa üretir, kuru içe aktarma yazmaz, --apply kümeye yazar', () => {
-    const built = run(['--out', worksheetPath, '--filter', 'review', '--limit', '10']);
+    // `--flag=deger` biçimi de desteklenir; aksi hâlde sessizce varsayılan yola yazıyordu.
+    const built = run([`--out=${worksheetPath}`, '--filter', 'review', '--limit', '10']);
     expect(built).toMatch(/MOD: KURU/);
     expect(existsSync(worksheetPath)).toBe(true);
     const worksheet = JSON.parse(readFileSync(worksheetPath, 'utf8')) as {
@@ -367,6 +433,11 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
       record.labeledBy = 'test-etiketleyen';
       record.labeledAt = '2026-10-15T10:00:00+03:00';
       record.expectedFields = { city: 'Ankara', quota: 3 };
+      record.labelEvidence = {
+        sourceUrl: record.url,
+        quote: 'Sözleşmeli personel alımı yapılacaktır; başvurular e-Devlet üzerinden alınacaktır.',
+        locator: 'gövde',
+      };
     }
     writeFileSync(worksheetPath, JSON.stringify({ ...raw, records: raw.records.filter((entry) => entry.origin === 'real') }, null, 2));
 
