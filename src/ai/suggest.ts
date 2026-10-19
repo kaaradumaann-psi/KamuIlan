@@ -263,20 +263,16 @@ export async function generateSuggestions(options: GenerateOptions): Promise<Gen
     return fallback('Yapay zekâ hizmeti yapılandırılmadığı için profil eşleştirmesi gösteriliyor.', used);
   }
 
-  // Kullanıcı kotası, bütün worker'larda atomik rezerve edilir.
-  const usage = await repos.rateLimits.reserve(
-    `ai-daily:${userId}`,
-    DAILY_WINDOW_SECONDS,
-    1,
-    options.dailyLimit,
-  );
-  if (!usage.allowed) {
+  // Kullanıcı kotası, bütün worker'larda atomik rezerve edilir. Önce salt-okunur
+  // bir ön kontrol yapılır: global bütçe reddederse kullanıcının günlük hakkı
+  // BOŞA HARCANMAMALIDIR. Asıl atomik rezervasyon bütçe kapısından SONRA yapılır.
+  const usedBefore = await repos.rateLimits.peek(`ai-daily:${userId}`, DAILY_WINDOW_SECONDS);
+  if (usedBefore >= options.dailyLimit) {
     return fallback(
       'Bugünkü yapay zekâ öneri hakkınız doldu. Aşağıda profil eşleştirmesine göre sıralanmış öneriler var.',
-      options.dailyLimit,
+      usedBefore,
     );
   }
-  const remainingToday = Math.max(0, options.dailyLimit - usage.count);
   const messages = buildMessages(profile, candidates);
   const budget =
     options.budget ??
@@ -293,9 +289,27 @@ export async function generateSuggestions(options: GenerateOptions): Promise<Gen
   if (!reservation.allowed) {
     return fallback(
       'Yapay zekâ öneri bütçesi/kotası dolu veya güvenli biçimde doğrulanamadı. Profil eşleştirmesi gösteriliyor.',
-      usage.count,
+      usedBefore,
     );
   }
+
+  // Bütçe ayrıldıktan sonra kullanıcı kotası atomik olarak rezerve edilir.
+  // Eşzamanlı iki istekten yalnızca biri geçer; kaybeden istek model çağırmaz.
+  // Bu nadir yarışta global bütçeden bir çağrılık rezervasyon boşa gidebilir;
+  // kullanıcı kotası asla boşa harcanmaz (fail-closed, kullanıcı lehine).
+  const usage = await repos.rateLimits.reserve(
+    `ai-daily:${userId}`,
+    DAILY_WINDOW_SECONDS,
+    1,
+    options.dailyLimit,
+  );
+  if (!usage.allowed) {
+    return fallback(
+      'Bugünkü yapay zekâ öneri hakkınız doldu. Aşağıda profil eşleştirmesine göre sıralanmış öneriler var.',
+      options.dailyLimit,
+    );
+  }
+  const remainingToday = Math.max(0, options.dailyLimit - usage.count);
 
   const llmResult = await callChatCompletion(
     options.llm,

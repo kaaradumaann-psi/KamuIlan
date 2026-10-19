@@ -18,6 +18,7 @@ import { describeTlsTrust, HttpClient, FetchError } from '../src/sources/fetcher
 import { createLogger } from '../src/lib/logger';
 import { normalizeTr } from '../src/domain/text';
 import { toIstanbulDateOnly } from '../src/domain';
+import { assessSourceTerms, loadSourceTerms, MAX_TERMS_REVIEW_AGE_DAYS } from '../src/sources/terms';
 
 interface LiveResult {
   key: string;
@@ -216,6 +217,30 @@ async function main(): Promise<void> {
   if (targets.length === 0) {
     console.error(`Seçilen etkin kaynak bulunamadı${only ? `: ${only}` : ''}. Hiçbir istek yapılmadı.`);
     process.exitCode = 2;
+    return;
+  }
+
+  // robots/ToS/insan incelemesi kapısı: staging ile aynı kural. Onay yoksa
+  // HTTP istemcisi bile oluşturulmadan durulur; CAPTCHA/WAF aşılmaya çalışılmaz.
+  const terms = loadSourceTerms();
+  if (terms.status === 'invalid') {
+    console.error(`Kaynak erişim şartları dosyası geçersiz:\n- ${terms.errors.join('\n- ')}\nHiçbir istek yapılmadı.`);
+    process.exitCode = 4;
+    return;
+  }
+  const blockedByTerms = targets
+    .map((source) => ({
+      key: source.key,
+      assessment: assessSourceTerms(terms.entries.get(source.key) ?? null, new Date(), MAX_TERMS_REVIEW_AGE_DAYS),
+    }))
+    .filter((item) => !item.assessment.allowed);
+  if (blockedByTerms.length > 0) {
+    console.error(
+      'Erişim şartları kapısı: aşağıdaki kaynak(lar) için robots.txt/kullanım şartları insan incelemesi yok. ' +
+        'Hiçbir istek yapılmadı. `config/source-terms.json` dosyasını doldurun (docs/quality/SOURCE-TERMS.md).',
+    );
+    for (const item of blockedByTerms.slice(0, 10)) console.error(`  - ${item.key}: ${item.assessment.reason}`);
+    process.exitCode = 5;
     return;
   }
 

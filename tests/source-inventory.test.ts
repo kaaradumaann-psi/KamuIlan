@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
-import { buildStaticSourceInventory, inspectFixtureManifest } from '../src/sources/inventory';
+import {
+  buildStaticSourceInventory,
+  inspectFixtureManifest,
+  renderSourceMatrixMarkdown,
+} from '../src/sources/inventory';
 
 function temporaryRoot(): string {
   return mkdtempSync(join(tmpdir(), 'kamuilan-source-inventory-'));
@@ -134,5 +138,28 @@ describe('statik kaynak envanteri ve fixture manifest sözleşmesi', () => {
     expect(result.status).toBe('invalid');
     expect(result.invalidCount).toBe(1);
     expect(result.entries[0]?.errors.join(' ')).toMatch(/göreli|redacted/);
+  });
+});
+
+describe('kaynak kapsam matrisi', () => {
+  it('tüm kaynakları canlı kanıtı NOT RUN olarak işaretler ve fixture yokluğunu gizlemez', () => {
+    const report = buildStaticSourceInventory();
+    const markdown = renderSourceMatrixMarkdown(report);
+    expect(markdown).toContain('Kaynak kapsam matrisi (statik envanter)');
+    expect(markdown).toContain('NOT RUN / UNKNOWN');
+    expect(markdown).toContain('fixture snapshot: **0**');
+    expect(markdown).toContain('| YOK |');
+    expect(markdown).toContain('Bu matrisin kanıtlamadığı şeyler');
+  });
+
+  it('kaynak URL ve hücre içeriğindeki dikey çizgiyi Markdown tablosunu bozmadan kaçırır', () => {
+    const report = buildStaticSourceInventory();
+    const markdown = renderSourceMatrixMarkdown(report);
+    const rows = markdown.split('\n').filter((line) => line.startsWith('| ') && !line.startsWith('| sourceKey') && !line.startsWith('|---'));
+    expect(rows.length).toBe(report.sources.length);
+    for (const row of rows) {
+      // 9 sütun + baştaki/sondaki boş parçalar = 11.
+      expect(row.split('|').length).toBe(11);
+    }
   });
 });

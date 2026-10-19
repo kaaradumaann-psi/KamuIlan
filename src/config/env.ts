@@ -178,7 +178,9 @@ const envSchema = z.object({
   // --- Tarama ---
   SCHEDULER_ENABLED: z
     .string()
-    .default('1')
+    // GÜVENLİ VARSAYILAN: start:worker tek başına tüm kaynakları taramaz.
+    // Üretimde canlı tarama için SOURCE_LIVE_FETCH ile AYRI AYRI açılmalıdır.
+    .default('0')
     .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
   SCHEDULER_TICK_MS: z.coerce.number().int().min(5_000).max(600_000).default(30_000),
   /**
@@ -239,7 +241,8 @@ const envSchema = z.object({
   /** Canlı kaynak erişimi kapalıysa adaptörler yalnızca doğrulama yapar (test/lint). */
   SOURCE_LIVE_FETCH: z
     .string()
-    .default('1')
+    // GÜVENLİ VARSAYILAN: ağa çıkmadan önce operatör bilinçli opt-in yapar.
+    .default('0')
     .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
   /**
    * HTTP istemcisi cevap alamadığında başsız tarayıcı (Chromium) yedeği kullanılsın mı?
@@ -249,7 +252,7 @@ const envSchema = z.object({
    * okuyarak testi yanıltır. Üretimde Chromium kurulu olmayan makinelerde de
    * kapatılabilir; adaptör o zaman asıl HTTP hatasını olduğu gibi bildirir.
    */
-  SOURCE_BROWSER_FALLBACK: flag('1'),
+  SOURCE_BROWSER_FALLBACK: flag('0'),
   /**
    * Sunucu ara sertifikayı göndermediğinde zincir AIA adresinden tamamlansın mı?
    *

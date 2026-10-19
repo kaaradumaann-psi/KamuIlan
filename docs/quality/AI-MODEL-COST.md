@@ -1,23 +1,26 @@
 # AI modeli, maliyet ve ölçüm planı
 
-**Durum (2026-10-17):** Varsayılan testlerde **0 sağlayıcı çağrısı**; bu depoda
+**Durum (2026-10-19):** Varsayılan testlerde **0 sağlayıcı çağrısı**; bu depoda
 hiçbir canlı model çağrısı yapılmadı ve **fatura yoktur**. Aşağıdaki fiyatlar
-2026-10-17'de resmî Google dokümanından okunmuştur; yine de operatör her canlı
+2026-10-19'da resmî Google dokümanından okunmuştur; yine de operatör her canlı
 koşumdan önce fiyatı yeniden teyit etmelidir. Fiyat bilinmiyorsa üretim çağrısı
 **fail-closed** durur.
 
 ## 1. Aday modeller (karar değil, karşılaştırma)
 
-| Aday | Durum | Resmî bilgi (2026-10-17) |
+| Aday | Durum | Resmî bilgi (2026-10-19) |
 |---|---|---|
-| `gemini-3.1-flash-lite` | **DOĞRULANDI (preview)** | 1M giriş / 64k çıkış; **$0.25** giriş (metin/görsel/video), **$0.50** ses; **$1.50** çıkış — 1M token başına USD. Kaynak: <https://ai.google.dev/gemini-api/docs/gemini-3> (sayfa yaşı 2026-10-09). Google sayfası "tüm Gemini 3 modelleri şu anda preview" der. |
+| `gemini-3.1-flash-lite` | **DOĞRULANDI (stable)** | 1.048.576 giriş / 65.536 çıkış token; **$0.25** giriş (metin/görsel/video), **$0.50** ses; **$1.50** çıkış — 1M token başına USD. Batch: $0.125 / $0.75. Context caching: $0.025. Kaynaklar: <https://ai.google.dev/gemini-api/docs/pricing> ve <https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite> (2026-10-19 okundu; sayfa yaşı 2026-10-16). Model sayfası "Stable: gemini-3.1-flash-lite" der. |
 | `gemini-3-flash-preview` | Doğrulandı (preview) | 1M/64k; $0.50 giriş / $3.00 çıkış. |
 | `gemini-3.1-pro-preview` | Doğrulandı (preview) | 1M/64k; $2.00/$12.00 (≤200k token), $4.00/$18.00 (>200k). |
 | Mevcut yapılandırılmış model | Kodda destekli | `LLM_MODEL`; varsayılan boş, AI/LLM kapalı. |
 | Yerel model | **DEĞERLENDİRİLMEDİ** | Donanım, Türkçe kalite, işletim, lisans ve veri saklama koşulları ölçülmeden önerilmez. |
 
-**Önemli:** Preview statüsü, SLA/fiyat değişebilirliği ve veri kullanım koşulları
-nedeniyle bu model **varsayılan yapılmaz**. Modelin "ucuz" olması kalite kanıtı
+**Önemli:** Fiyat değişebilirliği, bölgesel kullanılabilirlik ve veri kullanım koşulları
+nedeniyle bu model **varsayılan yapılmaz**. Ücretsiz katman "içerik ürünleri
+iyileştirmek için kullanılır" olarak işaretlidir; ücretli katmanda bu kullanım
+"No"dur. Kişisel/kullanıcı verisi ücretsiz katmandan geçirilmemelidir (§ resmî
+fiyat sayfası "Used to improve our products" satırı, 2026-10-19). Modelin "ucuz" olması kalite kanıtı
 değildir; 145 insan etiketli gerçek kayıt üzerinde ölçüm olmadan üretim kararı
 verilmez. Kullanıcı girdisindeki "≈ $0.25/$1.50" bu kez resmî dokümanla
 uyuşmaktadır; bu yine de **fatura** değildir.
@@ -73,9 +76,11 @@ Model değişikliği, 145 insan etiketli gerçek kayıt üzerinde ölçüm yapı
   operatör doğrular.
 - `llm:doctor` çevrimdışı modu sağlayıcı yokken yapılandırma hatası verir; bu
   "model çalışıyor" kanıtı değildir. Canlı doctor bu depoda **NOT RUN**.
-- Gemini 3 sayfası **Interactions API**'yi öneriyor; depodaki istemci
-  `generateContent`/OpenAI-uyumlu yolu kullanıyorsa entegrasyon farkı ayrıca
-  doğrulanmalıdır (kod değişikliği yapılmadı).
+- Model sayfası `gemini-3.1-flash-lite` için **structured outputs, caching,
+  PDF/görsel/video/ses girdisi ve function calling** destekli olduğunu bildirir.
+  Depodaki istemci `generateContent`/OpenAI-uyumlu yolu kullanır; gerçek endpoint
+  uyumluluğu canlı smoke testiyle doğrulanmadan "entegre" denmez (bu depoda canlı
+  çağrı **NOT RUN**).
 - Fiyat sayfası çalışma zamanında kazınmaz; sağlayıcı fiyatı değiştirirse
   operatör güncellemeden canlı çağrı yapılmamalıdır.
 - Canlı AI kalitesi, canlı kaynak erişimi ve etiket doğruluğu **ayrı** kanıt
@@ -92,4 +97,6 @@ npm run llm:doctor -- --offline
 npm run llm:doctor -- --live --max-calls=1
 ```
 
-Bu depoda yukarıdaki canlı komut **çalıştırılmadı**. Sonuç: `NOT RUN`.
+Bu depoda yukarıdaki canlı komut **çalıştırılmadı**. Sonuç: `NOT RUN`. Fiyat
+sayfası 2026-10-19'da yeniden okundu; yine de **fatura yoktur** ve sağlayıcı
+kota/fatura verisi doğrulanmamıştır.

@@ -11,7 +11,7 @@ gelmez. Canlı doğrulama ile etiket doğruluğu ayrı kanıt katmanlarıdır.
 
 | Kural | Nasıl uygulanır |
 |---|---|
-| Üretim DB kullanılmaz | `DATABASE_DRIVER`, `POSTGRES_URL`, `MONGODB_URI` doluysa komut **çıkmadan durur** (exit 4). |
+| Üretim DB kullanılmaz | `DATABASE_DRIVER` (file dışı), `POSTGRES_URL`, `DATABASE_URL`, `MONGODB_URI`, `MONGO_URL`, `PRODUCTION_DATABASE_URL` doluysa komut **çıkmadan durur** (exit 4). |
 | Dosya deposu izoledir | Veri yalnızca `.staging/<kaynak>-<zaman>/data` altına yazılır; `.gitignore` kapsamındadır. |
 | Tek kaynak | `src/config/staging.ts` allowlist'i dışındaki anahtar reddedilir (exit 3). |
 | İki aşamalı opt-in | `--live` + `config/source-terms.json` içinde insan tarafından `allowed` işaretli kayıt gerekir (exit 5). |
@@ -33,7 +33,8 @@ npm run verify:all          # çevrimdışı, ücretsiz; PASS beklenir
 ```
 
 `.env` dosyanızda `POSTGRES_URL`, `DATABASE_URL` veya `MONGODB_URI` **dolu
-olmamalıdır**. Değerleri bana göstermeyin/göndermeyin; yalnızca bu değişkenleri
+olmamalıdır** (komut bunları ve `MONGO_URL`/`PRODUCTION_DATABASE_URL`
+aliaslarını da reddeder). Değerleri bana göstermeyin/göndermeyin; yalnızca bu değişkenleri
 oturumdan kaldırın:
 
 ```powershell
@@ -118,7 +119,8 @@ artırmayın. Aynı komutu ağ hatası nedeniyle tekrar tekrar çalıştırmayı
 | `parse-failure` | Adaptör yapı hatası: HTML/JSON değişmiş olabilir. | Hayır |
 | `unknown` | Koşum çöktü/kilitli/atlandı; neden belirlenemedi. | Hayır |
 
-HTTP 200 ve 0 kart **tek başına** başarı değildir. `confirmed-empty` bile
+HTTP 200 ve 0 kart **tek başına** başarı değildir. Doğrulanmamış 0 sonuç
+`exit 6` ile biter; böylece CI/otomasyon boş sonucu yeşil saymaz. `confirmed-empty` bile
 "kaynakta hiç ilan yok" demek değildir; yalnızca taranan kesitte 0 kart
 görüldüğünü söyler.
 
@@ -143,12 +145,18 @@ sha256 yazar. Erişim şartlarında saklama izni yoksa çalıştırmayın.
 
 | Kod | Anlam |
 |---:|---|
-| 0 | Kuru çalışma veya canlı koşum tamamlandı (0 sonuç olabilir; rapordaki nedene bakın). |
-| 1 | Canlı koşum çöktü / kaynak başarısız / rapor yazılamadı. |
+| 0 | Kuru çalışma; **veya** canlı koşumda en az bir ilan bulundu; **veya** kapsam `complete` + operatör `--confirmed-empty` verdi. |
+| 1 | Canlı koşum çöktü / kaynak başarısız / kilitli / rapor yazılamadı. |
 | 2 | Argüman veya dosya hatası. |
 | 3 | Allowlist dışı kaynak, TLS kapatma girişimi veya NODE_ENV=test. |
 | 4 | Üretim DB değişkeni dolu veya erişim şartları dosyası geçersiz. |
-| 5 | İnsan incelemesi olmadan canlı koşum denemesi. |
+| 5 | İnsan incelemesi olmadan canlı koşum denemesi (`staging:capture` **ve** `test:live`). |
+| 6 | Canlı koşum 0 ilan döndürdü ve neden `confirmed-empty` değil (`not-observed`, `blocked`, `parse-failure`, `unknown`). **Başarı değildir**; otomasyon yeşil saymamalıdır. |
+
+`npm run test:live` de aynı erişim şartları kapısını uygular: onaysız kaynakta
+hiçbir HTTP isteği yapılmadan exit 5 döner. CLI'nin kendi `--live`,
+`--max-requests`, `--max-pages`, `--max-details` ve `--min-delay-ms` zorunlulukları
+ayrıca geçerlidir.
 
 ## 9. Yapılmaması gerekenler
 

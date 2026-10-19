@@ -126,3 +126,14 @@ Komutlar değişiklik öncesi çalıştırıldı. Test/build adımlarında sağl
 **Açık risk / kapsam dışı:** Tam SAST/secret scan, canlı Supabase/Postgres RLS ve Mongo, gerçek SMTP/Telegram, provider billing verification ve OWASP/ASVS audit yapılmadı. `npm ci`'nin 0 vulnerability çıktısı bunların yerine geçmez. Implementation commit `23411a6` (`security: isolate offline verification and bound AI budgets`) ve CI düzeltme commit'i `8a3f6a3` (`test: seed static source inventory for E2E`) `arena/2829bca7-kamuradar` dalına push edildi; draft PR [#22](https://github.com/kaaradumaann-psi/kamuradar/pull/22) açık, merge yok. İlk run `39039669555` 19/20 E2E'de kaldı; düzeltme sonrası `39040669032` tüm CI adımları ve Playwright 20/20 ile geçti. GitHub Actions annotations ayrıca `actions/checkout@v4`, `setup-node@v4`, `upload-artifact@v4` için Node.js 20 deprecation warning'ini (runner şu an Node 24 ile çalıştırıyor) bildirdi; non-blocking uyarıdır, action migration ayrı bakım işidir. Merge kararı E2E CI kapısı geçtiği için mümkün hale geldi; ancak gerçek etiket/kaynak, provider/fatura, production DB/Mongo ve robots/ToS kanıt kapıları hâlâ `INSUFFICIENT DATA`/`BLOCKED` olduğundan bu PR draft tutuldu ve merge edilmedi.
 
 Baseline değerleri (bölüm 2) değişiklik öncesi tarihsel ölçüm olarak korunmuştur.
+
+
+## 9. Tur sonu güncellemesi (2026-10-19)
+
+Baseline'daki S1/S2/S3/S7 bulgularının bir kısmı sonraki PR'larla ele alındı:
+`verify:all` çevrimdışı ağ sayacı ve fail-closed kapılar, `test:live` zorunlu
+bütçe bayrakları + ToS kapısı, AI bütçesinin atomik rezervasyonu ve güvenli
+çalışma zamanı varsayılanları. Güncel kanıt **10/10 adım PASS, 114 dosya /
+1373 test**; ancak gerçek insan etiketi **0/145**, canlı kaynak **BLOCKED** ve
+E2E yalnızca CI'da geçti. Baseline "0 kaynak canlı doğrulandı" sınırı hâlâ
+geçerlidir. Güncel matris: [EVIDENCE-MATRIX.md](./EVIDENCE-MATRIX.md).
