@@ -1,4 +1,4 @@
-# Güvenlik incelemesi — 2026-10-17
+# Güvenlik incelemesi — 2026-10-17 (güncelleme: 2026-10-19)
 
 **Kapsam:** `ee45a23` + bu dal. **Hiçbir üretim veritabanı, canlı kaynak, LLM,
 SMTP veya Telegram çağrısı yapılmadı.** Aşağıdaki "PASS"ler yalnızca belirtilen
@@ -85,3 +85,19 @@ npm run lint
 git ls-files -z | xargs -0 grep -IlE 'AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{20,}|BEGIN .*PRIVATE KEY|re_[A-Za-z0-9]{20,}'
 npm run verify:all
 ```
+
+
+## 7. 2026-10-19 güncellemesi
+
+- Çevrimdışı doğrulama **10/10 PASS**, 114 dosya / 1373 test; `npm audit` 0
+  bilinen advisory.
+- `test:live` artık staging ile aynı erişim şartları kapısını uygular
+  (`tests/live-check-terms-gate.test.ts`, exit 5); güvenli varsayılanlar
+  `SOURCE_LIVE_FETCH=0`, `SCHEDULER_ENABLED=0`, `SOURCE_BROWSER_FALLBACK=0`
+  olarak çalışma zamanı şemasında da doğrulandı.
+- **Yeni olay kaydı:** 2026-10-19T11:59Z'de `test:live` ile OSYM'ye **1 HTTP
+  denemesi** yapıldı; TLS `ECONNRESET` ile bitti, 0 kayıt döndü ve tekrar
+  edilmedi. Deneme sırasında `test:live` ToS kapısını atlıyordu; bu boşluk
+  aynı gün kapatıldı. Ayrıntı: `EVIDENCE-MATRIX.md` satır 21–22.
+- CodeQL/SAST/DAST, RLS ve gerçek Mongo hâlâ **NOT RUN**. Bu belge genel
+  güvenlik garantisi vermez.

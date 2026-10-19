@@ -359,3 +359,62 @@ export function buildStaticSourceInventory(root = process.cwd()): {
     },
   };
 }
+
+function markdownCell(value: unknown): string {
+  return String(value ?? '—')
+    .replace(/\|/gu, '\\|')
+    .replace(/[\r\n]+/gu, ' ')
+    .trim();
+}
+
+/**
+ * Statik envanteri operatörün okuyabileceği Markdown tablosuna çevirir.
+ *
+ * Tablo YALNIZCA kod/envanter kanıtıdır: canlı HTTP, sağlık, ilan sayısı veya
+ * fixture'ın gerçekliği iddia edilmez. İlgili sütunlar açıkça NOT RUN/UNKNOWN
+ * yazar; böylece "200 döndü" veya "envanterde var" yanlış okunmaz.
+ */
+export function renderSourceMatrixMarkdown(
+  report: ReturnType<typeof buildStaticSourceInventory>,
+): string {
+  const lines: string[] = [
+    '# Kaynak kapsam matrisi (statik envanter)',
+    '',
+    `Üretim: ${report.generatedAt} · Mod: **${report.mode}**`,
+    '',
+    '> Bu tablo yalnızca depo içindeki kaynak tanımlarını, adaptör eşleşmesini,',
+    '> izinli hostları ve doğrulanmış fixture manifestini gösterir. **Canlı HTTP,',
+    '> kaynak sağlığı, ilan sayısı, sayfalama, detay/PDF başarısı ve seçici',
+    '> doğruluğu ölçülmemiştir.** Fixture yokluğu "test edildi" değil, açık',
+    '> kapsam boşluğudur.',
+    '',
+    `- Kaynak tanımı: **${report.summary.total}** (etkin **${report.summary.enabled}**)`,
+    `- Adaptör: **${report.summary.adapters}** · eksik: **${report.sourceContract.missingAdapters.length}**`,
+    `- Doğrulanmış fixture snapshot: **${report.summary.fixtureSnapshots}** (manifest: ${report.fixtureManifest.status})`,
+    `- Planlanan kapsam grubu: **${report.summary.planned}**`,
+    '',
+    '| sourceKey | Kurum / ad | Resmî URL | İzinli hostlar | Adaptör / yöntem | Envanter | Etkin | Fixture | Canlı kanıt |',
+    '|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const entry of report.sources) {
+    const fixtureCount = Number(entry['fixtureSnapshotCount'] ?? 0);
+    const lastVerified = entry['lastVerifiedAt'] ? `son kayıt: ${markdownCell(entry['lastVerifiedAt'])}` : 'kayıt yok';
+    lines.push(
+      `| ${markdownCell(entry['key'])} | ${markdownCell(entry['institution'])} / ${markdownCell(entry['name'])} | ${markdownCell(entry['listingUrl'])} | ${markdownCell(Array.isArray(entry['allowedHosts']) ? (entry['allowedHosts'] as string[]).join(', ') : '')} | ${markdownCell(entry['adapterKey'])} / ${markdownCell(entry['adapterMethod'])} | ${markdownCell(entry['status'])} (${lastVerified}) | ${entry['enabled'] === true ? 'evet' : 'hayır'} | ${fixtureCount > 0 ? `${fixtureCount} doğrulanmış` : 'YOK'} | NOT RUN / UNKNOWN |`,
+    );
+  }
+  lines.push(
+    '',
+    '## Bu matrisin kanıtlamadığı şeyler',
+    '',
+    '- Kaynağın bugün erişilebilir olduğunu veya HTTP 200 döndüğünü.',
+    '- Liste kartı, detay, PDF veya sayfalama sayılarını.',
+    '- Sıfır sonucun nedeni (`not-observed`, `blocked`, `parse-failure`, `unknown`).',
+    '- Adaptör seçicilerinin canlı sayfada hâlâ doğru olduğunu.',
+    '',
+    'Canlı kanıt için yetkili operatör `npm run staging:capture` akışını kullanmalıdır;',
+    'robots/ToS kapısı ve dar istek bütçesi zorunludur.',
+    '',
+  );
+  return lines.join('\n');
+}

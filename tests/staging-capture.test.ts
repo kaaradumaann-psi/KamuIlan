@@ -70,6 +70,15 @@ describe('staging-capture komut kapıları', () => {
     expect(result.stderr).not.toContain('parola');
   });
 
+  it('alternatif DATABASE_URL doluysa da üretim DB riski sayılır', () => {
+    const result = runStaging(['--source=osym-duyurular', '--dry-run'], {
+      DATABASE_URL: 'postgres://kullanici:baska-parola@example.invalid/db',
+    });
+    expect(result.status).toBe(4);
+    expect(result.stderr).toContain('DATABASE_URL');
+    expect(result.stderr).not.toContain('baska-parola');
+  });
+
   it('TLS doğrulamasını kapatan ortamı reddeder', () => {
     const result = runStaging(['--source=osym-duyurular', '--dry-run'], {
       NODE_TLS_REJECT_UNAUTHORIZED: '0',

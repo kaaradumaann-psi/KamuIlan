@@ -44,13 +44,14 @@ describe('tarayıcı yedeği anahtarı (SOURCE_BROWSER_FALLBACK)', () => {
     else process.env['SOURCE_BROWSER_FALLBACK'] = original;
   });
 
-  it('0/false/no kapalı demektir; boş ya da tanımsız açık demektir', () => {
+  it('0/false/no/boş/tanımsız kapalı demektir; yalnızca açık 1/true açar', () => {
     expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '0' })).toBe(false);
     expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: 'false' })).toBe(false);
     expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: 'NO' })).toBe(false);
     expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '1' })).toBe(true);
-    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '' })).toBe(true);
-    expect(browserFallbackEnabled({})).toBe(true);
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: '' })).toBe(false);
+    expect(browserFallbackEnabled({})).toBe(false);
+    expect(browserFallbackEnabled({ SOURCE_BROWSER_FALLBACK: 'true' })).toBe(true);
   });
 
   it('kapalıyken Chromium hiç başlatılmaz (testler gerçek ağa çıkamaz)', async () => {

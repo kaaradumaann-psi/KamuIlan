@@ -93,6 +93,26 @@ export function classifyZeroResult(input: {
   return 'not-observed';
 }
 
+/**
+ * Canlı staging koşumunun çıkış kodunu tek yerden belirler.
+ *
+ * 0 yalnızca gerçekten ilan bulunduğunda veya operatör `--confirmed-empty`
+ * verdiğinde döner. 0 ilanın diğer tüm nedenleri (not-observed, blocked,
+ * parse-failure, unknown) **başarı değildir** ve 6 döndürür; böylece CI/otomasyon
+ * boş sonucu yeşil saymaz. 1 koşum hatası, 2/3/4/5 komut kapıları içindir.
+ */
+export function stagingExitCode(input: {
+  live: boolean;
+  runError: boolean;
+  runStatus: RunSourceResult['status'] | 'dry-run' | null;
+  zeroResultReason: StagingZeroResultReason | null;
+}): number {
+  if (!input.live || input.runStatus === 'dry-run') return 0;
+  if (input.runError || input.runStatus === 'failed' || input.runStatus === 'locked') return 1;
+  if (input.zeroResultReason !== null && input.zeroResultReason !== 'confirmed-empty') return 6;
+  return 0;
+}
+
 export interface StagingReport {
   schemaVersion: 1;
   generatedAt: string;
@@ -237,8 +257,15 @@ export function formatStagingReport(report: StagingReport): string {
     `İlan: bulunan ${run?.itemsFound ?? 0}, kabul ${run?.itemsAccepted ?? 0}, inceleme ${run?.itemsReview ?? 0}, ret ${run?.itemsRejected ?? 0}, yeni ${run?.jobsCreated ?? 0}, güncellenen ${run?.jobsUpdated ?? 0}`,
     `Yalıtım: file DB · scheduler/email/telegram/AI/browser kapalı · TLS doğrulama AÇIK · üretim DB kullanılmadı`,
   ];
-  if (run?.completion === 'complete' && run.status === 'success' && run.itemsFound === 0) {
-    lines.push('UYARI: Kaynak erişildi ve 0 ilan bulundu; bu otomatik başarı sayılmaz.');
+  if (
+    report.zeroResultReason !== null &&
+    report.zeroResultReason !== 'confirmed-empty' &&
+    report.zeroResultReason !== 'dry-run'
+  ) {
+    lines.push(
+      `SONUÇ: 0 ilan (${report.zeroResultReason}); bu koşum başarı sayılmaz ve exit 6 döner. ` +
+        'Kaynağın gerçekten boş olduğu ancak tam kapsam + insan onayı ile "confirmed-empty" olur.',
+    );
   }
   return lines.join('\n');
 }

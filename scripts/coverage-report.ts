@@ -10,7 +10,7 @@ import { createRepos } from '../src/db/repos';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
 import { listAdapters } from '../src/sources/registry';
 import { toIstanbulDateOnly } from '../src/domain';
-import { buildStaticSourceInventory } from '../src/sources/inventory';
+import { buildStaticSourceInventory, renderSourceMatrixMarkdown } from '../src/sources/inventory';
 
 function pad(value: string, width: number): string {
   return value.length > width ? `${value.slice(0, width - 1)}…` : value.padEnd(width);
@@ -21,6 +21,8 @@ async function main(): Promise<void> {
     const report = buildStaticSourceInventory();
     if (process.argv.includes('--json')) {
       console.log(JSON.stringify(report, null, 2));
+    } else if (process.argv.includes('--markdown')) {
+      process.stdout.write(renderSourceMatrixMarkdown(report));
     } else {
       console.log(`\nSalt-okunur statik kaynak envanteri — ${report.summary.total} tanım, ${report.summary.enabled} etkin`);
       console.log(`Adaptör eşleşmesi: ${report.sourceContract.missingAdapters.length === 0 ? 'PASS' : 'FAIL'}`);

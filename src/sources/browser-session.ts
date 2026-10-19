@@ -131,7 +131,10 @@ export function isSafeBrowserRequest(rawUrl: string, allowedHosts: ReadonlySet<s
  */
 export function browserFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = env['SOURCE_BROWSER_FALLBACK']?.trim().toLowerCase();
-  if (raw === undefined || raw === '') return true;
+  // GÜVENLİ VARSAYILAN: tanımsız/boş değer tarayıcıyı AÇMAZ. Chromium gerçek
+  // ağa çıkar; yanlışlıkla açılması yerine operatör SOURCE_BROWSER_FALLBACK=1
+  // yazmalıdır.
+  if (raw === undefined || raw === '') return false;
   return raw !== '0' && raw !== 'false' && raw !== 'no';
 }
 

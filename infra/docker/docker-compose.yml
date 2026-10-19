@@ -72,9 +72,12 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       # Test aşamasında tarama aralığı 1 dakika (üretimde 30–360 önerilir).
       SCAN_INTERVAL_MINUTES: ${SCAN_INTERVAL_MINUTES:-1}
-      SCHEDULER_ENABLED: '1'
-      SOURCE_LIVE_FETCH: ${SOURCE_LIVE_FETCH:-1}
-      # Canlı kaynaklara istek atılmasın isteniyorsa: SOURCE_LIVE_FETCH=0
+      # GÜVENLİ VARSAYILAN: zamanlayıcı ve canlı tarama KAPALI. Tek komutla
+      # `docker compose up` tüm kaynakları taramaz. Canlı tarama için iki
+      # değişkeni AYRI AYRI açın ve önce staging akışını okuyun:
+      # docs/quality/STAGING-RUNBOOK.md
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-0}
+      SOURCE_LIVE_FETCH: ${SOURCE_LIVE_FETCH:-0}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
       SMTP_HOST: mail
       SMTP_PORT: 1025

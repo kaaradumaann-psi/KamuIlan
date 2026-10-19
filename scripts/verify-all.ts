@@ -11,6 +11,7 @@ import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { renderSourceMatrixMarkdown } from '../src/sources/inventory';
 
 interface StepSummary {
   testFiles: number | null;
@@ -128,6 +129,24 @@ function gateMadeNoCall(gate: Record<string, unknown>): boolean {
   const callValue = gate['call'];
   if (callValue === null) return true;
   return record(callValue)?.['attempted'] === false;
+}
+
+function validateExtractionEvaluation(value: unknown): string | null {
+  const root = record(value);
+  const counts = record(root?.['counts']);
+  const config = record(root?.['config']);
+  const overall = record(root?.['overall']);
+  if (
+    !root || !counts || !config || !overall ||
+    (root['status'] !== 'MEASURED' && root['status'] !== 'INSUFFICIENT DATA') ||
+    !Number.isSafeInteger(counts['total']) ||
+    !Number.isSafeInteger(counts['realScorable']) ||
+    !Number.isSafeInteger(config['minRealRecords']) ||
+    !Array.isArray(root['fields'])
+  ) {
+    return 'Alan çıkarımı değerlendirmesi beklenen şemada değil.';
+  }
+  return null;
 }
 
 function validateOfflineDoctor(value: unknown): string | null {
@@ -307,7 +326,10 @@ async function main(): Promise<void> {
 
   const staticReportPath = join(artifactDir, 'source-inventory.json');
   const evaluationPath = join(artifactDir, 'classification-evaluation.json');
+  const extractionEvaluationPath = join(artifactDir, 'extraction-evaluation.json');
   const doctorPath = join(artifactDir, 'llm-doctor-offline.json');
+  const sourceMatrixPath = join(artifactDir, 'source-matrix.md');
+  const summaryPath = join(artifactDir, 'summary.md');
 
   run('TypeScript typecheck', ['run', 'typecheck']);
   run('ESLint', ['run', 'lint']);
@@ -325,6 +347,12 @@ async function main(): Promise<void> {
     outputFilePath: evaluationPath,
     validateOutput: validateDeterministicEvaluation,
   });
+  run('Field extraction evaluation (offline, human labels only)', [
+    'run', 'eval:extraction', '--', '--json', extractionEvaluationPath,
+  ], {
+    outputFilePath: extractionEvaluationPath,
+    validateOutput: validateExtractionEvaluation,
+  });
   run('LLM doctor (offline only)', ['run', 'llm:doctor', '--', '--offline', '--json', doctorPath], {
     outputFilePath: doctorPath,
     validateOutput: validateOfflineDoctor,
@@ -338,8 +366,20 @@ async function main(): Promise<void> {
     runtimeEvidence?: Record<string, string>;
   } | null;
   const evaluation = readJson(evaluationPath) as {
-    report?: { sufficiency?: { sufficient?: boolean; humanRealCount?: number; realCount?: number; reasons?: string[] } };
+    report?: {
+      sufficiency?: {
+        sufficient?: boolean;
+        humanRealCount?: number;
+        realCount?: number;
+        syntheticCount?: number;
+        reasons?: string[];
+      };
+    };
     humanRealReport?: unknown;
+  } | null;
+  const extraction = readJson(extractionEvaluationPath) as {
+    status?: 'MEASURED' | 'INSUFFICIENT DATA';
+    counts?: { total?: number; real?: number; realHuman?: number; realScorable?: number; synthetic?: number; specTitle?: number };
   } | null;
   const doctor = readJson(doctorPath) as {
     apiBudget?: { usedCalls?: number; maxCalls?: number };
@@ -389,6 +429,12 @@ async function main(): Promise<void> {
           }
         : null,
       evaluation: evaluation?.report?.sufficiency ?? null,
+      extractionEvaluation: extraction
+        ? {
+            status: extraction.status ?? 'UNKNOWN',
+            counts: extraction.counts ?? null,
+          }
+        : null,
       llmDoctor: doctor
         ? {
             usedCalls: doctor.apiBudget?.usedCalls ?? null,
@@ -397,7 +443,7 @@ async function main(): Promise<void> {
             assistantCallAttempted: doctor.gates?.assistant?.call?.attempted ?? false,
           }
         : null,
-      liveSources: 'BLOCKED/NOT RUN: live-check requires explicit operator opt-in and was not invoked.',
+      liveSources: 'NOT RUN in verify:all: live-check requires explicit operator opt-in and is a separate command.',
       liveProvider: 'NOT RUN: eval uses deterministic rules only; llm:doctor was --offline.',
       humanLabels: evaluation?.report?.sufficiency ?? 'INSUFFICIENT DATA unless a human-real dataset is present',
     },
@@ -423,13 +469,90 @@ async function main(): Promise<void> {
     failedSteps: failed.map((step) => ({ name: step.name, exitCode: step.exitCode })),
     artifacts: {
       report: reportPath,
+      summaryMarkdown: summaryPath,
+      sourceMatrixMarkdown: sourceMatrixPath,
       staticSourceInventory: staticReportPath,
       classificationEvaluation: evaluationPath,
+      extractionEvaluation: extractionEvaluationPath,
       offlineLlmDoctor: doctorPath,
       logsDirectory: artifactDir,
     },
   };
+
+  const sourceMatrixMarkdown = sourceInventory
+    ? renderSourceMatrixMarkdown(
+        sourceInventory as unknown as Parameters<typeof renderSourceMatrixMarkdown>[0],
+      )
+    : '# Kaynak kapsam matrisi\n\nStatik envanter üretilemedi; matris YOK.\n';
+  writeFileSync(sourceMatrixPath, `${sourceMatrixMarkdown.trim()}\n`, { encoding: 'utf8', mode: 0o600 });
+
+  const summaryMarkdown = [
+    '# Kamuİlan — çevrimdışı doğrulama özeti',
+    '',
+    `- **Durum:** ${report.status}`,
+    `- **Dal:** ${report.branch}`,
+    `- **Commit:** ${report.commit}`,
+    `- **Üretim zamanı:** ${report.generatedAt}`,
+    `- **Rapor:** \`${reportPath}\``,
+    '',
+    '## Test ve kapsam',
+    '',
+    '| Ölçüm | Sonuç |',
+    '|---|---|',
+    `| Test dosyası | ${report.testSummary?.testFiles ?? 'n/a'} |`,
+    `| Test | ${report.testSummary?.tests ?? 'n/a'} |`,
+    `| Statements | ${report.testSummary?.coverage ? `${report.testSummary.coverage.statements}%` : 'n/a'} |`,
+    `| Branches | ${report.testSummary?.coverage ? `${report.testSummary.coverage.branches}%` : 'n/a'} |`,
+    `| Functions | ${report.testSummary?.coverage ? `${report.testSummary.coverage.functions}%` : 'n/a'} |`,
+    `| Lines | ${report.testSummary?.coverage ? `${report.testSummary.coverage.lines}%` : 'n/a'} |`,
+    '',
+    '## Adımlar',
+    '',
+    '| Adım | Exit | Süre (ms) |',
+    '|---|---:|---:|',
+    ...steps.map((step) => `| ${step.name.replace(/\|/gu, '\\|')} | ${step.exitCode} | ${step.durationMs} |`),
+    '',
+    '## Kaynak ve fixture kanıtı',
+    '',
+    `- Kaynak tanımı: **${sourceInventory?.summary?.total ?? 'n/a'}** (etkin ${sourceInventory?.summary?.enabled ?? 'n/a'})`,
+    `- Adaptör: **${sourceInventory?.summary?.adapters ?? 'n/a'}**; eksik adaptör: **${sourceInventory?.sourceContract?.missingAdapters?.length ?? 'n/a'}**`,
+    `- Allowlist dışı liste hostu: **${sourceInventory?.sourceContract?.listingHostNotAllowlisted?.length ?? 'n/a'}**`,
+    `- Doğrulanmış fixture snapshot: **${sourceInventory?.summary?.fixtureSnapshots ?? 'n/a'}** (manifest: ${sourceInventory?.fixtureManifest?.status ?? 'n/a'})`,
+    `- Canlı kaynak: **${sourceInventory?.runtimeEvidence?.['liveFetch'] ?? 'NOT RUN'}**`,
+    '',
+    '## Etiket ve LLM',
+    '',
+    `- Gerçek insan etiketli kayıt: **${evaluation?.report?.sufficiency?.humanRealCount ?? 0}**`,
+    `- Gerçek kayıt: **${evaluation?.report?.sufficiency?.realCount ?? 0}** · sentetik/şartname: **${evaluation?.report?.sufficiency?.syntheticCount ?? 0}**`,
+    `- Sınıflandırma yeterliliği: **${evaluation?.report?.sufficiency?.sufficient === true ? 'MEASURED' : 'INSUFFICIENT DATA'}**`,
+    `- Alan çıkarımı: **${extraction?.status ?? 'n/a'}** (ölçülebilir gerçek-insan ${extraction?.counts?.realScorable ?? 'n/a'} / toplam ${extraction?.counts?.total ?? 'n/a'})`,
+    `- Offline LLM doctor çağrısı: **${doctor?.apiBudget?.usedCalls ?? 'n/a'}**; classifier denemesi: **${doctor?.gates?.classifier?.call?.attempted === true ? 'EVET' : 'hayır'}**; assistant denemesi: **${doctor?.gates?.assistant?.call?.attempted === true ? 'EVET' : 'hayır'}**`,
+    '',
+    '## İzolasyon',
+    '',
+    `- Mod: ${report.isolation.mode} · DB: ${report.isolation.databaseDriver} · TLS: ${report.isolation.tlsVerification}`,
+    `- Gerçek LLM çağrısı: **${report.isolation.realLlmCalls}** · gerçek kaynak HTTP: **${report.isolation.realSourceHttpCalls}** · gerçek bildirim: **${report.isolation.realNotificationSends}**`,
+    `- Engellenen dış HTTP denemesi: **${guard.blockedAttemptCount}** (socket açılmadan reddedildi; host/gövde kaydedilmez)`,
+    '',
+    '## E2E ve canlı kanıt',
+    '',
+    `- Yerel E2E: **${report.e2e.status}** (Chromium: ${report.e2e.browserAvailable ? 'var' : 'yok'})`,
+    `- Canlı kaynak: **${report.evidence.liveSources}**`,
+    `- Canlı provider: **${report.evidence.liveProvider}**`,
+    '',
+    '## Bu özetin kanıtlamadığı şeyler',
+    '',
+    '- Yeşil test/typecheck güvenlik garantisi değildir; SAST/DAST/RLS/canlı TLS yapılmadı.',
+    '- Fixture yoksa adaptör canlı DOM’a karşı doğrulanmış sayılmaz.',
+    '- 0 LLM çağrısı model kalitesini; 0 canlı kaynak çağrısı kaynak sağlığını kanıtlamaz.',
+    '- E2E BLOCKED ise kullanıcı akışının uçtan uca çalıştığı iddia edilemez.',
+    '',
+    `Ayrıntılı matris: \`${sourceMatrixPath}\``,
+    '',
+  ].join('\n');
+  writeFileSync(summaryPath, summaryMarkdown, { encoding: 'utf8', mode: 0o600 });
   writeJson(reportPath, report);
+
   console.log(`\nKaynak envanteri: ${sourceInventory?.summary?.total ?? 'n/a'} kaynak, ${sourceInventory?.summary?.enabled ?? 'n/a'} etkin, fixture ${sourceInventory?.fixtureManifest?.status ?? 'n/a'}.`);
   console.log(`Gerçek-insan etiketi: ${evaluation?.report?.sufficiency?.humanRealCount ?? 0} (kalite metriği varsa ayrıca raporda). LLM doctor çağrısı: ${doctor?.apiBudget?.usedCalls ?? 'n/a'}.`);
   console.log(`E2E: ${report.e2e.status}${chromium.executablePath ? ` (${chromium.executablePath})` : ''}`);

@@ -164,3 +164,15 @@ npx vitest run tests/ingest.test.ts tests/safe-defaults.test.ts
 
 Canlı denemeler (yetkili ortam, ayrı opt-in):
 [docs/setup.md](../setup.md) ve [STAGING-RUNBOOK.md](./STAGING-RUNBOOK.md).
+
+
+## 2026-10-19 güncellemesi
+
+PR #22 birleşmesinden sonra PR #23 (güvenli staging, alan çıkarımı değerlendirmesi
+ve takip düzeltmeleri) **2026-10-19T11:43:43Z**'de `639318d` merge commit'iyle
+birleşti; CI run `39246728683` Playwright adımı dahil **SUCCESS**'tir. Güncel
+çevrimdışı doğrulama **10/10 adım, 114 dosya / 1373 test PASS**'tir
+(`artifacts/verify-all/2026-10-19T12-07-20-195Z/`). Bu sayılar yukarıdaki
+2026-10-17 anlık görüntüsünün yerine geçer; canlı kaynak/LLM/DB kanıtı hâlâ
+**NOT RUN/BLOCKED** ve insan etiketli küme **0/145**'tir. Ayrıntı:
+[EVIDENCE-MATRIX.md](./EVIDENCE-MATRIX.md).

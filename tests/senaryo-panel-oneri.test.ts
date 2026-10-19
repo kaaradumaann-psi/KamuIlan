@@ -40,6 +40,7 @@ import {
   parseModelSuggestions,
   resetSuggestionCache,
 } from '../src/ai/suggest';
+import { LlmBudget } from '../src/ai/budget';
 
 const NOW = new Date('2026-10-14T09:00:00+03:00');
 const LLM: LlmConfig = {
@@ -591,6 +592,62 @@ describe('AŞAMA 5.2 — model arızası, boş yanıt ve kota', () => {
     expect(second.result.notice).toContain('hakkınız doldu');
     expect(second.remainingToday).toBe(0);
     expect(llm.calls).toHaveLength(1);
+  });
+
+  it('global bütçe reddi kullanıcının günlük AI kotasını tüketmez', async () => {
+    const repos = await makeRepos();
+    await seedJob(repos);
+    const userId = await seedUser(repos, PROFILE_MATCHING);
+    const llm = fakeLlm([{ kind: 'json', payload: { oneriler: [] } }]);
+    const blockedBudget = new LlmBudget(repos, {
+      dailyCallLimit: 10,
+      maxCallsPerRun: 0,
+      dailyCostLimitUsd: null,
+      runCostLimitUsd: null,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+    });
+
+    const outcome = await generateSuggestions({
+      repos,
+      userId,
+      preference: await preferenceOf(repos, userId),
+      now: NOW,
+      llm: LLM,
+      dailyLimit: 5,
+      fetchImpl: llm.fetchImpl,
+      budget: blockedBudget,
+    });
+
+    expect(outcome.modelCalled).toBe(false);
+    expect(outcome.remainingToday).toBe(5);
+    expect(outcome.result.notice).toContain('bütçesi');
+    expect(llm.calls).toHaveLength(0);
+    expect(await repos.rateLimits.peek(`ai-daily:${userId}`, 24 * 3_600)).toBe(0);
+    expect(await repos.rateLimits.peek('llm-global-daily', 24 * 3_600)).toBe(0);
+  });
+
+  it('günlük kota zaten doluysa global bütçeden çağrı rezerve edilmez', async () => {
+    const repos = await makeRepos();
+    await seedJob(repos);
+    const userId = await seedUser(repos, PROFILE_MATCHING);
+    await repos.rateLimits.reserve(`ai-daily:${userId}`, 24 * 3_600, 1, 1);
+    const llm = fakeLlm([{ kind: 'json', payload: { oneriler: [] } }]);
+
+    const outcome = await generateSuggestions({
+      repos,
+      userId,
+      preference: await preferenceOf(repos, userId),
+      now: NOW,
+      llm: LLM,
+      dailyLimit: 1,
+      fetchImpl: llm.fetchImpl,
+    });
+
+    expect(outcome.modelCalled).toBe(false);
+    expect(outcome.remainingToday).toBe(0);
+    expect(llm.calls).toHaveLength(0);
+    expect(await repos.rateLimits.peek('llm-global-daily', 24 * 3_600)).toBe(0);
   });
 });
 

@@ -8,9 +8,11 @@ sınırı aşmaz. Erişim şartları bir "engel" değil, ürünün güvenlik sı
 - `config/source-terms.json`: kaynak başına **insan** kararı.
 - `src/sources/terms.ts`: şema + karar mantığı.
 - `scripts/staging-capture.ts`: canlı koşumdan **önce** kapıyı uygular.
+- `scripts/live-check.ts` (`npm run test:live`): aynı kapıyı uygular; onaysız
+  kaynakta HTTP istemcisi kurulmadan **exit 5** verir.
 - `src/config/staging.ts`: yalnızca incelenebilir kaynakların allowlist'i.
 
-**Kapsam sınırı:** Bu kapı şu an yalnızca operatör staging komutunu bağlar.
+**Kapsam sınırı:** Bu kapı operatör staging ve `test:live` komutlarını bağlar.
 `start:worker`/zamanlanmış tarama varsayılan olarak kapalıdır
 (`SCHEDULER_ENABLED=0`, `SOURCE_LIVE_FETCH=0`); açıldığında runtime'da ayrıca
 robots.txt sorgusu yapılmaz. Üretimde kaynak onboarding'i
@@ -32,7 +34,9 @@ robots.txt sorgusu yapılmaz. Üretimde kaynak onboarding'i
 - `allowsStorage: true` (veriyi saklama/etiketleme izni).
 
 Eksik/geçersiz alan → canlı koşum **exit 5** ile durur; hiçbir HTTP isteği
-yapılmaz. Kuru çalışma (`--dry-run`) her zaman yapılabilir.
+yapılmaz. Kuru çalışma (`--dry-run`) her zaman yapılabilir. Bu kural
+`npm run test:live` için de aynıdır (regresyon testi:
+`tests/live-check-terms-gate.test.ts`).
 
 ## 3. İnceleme adımları
 

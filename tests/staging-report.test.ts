@@ -5,6 +5,7 @@ import {
   formatStagingReport,
   hasBlockingHttpStatus,
   maskSourceUrl,
+  stagingExitCode,
 } from '../src/staging/report';
 import { assessSourceTerms, type SourceTermsEntry } from '../src/sources/terms';
 
@@ -174,5 +175,58 @@ describe('buildStagingReport', () => {
     expect(report.mode).toBe('dry-run');
     expect(report.zeroResultReason).toBe('dry-run');
     expect(formatStagingReport(report)).toContain('hiçbir HTTP isteği yapılmadı');
+  });
+});
+
+describe('stagingExitCode', () => {
+  it('kuru çalışma her zaman 0', () => {
+    expect(
+      stagingExitCode({ live: false, runError: false, runStatus: null, zeroResultReason: 'dry-run' }),
+    ).toBe(0);
+  });
+
+  it('doğrulanmamış 0 ilan başarı değildir: exit 6', () => {
+    for (const reason of ['not-observed', 'blocked', 'parse-failure', 'unknown'] as const) {
+      expect(
+        stagingExitCode({
+          live: true,
+          runError: false,
+          runStatus: 'success',
+          zeroResultReason: reason,
+        }),
+      ).toBe(6);
+    }
+  });
+
+  it('yalnızca açık insan onaylı confirmed-empty 0 döner', () => {
+    expect(
+      stagingExitCode({
+        live: true,
+        runError: false,
+        runStatus: 'success',
+        zeroResultReason: 'confirmed-empty',
+      }),
+    ).toBe(0);
+  });
+
+  it('ilan bulunduysa 0, koşum hatası/kilit 1', () => {
+    expect(
+      stagingExitCode({ live: true, runError: false, runStatus: 'success', zeroResultReason: null }),
+    ).toBe(0);
+    expect(
+      stagingExitCode({ live: true, runError: true, runStatus: null, zeroResultReason: 'unknown' }),
+    ).toBe(1);
+    expect(
+      stagingExitCode({ live: true, runError: false, runStatus: 'locked', zeroResultReason: 'unknown' }),
+    ).toBe(1);
+    expect(
+      stagingExitCode({ live: true, runError: false, runStatus: 'failed', zeroResultReason: 'unknown' }),
+    ).toBe(1);
+  });
+
+  it('0-sonuç raporu başarısız olduğunu açıkça yazar', () => {
+    const report = buildStagingReport({ ...baseInput, run: null, runError: null });
+    expect(report.zeroResultReason).toBe('not-observed');
+    expect(formatStagingReport(report)).toContain('exit 6');
   });
 });

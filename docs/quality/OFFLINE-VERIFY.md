@@ -8,7 +8,7 @@ Bu depo için tek komutlu yerel kontrol `npm run verify:all`'dır. Komut plan de
 npm run verify:all
 ```
 
-Her koşum `artifacts/verify-all/<UTC-zamanı>/` altında `report.json`, alt komutların ayrı stdout/stderr günlükleri, statik kaynak envanteri, deterministik sınıflandırma raporu ve **offline** LLM doctor raporu üretir. `artifacts/` Git dışında tutulur. Hata günlüklerini paylaşmadan önce gözden geçirin; test/fixture metni içerebileceğinden CI yalnızca sınırlı JSON kanıt dosyalarını yükler, stdout/stderr günlüklerini yüklemez. Son rapordaki `steps[].exitCode` her alt komutun gerçek çıkış kodudur. Herhangi bir zorunlu kontrol başarısızsa komut çıkış kodu 1; TLS doğrulaması baştan kapalıysa hiçbir alt süreç başlamadan `BLOCKED` ve çıkış kodu 2 döner.
+Her koşum `artifacts/verify-all/<UTC-zamanı>/` altında `report.json`, `summary.md` (insan okur özet), `source-matrix.md` (kaynak kapsam matrisi), alt komutların ayrı stdout/stderr günlükleri, statik kaynak envanteri, deterministik sınıflandırma raporu, **insan etiketli alan çıkarımı** raporu ve **offline** LLM doctor raporu üretir. `artifacts/` Git dışında tutulur. Hata günlüklerini paylaşmadan önce gözden geçirin; test/fixture metni içerebileceğinden CI yalnızca sınırlı JSON/Markdown kanıt dosyalarını yükler, stdout/stderr günlüklerini yüklemez. Son rapordaki `steps[].exitCode` her alt komutun gerçek çıkış kodudur. Herhangi bir zorunlu kontrol başarısızsa komut çıkış kodu 1; TLS doğrulaması baştan kapalıysa hiçbir alt süreç başlamadan `BLOCKED` ve çıkış kodu 2 döner.
 
 ## İzolasyon garantileri
 
@@ -18,6 +18,8 @@ Her koşum `artifacts/verify-all/<UTC-zamanı>/` altında `report.json`, alt kom
 - Canlı kaynak, tarayıcı yedeği, AIA TLS ek isteği, zamanlayıcı, AI/LLM kapısı ve gerçek Resend/SMTP taşıyıcılarını kapatır. `llm:doctor` açıkça `--offline` çalıştırılır; değerlendirme LLM bayrağı olmadan yapılır.
 - Vitest başlangıç kancası global `fetch`, ham `node:http`/`node:https`, `net` ve `tls` dış bağlantılarını dış host için soket açılmadan reddeder. Enjekte edilmiş gerçek Undici Agent de engellenir; açıkça enjekte edilen `MockAgent` için `disableNetConnect()` zorlanır. Yerel loopback fixture sunucuları ve mock'lar kullanılabilir. `HttpClient`, provider ve posta taşıyıcılarında ayrıca fail-closed test kontrolleri bulunur.
 - Uygulama veritabanı için dosya sürücüsü kullanır. Postgres `init()` yalnızca `SELECT 1` yapar; şema DDL'i ayrı `ensureIndexes()` adımındadır. Mongo `init()` ping ile sınırlıdır; indeks/validator DDL'i `ensureIndexes()` adımındadır.
+
+`summary.md` yalnızca gerçekten çalıştırılan adımları, test/kapsam sayılarını, kaynak/fixture sayılarını ve BLOCKED/INSUFFICIENT DATA durumlarını taşır; ham ilan metni, URL query'si veya sır içermez.
 
 Rapor `isolation` nesnesinde gerçek sağlayıcı/kaynak/e-posta çağrısı ve production DB yazma sayısını sıfır olarak bildirir. Engellenen dış denemeler host + kanal düzeyinde ayrıca sayılır; URL, gövde, başlık, anahtar veya kişisel metin kaydedilmez. Bu güvence **CI/offline doğrulama içindir**; live komutların bilerek çalıştırılması ayrı opt-in ve ayrı kanıttır.
 

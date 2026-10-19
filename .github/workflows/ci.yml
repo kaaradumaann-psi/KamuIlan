@@ -43,8 +43,11 @@ jobs:
           name: offline-verification-report
           path: |
             artifacts/verify-all/*/report.json
+            artifacts/verify-all/*/summary.md
+            artifacts/verify-all/*/source-matrix.md
             artifacts/verify-all/*/source-inventory.json
             artifacts/verify-all/*/classification-evaluation.json
+            artifacts/verify-all/*/extraction-evaluation.json
             artifacts/verify-all/*/llm-doctor-offline.json
           if-no-files-found: ignore
           retention-days: 7

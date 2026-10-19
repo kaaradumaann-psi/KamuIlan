@@ -35,9 +35,21 @@ import { assessSourceTerms, loadSourceTerms, MAX_TERMS_REVIEW_AGE_DAYS } from '.
 import { createRepos } from '../src/db/repos/index.ts';
 import { createStore } from '../src/db/store.ts';
 import { runSourceScrape, type RunSourceResult } from '../src/ingest/pipeline.ts';
-import { buildStagingReport, formatStagingReport } from '../src/staging/report.ts';
+import { buildStagingReport, formatStagingReport, stagingExitCode } from '../src/staging/report.ts';
 
-const PROD_DB_KEYS = ['DATABASE_DRIVER', 'POSTGRES_URL', 'MONGODB_URI', 'MONGO_URL', 'PRODUCTION_DATABASE_URL'];
+/**
+ * Üretim veritabanına işaret edebilecek TÜM bilinen anahtarlar. Değerler asla
+ * yazdırılmaz; yalnızca anahtar adı raporlanır. `DATABASE_URL` uygulamanın
+ * desteklediği alternatif Postgres adıdır ve burada da reddedilmelidir.
+ */
+const PROD_DB_KEYS = [
+  'DATABASE_DRIVER',
+  'POSTGRES_URL',
+  'DATABASE_URL',
+  'MONGODB_URI',
+  'MONGO_URL',
+  'PRODUCTION_DATABASE_URL',
+];
 
 type IntegerResult = { ok: true; value: number } | { ok: false; message: string };
 
@@ -268,9 +280,19 @@ async function main(): Promise<number> {
   writeFileSync(reportPath, `${JSON.stringify({ appVersion: APP_VERSION, ...report }, null, 2)}\n`, { mode: 0o600 });
   writeFileSync(join(reportDir, 'summary.txt'), `${formatStagingReport(report)}\n`);
   process.stdout.write(`${formatStagingReport(report)}\n\nRapor: ${reportPath}\n`);
-  if (!live) return 0;
-  if (runError || report.run?.status === 'failed' || report.run?.status === 'locked') return 1;
-  return 0;
+  const exitCode = stagingExitCode({
+    live,
+    runError: runError !== null,
+    runStatus: report.run?.status ?? null,
+    zeroResultReason: report.zeroResultReason,
+  });
+  if (exitCode === 6) {
+    process.stderr.write(
+      '0 ilan doğrulanmış boş sonuç değil: gösterge/selector değişimi, engel veya kapsam eksikliği olabilir. ' +
+        'Exit 6 — başarı sayılmadı. Rapor nedenini inceleyin.\n',
+    );
+  }
+  return exitCode;
 }
 
 main()
