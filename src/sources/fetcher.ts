@@ -347,6 +347,8 @@ export class HttpClient {
   private requestCount = 0;
   private requestReservations = 0;
   private textRequestCount = 0;
+  private redirectCount = 0;
+  private binaryRequestCount = 0;
   /** Birleşik güven deposu (Node + sistem + NODE_EXTRA_CA_CERTS) PEM listesi. */
   private readonly baseCa: readonly string[];
   /**
@@ -398,6 +400,16 @@ export class HttpClient {
 
   get textFetchesMade(): number {
     return this.textRequestCount;
+  }
+
+  /** İzlenen HTTP yönlendirme adımı sayısı (her adım ayrıca istek bütçesine sayılır). */
+  get redirectsMade(): number {
+    return this.redirectCount;
+  }
+
+  /** fetchBinary çağrısı sayısı (PDF/ek denemeleri; retry'lar ayrı istek sayılır). */
+  get binaryFetchesMade(): number {
+    return this.binaryRequestCount;
   }
 
   get remainingRequestBudget(): number | null {
@@ -507,6 +519,7 @@ export class HttpClient {
 
   /** İkili belge (PDF) getirir. */
   async fetchBinary(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    this.binaryRequestCount += 1;
     return this.fetch(url, {
       ...options,
       expectedContentTypes: options.expectedContentTypes ?? [...PDF_TYPES, 'application/octet-stream'],
@@ -668,6 +681,7 @@ export class HttpClient {
       const contentType = headers['content-type'] ?? null;
 
       if (status >= 300 && status < 400 && headers['location']) {
+        this.redirectCount += 1;
         const nextUrl = new URL(headers['location'], currentUrl).toString();
         assertSafeUrl(nextUrl, options.allowedHosts ?? []);
         if (redirect === maxRedirects) {

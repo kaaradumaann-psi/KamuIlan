@@ -547,9 +547,11 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     key: 'SCHEDULER_ENABLED',
     group: 'kuyruk',
     label: 'Zamanlanmış tarama açık mı?',
-    help: 'Worker sürecinde planlı taramaları çalıştırır. Tek makinede açık bırakın.',
+    help:
+      'Worker sürecinde planlı taramaları çalıştırır. Varsayılan KAPALIDIR: ' +
+      'start:worker tek başına tüm kaynakları taramaya başlamaz. Üretimde bilinçli olarak 1 yapın.',
     type: 'boolean',
-    defaultValue: '1',
+    defaultValue: '0',
     optional: true,
   },
   {
@@ -598,9 +600,11 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     key: 'SOURCE_LIVE_FETCH',
     group: 'tarama',
     label: 'Gerçek kaynaklara istek atılsın mı?',
-    help: '0: worker ağa çıkmaz (demo/test). 1: gerçek tarama. Üretimde 1 olmalıdır.',
+    help:
+      'Varsayılan 0: worker ağa çıkmaz; tarama "atlandı" kaydedilir, başarı sayılmaz. ' +
+      'Gerçek tarama için SOURCE_LIVE_FETCH=1 ve SCHEDULER_ENABLED=1 AYRI AYRI bilinçli açılmalıdır.',
     type: 'boolean',
-    defaultValue: '1',
+    defaultValue: '0',
     optional: true,
   },
   {
@@ -626,9 +630,10 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
       'HTTP istemcisi cevap alamadığında (ECONNRESET/zaman aşımı) sayfa başsız Chromium ile okunur. ' +
       '0: tarayıcı hiç başlatılmaz, asıl HTTP hatası bildirilir. Chromium kurulu değilse ' +
       '(npx playwright install chromium) ya da sunucuda tarayıcı istenmiyorsa 0 yazın. ' +
+      'Varsayılan 0 (güvenli): açıkça 1 yapılmadıkça tarayıcı başlatılmaz. ' +
       'Testlerde zorunlu olarak 0\'dır: Chromium gerçek ağa çıktığı için sahte istemciyi yanıltır.',
     type: 'boolean',
-    defaultValue: '1',
+    defaultValue: '0',
     optional: true,
   },
   {

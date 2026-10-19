@@ -21,6 +21,8 @@
 import { z } from 'zod';
 import { CONTENT_TYPES, type ContentType } from '../domain/types';
 import { SOURCE_DEFINITIONS } from '../config/sources';
+import { normalizeTr, collapseWhitespace } from '../domain/text';
+import { canonicalFieldKey, type ExpectedFieldValue } from '../evaluation/fields';
 
 /** Depodaki bir ilan kaydından etiketleme sayfasına girecek en küçük alan seti. */
 export interface WorksheetJobRecord {
@@ -53,6 +55,40 @@ export interface WorksheetJobRecord {
   extraCities?: string[];
 }
 
+export const EXPECTED_FIELD_STATUSES = ['present', 'absent', 'ambiguous'] as const;
+export const CASE_TAGS = [
+  'date-role-confusion',
+  'expired-but-real',
+  'correction-or-cancellation',
+  'multi-province',
+  'missing-list-text',
+  'neighbour-card-leakage',
+  'duplicate-family',
+  'other',
+] as const;
+
+export const expectedFieldEvidenceSchema = z
+  .object({
+    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()]),
+    status: z.enum(EXPECTED_FIELD_STATUSES).default('present'),
+    /** Resmî kaynaktaki birebir alıntı (kanıt). */
+    evidenceQuote: z.string().max(1_000).default(''),
+    sourceUrl: z.string().max(2_048).default(''),
+    locator: z.string().max(300).default(''),
+  })
+  .strict();
+
+export const expectedFieldValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+  z.null(),
+  expectedFieldEvidenceSchema,
+]);
+
+export const expectedFieldsSchema = z.record(z.string(), expectedFieldValueSchema).default({});
+
 export const labelingWorksheetRecordSchema = z.object({
   id: z.string().min(3),
   origin: z.enum(['real', 'synthetic', 'spec-title']),
@@ -78,17 +114,19 @@ export const labelingWorksheetRecordSchema = z.object({
   }),
   /** İnsan tarafından doldurulur. */
   expectedContentType: z.enum(CONTENT_TYPES).nullable(),
-  expectedFields: z
+  expectedFields: expectedFieldsSchema,
+  /** Resmî kaynaktan alınan zorunlu insan kanıtı (gerçek kayıtlarda). */
+  labelEvidence: z
     .object({
-      institution: z.string().nullable().optional(),
-      city: z.string().nullable().optional(),
-      quota: z.number().int().nullable().optional(),
-      applicationStartAt: z.string().nullable().optional(),
-      applicationEndAt: z.string().nullable().optional(),
-      applicationUrl: z.string().nullable().optional(),
-      publishedAt: z.string().nullable().optional(),
+      sourceUrl: z.string().max(2_048),
+      quote: z.string().max(1_000),
+      locator: z.string().max(300).default(''),
     })
-    .default({}),
+    .strict()
+    .nullable()
+    .default(null),
+  /** Etiketleyicinin işaretlediği tuzak senaryoları (ölçüm raporunda ayrıştırılır). */
+  caseTags: z.array(z.enum(CASE_TAGS)).default([]),
   labeledBy: z.string().nullable().default(null),
   labeledAt: z.string().nullable().default(null),
   notes: z.string().default(''),
@@ -114,8 +152,11 @@ export function isRealSourceRecord(record: Pick<WorksheetJobRecord, 'provenance'
 export const WORKSHEET_INSTRUCTIONS =
   'expectedContentType ve expectedFields alanlarını RESMÎ KAYNAĞI (url) okuyarak doldurun; ' +
   'machineSuggestion yalnızca işi hızlandırmak içindir ve altın etiket SAYILMAZ. Etiket koyan ' +
-  'kişi labeledBy ve labeledAt yazmadan kayıt içe aktarılmaz. Tarihleri YYYY-MM-DD olarak verin; ' +
-  'başvuru başlangıcı, son başvuru, yayım ve sınav tarihlerini AYRI tutun.';
+  'kişi labeledBy ve labeledAt yazmadan kayıt içe aktarılmaz. GERÇEK kayıtlar için labelEvidence ' +
+  '(resmî URL + birebir alıntı, en az 20 karakter) zorunludur. Alan değeri "yok" ise null, ' +
+  'belirsiz ise {value,status:"ambiguous"} yazın; sadece alanları boş bırakmak "yok" demek DEĞİLDİR. ' +
+  'Tarihleri YYYY-MM-DD (saat varsa YYYY-MM-DDTHH:mm) olarak verin; yayım, başvuru başlangıcı, ' +
+  'son başvuru ve sınav tarihlerini AYRI tutun. Tuzak senaryoları caseTags ile işaretleyin.';
 
 export function buildLabelingWorksheet(
   records: readonly WorksheetJobRecord[],
@@ -147,6 +188,8 @@ export function buildLabelingWorksheet(
         },
         expectedContentType: null,
         expectedFields: {},
+        labelEvidence: null,
+        caseTags: [],
         labeledBy: null,
         labeledAt: null,
         notes:
@@ -164,9 +207,12 @@ export interface ImportReport {
   realCount: number;
   syntheticCount: number;
   withExpectedFields: number;
+  withLabelEvidence: number;
   coverage: { contentType: ContentType; count: number }[];
-  /** Hedef kapsama göre eksik kategoriler (150–200 kayıt planının izlenebilir hâli). */
+  /** Hedef kapsama göre eksik kategoriler (145 kayıt planının izlenebilir hâli). */
   gaps: string[];
+  /** Kanonik anahtara çevrilen eski/insan dostu alan adları. */
+  aliasNormalizedFields: string[];
 }
 
 /** Hedef: her kritik kategoride en az bu kadar insan doğrulamalı gerçek kayıt. */
@@ -192,6 +238,68 @@ export const COVERAGE_TARGET_TOTAL = COVERAGE_TARGETS.reduce((sum, target) => su
  *    önerisi altın etiket olamaz);
  *  - `origin: 'real'` ama kaynak envanterinde olmayan bir kaynak (kanıtsız gerçek iddiası).
  */
+function parseHttpsUrl(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function hostAllowedFor(sourceKey: string, url: URL): boolean {
+  const definition = SOURCE_DEFINITIONS.find((source) => source.key === sourceKey);
+  return Boolean(definition?.allowedHosts.some((host) => host.toLowerCase() === url.host.toLowerCase()));
+}
+
+function canonicalDocumentUrl(value: string): string | null {
+  const url = parseHttpsUrl(value);
+  if (!url) return null;
+  return `${url.host.toLowerCase()}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+function normalizeExpectedFields(raw: Record<string, unknown>): {
+  fields: Record<string, ExpectedFieldValue>;
+  unknown: string[];
+  aliases: string[];
+  invalid: string[];
+} {
+  const fields: Record<string, ExpectedFieldValue> = {};
+  const unknown: string[] = [];
+  const aliases: string[] = [];
+  const invalid: string[] = [];
+  for (const [rawKey, value] of Object.entries(raw)) {
+    const key = canonicalFieldKey(rawKey);
+    if (!key) {
+      unknown.push(rawKey);
+      continue;
+    }
+    if (key !== rawKey) aliases.push(rawKey);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const structured = value as { status?: string; value?: unknown };
+      if (structured.status === 'present' && (structured.value === null || structured.value === '' || (Array.isArray(structured.value) && structured.value.length === 0))) {
+        invalid.push(rawKey);
+        continue;
+      }
+    }
+    fields[key] = value as ExpectedFieldValue;
+  }
+  return { fields, unknown, aliases, invalid };
+}
+
+/**
+ * Doldurulmuş sayfayı doğrular ve `labeled-set.json` kayıtlarına dönüştürür.
+ *
+ * Ret nedenleri (kayıt içe alınmaz):
+ *  - `expectedContentType` boş;
+ *  - `labelProvenance` 'human' değil ya da `labeledBy`/`labeledAt` yok (makine
+ *    önerisi altın etiket olamaz);
+ *  - `origin: 'real'` ama kaynak envanterinde olmayan bir kaynak (kanıtsız gerçek iddiası);
+ *  - `origin: 'real'` ama resmî URL kaynağın allowlist host'unda değil;
+ *  - `origin: 'real'` ama `labelEvidence` (URL + >=20 karakter alıntı) yok;
+ *  - bilinmeyen `expectedFields` anahtarı (sessizce ölçüm dışı bırakmak yerine reddet);
+ *  - aynı kaynak + başlık + kurum ya da aynı resmî belge URL'si (duplicate leakage).
+ */
 export function importLabeledWorksheet(worksheet: unknown): {
   records: LabeledSetRecord[];
   report: ImportReport;
@@ -202,6 +310,10 @@ export function importLabeledWorksheet(worksheet: unknown): {
   }
   const records: LabeledSetRecord[] = [];
   const rejected: ImportReport['rejected'] = [];
+  const seenFamilies = new Map<string, string>();
+  const seenDocuments = new Map<string, string>();
+  const aliasNormalizedFields = new Set<string>();
+
   for (const record of parsed.data.records) {
     if (!record.expectedContentType) {
       rejected.push({ id: record.id, reason: 'expectedContentType boş (insan etiketi gerekiyor)' });
@@ -218,6 +330,67 @@ export function importLabeledWorksheet(worksheet: unknown): {
       rejected.push({ id: record.id, reason: 'labeledBy/labeledAt boş: kimin ne zaman doğruladığı yazılmadan içe alınmaz' });
       continue;
     }
+    if (!Number.isFinite(Date.parse(record.labeledAt))) {
+      rejected.push({ id: record.id, reason: 'labeledAt geçerli bir tarih değil' });
+      continue;
+    }
+
+    const normalizedFields = normalizeExpectedFields(record.expectedFields as Record<string, unknown>);
+    if (normalizedFields.unknown.length > 0) {
+      rejected.push({
+        id: record.id,
+        reason: `bilinmeyen expectedFields anahtarı: ${normalizedFields.unknown.join(', ')}`,
+      });
+      continue;
+    }
+    if (normalizedFields.invalid.length > 0) {
+      rejected.push({
+        id: record.id,
+        reason: `status "present" ama değeri boş: ${normalizedFields.invalid.join(', ')}`,
+      });
+      continue;
+    }
+    for (const alias of normalizedFields.aliases) aliasNormalizedFields.add(alias);
+
+    if (record.origin === 'real') {
+      if (!record.sourceKey || !REAL_SOURCES.has(record.sourceKey)) {
+        rejected.push({ id: record.id, reason: "gerçek kayıt envanterde olmayan/boş bir sourceKey taşıyor" });
+        continue;
+      }
+      const url = parseHttpsUrl(record.url);
+      if (!url || !hostAllowedFor(record.sourceKey, url)) {
+        rejected.push({ id: record.id, reason: `resmî URL ${record.sourceKey} kaynağının allowlist host'unda değil` });
+        continue;
+      }
+      if (!record.labelEvidence) {
+        rejected.push({ id: record.id, reason: 'gerçek kayıt için labelEvidence (kaynak URL + alıntı) zorunlu' });
+        continue;
+      }
+      const evidenceUrl = parseHttpsUrl(record.labelEvidence.sourceUrl);
+      if (!evidenceUrl || !hostAllowedFor(record.sourceKey, evidenceUrl)) {
+        rejected.push({ id: record.id, reason: 'labelEvidence.sourceUrl resmî kaynak host’unda değil' });
+        continue;
+      }
+      if (canonicalDocumentUrl(record.url) !== canonicalDocumentUrl(record.labelEvidence.sourceUrl)) {
+        rejected.push({ id: record.id, reason: 'labelEvidence.sourceUrl ile kayıt URL’si aynı belgeyi göstermiyor' });
+        continue;
+      }
+      if (collapseWhitespace(record.labelEvidence.quote).length < 20) {
+        rejected.push({ id: record.id, reason: 'labelEvidence.quote en az 20 karakterlik birebir alıntı olmalı' });
+        continue;
+      }
+    }
+
+    const familyKey = [normalizeTr(record.title), normalizeTr(record.institution ?? ''), record.sourceKey ?? ''].join('|');
+    const documentKey = canonicalDocumentUrl(record.url);
+    const duplicateOf = seenFamilies.get(familyKey) ?? (documentKey ? seenDocuments.get(documentKey) : undefined);
+    if (duplicateOf) {
+      rejected.push({ id: record.id, reason: `yinelenen kayıt/ilan ailesi: ${duplicateOf}` });
+      continue;
+    }
+    seenFamilies.set(familyKey, record.id);
+    if (documentKey) seenDocuments.set(documentKey, record.id);
+
     records.push({
       id: record.id,
       origin: record.origin,
@@ -225,21 +398,20 @@ export function importLabeledWorksheet(worksheet: unknown): {
       sourceCategory: record.sourceCategory ?? '',
       bodyKind: record.machineSuggestion.contentType === 'personnel_recruitment' ? 'recruitment' : 'news',
       expectedContentType: record.expectedContentType,
-      // Sayfadaki alıntı gerçek metnin PARÇASI; `body` olarak yalnızca tam metin
-      // durumu 'captured' ise kullanılır (kırpık alıntıyla ölçüm yapılmaz).
       ...(record.bodyCompleteness === 'captured' && record.bodyExcerpt.length >= 200
         ? { body: record.bodyExcerpt }
         : {}),
       sourceKey: record.sourceKey,
-      // Sayfayı dolduran kişi human demese bile (labeledBy/labeledAt zorunlu olduğu için)
-      // etiket insan doğrulamasıdır; 'machine' olarak işaretlenmişse öyle kalır.
       labelProvenance: record.labelProvenance === 'machine' ? 'machine' : 'human',
       labelVerifiedBy: record.labeledBy,
       labeledAt: record.labeledAt,
       url: record.url,
-      ...(Object.keys(record.expectedFields).length > 0 ? { expectedFields: record.expectedFields } : {}),
+      ...(Object.keys(normalizedFields.fields).length > 0 ? { expectedFields: normalizedFields.fields } : {}),
+      ...(record.labelEvidence ? { labelEvidence: record.labelEvidence } : {}),
+      caseTags: record.caseTags,
     });
   }
+
   const realCount = records.filter((record) => record.origin === 'real').length;
   const counts = CONTENT_TYPES.map((contentType) => ({
     contentType,
@@ -257,8 +429,10 @@ export function importLabeledWorksheet(worksheet: unknown): {
       syntheticCount: records.length - realCount,
       withExpectedFields: records.filter((record) => record.expectedFields && Object.keys(record.expectedFields).length > 0)
         .length,
+      withLabelEvidence: records.filter((record) => record.labelEvidence).length,
       coverage: counts,
       gaps,
+      aliasNormalizedFields: [...aliasNormalizedFields].sort(),
     },
   };
 }
@@ -276,7 +450,9 @@ export interface LabeledSetRecord {
   labelVerifiedBy?: string | null;
   labeledAt?: string | null;
   url?: string;
-  expectedFields?: Record<string, string | number | null>;
+  expectedFields?: Record<string, ExpectedFieldValue>;
+  labelEvidence?: { sourceUrl: string; quote: string; locator?: string } | null;
+  caseTags?: readonly string[];
 }
 
 /**

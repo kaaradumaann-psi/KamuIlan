@@ -31,7 +31,14 @@ export type LlmFetchHeaders =
 
 export type LlmFetch = (
   url: string,
-  init: { method: 'POST'; headers: Record<string, string>; body: string; signal: AbortSignal },
+  init: {
+    method: 'POST';
+    headers: Record<string, string>;
+    body: string;
+    signal: AbortSignal;
+    /** Sağlayıcı yönlendirmesi API anahtarını başka host'a taşımasın diye hata. */
+    redirect: 'error';
+  },
 ) => Promise<{ status: number; headers?: LlmFetchHeaders; text(): Promise<string> }>;
 
 export interface LlmConfig {
@@ -926,6 +933,9 @@ export async function callChatCompletion(
       headers,
       body: JSON.stringify(requestBody),
       signal: controller.signal,
+      // Kimlik taşıyan istek 30x ile başka host'a yönlendirilirse anahtar
+      // sızabilir; yönlendirmeyi hata say (sağlayıcı uç noktası doğrudan olmalı).
+      redirect: 'error',
     });
     const raw = (await response.text()).slice(0, MAX_RESPONSE_CHARS);
     if (response.status < 200 || response.status >= 300) {

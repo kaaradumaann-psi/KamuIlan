@@ -2,7 +2,7 @@
 
 **Amaç.** `npm run eval:classification` olmadan "sınıflandırma iyi" demek mümkün değildir.
 Küme şu an **17 kayıttır ve hepsi `spec-title` (spesifikasyondaki başlık) kökenlidir; hiçbiri
-gerçek ilan sayfası değildir.** Bu belge, 150–200 insan doğrulamalı gerçek kayda giden yolun
+gerçek ilan sayfası değildir.** Bu belge, 145 insan doğrulamalı gerçek kayda giden yolun
 araçlarını ve kurallarını tanımlar.
 
 ## 1. Değiştirilemez dürüstlük kuralları
@@ -14,7 +14,8 @@ araçlarını ve kurallarını tanımlar.
    kümeye girmez (`src/classification/eval-set.ts` → `importLabeledWorksheet`).
 4. **`origin: "real"` kanıt ister.** Yalnızca `provenance: "scraped"` VE kaynak envanterinde
    (`src/config/sources.ts`) bulunan bir kaynak gerçek sayılır. Demo/`seed:demo` kayıtları
-   sentetiktir.
+   sentetiktir. İçe aktarmada `labelEvidence` (resmî URL + en az 20 karakter birebir alıntı),
+   allowlist host ve duplicate-family kontrolü zorunludur.
 5. **Sayılar ayrı raporlanır.** Rapor, gerçek ve sentetik kayıt sayılarını, origin kırılımını
    ve `VERİ YETERSİZ` kararını gösterir; sentetik %100 gerçek başarı diye sunulmaz.
 
@@ -97,7 +98,9 @@ Yeni izolasyon ve dar kapsamlı operatör adımları: [quality/OFFLINE-VERIFY.md
 - karışıklık matrisi (sıfır olmayan hücreler),
 - origin kırılımı (`real` / `synthetic` / `spec-title`, her birinde insan etiket sayısı),
 - kaynak bazlı hata ve belirsizlik oranları (`sourceKey` dolu kayıtlarda),
-- alan çıkarımı doğruluğu (`expectedFields` doldurulmuşsa: kurum, şehir, kontenjan,
+- alan çıkarımı doğruluğu ayrı komutla: `npm run eval:extraction` (insan etiketli,
+  gövdesi tam kayıtlar; P/R/F1, kaçırılan, uydurma, kanıt doğrulama, tarih rol karışması).
+  Eski özet `eval:classification` içinde de görünür. Kapsanan alanlar: kurum, şehir, kontenjan,
   başvuru başlangıcı/bitişi, başvuru bağlantısı, yayım tarihi),
 - `--llm` modunda: LLM çağrı sayısı ve oranı, önbellek isabeti, bütçe/kota engeli,
   hata oranı, gecikme (ortalama/p50/p95/maks), token kullanımı ve **tahminî** maliyet
