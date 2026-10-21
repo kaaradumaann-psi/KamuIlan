@@ -116,9 +116,13 @@ function AppShell({ children }: { children: ReactNode }) {
       onSelect: () => navigate(item.path),
     }));
 
-  // Rota değişiminde ana içeriğe odaklan (ekran okuyucu bağlamı).
+  // Rota değişiminde ana içeriğe odaklan (ekran okuyucu bağlamı). Odak kaydırma
+  // YAPMAZ, yeni sayfa en üstten açılır: tarayıcının odak kaydırması dar ekranda
+  // sayfayı <main>'in başına taşıyor, durum şeridini atlıyor ve sayfa başlığını
+  // yapışkan üst çubuğun altında bırakıyordu (390 px'de scrollY=247, başlık kesik).
   useEffect(() => {
-    document.getElementById('main')?.focus();
+    document.getElementById('main')?.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
   }, [location.pathname]);
 
   if (infoPage) return <>{children}</>;

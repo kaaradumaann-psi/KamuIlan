@@ -397,6 +397,7 @@ export interface AdminOverview {
     total: number;
     success: number;
     failed: number;
+    partial?: number;
     skipped: number;
     lastSuccessAt: string | null;
     lastFailureAt: string | null;

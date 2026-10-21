@@ -233,25 +233,35 @@ export class ScrapeRunRepo {
     total: number;
     success: number;
     failed: number;
+    /** Ölümcül hata olmadan biten ama kapsamı kısmi ya da tekil kayıt hatalı koşumlar. */
+    partial: number;
     skipped: number;
     lastSuccessAt: string | null;
     lastFailureAt: string | null;
     avgDurationMs: number;
   }> {
-    const [total, success, failed, skipped, lastSuccess, lastFailure] = await Promise.all([
+    // `partial` hem "son başarılı" hem "başarısız" sayılıyordu: aynı koşum sağlık
+    // çıktısında iki kez görünüyordu. Başarısız = yalnızca ölümcül hata (`failed`).
+    const [total, success, failed, partial, skipped, lastSuccess, lastFailure] = await Promise.all([
       this.store.count('scrapeRuns', {}),
       this.store.count('scrapeRuns', { status: 'success' }),
-      this.store.count('scrapeRuns', { status: { $in: ['failed', 'partial'] } }),
+      this.store.count('scrapeRuns', { status: 'failed' }),
+      this.store.count('scrapeRuns', { status: 'partial' }),
       this.store.count('scrapeRuns', { status: { $in: ['skipped', 'locked'] } }),
-      firstOrNull(
-        this.store.find('scrapeRuns', { status: 'success' }, { limit: 1, sort: [['startedAt', -1]] }),
-      ),
+      // "Son başarılı tarama": ölümcül hata olmadan tamamlanan son koşum. `partial`
+      // (kapsam kısmi ya da tekil kayıt hatası) da veri üretmiştir; kaynak sağlığı
+      // (`sources.recordHealth`) bu koşumu zaten başarılı sayıyor. Yalnızca `success`
+      // aranınca Resmî Gazete gibi yapısı gereği kısmi kaynaklar varken arayüz
+      // "Henüz başarılı tarama kaydı yok" diyordu.
       firstOrNull(
         this.store.find(
           'scrapeRuns',
-          { status: { $in: ['failed', 'partial'] } },
+          { status: { $in: ['success', 'partial'] } },
           { limit: 1, sort: [['startedAt', -1]] },
         ),
+      ),
+      firstOrNull(
+        this.store.find('scrapeRuns', { status: 'failed' }, { limit: 1, sort: [['startedAt', -1]] }),
       ),
     ]);
 
@@ -270,6 +280,7 @@ export class ScrapeRunRepo {
       total,
       success,
       failed,
+      partial,
       skipped,
       lastSuccessAt: lastSuccess?.startedAt ?? null,
       lastFailureAt: lastFailure?.startedAt ?? null,
