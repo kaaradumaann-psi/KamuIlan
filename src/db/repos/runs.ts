@@ -216,6 +216,64 @@ export class ScrapeRunRepo {
     return this.store.find('scrapeRuns', query, { limit, sort: [['startedAt', -1]] });
   }
 
+  /**
+   * Saklama süresi: `cutoffIso`'dan önce başlamış BİTMİŞ koşumları küçük partilerle siler.
+   * Korunanlar: kuyruktaki/çalışan koşumlar; her kaynağın son koşumu ve son başarılı/kısmi
+   * koşumu (kapsam raporu ve "son başarılı tarama" bunlara dayanır). `scrapeRuns`'a başka
+   * koleksiyondan referans yoktur. `dryRun` hiçbir şey silmez, yalnız sayar. Tekrar
+   * çalıştırılabilir: ikinci çalışma yalnız yeni eskiyenleri bulur.
+   */
+  async purgeFinishedOlderThan(
+    cutoffIso: string,
+    options: { dryRun?: boolean; batchSize?: number; maxBatches?: number } = {},
+  ): Promise<{ matched: number; deleted: number; kept: number }> {
+    const batchSize = options.batchSize ?? 500;
+    const maxBatches = options.maxBatches ?? 20;
+    const filter = { startedAt: { $lt: cutoffIso }, status: { $nin: ['queued', 'running'] } };
+    const protectedBySource = new Map<string, Set<string>>();
+    let matched = 0;
+    let deleted = 0;
+    let kept = 0;
+    // Silinmeyen (korunan ya da kuru çalışmada sayılan) satırlar sorgu başında kalır; atlanır.
+    let skip = 0;
+    for (let batch = 0; batch < maxBatches; batch += 1) {
+      const rows = await this.store.find('scrapeRuns', filter, { limit: batchSize, skip, sort: [['startedAt', 1]] });
+      if (rows.length === 0) break;
+      const ids: string[] = [];
+      for (const row of rows) {
+        const keep = await this.protectedRunIds(row.sourceKey, protectedBySource);
+        if (keep.has(row.id)) kept += 1;
+        else ids.push(row.id);
+      }
+      matched += ids.length;
+      if (options.dryRun) {
+        skip += rows.length;
+        continue;
+      }
+      if (ids.length > 0) deleted += await this.store.deleteMany('scrapeRuns', { id: { $in: ids } });
+      skip += rows.length - ids.length;
+    }
+    return { matched, deleted, kept };
+  }
+
+  private async protectedRunIds(sourceKey: string, cache: Map<string, Set<string>>): Promise<Set<string>> {
+    const cached = cache.get(sourceKey);
+    if (cached) return cached;
+    const [latest, latestOk] = await Promise.all([
+      this.lastRun(sourceKey),
+      firstOrNull(
+        this.store.find(
+          'scrapeRuns',
+          { sourceKey, status: { $in: ['success', 'partial'] } },
+          { limit: 1, sort: [['startedAt', -1]] },
+        ),
+      ),
+    ]);
+    const ids = new Set([latest?.id, latestOk?.id].filter((id): id is string => Boolean(id)));
+    cache.set(sourceKey, ids);
+    return ids;
+  }
+
   async lastRun(sourceKey: string): Promise<ScrapeRunDoc | null> {
     const rows = await this.store.find('scrapeRuns', { sourceKey }, { limit: 1, sort: [['startedAt', -1]] });
     return rows[0] ?? null;
