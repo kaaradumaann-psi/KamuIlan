@@ -13,6 +13,7 @@ import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
+import { usePageMeta } from '../lib/page-meta';
 import { HEALTH_QUERY_KEY, WORKER_HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
 import { APP_TAGLINE, HONESTY_NOTE } from '../site';
@@ -127,6 +128,7 @@ function SystemStrip() {
 }
 
 export function HomePage() {
+  usePageMeta({ title: 'Kamu personel alım ilanları' });
   const navigate = useNavigate();
   const [term, setTerm] = useState('');
   const [city, setCity] = useState('');

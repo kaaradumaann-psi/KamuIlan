@@ -29,6 +29,7 @@ import { Card, EmptyState, ErrorNotice, InfoNote, LoadingCard, Tag, DefinitionLi
 import { Icon } from '../components/Icon';
 import { SaveJobButton } from '../components/SaveJobButton';
 import { downloadDeadlineIcs } from '../lib/calendar';
+import { jobPostingJsonLd, serializeJsonLd, usePageMeta } from '../lib/page-meta';
 
 function evidenceHint(job: PublicJobDetail, field: string): string | undefined {
   const source = job.fieldSources[field];
@@ -63,6 +64,18 @@ export function JobDetailPage(): ReactNode {
       api.get<PublicJobDetail>(`/api/jobs/${encodeURIComponent(id)}`, undefined, signal),
     enabled: id.length > 0,
     retry: 0,
+  });
+  usePageMeta({
+    title: query.data ? `${query.data.title} — ${query.data.institution}` : null,
+    description: query.data
+      ? [
+          query.data.institution,
+          query.data.city,
+          query.data.applicationEndDate ? `son başvuru ${query.data.applicationEndDate}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : null,
   });
 
   if (query.isLoading) return <LoadingCard title="İlan yükleniyor…" />;
@@ -115,8 +128,13 @@ export function JobDetailPage(): ReactNode {
           ? 'warning'
           : 'neutral';
 
+  const structuredData = jobPostingJsonLd(job, `${window.location.origin}/ilanlar/${encodeURIComponent(job.id)}`);
+
   return (
     <article className="page-stack">
+      {structuredData && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(structuredData) }} />
+      )}
       <header className="detail-head card-elevated">
         <div className="detail-head-tags">
           {job.kind === 'process' ? (
