@@ -1,0 +1,45 @@
+{
+  "observedAt": "2026-10-21T17:00:00+03:00",
+  "provenance": "staging-live-capture",
+  "humanVerified": false,
+  "note": "Resmî Gazete PDF'lerinin (projenin PDF çıkarıcısı çıktısı) kadro tablosu bölümleri; yalnızca kurumsal metin. Beklenen değerler ajan tarafından PDF okunarak yazıldı; insan doğrulaması YOK.",
+  "items": [
+    {
+      "id": "rg-20261014-4-9",
+      "pdfUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261014-4-9.pdf",
+      "institution": "Edirne İli Keşan Belediye Başkanlığı",
+      "text": "Edirne ili Keşan Belediye Başkanlığı bünyesinde, 657 sayılı Devlet Memurları Kanununa\ntabi olarak istihdam edilmek üzere; Mahalli İdarelere İlk Defa Atanacaklara Dair Sınav ve Atama\nYönetmeliği hükümlerine göre aşağıda unvanı, sınıfı, derecesi, adedi, nitelikleri, KPSS puan türü,\nKPSS taban puanı ve diğer şartları taşımak kaydıyla belirtilen boş kadrolara açıktan atama\nyoluyla memur alınacaktır.\nSıra\nNo\nKadro\nÜnvanı\nHizmet\nSınıfı\nKadro\nDerecesi\nKadro\nAdedi Niteliği Cinsiyeti\nKPSS\nPuan\nTürü\nKPSS\nTaban\nPuanı\n1 Mühendis TH 8 1\nLisans düzeyinde\neğitim veren\nfakültelerin inşaat\nmühendisliği\nprogramından\nmezun olmak.\nErkek/\nKadın P3\nEn az\n70\npuan\n2 Mühendis TH 8 1\nLisans düzeyinde\neğitim veren\nfakültelerin\nelektrik- elektronik\nmühendisliği\nprogramından\nmezun olmak.\nErkek/\nKadın P3\nEn az\n70\npuan\nBAŞVURU GENEL VE ÖZEL ŞARTLARI\nBelediyemizin yukarıda belirtilen boş memur kadroları için yapılacak başvurularda aranan\ngenel ve özel şartlar aşağıdadır.\n1- BAŞVURU GENEL ŞARTLARI:\nİlan edilen memur kadrolarına atanmak için başvuracak adayların, 657 sayılı Devlet\nMemurları Kanununun 40’ıncı ve 48’inci maddesinin (A) fıkrasında belirtilen aşağıdaki genel\nşartlara sahip olmaları gerekmektedir;\na) Türk vatandaşı olmak,\nb) Kamu haklarından mahrum bulunmamak,\nc) Türk Ceza Kanununun 53’üncü maddesinde belirtilen süreler geçmiş olsa bile; kasten\nişlenen bir suçtan dolayı bir yıl veya daha fazla süreyle hapis cezasına ya da affa uğramış olsa bile\ndevletin güvenliğine karşı suçlar, Anayasal düzene ve bu düzenin işleyişine karşı suçlar, zimmet,\n",
+      "expected": [
+        {
+          "title": "Mühendis",
+          "quota": 1,
+          "serviceClass": "TH",
+          "degree": 8,
+          "qualificationIncludes": "inşaat mühendisliği"
+        },
+        {
+          "title": "Mühendis",
+          "quota": 1,
+          "serviceClass": "TH",
+          "degree": 8,
+          "qualificationIncludes": "elektrik- elektronik mühendisliği"
+        }
+      ]
+    },
+    {
+      "id": "rg-20261018-4-3",
+      "pdfUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261018-4-3.pdf",
+      "institution": "İzmir İli Karabağlar Belediye Başkanlığı",
+      "text": "İzmir ili Karabağlar Belediye Başkanlığı bünyesinde 5393 sayılı Belediye Kanununun 49\nuncu maddesi ile Mahalli İdarelere İlk Defa Atanacaklara Dair Sınav ve Atama Yönetmeliği\nhükümlerine göre aşağıda unvanı, sınıfı, derecesi, adedi, nitelikleri, KPSS puan türü, KPSS taban\npuanı ve diğer şartları taşımak kaydıyla, belirtilen boş pozisyona tam zamanlı sözleşmeli personel\nalınacaktır.\nSıra\nNo\nPozisyon\nUnvanı\nHizmet\nSınıfı\nPozisyon\nDerecesi\nPozisyon\nAdedi Niteliği Cinsiyeti\nKPSS\nPuan\nTürü\nKPSS\nTaban\nPuanı\n1 Mühendis TH 8 2\nLisans düzeyinde eğitim\nveren kurumların\nçevre mühendisliği\nprogramından mezun olmak,\nEn az (B) sınıfı sürücü\nbelgesine sahip olmak.\nKadın\n/Erkek P3 En az 60\npuan\n",
+      "expected": [
+        {
+          "title": "Mühendis",
+          "quota": 2,
+          "serviceClass": "TH",
+          "degree": 8,
+          "qualificationIncludes": "çevre mühendisliği"
+        }
+      ]
+    }
+  ]
+}

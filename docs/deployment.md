@@ -180,7 +180,7 @@ seçenekleri seçer. Yanlış ayarlanırlarsa sistem açık verir; bu yüzden da
 
 | Değişken       | Varsayılan | Ne zaman değiştirilir                                                                 |
 | -------------- | ---------- | ------------------------------------------------------------------------------------- |
-| `TRUST_PROXY`  | `0`        | Yalnızca API gerçekten bir ters vekilin (Cloudflare, Nginx, Docker) arkasındaysa `1`.  |
+| `TRUST_PROXY`  | `0`        | API bir ters vekil arkasındaysa güvenilen vekil listesi (`cloudflare`, CIDR); `1` yalnızca köken vekil dışından erişilemiyorsa. |
 | `CORS_ORIGINS` | boş        | Yalnızca arayüz API ile **farklı** bir kaynaktan konuşuyorsa (virgülle ayrılmış liste). |
 | `DOCS_ENABLED` | `0`        | Hiçbir zaman. Yalnızca üretim dışı ortamda açın.                                       |
 
@@ -199,6 +199,23 @@ atlamasına (ve denetim kayıtlarında yanlış IP görünmesine) yol açar.
   emin olun (gelen değeri temizlemek vekilin işidir).
 - Docker Compose ve depodaki Nginx yapılandırmaları bu nedenle yalnızca
   gerçek bir vekil varsa `TRUST_PROXY=1` ile çalıştırılır.
+
+**Önerilen biçim — güvenilen vekil listesi.** `TRUST_PROXY` virgülle ayrılmış
+IP/CIDR listesi ve şu adları kabul eder: `cloudflare` (Cloudflare'in yayımladığı
+kenar aralıkları, `src/config/trust-proxy.ts`), `loopback`, `linklocal`,
+`uniquelocal`. Başlık yalnızca bu adreslerden gelen isteklerde değerlendirilir ve
+zincir sağdan okunur. Bu sayede API kökeni (`api.kamuilan…`) doğrudan internetten
+erişilebilse bile vekili atlayan bir istemci sahte IP yazamaz (R-09).
+
+| Dağıtım | Değer |
+| --- | --- |
+| Cloudflare (Pages vekili veya turuncu bulut) → API | `TRUST_PROXY=cloudflare` |
+| Aynı makinede Nginx/Docker → API | `TRUST_PROXY=loopback,uniquelocal` |
+| Vekil yok | `TRUST_PROXY=0` |
+
+Geçersiz öğe (ör. `cloudflre`, `10.0.0.0/33`) açılışta hata verir; sessizce
+"hiçbirine güvenme" ya da "hepsine güven" davranışına düşülmez.
+Cloudflare aralıkları değişirse liste güncellenmeli ya da ek CIDR yazılmalıdır.
 
 ### `CORS_ORIGINS` — tarayıcı kaynak allowlist'i
 

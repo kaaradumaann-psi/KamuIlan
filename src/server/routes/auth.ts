@@ -266,6 +266,7 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
           user: toUserProfile(user, { self: true }),
           csrfToken: request.auth?.session?.csrfToken ?? null,
           setup: { required: false, driver: repos.store.driver, label: describeDriver(repos.store.driver) },
+          access: { publicListings: getEnv().PUBLIC_LISTINGS_ENABLED },
         };
       }
 
@@ -288,6 +289,7 @@ export function registerAuthRoutes(app: FastifyInstance, repos: Repos): void {
         user: null,
         csrfToken: null,
         setup: { required: totalUsers === 0, driver: repos.store.driver, label: describeDriver(repos.store.driver) },
+        access: { publicListings: getEnv().PUBLIC_LISTINGS_ENABLED },
       };
     },
   );
