@@ -31,6 +31,7 @@ function extracted(overrides: Partial<ExtractedJob> = {}): ExtractedJob {
     referenceNo: null,
     cadreStatus: null,
     titles: [],
+    openings: [],
     educationLevels: ['lisans'],
     departments: [],
     kpssScoreTypes: ['P3'],

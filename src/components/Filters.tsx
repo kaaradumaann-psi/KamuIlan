@@ -15,6 +15,9 @@ export const KPSS_TYPE_OPTIONS = ['P1', 'P2', 'P3', 'P10', 'P93', 'P94', 'P121',
 import { Icon } from './Icon';
 import { Checkbox, Field } from './ui';
 
+/** Arşiv görünümü: süresi dolan ve iptal edilen ilanlar (API virgüllü durum listesini kabul eder). */
+export const ARCHIVE_STATUS = 'closed,cancelled';
+
 export interface JobFilters {
   q: string;
   city: string;
@@ -226,6 +229,8 @@ export function FilterForm({
             <option value="active">Başvuru açık</option>
             <option value="upcoming">Başvuru yakında</option>
             <option value="closed">Kapandı</option>
+            <option value="cancelled">İptal edildi</option>
+            <option value={ARCHIVE_STATUS}>Arşiv (kapanan + iptal)</option>
           </select>
         </Field>
       </div>

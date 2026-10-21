@@ -179,8 +179,14 @@
   kovaya düşebilirdi.
 - **Kalan risk:** `TRUST_PROXY` yanlış yapılandırılırsa (API doğrudan internete açıkken 1)
   aynı sorun geri gelir → dağıtım denetim maddesi.
-- **Kapanış ölçütü:** Dağıtım dokümanında "yalnızca vekil arkasında `TRUST_PROXY=1`" kuralı
-  ve üretimde doğrulama.
+- **Azaltma (`fix/r09-vekil-guven-siniri`):** `TRUST_PROXY` artık güvenilen vekil listesi
+  kabul ediyor (`cloudflare`, CIDR, `uniquelocal`…); `clientIp()` ham başlık yerine
+  Fastify/proxy-addr kararını (`request.ip`) kullanıyor. [2] `tests/vekil-guven-siniri.test.ts`
+  (7): vekili atlayan sahte başlık yeni kova açamıyor; Cloudflare arkasındaki farklı
+  istemciler ayrı kovada; zincire sola eklenen sahte değer yok sayılıyor.
+- **Kapanış ölçütü:** Üretimde `TRUST_PROXY=cloudflare` (veya gerçek vekil listesi) ayarlı
+  ve kökene doğrudan istekte sahte `X-Forwarded-For` ile hız sınırının aşılamadığı doğrulandı
+  — **üretim ayarı kullanıcı/işletim kararı; bu depoda değiştirilmedi.**
 
 ### R-10 · Tarayıcı E2E — **CI'da KAPANDI**, yerel ortamda engelli
 - **Kanıt:** [1] GitHub Actions `verify` işi, run `39597847874` (commit `911b0b4`):
@@ -241,6 +247,18 @@
 - **Bağımlılık:** R-12 ile aynı ürün kararı.
 
 ---
+
+### R-19 · "Bursa" kurumlarının ilanları "burs" sayılıp reddediliyordu — **DÜZELTİLDİ (21.10.2026)**
+- **Kanıt:** [2] `ret-baslik.staj-burs` kalıbı `\bburs\w*` idi; "Bursa Valiliği / Belediyesi /
+  Uludağ Üniversitesi …" başlıkları başlık düzeyinde %92 güvenle `reject` alıyordu. 81 il × 4
+  kurum biçimi taramasında kabul dışı kalan 4 başlığın 4'ü de Bursa'ydı.
+- **Etki:** Türkiye'nin 4. büyük ilindeki kurumların gerçek ilanları sessizce akıştan düşüyordu
+  (yanlış ret; inceleme kuyruğuna da gitmez).
+- **Düzeltme (`fix/bursa-burs-yanlis-ret`):** `burs(?!a)\w*`. Test: `tests/classification.test.ts`
+  81 il taraması + burs duyurularının hâlâ reddedildiği 3 örnek.
+- **Kalan:** Mevcut kayıtlarda Bursa ilanları reddedilmiş olabilir → düzeltme ancak
+  `jobs:reclassify` ile uygulanır (üretim DB — karar gerekiyor). Apostrofsuz yazılmış "burs'a"
+  ("bursa başvuru") artık bu kurala takılmaz; diğer kurallar/inceleme devreye girer.
 
 ## Kapsam dışı bırakılanlar [5]
 

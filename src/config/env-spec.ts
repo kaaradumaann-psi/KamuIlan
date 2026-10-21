@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs';
 import { caFilePathCandidates, expandPathTokens } from '../lib/ca-file';
 import type { Env } from './env';
 import { POSTGRES_URL_FORBIDDEN_TLS_PARAMS, postgresTlsMode } from './env';
+import { invalidTrustProxyEntries } from './trust-proxy';
 
 export type EnvFieldType = 'string' | 'secret' | 'boolean' | 'number' | 'enum' | 'url' | 'email' | 'csv' | 'path';
 
@@ -257,11 +258,15 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
   {
     key: 'TRUST_PROXY',
     group: 'guvenlik',
-    label: 'X-Forwarded-For başlığına güvenilsin mi?',
-    help: 'Yalnızca uygulama başlığı KENDİSİ ÜRETEN bir vekilin (Cloudflare/Nginx) arkasındaysa 1. Yanlış açılırsa saldırgan hız sınırını atlar.',
-    type: 'boolean',
+    label: 'X-Forwarded-For başlığına hangi vekillerden güvenilsin?',
+    help: '0 = hiçbirinden. Önerilen: güvenilen vekil listesi (ör. cloudflare veya 10.0.0.0/8,uniquelocal); başlık yalnızca bu adreslerden gelince değerlendirilir. 1 = her kaynaktan (yalnızca API vekil dışından erişilemiyorsa). Yanlış ayar hız sınırını atlatır.',
+    type: 'string',
     defaultValue: '0',
     optional: true,
+    validate: (value) => {
+      const invalid = invalidTrustProxyEntries(value);
+      return invalid.length > 0 ? `TRUST_PROXY geçersiz öğe içeriyor: ${invalid.join(', ')}` : null;
+    },
   },
   {
     key: 'CORS_ORIGINS',

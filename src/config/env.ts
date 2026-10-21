@@ -8,6 +8,7 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { z } from 'zod';
+import { invalidTrustProxyEntries, parseTrustProxy } from './trust-proxy';
 import { inspectCaFile } from '../lib/ca-file';
 import { effectiveDriver } from '../db/store';
 import { describeTlsVerificationOverride, systemCaStoreAvailable, tlsVerificationDisabled } from '../lib/tls-trust';
@@ -88,11 +89,22 @@ const envSchema = z.object({
    * saldırgan her istekte farklı bir IP uydurup hız sınırını atlar ve denetim
    * kaydına yalan IP yazdırır. Yalnızca uygulama, başlığı KENDİSİ ÜRETEN bir
    * vekil sunucunun (Cloudflare/Nginx) arkasındayken 1 yapın.
+   *
+   * Daha güvenli biçim: güvenilen vekil adreslerini listeleyin (`cloudflare`,
+   * `10.0.0.0/8`, `uniquelocal` …). O zaman başlık yalnızca bu adreslerden gelen
+   * isteklerde değerlendirilir; kökene doğrudan gelen istek sahte IP yazamaz.
+   * Ayrıntı: `src/config/trust-proxy.ts`.
    */
   TRUST_PROXY: z
     .string()
     .default('0')
-    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+    .superRefine((value, ctx) => {
+      const invalid = invalidTrustProxyEntries(value);
+      if (invalid.length > 0) {
+        ctx.addIssue({ code: 'custom', message: `TRUST_PROXY geçersiz öğe içeriyor: ${invalid.join(', ')}` });
+      }
+    })
+    .transform((value) => parseTrustProxy(value)),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /**
    * OpenAPI arayüzü (/api/docs). Varsayılan: yalnızca üretim dışı ortamlarda açık.

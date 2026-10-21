@@ -330,6 +330,48 @@ export function JobDetailPage(): ReactNode {
         />
       </Card>
 
+      {(job.openings?.length ?? 0) > 0 && (
+        <Card
+          title="Kadrolar"
+          description="İlan tablosundan satır satır okundu. Kesin bilgi için resmî ilan metnine bakın."
+        >
+          <div className="table-scroll">
+            <table className="openings-table">
+              <caption className="sr-only">Unvan, kontenjan ve nitelik kırılımı</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Unvan</th>
+                  <th scope="col">Kontenjan</th>
+                  <th scope="col">Sınıf / derece</th>
+                  <th scope="col">Niteliği</th>
+                </tr>
+              </thead>
+              <tbody>
+                {job.openings?.map((opening, index) => (
+                  <tr key={`${opening.title}-${index}`} title={`Kaynak satır: ${opening.evidence}`}>
+                    <th scope="row">{opening.title}</th>
+                    <td>{formatNumber(opening.quota)}</td>
+                    <td>
+                      {[opening.serviceClass, opening.degree ? `${opening.degree}. derece` : null]
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </td>
+                    <td>{opening.qualification ?? 'belirtilmemiş'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">Toplam</th>
+                  <td>{formatNumber(job.openings?.reduce((sum, opening) => sum + opening.quota, 0) ?? 0)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <Card
         title="Başvuru kontrol listesi"
         description="Başvurmadan önce bu ilanın gerçek alanlarına göre kontrol edin."
