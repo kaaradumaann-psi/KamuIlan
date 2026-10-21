@@ -39,7 +39,23 @@ const listQuery = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   minQuota: z.coerce.number().int().min(1).max(100_000).optional(),
-  hasApplicationUrl: z.coerce.boolean().optional(),
+  /**
+   * `z.coerce.boolean()` BOOLEAN("false") === true olduğu için kullanılmaz:
+   * `?hasApplicationUrl=false` paylaşılan bir bağlantıda filtrenin TERSİNİ
+   * uygulardı (yalnızca başvuru bağlantısı olan ilanlar dönerdi). Değer
+   * yalnızca açıkça doğru olan gösterimlerde `true` olur.
+   */
+  hasApplicationUrl: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      if (typeof value === 'boolean') return value;
+      const normalized = value.trim().toLowerCase();
+      if (['1', 'true', 'yes', 'evet'].includes(normalized)) return true;
+      if (['0', 'false', 'no', 'hayir', 'hayır', ''].includes(normalized)) return false;
+      return undefined;
+    }),
   sort: z.enum(['newest', 'deadline', 'published', 'institution', 'title']).default('newest'),
   page: z.coerce.number().int().min(1).max(500).default(1),
   pageSize: z.coerce.number().int().min(1).max(PAGINATION.maxPageSize).default(PAGINATION.defaultPageSize),
@@ -98,6 +114,7 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
           ...(query.deadlineTo !== undefined ? { deadlineTo: query.deadlineTo } : {}),
           ...(query.minQuota !== undefined ? { minQuota: query.minQuota } : {}),
           ...(query.hasApplicationUrl === true ? { onlyWithApplicationUrl: true } : {}),
+          ...(query.hasApplicationUrl === false ? { onlyWithoutApplicationUrl: true } : {}),
         },
         { page: query.page, pageSize: query.pageSize, sort: query.sort as JobSort },
       );

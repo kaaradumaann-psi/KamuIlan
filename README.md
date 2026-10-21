@@ -52,13 +52,24 @@ ayrı), hata yönetimi, testler ve kurulum belgeleri.
    model yanıtı doğrulanır, sağlayıcı kullanılamazsa profil eşleştirmesi gösterilir.
 8. **Yönetim sağlar** — kaynak CRUD, tarama geçmişi, hata ayrıntıları,
    sınıflandırma/tekilleştirme inceleme kuyruğu, e-posta kuyruğu, kapsam raporu,
-   denetim kaydı (RBAC korumalı). Kapsam şu an **27 kayıtlı kaynak**tır: merkezî
+   denetim kaydı (RBAC korumalı). Kapsam şu an **28 kayıtlı kaynak**tır (24'ü etkin,
+   4'ü yöntemi doğrulanmadığı için kapalı): merkezî
    kaynaklara ek olarak bakanlıklar, başkanlıklar ve düzenleyici kurumlar genel
    kurum adaptörüyle taranır; canlı doğrulaması yapılmamış olanlar arayüzde
    "adaptörü yazılmış" olarak işaretlenir. Envanter etiketi bugünkü tarama
    sağlığı veya ilan kapsamını kanıtlamaz. Devlet üniversiteleri, üniversite
    hastaneleri ve belediye grupları bazı merkezî portallardan dolaylı gelebilir;
    bu dolaylı kapsama eksiksiz kurum/ilan envanteri sayılmaz.
+
+## Denetim ve kanıt belgeleri
+
+Sistem durumu, riskler ve doğrulama sonuçları `docs/audit/` altındadır; giriş noktası
+[`docs/audit/README.md`](docs/audit/README.md). Her bulgu kanıt düzeyiyle etiketlenir:
+
+- **[1]** doğrudan kanıt (kod/çalıştırma) · **[2]** tekrarlanabilir testle doğrulandı
+- **[3]** güçlü olasılık · **[4]** henüz doğrulanamadı · **[5]** kapsam dışı
+
+Çalıştırılmayan test **geçmiş sayılmaz**; mock'lu test gerçek entegrasyon kanıtı değildir.
 
 ## Hızlı başlangıç
 

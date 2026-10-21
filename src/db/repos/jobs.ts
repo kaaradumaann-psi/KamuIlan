@@ -36,7 +36,10 @@ export interface JobSearchFilters {
   deadlineFrom?: string;
   deadlineTo?: string;
   minQuota?: number;
+  /** Yalnızca başvuru bağlantısı olan ilanlar. */
   onlyWithApplicationUrl?: boolean;
+  /** Yalnızca başvuru bağlantısı BELİRTİLMEMİŞ ilanlar (paylaşılabilir bağlantı sözleşmesi). */
+  onlyWithoutApplicationUrl?: boolean;
 }
 
 export type JobSort = 'newest' | 'deadline' | 'published' | 'institution' | 'title';
@@ -321,6 +324,10 @@ export class JobRepo {
     if (filters.deadlineTo) clauses.push({ applicationEndDate: { $lte: filters.deadlineTo } });
     if (filters.minQuota !== undefined) clauses.push({ quota: { $gte: filters.minQuota } });
     if (filters.onlyWithApplicationUrl) clauses.push({ applicationUrl: { $ne: null } });
+    // `applicationUrl` alanı olmayan eski belgeler de "bağlantı belirtilmemiş" sayılır.
+    if (filters.onlyWithoutApplicationUrl) {
+      clauses.push({ $or: [{ applicationUrl: null }, { applicationUrl: { $exists: false } }] });
+    }
     return clauses.length > 0 ? { $and: clauses } : {};
   }
 

@@ -118,8 +118,14 @@ function matchValue(value: unknown, condition: FieldCondition): boolean {
   const maybeArray = Array.isArray(value) ? value : [value];
   const op = condition as ConditionOperators;
 
-  if (op.$exists === false && value === undefined) return true;
-  if (op.$exists === true && value === undefined) return false;
+  // `$exists` iki yönlü olmalıdır: alan VARSA `$exists:false` eşleşmemeli.
+  // Eski kod yalnızca `value === undefined` durumunu ele alıyordu; bu yüzden
+  // `{ $exists: false }` koşulu DEĞERİ OLAN belgeleri de eşliyordu (sessizce
+  // yanlış sonuç kümesi üretir; ör. "başvuru bağlantısı belirtilmemiş" filtresi).
+  if (op.$exists !== undefined) {
+    const exists = value !== undefined;
+    if (op.$exists !== exists) return false;
+  }
 
   if (op.$eq !== undefined && !maybeArray.some((v) => looseEquals(v, op.$eq))) return false;
   if (op.$ne !== undefined && maybeArray.some((v) => looseEquals(v, op.$ne))) return false;

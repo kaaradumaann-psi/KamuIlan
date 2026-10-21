@@ -26,6 +26,10 @@ import {
   INTERNAL_PROMOTION_CONTEXT_PATTERN,
   INTERNAL_PROMOTION_EXCLUDE_PATTERN,
   INTERNAL_PROMOTION_SIGNAL_PATTERN,
+  CONCRETE_APPLICATION_EVIDENCE_PATTERN,
+  NEWS_GATE_AD_TITLE_PATTERN,
+  NEWS_TITLE_MARKERS,
+  REPORTED_SPEECH_PATTERN,
   PROCESS_BYPASS_RULE_IDS,
   PROCESS_TITLE_CONTEXT_PATTERN,
   PROCESS_TITLE_EXCLUDE_PATTERN,
@@ -79,6 +83,51 @@ export function detectEmploymentType(title: string, body: string): { type: Emplo
     if (rule.pattern.test(combined)) return { type: rule.type, reason: rule.reason };
   }
   return { type: 'belirsiz', reason: 'İstihdam türü metinden belirlenemedi' };
+}
+
+/**
+ * "Haber dili" kapısı: personel alımından HABER VEREN metinleri ilan akışından ayırır.
+ *
+ * Kural (deterministik):
+ *  - Başlıkta haber/aktarım kalıbı varsa YA DA gövde aktarma fiiliyle başlıyorsa VE
+ *  - gövdede somut başvuru kanıtı (tarih, başvuru yolu) YOKSA → `reject`
+ *  - Somut kanıt VARSA → `review` (haber diliyle yazılmış gerçek ilan olabilir;
+ *    otomatik yayımlanmaz, insan karar verir)
+ *
+ * Girdi normalizasyonu çağıran tarafta yapılır (titleText/bodyText).
+ */
+export function detectNewsReport(
+  titleText: string,
+  bodyText: string,
+): { decision: 'reject' | 'review'; reasons: string[]; rules: string[] } | null {
+  const matched = NEWS_TITLE_MARKERS.filter((marker) => marker.pattern.test(titleText));
+  const bodyReported = bodyText.length > 0 && REPORTED_SPEECH_PATTERN.test(bodyText.slice(0, 600));
+  if (matched.length === 0 && !bodyReported) return null;
+
+  const hasConcreteEvidence = CONCRETE_APPLICATION_EVIDENCE_PATTERN.test(bodyText);
+  const ids = matched.map((marker) => marker.id);
+  const reasons = matched.map((marker) => marker.reason);
+  if (bodyReported && matched.length === 0) {
+    ids.push('haber.govde-aktarim');
+    reasons.push('Gövde bir yetkilinin sözünü aktarıyor (haber metni) — ilan metni değil');
+  }
+
+  if (hasConcreteEvidence) {
+    reasons.push(
+      'Metin haber/aktarım dili taşıyor ama somut başvuru kanıtı da var; otomatik yayımlanmaz, inceleme gerekir',
+    );
+    return { decision: 'review', reasons, rules: ids };
+  }
+
+  if (NEWS_GATE_AD_TITLE_PATTERN.test(titleText)) {
+    reasons.push(
+      'Başlık kendini ilan olarak adlandırıyor; haber dili taşısa da otomatik reddedilmez, inceleme gerekir',
+    );
+    return { decision: 'review', reasons, rules: ids };
+  }
+
+  reasons.push('Somut başvuru kanıtı (son başvuru tarihi/başvuru yolu) yok — haber/duyuru metni ilan sayılmaz');
+  return { decision: 'reject', reasons, rules: ids };
 }
 
 /**
@@ -236,6 +285,22 @@ function classifyCore(input: ClassificationInput): ClassificationResult {
       reasons: [reason, 'Kural: süreç.basvuru-sonuclari-govde'],
       rules: ['süreç.basvuru-sonuclari-govde'],
       negativeSignals: [],
+      version: CLASSIFICATION_VERSION,
+    };
+  }
+
+  // 2d) Haber/aktarım dili: "Vali … açıkladı", "… müjdesi", "… hakkında açıklama".
+  //     Bunlar kurumsal haber metinleridir; iş ilanı akışına girmemelidir.
+  const newsReport = detectNewsReport(titleText, bodyText);
+  if (newsReport) {
+    return {
+      decision: newsReport.decision,
+      kind: 'job',
+      employmentType: 'belirsiz',
+      confidence: newsReport.decision === 'reject' ? 0.85 : 0.45,
+      reasons: newsReport.reasons,
+      rules: newsReport.rules,
+      negativeSignals: newsReport.decision === 'reject' ? newsReport.reasons : [],
       version: CLASSIFICATION_VERSION,
     };
   }

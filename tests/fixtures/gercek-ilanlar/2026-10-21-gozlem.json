@@ -1,0 +1,227 @@
+{
+  "kind": "kamuilan-real-observed-corpus",
+  "version": 1,
+  "observedAt": "2026-10-21T12:00:00+03:00",
+  "observer": "agent",
+  "provenance": {
+    "labelProvenance": "agent-observed",
+    "humanVerified": false,
+    "note": "Başlıklar ve kurum adları 21.10.2026 tarihinde resmî kaynak sayfalarından OKUNARAK kaydedildi (aşağıdaki sourceUrl). Etiketleri ajan koydu; insan doğrulaması YOKTUR. Bu yüzden bu küme 'gerçek dünya precision/recall' iddiası için DEĞİL, gerçek metinlerle regresyon ve yanlış-kabul koruması için kullanılır. İnsan doğrulamalı ölçüm: npm run eval:build-set (docs/eval-gercek-veri.md)."
+  },
+  "sources": [
+    {
+      "sourceKey": "ilan-gov-tr-liste",
+      "label": "ilan.gov.tr — personel alımı listesi (ats=5)",
+      "url": "https://www.ilan.gov.tr/ilan/tum-ilanlar/personel-alimi?ats=5",
+      "policy": "Herkese açık liste sayfası, tek istek; kimlik doğrulama veya kısıt aşımı yok."
+    },
+    {
+      "sourceKey": "icisleri",
+      "label": "T.C. İçişleri Bakanlığı — Duyurular",
+      "url": "https://www.icisleri.gov.tr/duyurular",
+      "policy": "Herkese açık kurum duyuru listesi, tek istek."
+    },
+    {
+      "sourceKey": "resmigazete",
+      "label": "T.C. Resmî Gazete — Çeşitli İlânlar (21.10.2026, sayı 33407)",
+      "url": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4.htm",
+      "policy": "Herkese açık günlük gazete sayfası, tek istek."
+    }
+  ],
+  "records": [
+    {
+      "id": "real-2026-10-21-fsmvakif-ogretim-uyesi",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2264107/kamu-akademik-personel-akademik-personel-alimlari-fatih-sultan-mehmet-vakif-universitesi-rektorlugunden-ogretim-uyesi-alim-ilani",
+      "title": "Fatih Sultan Mehmet Vakıf Üniversitesi Rektörlüğünden Öğretim Üyesi Alım İlanı",
+      "institution": "FATİH SULTAN MEHMET VAKIF ÜNİVERSİTESİ REKTÖRLÜĞÜ",
+      "expectedIsJob": true,
+      "expectedContentType": "personnel_recruitment",
+      "caseTag": "gerçek-pozitif"
+    },
+    {
+      "id": "real-2026-10-21-cag-ogretim-elemani",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2264012/kamu-akademik-personel-akademik-personel-alimlari-cag-universitesi-rektorlugunden-ogretim-elemani-alim-ilani",
+      "title": "Çağ Üniversitesi Rektörlüğünden Öğretim Elemanı Alım İlanı",
+      "institution": "ÇAĞ ÜNİVERSİTESİ REKTÖRLÜĞÜ",
+      "expectedIsJob": true,
+      "expectedContentType": "personnel_recruitment",
+      "caseTag": "gerçek-pozitif"
+    },
+    {
+      "id": "real-2026-10-21-doganyol-sozlesmeli",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2263556/kamu-akademik-personel-kamu-personel-alim-ve-sinavlari-doganyol-belediye-baskanligi-sozlesmeli-personel-alim-ilani",
+      "title": "Doğanyol Belediye Başkanlığı Sözleşmeli Personel Alım İlanı",
+      "institution": "DOĞANYOL BELEDİYE BAŞKANLIĞI",
+      "expectedIsJob": true,
+      "expectedContentType": "personnel_recruitment",
+      "caseTag": "gerçek-pozitif"
+    },
+    {
+      "id": "real-2026-10-21-tcdd-166-isci",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2263496/kamu-akademik-personel-kamu-personel-alim-ve-sinavlari-tcdd-tasimacilik-as-genel-mudurlugunden-166-surekli-isci-alim-ilani",
+      "title": "TCDD Taşımacılık AŞ Genel Müdürlüğünden 166 Sürekli İşçi Alım İlanı",
+      "institution": "TCDD TAŞIMACILIK A.Ş. GENEL MÜDÜRLÜĞÜ",
+      "expectedIsJob": true,
+      "expectedContentType": "personnel_recruitment",
+      "caseTag": "gerçek-pozitif"
+    },
+    {
+      "id": "real-2026-10-21-ytb-uzman-yardimcisi",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2262386/kamu-akademik-personel-kamu-personel-alim-ve-sinavlari-yurtdisi-turkler-ve-akraba-topluluklar-baskanligi-uzman-yardimcisi-alim-ilani",
+      "title": "Yurtdışı Türkler ve Akraba Topluluklar Başkanlığı Uzman Yardımcısı Alım İlanı",
+      "institution": "YURTDIŞI TÜRKLER VE AKRABA TOPLULUKLAR BAŞKANLIĞI",
+      "expectedIsJob": true,
+      "expectedContentType": "personnel_recruitment",
+      "caseTag": "gerçek-pozitif"
+    },
+    {
+      "id": "real-2026-10-21-pamukkale-ogretim-uyesi",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2263775/kamu-akademik-personel-akademik-personel-alimlari-pamukkale-universitesi-rektorlugu-ogretim-uyesi-alim-ilani",
+      "title": "Pamukkale Üniversitesi Rektörlüğü Öğretim Üyesi Alım İlanı",
+      "institution": "PAMUKKALE ÜNİVERSİTESİ REKTÖRLÜĞÜ",
+      "expectedIsJob": true,
+      "expectedContentType": "personnel_recruitment",
+      "caseTag": "gerçek-pozitif"
+    },
+    {
+      "id": "real-2026-10-21-izmir-kalkinma-iptal",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2264013/kamu-akademik-personel-kamu-personel-alim-ve-sinavlari-iptal-ilani-izmir-kalkinma-ajansi-",
+      "title": "İptal İlanı (İzmir Kalkınma Ajansı)",
+      "institution": "İZMİR KALKINMA AJANSI GENEL SEKRETERLİĞİ",
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "expectedWithdrawal": "withdrawn",
+      "caseTag": "gerçek-iptal",
+      "note": "BU KAYIT BULUNAN HATANIN KANITIDIR: eski detectWithdrawalSignal() bu biçimi tanımıyordu; iptal edilen ilan 'Başvuru açık' kalıyordu."
+    },
+    {
+      "id": "real-2026-10-21-uludag-duzeltme",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2262304/kamu-akademik-personel-akademik-personel-alimlari--duzeltme-ilani-uludag-universitesi-rektorlugu",
+      "title": "(Düzeltme İlanı) Uludağ Üniversitesi Rektörlüğü",
+      "institution": "BURSA ULUDAĞ ÜNİVERSİTESİ REKTÖRLÜĞÜ",
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "expectedWithdrawal": "correction",
+      "caseTag": "gerçek-düzeltme"
+    },
+    {
+      "id": "real-2026-10-21-yalova-tercuman-duyuru",
+      "sourceKey": "ilan-gov-tr-liste",
+      "sourceUrl": "https://www.ilan.gov.tr/ilan/2261868/kamu-akademik-personel-kamu-personel-alim-ve-sinavlari-tercuman-listesi-basvurulari-hakkinda-duyuru",
+      "title": "Tercüman listesi başvuruları hakkında duyuru",
+      "institution": "YALOVA CUMHURİYET BAŞSAVCILIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-süreç-duyurusu"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-gorevde-yukselme",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/icisleri-bakanligi-bakanlik-merkez-ve-tasra-teskilati-personeli-gorevde-yukselme-ve-unvan-degisikligi-sinav-duyurusu",
+      "title": "İçişleri Bakanlığı Bakanlık Merkez Ve Taşra Teşkilatı Personeli Görevde Yükselme Ve Ünvan Değişikliği Sınav Duyurusu",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "personnel_process_announcement",
+      "caseTag": "gerçek-süreç-duyurusu"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-malul-basvuru",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/terorle-mucadelede-yaralanip-malul-sayilmayanlara-yonelik-basvuru-sureci-hakkinda-duyuru",
+      "title": "Terörle Mücadelede Yaralanıp Malul Sayılmayanlara Yönelik Başvuru Süreci Hakkında Duyuru",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-haber-değil-duyuru"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-kaymakam-yargi",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/kaymakam-adayligi-nihai-basari-bilgileri-yargi-karari",
+      "title": "Kaymakam Adaylığı Nihai Başarı Bilgileri (Yargı kararı)",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-sonuç-duyurusu"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-gorevde-yukselme-sinav-tarihi",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/gorevde-yukselme-ve-unvan-degisikligi-yazili-sinavlari-28-kasim-2026-tarihinde-yapilacaktir",
+      "title": "Görevde Yükselme ve Unvan Değişikliği Yazılı Sınavları, 28 Kasım 2026 Tarihinde Yapılacaktır",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "personnel_process_announcement",
+      "caseTag": "gerçek-süreç-duyurusu"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-bilisim-sozlu-sonuc",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/sozlesmeli-bilisim-personeli-sozlu-sinav-sonuc-listesi-26-2i",
+      "title": "Sözleşmeli Bilişim Personeli Sözlü Sınav Sonuç Listesi",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "personnel_process_announcement",
+      "caseTag": "gerçek-sonuç-duyurusu"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-atama-kararnamesi",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/cumhurbaskanligi-atama-kararnamesi-yayimlandi-26-148",
+      "title": "Cumhurbaşkanlığı Atama Kararnamesi Yayımlandı",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-haber"
+    },
+    {
+      "id": "real-2026-10-21-icisleri-bilisim-sozlu-hak",
+      "sourceKey": "icisleri",
+      "sourceUrl": "https://www.icisleri.gov.tr/sozlesmeli-bilisim-personeli-sozlu-sinavina-girmeye-hak-kazananlar-26-1",
+      "title": "Sözleşmeli Bilişim Personeli Sözlü Sınavına Girmeye Hak Kazananlar",
+      "institution": "İÇİŞLERİ BAKANLIĞI",
+      "expectedIsJob": false,
+      "expectedContentType": "personnel_process_announcement",
+      "caseTag": "gerçek-süreç-duyurusu"
+    },
+    {
+      "id": "real-2026-10-21-resmigazete-izmir-kalkinma",
+      "sourceKey": "resmigazete",
+      "sourceUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4.htm",
+      "title": "İzmir Kalkınma Ajansından",
+      "institution": null,
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-başlık-kurum-adı",
+      "note": "Resmî Gazete listesinde yalnızca kurum adı görünür; ilan metni PDF'te. Bu biçim tek başına ilan sayılmamalı."
+    },
+    {
+      "id": "real-2026-10-21-resmigazete-ktb",
+      "sourceKey": "resmigazete",
+      "sourceUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4.htm",
+      "title": "Kültür ve Turizm Bakanlığından",
+      "institution": null,
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-başlık-kurum-adı"
+    },
+    {
+      "id": "real-2026-10-21-resmigazete-adalet-hukuk",
+      "sourceKey": "resmigazete",
+      "sourceUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4.htm",
+      "title": "Adalet Bakanlığı Hukuk İşleri Genel Müdürlüğünden",
+      "institution": null,
+      "expectedIsJob": false,
+      "expectedContentType": "other",
+      "caseTag": "gerçek-başlık-kurum-adı"
+    }
+  ]
+}

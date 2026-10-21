@@ -7,7 +7,14 @@
  */
 import { createId, sha256Hex } from '../domain/ids';
 import { jobContentFingerprint } from '../domain/job-content-fingerprint';
-import { collapseWhitespace, escapeRegExp, makeExcerpt, normalizeTr, redactContactDetails } from '../domain/text';
+import {
+  collapseWhitespace,
+  diceSimilarity,
+  escapeRegExp,
+  makeExcerpt,
+  normalizeTr,
+  redactContactDetails,
+} from '../domain/text';
 import { isStalePublication, plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
 import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
@@ -195,13 +202,125 @@ export function statusReasonFor(status: JobStatus, params: { applicationEndDate:
   return '';
 }
 
+/**
+ * Başlıkta kesin iptal/geri çekme ifadesi.
+ *
+ * KAPSAM KANITI (21.10.2026 ilan.gov.tr personel alımı listesi): gerçek iptal
+ * kaydının başlığı **"İptal İlanı (İzmir Kalkınma Ajansı)"** biçimindeydi.
+ * Eski kural yalnızca "ilan iptal…" sırasını tanıdığı için bu duyuru sıradan
+ * bir ret olarak düşüyor, iptal edilen ilan ise arayüzde "Başvuru açık"
+ * kalıyordu. Bu yüzden ad ÖNCE gelen biçim de (iptal ilanı/duyurusu,
+ * düzeltme ilanı/duyurusu) tanınır.
+ */
+const WITHDRAWAL_TITLE_PATTERN =
+  /\bilan\w*\s+iptal|\biptal\s+(?:ilan|duyuru)\w*|\biptal\s+edilmi[şs]tir|\bgeri\s+[çc]ekil|\by[üu]r[üu]rl[üu]kten\s+kald[ıi]r/;
+
+/**
+ * Gövdede yalnızca KESİN geçmiş zaman ifadeleri iptal sayılır.
+ *
+ * Koşullu/olasılık kipleri ("sınav iptal edilirse", "ihale iptal edilebilir")
+ * bilinçli olarak dışarıda bırakılır: bunlar gerçek ilan metinlerinde geçer ve
+ * yanlış iptal, geçerli bir ilanı kullanıcıdan saklamak demektir.
+ */
+const WITHDRAWAL_BODY_PATTERN =
+  /\bil\w*\s+iptal\s+edil(mi[şs]|di)|\biptal\s+edilmi[şs]tir\b|\bgeri\s+[çc]ekilmi[şs]tir\b/;
+
+/** Düzeltme duyurusu (ilan/düzeltme sırasından bağımsız). */
+const CORRECTION_PATTERN = /\b(?:duzeltme\s+(?:ilan|duyuru)\w*|ilan\w*\s+duzeltme\w*|\bd[üu]zeltme)\b/;
+
 /** Metinde geri çekme/iptal sinyali var mı? */
 export function detectWithdrawalSignal(title: string, body: string): 'withdrawn' | 'correction' | null {
-  const text = normalizeTr(`${title} ${body.slice(0, 400)}`);
-  if (/\bilan\s+iptal|\biptal\s+edilmi[şs]|\bgeri\s+[çc]ekil|\by[üu]r[üu]rl[üu]kten\s+kald[ıi]r/.test(text))
-    return 'withdrawn';
-  if (/\bduzeltme\s+ilan|\bd[üu]zeltme/.test(text)) return 'correction';
+  // Başlık ayrı değerlendirilir: gövdedeki koşullu ifadeler iptal sayılmamalı.
+  const titleText = normalizeTr(title);
+  if (WITHDRAWAL_TITLE_PATTERN.test(titleText)) return 'withdrawn';
+  const bodyText = normalizeTr(body.slice(0, 400));
+  if (WITHDRAWAL_BODY_PATTERN.test(bodyText)) return 'withdrawn';
+  if (CORRECTION_PATTERN.test(titleText) || CORRECTION_PATTERN.test(bodyText)) return 'correction';
   return null;
+}
+
+/**
+ * İptal/düzeltme duyurusunun HEDEF ilanını seçer.
+ *
+ * Eski davranış aday listesinin ilk elemanını (`candidates[0]`) kullanıyordu.
+ * Aday listesi "son 400 ilan" ile doldurulduğu için kurum bilgisi eşleşmediğinde
+ * hedef **en son eklenen, ilgisiz ilan** oluyor ve o ilan "iptal edildi" diye
+ * kapatılıyordu (tekrarlanabilir test: tests/ilan-iptal-guvenligi.test.ts).
+ * Artık yalnızca kanıtla eşleşme kabul edilir:
+ *
+ *  1. resmî ilan numarası birebir aynı,
+ *  2. kanonik URL birebir aynı,
+ *  3. duyuru başlığı orijinal ilan başlığını BİREBİR içeriyor (tek aday),
+ *  4. aynı kurum + başlık benzerliği birleştirme eşiğinin üzerinde ve tek aday.
+ *
+ * Kanıt yoksa `null` döner; çağıran taraf kaydı insan incelemesine gönderir.
+ * Belirsizlikte ilan kapatmak, açık bir ilanı yanlışlıkla gizlemekten daha
+ * maliyetlidir.
+ */
+export function selectWithdrawalTarget(
+  raw: Pick<RawAnnouncement, 'title' | 'url' | 'institution' | 'referenceNo'>,
+  candidates: readonly DedupeCandidateJob[],
+): DedupeCandidateJob | null {
+  if (candidates.length === 0) return null;
+
+  const reference = raw.referenceNo ?? extractReferenceFromTitle(raw.title);
+  if (reference) {
+    const needle = normalizeTr(reference);
+    const byReference = candidates.find(
+      (candidate) => candidate.originalRefNo && normalizeTr(candidate.originalRefNo) === needle,
+    );
+    if (byReference) return byReference;
+  }
+
+  const url = normalizeUrl(raw.url);
+  if (url) {
+    const byUrl = candidates.find((candidate) => candidate.normalizedUrl === url);
+    if (byUrl) return byUrl;
+  }
+
+  const noticeTitle = normalizeTr(raw.title);
+  const institution = normalizeTr(raw.institution ?? '');
+  const sameInstitution = (candidate: DedupeCandidateJob): boolean =>
+    institution.length > 0 &&
+    (candidate.institutionNormalized === institution ||
+      candidate.institutionNormalized.includes(institution) ||
+      institution.includes(candidate.institutionNormalized));
+
+  // 3) Duyuru başlığı, orijinal ilan başlığını BİREBİR içeriyor.
+  //    ("… Sözleşmeli Personel Alım İlanı İptal Edilmiştir" gibi gerçek biçim.)
+  //    Kurum alanı boş gelse bile başlık kapsama tek başına güçlü kanıttır; ancak
+  //    kurum bilgisi varsa ve adayın kurumu açıkça FARKLIysa aday elenir.
+  const institutionContradicts = (candidate: DedupeCandidateJob): boolean =>
+    institution.length > 0 &&
+    candidate.institutionNormalized.length > 0 &&
+    !sameInstitution(candidate);
+  const contained = candidates.filter(
+    (candidate) =>
+      candidate.titleNormalized.length >= 12 &&
+      noticeTitle.includes(candidate.titleNormalized) &&
+      !institutionContradicts(candidate),
+  );
+  if (contained.length === 1) return contained[0] ?? null;
+  if (contained.length > 1) {
+    // Birden çok başlık kapsanıyorsa kurum eşleşmesi ayırt edici olabilir.
+    const withInstitution = contained.filter(sameInstitution);
+    return withInstitution.length === 1 ? (withInstitution[0] ?? null) : null;
+  }
+
+  // 4) Aynı kurum + yüksek başlık benzerliği; en iyi aday açık ara önde olmalı.
+  if (!institution) return null;
+  const scored = candidates
+    .filter(sameInstitution)
+    .map((candidate) => ({
+      candidate,
+      score: diceSimilarity(noticeTitle, candidate.titleNormalized || normalizeTr(candidate.title)),
+    }))
+    .sort((left, right) => right.score - left.score);
+  const best = scored[0];
+  if (!best || best.score < DEDUPE_THRESHOLDS.mergeTitleSimilarity) return null;
+  const runnerUp = scored[1];
+  if (runnerUp && best.score - runnerUp.score < 0.05) return null;
+  return best.candidate;
 }
 
 /** İlan dokümanını ham kayıttan üretir (kaydetmez). */
@@ -498,7 +617,10 @@ export async function applyRawAnnouncement(
   // Geri çekme/düzeltme sinyali: mevcut ilan varsa durum güncellenir.
   if (withdrawal && !existingLink) {
     const candidates = await findCandidates(ctx.repos, raw, null);
-    const target = candidates[0];
+    // Hedef YALNIZCA kanıtla seçilir (resmî no, kanonik URL, başlık kapsama,
+    // kurum + yüksek benzerlik). Aday listesinin ilk elemanına düşmek, ilgisiz
+    // bir ilanı "iptal edildi" diye kapatıyordu.
+    const target = selectWithdrawalTarget(raw, candidates);
     if (!target) {
       const reason =
         withdrawal === 'withdrawn'
