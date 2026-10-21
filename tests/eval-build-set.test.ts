@@ -406,6 +406,14 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('belgelenen varsayılan çağrı (--limit/--filter yok) çalışır', () => {
+    // Eski kod: bayrak yokken Number(undefined) = NaN → "--limit 1–500 arasında olmalıdır".
+    const defaultsPath = join(dir, 'defaults-worksheet.json');
+    const output = run([`--out=${defaultsPath}`]);
+    expect(output).not.toMatch(/--limit 1–500/);
+    expect(existsSync(defaultsPath)).toBe(true);
+  });
+
   it('sayfa üretir, kuru içe aktarma yazmaz, --apply kümeye yazar', () => {
     // `--flag=deger` biçimi de desteklenir; aksi hâlde sessizce varsayılan yola yazıyordu.
     const built = run([`--out=${worksheetPath}`, '--filter', 'review', '--limit', '10']);
