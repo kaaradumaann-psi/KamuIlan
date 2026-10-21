@@ -630,6 +630,10 @@ export function extractDistrict(text: string): string | null {
 
 export function extractQuota(text: string): { value: number; snippet: string } | null {
   const patterns: readonly RegExp[] = [
+    // Resmî toplam "sayıyla (yazıyla)": "sözlü sınav sonucunda … 2 (iki) Sözleşmeli Bilişim
+    // Personeli alınacaktır" (RG 16.10-4-1, Sayıştay). Pozisyon başı "(1 Kişi …)" ifadeleri
+    // metinde ÖNCE geçse de toplam budur; en güçlü kanıt olduğu için ilk sırada.
+    /(\d{1,4})\s*\((?:bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on|yirmi|otuz|kırk|elli|altmış|yetmiş|seksen|doksan|yüz)[a-zçğıöşü]*\)\s+(?:[^\s.;:()]+\s+){0,4}?(?:personel|memur|işçi|eleman|uzman|kadro)[a-zçğıöşü]*\s+(?:alın|istihdam)/i,
     /kontenjan\s*(?:bilgisi|sayısı|:)?\s*[:.]?\s*(\d{1,4})/i,
     // "adet" çoğu ilanda BELGE sayısıdır: "3 adet vesikalık fotoğraf", "Sabıka Kaydı (1 adet)",
     // "Profesör kadrosu adayları 6 adet, … 4 adet dijital dosya" (gerçek RG metinleri).

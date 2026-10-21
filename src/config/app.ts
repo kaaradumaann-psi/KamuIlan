@@ -65,7 +65,10 @@ export const CLASSIFICATION_VERSION = '2026.10.5';
 // 2026.10.5: birim (`unit`) çıkarımı tablo başlığı artıklarını almaz; birden fazla
 // farklı birim varsa alan boş kalır (gerçek RG kanıtı: "SI KADRO ÜNVANI AÇIKLAMA
 // MDF01 Mühendislik ve Doğa Bilimleri Fakültesi"). Yeni/yeniden görülen kayıtlara uygulanır.
-export const EXTRACTION_VERSION = '2026.10.5';
+// 2026.10.6: kontenjan belge adedinden okunmaz, kadro tablosu toplamı önceliklidir (#43);
+// üniversite öğretim elemanı tabloları okunur; "N (yazıyla) … personel alınacaktır" resmî
+// toplamı pozisyon başı sayıların önüne geçer (gerçek RG: Bursa Uludağ 37, Akdeniz 29, Sayıştay 2).
+export const EXTRACTION_VERSION = '2026.10.6';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */
