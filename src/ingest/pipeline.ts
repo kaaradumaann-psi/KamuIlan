@@ -12,6 +12,7 @@
  *    SMTP erişilemese de tarama tamamlanır.
  */
 import { getEnv } from '../config/env';
+import { CLASSIFICATION_VERSION } from '../config/app';
 import {
   findSourceDefinition,
   type SourceDefinition,
@@ -150,6 +151,20 @@ export function detailFetchBudget(method: string): number {
   return 8;
 }
 
+/**
+ * Eski kural sürümüyle verilmiş RET kararı tarama belleğinde sayılmaz.
+ *
+ * Reddedilen kayıt ilan (`jobs`) oluşturmaz; yalnızca karar kaydı kalır ve gövde
+ * metni saklanmaz. Bu yüzden `jobs:reclassify` ona ulaşamaz: kural düzeltmesi
+ * (ör. #31 "Bursa" ≠ "burs") yalnızca kayıt kaynakta yeniden görülüp işlenirse
+ * etkili olur. Bu kayıt bilinen kümeden çıkarılınca adaptör onu bir kez yeniden
+ * indirir; karar güncel sürümle yeniden yazılır ve kayıt yine "bilinen" olur.
+ * İnceleme/sinyal kararları insan kuyruğunda olduğu için yeniden işlenmez.
+ */
+function staleRejection(decision: { decision: string; classificationVersion: string }): boolean {
+  return decision.decision === 'rejected' && decision.classificationVersion !== CLASSIFICATION_VERSION;
+}
+
 /** Daha önce görülmüş kaynak içi kimlikler (pahalı indirmeleri atlamak için). */
 export async function loadKnownItemIds(repos: Repos, sourceKey: string): Promise<Set<string>> {
   const [links, decisions] = await Promise.all([
@@ -159,7 +174,10 @@ export async function loadKnownItemIds(repos: Repos, sourceKey: string): Promise
   // İlan oluşturmayan kayıtlar (ret/inceleme/sinyal) da "görüldü" sayılır;
   // yoksa liste başındaki reddedilen duyurular her koşumda detay bütçesini
   // yutup sonraki sayfalardaki gerçek ilanların süresiz aç kalmasına yol açar.
-  return new Set([...links.map((link) => link.sourceItemId), ...decisions.map((d) => d.sourceItemId)]);
+  return new Set([
+    ...links.map((link) => link.sourceItemId),
+    ...decisions.filter((d) => !staleRejection(d)).map((d) => d.sourceItemId),
+  ]);
 }
 
 export async function loadKnownItemIdsWithDetail(repos: Repos, sourceKey: string): Promise<Set<string>> {
@@ -172,7 +190,7 @@ export async function loadKnownItemIdsWithDetail(repos: Repos, sourceKey: string
     ...links.filter((link) => withText(link.capturedTextStatus)).map((link) => link.sourceItemId),
     // Gövde metni olmadan reddedilmiş/incelemeye alınmış kayıtlar burada yer
     // almaz: detay sonradan gelirse sınıflandırma yeniden çalışabilir.
-    ...decisions.filter((d) => withText(d.capturedTextStatus)).map((d) => d.sourceItemId),
+    ...decisions.filter((d) => withText(d.capturedTextStatus) && !staleRejection(d)).map((d) => d.sourceItemId),
   ]);
 }
 
