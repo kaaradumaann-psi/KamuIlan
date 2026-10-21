@@ -27,6 +27,7 @@ import {
   INTERNAL_PROMOTION_EXCLUDE_PATTERN,
   INTERNAL_PROMOTION_SIGNAL_PATTERN,
   CONCRETE_APPLICATION_EVIDENCE_PATTERN,
+  NEWS_GATE_AD_TITLE_PATTERN,
   NEWS_TITLE_MARKERS,
   REPORTED_SPEECH_PATTERN,
   PROCESS_BYPASS_RULE_IDS,
@@ -114,6 +115,13 @@ export function detectNewsReport(
   if (hasConcreteEvidence) {
     reasons.push(
       'Metin haber/aktarım dili taşıyor ama somut başvuru kanıtı da var; otomatik yayımlanmaz, inceleme gerekir',
+    );
+    return { decision: 'review', reasons, rules: ids };
+  }
+
+  if (NEWS_GATE_AD_TITLE_PATTERN.test(titleText)) {
+    reasons.push(
+      'Başlık kendini ilan olarak adlandırıyor; haber dili taşısa da otomatik reddedilmez, inceleme gerekir',
     );
     return { decision: 'review', reasons, rules: ids };
   }

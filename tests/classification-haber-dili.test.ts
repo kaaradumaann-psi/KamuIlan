@@ -130,6 +130,44 @@ describe('haber dili kapısı', () => {
     expect(gate?.decision).toBe('reject');
   });
 
+  // Bağımsız doğrulamada (21.10.2026) bulunan yanlış ret: ünvan kalıbı ("Müdür …",
+  // "Vali …") ilan başlığındaki görev adlarını da yakalıyor, gerçek ilanı reddediyordu.
+  it('görev unvanı içeren gerçek ilan başlıkları konuşmacı aktarımı sayılmaz', () => {
+    const body =
+      'Kurumumuz bünyesinde istihdam edilmek üzere aşağıda belirtilen pozisyona personel alımı yapılacaktır.';
+    for (const title of [
+      'Müdür Yardımcısı Alım İlanı',
+      'Genel Müdür Alımı İlanı',
+      'Genel Müdür Yardımcısı Alımı İlanı',
+      'Vali Yardımcısı Kadrosu Personel Alımı',
+      'Başkan Yardımcısı (Sözleşmeli) Personel Alımı',
+    ]) {
+      const result = classify({ title, body });
+      expect(result.rules, title).not.toContain('haber.konusmaci-aktarimi');
+      expect(result.decision, title).not.toBe('reject');
+    }
+  });
+
+  it('konuşmacı aktarımı ünvan + ad biçiminde yakalanmaya devam eder', () => {
+    for (const title of [
+      'Bakan Yardımcısı Kaya: 5 bin personel alınacak',
+      'Müdür Demir personel alımını anlattı',
+    ]) {
+      const result = classify({ title, body: '' });
+      expect(result.rules, title).toContain('haber.konusmaci-aktarimi');
+      expect(result.decision, title).toBe('reject');
+    }
+  });
+
+  it('kendini ilan olarak adlandıran başlık haber dili taşısa da reddedilmez, incelemeye düşer', () => {
+    const result = classify({
+      title: 'Sürekli İşçi Alımı İlanı Hakkında Açıklama',
+      body: 'Kurumumuzca yayımlanan sürekli işçi alımı ilanına ilişkin açıklama aşağıdadır.',
+    });
+    expect(result.rules).toContain('haber.aciklama-basligi');
+    expect(result.decision).toBe('review');
+  });
+
   it('resmî edilgen ilan kalıbı ("Duyurulur") haber sayılmaz', () => {
     const gate = detectNewsReport(
       normalizeForClassification('Sözleşmeli Personel Alımı Yapılacağı Duyurulur'),

@@ -700,8 +700,11 @@ export const NEWS_TITLE_MARKERS: readonly { id: string; reason: string; pattern:
     reason: 'Başlık bir yetkilinin sözünü aktarıyor (Vali/Bakan/Başkan: …)',
     // Not: normalizeTr iki nokta üst üste gibi noktalama işaretlerini siler; bu yüzden
     // "Bakan Yılmaz: …" kalıbı "bakan yilmaz …" olarak gelir (ünvan + ad).
+    // Ünvandan sonraki sözcük bir ad olmalıdır: "Müdür Yardımcısı Alım İlanı",
+    // "Genel Müdür Alımı", "Vali Yardımcısı Kadrosu" gerçek ilan başlıklarıdır ve
+    // eski biçim bunları haber sayıp reddediyordu (bkz. tests/classification-haber-dili.test.ts).
     pattern:
-      /^(?:vali|bakan|baskan|baskan\s+yardimcisi|bakan\s+yardimcisi|mudur|genel\s+mudur|sozcu|yetkili)\s+[a-z]{2,}\b/,
+      /^(?:vali|bakan|baskan|baskan\s+yardimcisi|bakan\s+yardimcisi|mudur|genel\s+mudur|sozcu|yetkili)\s+(?!(?:yardimci|alim|alin|kadro|ilan|pozisyon|personel|gorev|unvan|aday|atama|yrd|ve|veya)\w*\b)[a-z]{2,}\b/,
   },
   {
     id: 'haber.isim',
@@ -716,6 +719,13 @@ export const NEWS_TITLE_MARKERS: readonly { id: string; reason: string; pattern:
       /\b(?:hakkinda|hakkinda\s+olarak|iliskin|dair)\s+(?:bir\s+)?aciklama\w*|\baciklama\w*\s+yapil|\baciklama\s*$/,
   },
 ];
+
+/**
+ * Başlık kendisini ilan olarak adlandırıyor ("… Alım İlanı Hakkında Açıklama").
+ * Haber kapısı böyle bir kaydı reddetmez, incelemeye gönderir: mevcut bir ilana
+ * dair açıklama/düzeltme olabilir ve sessizce atılmamalıdır.
+ */
+export const NEWS_GATE_AD_TITLE_PATTERN = /\bilan\w*/;
 
 /** Gövdede aktarma/haber dili: "… söyledi", "… öğrenildi", "… bildirildi". */
 export const REPORTED_SPEECH_PATTERN =
