@@ -3,7 +3,7 @@ import type { ClassificationKind, ClassificationResult } from '../domain/types';
 import { classify } from '../classification/engine';
 import { plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
 import { normalizeTr, stripUiChrome } from '../domain/text';
-import { extractPublishedAt } from '../extraction/engine';
+import { extractPublishedAt, extractUnit } from '../extraction/engine';
 import { computeStatus, statusReasonFor } from './jobs-service';
 
 /**
@@ -73,6 +73,12 @@ export function reclassifyJob(job: JobDoc, now: Date): ReclassifyResult {
     patch.textExcerpt = textExcerpt;
     patch.textNormalized = normalizeTr(textExcerpt);
   }
+  // Birim: YALNIZCA saklı değer güncel kurala uymuyorsa (tablo başlığı artığı,
+  // ör. "SI KADRO ÜNVANI AÇIKLAMA MDF01 … Fakültesi") boşaltılır. Saklı alıntıdan
+  // yeniden türetilmez: alıntı kısaltılmıştır (2.500 karakter) ve çok fakülteli
+  // ilanda yalnız ilk fakülteyi görüp tek birim uydurabilir. Doğru değer, ilan
+  // kaynakta yeniden görülünce tam metinden çıkarılır.
+  if (job.unit && extractUnit(job.unit) !== job.unit) patch.unit = null;
 
   // 2) Sınıflandırma (güncel kurallar). Kaynak kategorisi kalıcı saklanmadığı için
   //    yalnızca başlık ve metin kullanılır; kanıt kapısı bunu zaten gerektirir.

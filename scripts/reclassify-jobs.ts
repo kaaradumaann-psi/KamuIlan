@@ -95,6 +95,7 @@ async function main(): Promise<void> {
   console.log(`Akışa girecek:                     ${summary.newlyAccepted}`);
   console.log(`Türü değişecek (job/process):      ${summary.kindChanged}`);
   console.log(`Başlığı temizlenecek:              ${summary.titlesCleaned}`);
+  console.log(`Birimi düzeltilecek:               ${summary.unitsCleaned}`);
   console.log(`Durumu değişecek:                  ${summary.statusChanged}`);
   console.log(`Desteksiz yayım tarihi silinecek:  ${summary.publishedAtCleared}`);
   console.log(`İmkânsız son başvuru silinecek:    ${summary.applicationEndCleared}`);

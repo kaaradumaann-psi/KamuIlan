@@ -20,7 +20,7 @@ import { normalizeUrl } from '../domain/urls';
 import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
 import { classify } from '../classification/engine';
-import { extract, type ExtractedJob } from '../extraction/engine';
+import { extract, extractUnit, type ExtractedJob } from '../extraction/engine';
 import type { LlmClassificationGate, LlmReviewOpinion } from '../ai/classifier';
 import type { JobDoc, JobRevisionDoc, JobSourceDoc, SourceDoc, SourceItemDecisionDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
@@ -904,6 +904,9 @@ async function mergeIntoExistingJob(
     quota: document.quota ?? previous.quota,
     city: previous.city ?? document.city,
     titles: previous.titles.length >= document.titles.length ? previous.titles : document.titles,
+    // Saklı birim güncel kurala uyuyorsa korunur; tablo başlığı artığıysa ya da boşsa
+    // yeni okumanın (tam metin) değeri alınır — `jobs:reclassify` çöp birimi boşaltır.
+    unit: previous.unit && extractUnit(previous.unit) === previous.unit ? previous.unit : document.unit,
     // Yeni okumada tablo varsa o geçerlidir (ilan güncellenmiş olabilir); yoksa eskisi korunur.
     openings: document.openings.length > 0 ? document.openings : (previous.openings ?? []),
     requirements:
