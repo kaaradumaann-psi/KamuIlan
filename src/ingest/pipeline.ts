@@ -396,7 +396,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
             outcome === 'created' ||
             outcome === 'updated' ||
             outcome === 'merged' ||
-            outcome === 'review'
+            outcome === 'review' ||
+            outcome === 'withdrawal'
           ) {
             notificationCounts.queued += await notify(item, outcome, {
               repos,
@@ -603,13 +604,21 @@ async function notify(
   ctx: { repos: Repos; logger: Logger; now: Date; enabled: boolean },
 ): Promise<number> {
   if (!ctx.enabled) return 0;
-  if (action !== 'created' && action !== 'updated') return 0;
+  // İptal/düzeltme duyurusu da ilanı değiştirir (`withdrawal`): kullanıcı iptal edilen
+  // ilana başvurmaya devam etmesin diye "ilanda değişiklik" bildirimi üretilir.
+  if (action !== 'created' && action !== 'updated' && action !== 'withdrawal') return 0;
 
   const link = await ctx.repos.jobs.findLinkBySourceItem(item.sourceKey, item.sourceItemId);
   const jobId = link?.jobId;
   if (!jobId) return 0;
   const job: JobDoc | null = await ctx.repos.jobs.findById(jobId);
   if (!job) return 0;
+  // Değişiklik özeti sürüm kaydından gelir (ör. "İlan resmî olarak geri çekildi/iptal
+  // edildi."); önceden e-posta yalnızca "güncelleme var" diyordu.
+  const changeSummary =
+    action === 'created'
+      ? undefined
+      : (await ctx.repos.jobs.listRevisions(job.id)).find((revision) => revision.version === job.version)?.summary;
 
   const env = getEnv();
   try {
@@ -617,6 +626,7 @@ async function notify(
       repos: ctx.repos,
       job,
       kind: action === 'created' ? 'new-job' : 'job-changed',
+      ...(changeSummary ? { changeSummary } : {}),
       baseUrl: env.APP_BASE_URL,
       senderName: env.APP_DISPLAY_NAME,
       now: ctx.now,
