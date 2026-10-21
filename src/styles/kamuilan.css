@@ -622,6 +622,15 @@
     align-items: stretch;
   }
 
+  /* Ortak katman (workspace.css) 820 px altında `.day-board .desk`'i tek sütuna
+     indirir; yukarıdaki daha özgül kural bunu eziyordu: telefonda sol sütun 0 px'e
+     iniyor, durum kartı arama alanının üstüne biniyordu (390 px'de kolonlar "0px 290px"). */
+  @media (max-width: 820px) {
+    .day-board .desk.hero-band {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   .hero-band-inner {
     max-width: 1320px;
     margin: 0 auto;
@@ -669,13 +678,28 @@
     flex-wrap: wrap;
   }
 
+  /* Ortak katmandaki `.desk-now strong` (workspace.css) tek büyük sayı göstergesi
+     içindir: görüntü yazı tipi, 28–37 px, üstte 25 px boşluk. Burada değerler
+     cümle içindedir ve metin olabilir ("9 dakika önce", "çalışmıyor"); o stil
+     kartı satır satır dev puntoya bölüyordu. Satır içi değer satırın yazısını izler. */
   .desk-now .desk-now-name strong,
   .desk-now .desk-now-detail strong {
     color: #ffffff;
     font-weight: 700;
+    margin-top: 0;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    letter-spacing: normal;
+  }
+
+  /* Etiket tek satırda kalır; yer yetmezse durum rozeti alta iner. */
+  .desk-now .desk-now-top {
+    flex-wrap: wrap;
   }
 
   .desk-now-tag {
+    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     gap: 8px;

@@ -160,7 +160,10 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
         <Metric label="Bugün eklenen" value={formatNumber(data.jobs.addedToday)} />
         <Metric label="İncelenecek ilanlar" value={formatNumber(data.reviewQueue.total)} />
         <Metric label="Tarama kaydı" value={formatNumber(data.runs.total)} />
-        <Metric label="Başarısız tarama" value={formatNumber(data.runs.failed)} />
+        <Metric
+          label="Başarısız tarama"
+          value={`${formatNumber(data.runs.failed)} · kısmi ${formatNumber(data.runs.partial ?? 0)}`}
+        />
         <Metric label="Ortalama süre" value={formatDuration(data.runs.avgDurationMs)} />
         <Metric label="İşlem geçmişi" value={formatNumber(data.auditEntries)} />
       </div>

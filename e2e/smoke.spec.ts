@@ -65,6 +65,48 @@ test.describe('temel sayfalar', () => {
     expect(errors).toEqual([]);
   });
 
+  test('dar ekranda sayfa geçişi en üstten açılır; başlık yapışkan üst çubuğun altında kalmaz', async ({
+    page,
+  }) => {
+    // Gerçek veriyle görüldü (390 px): rota odağı <main>'e kaydırıyordu (scrollY=247),
+    // durum şeridi atlanıyor ve sayfa başlığı üst çubuğun altında kesiliyordu.
+    const errors = collectPageErrors(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAsAdmin(page);
+    await page.goto('/ilanlar');
+    await expectHeading(page, 'Kamu personel alım ilanları');
+
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    const header = await page.locator('.app-header').boundingBox();
+    const title = await page.getByRole('heading', { level: 1 }).boundingBox();
+    expect(header && title && title.y >= header.y + header.height).toBe(true);
+    // Odak yine ana içerikte (ekran okuyucu bağlamı korunur).
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe('main');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('dar ekranda ana sayfa araması kullanılabilir; durum kartı aramanın üstüne binmez', async ({ page }) => {
+    // Gerçek veriyle görüldü (390 px): proje katmanındaki hero ızgarası ortak katmanın
+    // tek sütun kuralını eziyordu ("0px 290px"); arama alanı kartın altında kalıyordu.
+    const errors = collectPageErrors(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAsAdmin(page);
+    await page.goto('/');
+    await expectHeading(page, 'Kamu personel alım ilanları');
+
+    const search = await page.getByLabel('Arama terimi', { exact: true }).boundingBox();
+    const card = await page.locator('.desk-now').boundingBox();
+    expect(search && search.width > 200).toBe(true);
+    // Kart aramanın altında başlar (üst üste binme yok).
+    expect(search && card && card.y >= search.y + search.height).toBe(true);
+    await page.getByLabel('Arama terimi', { exact: true }).fill('hemşire');
+    await page.getByRole('button', { name: 'İlanlarda ara', exact: true }).click();
+    await expect(page).toHaveURL(/q=hem%C5%9Fire|q=hemşire/);
+
+    expect(errors).toEqual([]);
+  });
+
   test('kaynaklar sayfası kapsamı ve doğrulama durumunu açıkça yazar', async ({ page }) => {
     const errors = collectPageErrors(page);
     await loginAsAdmin(page);

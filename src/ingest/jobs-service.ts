@@ -420,7 +420,9 @@ export function buildJobDocument(
     evidence: extraction.evidence,
     uncertainties: extraction.uncertainties,
     provenance: options.provenance,
-    lastVerifiedAt: null,
+    // Taranan ilan kayıt anında kaynakta görülmüştür: "son kontrol" o andır
+    // (birleştirmede de aynı alan güncellenir). Manuel/örnek kayıt doğrulanmamıştır.
+    lastVerifiedAt: options.provenance === 'scraped' ? options.now.toISOString() : null,
     contentHash: jobContentFingerprint({ title, textExcerpt, applicationEndAt, quota }),
     dedupeKey: sha256Hex(`${raw.sourceKey}|${raw.sourceItemId}`),
   };
