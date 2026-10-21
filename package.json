@@ -45,6 +45,7 @@
     "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",
     "jobs:reclassify": "tsx scripts/reclassify-jobs.ts",
     "jobs:restore": "tsx scripts/restore-jobs-backup.ts",
+    "runs:retention": "tsx scripts/runs-retention.ts",
     "seed:admin": "tsx scripts/create-admin.ts",
     "user:create": "tsx scripts/create-user.ts",
     "eval:classification": "tsx scripts/eval-classification.ts",

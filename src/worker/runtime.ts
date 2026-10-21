@@ -397,11 +397,15 @@ export class WorkerRuntime {
           this.repos,
           new Date(now.getTime() - 90 * 24 * 3_600_000).toISOString(),
         );
+        // Tarama koşum kayıtları 90 gün saklanır (her kaynağın son ve son başarılı koşumu korunur).
+        const purgedRuns = await this.repos.runs.purgeFinishedOlderThan(
+          new Date(now.getTime() - 90 * 24 * 3_600_000).toISOString(),
+        );
         return {
           ran: kind,
           closedJobs: 0,
           activatedJobs: 0,
-          purged: purgedLocks + purgedLimits + purgedSessions + purgedHeartbeats + purgedLlm,
+          purged: purgedLocks + purgedLimits + purgedSessions + purgedHeartbeats + purgedLlm + purgedRuns.deleted,
         };
       }
       case 'coverage-audit': {
