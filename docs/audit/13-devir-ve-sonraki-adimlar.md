@@ -1,6 +1,6 @@
 # 13 — Devir ve Sonraki Adımlar
 
-**Tarih:** 23.10.2026 · **main:** `4c15843` (#50 birleşmesi) · **Açık PR:** #51 (CI success; birleştirme depo sahibi kararıyla bekletiliyor)
+**Tarih:** 23.10.2026 · **main:** `a3146a7` (#57 birleşmesi) · **Açık PR:** yok
 **Amaç:** Bir sonraki oturumun (insan ya da yapay zekâ) baştan analiz yapmadan doğrudan
 devam edebilmesi. Yapılanların kanıtı 07 §6–§8, risk durumu 03, birleşen PR listesi README §10–§11,
 kaynak durumu 14.
@@ -9,15 +9,19 @@ kaynak durumu 14.
 
 ## 00. 23.10.2026 durumu (güncel)
 
-**Birleşen PR'lar (#37–#50):** hepsi CI `verify` success ile birleşti; liste README §11.
+**Birleşen PR'lar (#37–#57):** hepsi CI `verify` success + yerel tam paket ile, güncel head SHA
+doğrulanarak (`--match-head-commit`) tek tek birleşti; liste README §11.
 
-**#51 (tekilleştirme benzerlik önbelleği, head `bbddbed`):** CI success. #50 sonrası `main` ile
-yerelde birleştirilmiş ağaçta typecheck 0 · lint 0 · vitest **144 dosya, 1526 geçti, 1 atlandı,
-0 başarısız** (Windows, 23.10). Birleştirilmedi: depo sahibi kararı (3. seçenek) — birleştirmeden
-önce güncel head SHA ve CI yeniden doğrulanmalı.
+**Yerel tam paket (`main` + #57 birleşik ağacı, Windows, 23.10):** typecheck 0 · lint 0 ·
+vitest **148 dosya, 1557 geçti, 1 atlandı, 0 başarısız**. E2E (CI Linux, #56): **26/26**
+(4'ü örnek ilan tohumlu akış: arama → detay → kadro tablosu → reddedilen haber yok → 390 px).
 
-**Yerel tam paket (`main` `4c15843` öncesi #50 head `705793c`, Windows):** typecheck 0 · lint 0 ·
-vitest **142 dosya, 1516 geçti, 1 atlandı, 0 başarısız**.
+**23.10'da bulunan ve düzeltilen gerçek hatalar:**
+- #57: ORAN (RG 19.10-4-7, OCR) kontenjanı **2** gösteriliyordu, belgede **7** (6 Uzman + 1 Destek).
+- #55: robots.txt istek katmanında uygulanmıyordu (İŞKUR `/api/`, `/*?*`).
+- #53: Sayıştay tipi ilanlarda pozisyon kırılımı yoktu.
+- #54: `scrapeRuns` sınırsız büyüyordu (dağıtım sonrası 90 gün saklama **veri siler**; önce `npm run runs:retention`).
+- Doğrulandı: İŞKUR OCR (RG 18.10-4-4) kontenjanı **11** belgeyle aynı; OCR metninde tarih yok → boş + not.
 
 **Değişmeyen sınırlar:** üretime dağıtım yok · üretim DB'sine erişim yok · gerçek LLM sağlayıcı
 çağrısı yok (anahtar yok) · insan etiketli kayıt 0 → kesinlik/duyarlılık üretilemez ·
@@ -27,14 +31,15 @@ gerçek Postgres ölçümü yok (yalnız PGlite).
 
 | # | İş | Durum / engel |
 | --- | --- | --- |
-| 1 | Kaynak matrisi | 14 belgesi (statik envanter + izin + canlı kanıt) |
-| 2 | İŞKUR liste | BLOCKED — statik HTML'de liste yok; robots `/api/` ve `/*?*` yasak; resmî veri kanalı gerekli |
-| 3 | Bakanlık/kurum çok pozisyonlu tablo (Sayıştay tipi "(1 Kişi …)") | `extractOpenings` resmî toplamı okuyor (#48), pozisyon kırılımı yok |
-| 4 | `q` araması / filtreli sayım (PGlite 570–720 ms) | `pg_trgm` kararı gerçek Postgres ölçümüne bağlı (R-03) |
-| 5 | OCR satır güveni / tablo gürültüsü | Kod var, varsayılan kapalı (R-13) |
-| 6 | `scrapeRuns` saklama süresi | Tablo sınırsız büyüyor; silme işi ayrı PR, üretimde çalıştırılmaz |
-| 7 | Mock adaptörle uçtan uca veri E2E | E2E seed'inde ilan tohumu yok |
-| 8 | Görsel regresyon | Referanslar CI (Linux) üzerinde üretilmeli |
+| 1 | İŞKUR liste | BLOCKED — statik HTML'de liste yok; robots artık istek katmanında (#55); resmî veri kanalı gerekli |
+| 2 | `q` araması / filtreli sayım (PGlite 570–720 ms) | `pg_trgm` kararı gerçek Postgres ölçümüne bağlı (R-03) |
+| 3 | OCR satır güveni / tablo gürültüsü | Bilinçli ertelendi: satır atmak kritik bilgiyi ("\| (bir)") silebilir; insan etiketli OCR verisi olmadan iyileşme ölçülemez |
+| 4 | OCR satır içi pozisyon ("1. UNVAN (1 (Bir) Kişi — …") | Kırılım üretilmiyor (uydurma yok); toplam doğru |
+| 5 | Görsel regresyon | Referanslar CI (Linux) üzerinde üretilmeli; tohum tarihleri günlük değiştiği için tarih alanları maskelenmeli |
+| 6 | Tarayıcı yedeği robots kapısı | `SOURCE_BROWSER_FALLBACK` HttpClient kapısından geçmez; İŞKUR için açılmamalı |
+
+Kapananlar (23.10): kaynak matrisi (14), çok pozisyonlu kontenjan (#53), `scrapeRuns` saklama (#54),
+tohumlu tarayıcı E2E (#56).
 
 ## 0. 22.10.2026 oturumu — açık PR'lar (TARİHSEL; hepsi birleşti)
 
@@ -145,7 +150,7 @@ Her madde için: ne yapılacak · nerede · kabul ölçütü.
 
 ## 6. Bir sonraki oturumun ilk 5 adımı
 
-1. `git -C D:\coding\claude\kamuradar pull` → `main` = `4c15843` ya da sonrası; `gh pr list` → #51 (ve sonraki docs/kod PR'ları).
+1. `git -C D:\coding\claude\kamuradar pull` → `main` = `a3146a7` ya da sonrası; `gh pr list` boş olmalı.
 2. Bu belge §00 + README §11 + 03 (R-03, R-04, R-13) + 14 oku; 2. bölümdeki kararlardan hangilerinin verildiğini sor.
 3. `npm ci && npm run typecheck && npm run lint && npx vitest run` → 0 başarısız beklenir (Windows hataları #45 ile kapandı).
 4. Karar yoksa 3. bölümdeki P1 listesinden sıradaki işi ayrı dalda yap; mutasyon kontrolü + tam paket + PR.
