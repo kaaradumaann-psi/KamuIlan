@@ -68,7 +68,13 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/api/auth/verify-email',
   '/api/auth/forgot-password',
   '/api/auth/reset-password',
-  '/api/auth/unsubscribe',
+  // DİKKAT: `/api/auth/unsubscribe` bu listede DEĞİLDİR. Uç, jetonlu (oturumsuz)
+  // yolu desteklediği için muaf tutulmuştu; ama aynı uç bir oturumla da
+  // çalışıyor ve `{ all: true }` gönderildiğinde kullanıcının TÜM oturumlarını
+  // iptal ediyor. Oturumsuz istekte CSRF denetimi zaten uygulanmaz
+  // (`if (changing && session && ...)`), yani e-postadaki bağlantı akışı
+  // muafiyet olmadan da çalışır. Muafiyet kaldırıldı: zorla çıkış/abonelik
+  // kapatma (forced logout) yüzeyi kapanır.
   // Telegram webhook'u oturumsuzdur; doğrulaması sır başlığıyla yapılır.
   TELEGRAM_WEBHOOK_PATH,
 ]);

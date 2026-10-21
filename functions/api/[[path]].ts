@@ -27,7 +27,15 @@ type ApiProxyEnv = {
 /** Varsayılan API adresi (wrangler.jsonc ile aynı). */
 const DEFAULT_API_ORIGIN = 'https://api.kamuilan.halilkaraduman.com.tr';
 
-/** İstemciden API'ye taşınmayan başlıklar (hop-by-hop / ana makineye bağlı). */
+/**
+ * İstemciden API'ye taşınmayan başlıklar (hop-by-hop / ana makineye bağlı).
+ *
+ * `x-forwarded-for`, `x-real-ip` ve `forwarded` da listede: API `TRUST_PROXY=1`
+ * ile çalışırken bu başlıklara güvenir. İstemci kendi uydurduğu IP'yi
+ * gönderebilseydi hız sınırı kovasını ve denetim kaydını atlatırdı; bu yüzden
+ * değer aşağıda **yalnızca Cloudflare'in güvenilir `cf-connecting-ip`
+ * başlığından** yazılır.
+ */
 const STRIPPED_REQUEST_HEADERS = new Set([
   'host',
   'content-length',
@@ -39,6 +47,9 @@ const STRIPPED_REQUEST_HEADERS = new Set([
   'cf-ipcountry',
   'cf-ray',
   'cf-visitor',
+  'x-forwarded-for',
+  'x-real-ip',
+  'forwarded',
 ]);
 
 /** Yanıttan istemciye taşınmayan başlıklar. */
@@ -74,15 +85,32 @@ export async function onRequestDelete(context: { request: Request; env: ApiProxy
   return proxy(context);
 }
 
+/**
+ * İstemci başlıklarından API'ye gidecek küme.
+ *
+ * `x-forwarded-for` istemciden ASLA taşınmaz; değer yalnızca Cloudflare'in
+ * `cf-connecting-ip` başlığından yazılır. Bu olmadan (`TRUST_PROXY=1` iken)
+ * API bütün istekleri vekilin tek IP'sinden görür: hız sınırı tüm kullanıcılar
+ * için tek kovaya düşer ve tek bir istemci herkesi kilitleyebilir.
+ */
+export function buildForwardHeaders(request: Request): Headers {
+  const headers = new Headers();
+  request.headers.forEach((value, key) => {
+    if (!STRIPPED_REQUEST_HEADERS.has(key.toLowerCase())) headers.set(key, value);
+  });
+  const clientIp = request.headers.get('cf-connecting-ip');
+  if (clientIp && clientIp.trim().length > 0) {
+    headers.set('x-forwarded-for', clientIp.trim());
+  }
+  return headers;
+}
+
 async function proxy(context: { request: Request; env: ApiProxyEnv }): Promise<Response> {
   const origin = normalizeOrigin(context.env.API_ORIGIN ?? DEFAULT_API_ORIGIN);
   const incoming = new URL(context.request.url);
   const target = new URL(`${incoming.pathname}${incoming.search}`, origin);
 
-  const headers = new Headers();
-  context.request.headers.forEach((value, key) => {
-    if (!STRIPPED_REQUEST_HEADERS.has(key.toLowerCase())) headers.set(key, value);
-  });
+  const headers = buildForwardHeaders(context.request);
   // API'nin isteği hangi alan adından geldiğini görmesi için (çerez SameSite,
   // APP_BASE_URL denetimleri ve günlükler).
   headers.set('x-forwarded-host', incoming.host);
