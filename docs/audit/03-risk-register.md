@@ -168,8 +168,14 @@
   kovaya düşebilirdi.
 - **Kalan risk:** `TRUST_PROXY` yanlış yapılandırılırsa (API doğrudan internete açıkken 1)
   aynı sorun geri gelir → dağıtım denetim maddesi.
-- **Kapanış ölçütü:** Dağıtım dokümanında "yalnızca vekil arkasında `TRUST_PROXY=1`" kuralı
-  ve üretimde doğrulama.
+- **Azaltma (`fix/r09-vekil-guven-siniri`):** `TRUST_PROXY` artık güvenilen vekil listesi
+  kabul ediyor (`cloudflare`, CIDR, `uniquelocal`…); `clientIp()` ham başlık yerine
+  Fastify/proxy-addr kararını (`request.ip`) kullanıyor. [2] `tests/vekil-guven-siniri.test.ts`
+  (7): vekili atlayan sahte başlık yeni kova açamıyor; Cloudflare arkasındaki farklı
+  istemciler ayrı kovada; zincire sola eklenen sahte değer yok sayılıyor.
+- **Kapanış ölçütü:** Üretimde `TRUST_PROXY=cloudflare` (veya gerçek vekil listesi) ayarlı
+  ve kökene doğrudan istekte sahte `X-Forwarded-For` ile hız sınırının aşılamadığı doğrulandı
+  — **üretim ayarı kullanıcı/işletim kararı; bu depoda değiştirilmedi.**
 
 ### R-10 · Tarayıcı E2E — **CI'da KAPANDI**, yerel ortamda engelli
 - **Kanıt:** [1] GitHub Actions `verify` işi, run `39597847874` (commit `911b0b4`):
