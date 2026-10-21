@@ -77,6 +77,13 @@ function matchRules(text: string, rules: readonly KeywordRule[]): MatchedRule[] 
 }
 
 export function detectEmploymentType(title: string, body: string): { type: EmploymentType; reason: string } {
+  // Başlıktaki belirli tür önce gelir: gövdedeki dışlama cümleleri ("sürekli işçi
+  // olarak çalışanlar başvuramaz") "Sözleşmeli Personel Alım İlanı"nı işçi ya da
+  // akademik ilan yapıyordu. Genel ifade (`diger-kamu`) başlıkta öncelik almaz.
+  const titleText = normalizeForClassification(title);
+  for (const rule of EMPLOYMENT_TYPE_RULES) {
+    if (rule.type !== 'diger-kamu' && rule.pattern.test(titleText)) return { type: rule.type, reason: rule.reason };
+  }
   // Ham metinle de çağrılabilir: normalize burada yapılır.
   const combined = normalizeForClassification(`${title} ${body}`);
   for (const rule of EMPLOYMENT_TYPE_RULES) {

@@ -267,3 +267,36 @@ describe('sınıflandırma: yardımcılar', () => {
     expect(result.version.length).toBeGreaterThan(3);
   });
 });
+
+// Bağımsız doğrulamada bulunan hata (21.10.2026): tür, başlık + gövde birleşik metinde
+// kural sırasıyla seçiliyordu; gövdedeki dışlama cümlesi başlıktaki açık türü eziyordu.
+describe('istihdam türü: başlıktaki açık tür gövdedeki dışlama cümlesine üstün gelir', () => {
+  const window = 'Başvurular 01.11.2026 - 10.11.2026 tarihleri arasında yapılacaktır.';
+
+  it.each([
+    [
+      'Sözleşmeli Personel Alım İlanı',
+      `657 sayılı Kanunun 4/B maddesi uyarınca 3 sözleşmeli personel alınacaktır. Kurumumuzda sürekli işçi olarak çalışanlar başvuramaz. ${window}`,
+      'sozlesmeli',
+    ],
+    [
+      'Sözleşmeli Bilişim Personeli Alımı',
+      `Kurumumuzda sözleşmeli bilişim personeli alınacaktır. Adayların öğretim görevlisi olarak çalışmıyor olması gerekir. ${window}`,
+      'sozlesmeli',
+    ],
+    [
+      'Sürekli İşçi Alım İlanı',
+      `İŞKUR üzerinden 4 sürekli işçi alınacaktır. Sözleşmeli personel statüsünde çalışanlar başvuramaz. ${window}`,
+      'kamu-isci',
+    ],
+  ])('%s → %s', (title, body, expected) => {
+    expect(detectEmploymentType(title, body).type).toBe(expected);
+    expect(classify({ title, body }).employmentType).toBe(expected);
+  });
+
+  it('başlık genel ifadeyse (Personel Alım İlanı) tür gövdeden belirlenir', () => {
+    expect(
+      detectEmploymentType('Personel Alım İlanı', `Kurumumuza 5 sürekli işçi alınacaktır. ${window}`).type,
+    ).toBe('kamu-isci');
+  });
+});
