@@ -306,6 +306,148 @@ describe('Postgres depo sürücüsü', () => {
     );
   });
 
+  // R-03: ön filtre, tek bir çevrilemeyen koşulda (aralık/$exists/$regex/noktalı yol)
+  // TAMAMEN düşüyordu; seçici bir eşitlik koşulu olsa bile tüm tablo taranıyor ve
+  // 20.000 satırı geçince hata veriyordu. Artık çevrilemeyen bağlaç atlanır.
+  it('seçici eşitlik + aralık sorgusu 20.000 satırı aşan tabloda tam taramaya düşmez', async () => {
+    const insertedCount = 20_050;
+    const activeIds = ['job_pg_r03_a', 'job_pg_r03_b', 'job_pg_r03_c'];
+    try {
+      await pglite.query(
+        `INSERT INTO kamuilan_test_jobs (id, data)
+         SELECT 'z_r03_bulk_' || lpad(n::text, 5, '0'),
+                jsonb_build_object('id', 'z_r03_bulk_' || lpad(n::text, 5, '0'),
+                                   'status', 'closed', 'applicationEndDate', '2026-09-01',
+                                   'classification', jsonb_build_object('decision', 'reject'))
+         FROM generate_series(1, $1::int) AS series(n)`,
+        [insertedCount],
+      );
+      const accepted = { classification: { decision: 'accept', kind: 'job' } } as Partial<JobDoc>;
+      await pg.insertMany('jobs', [
+        job({ id: activeIds[0]!, status: 'active', applicationEndDate: '2026-10-20', ...accepted }),
+        job({ id: activeIds[1]!, status: 'active', applicationEndDate: '2026-11-20', ...accepted }),
+        job({ id: activeIds[2]!, status: 'active', applicationEndDate: null }),
+      ]);
+
+      // İlan listesi her sorguda `classification.decision = accept` (noktalı yol) ekler.
+      // Eski ön filtre bu yüzden HER liste sorgusunda tüm tabloyu tarıyordu.
+      const repos = createRepos(pg as unknown as StoragePort, systemClock);
+      const listed = await repos.jobs.search({}, { pageSize: 10 });
+      expect(listed.total).toBe(2);
+      expect(listed.items.map((item) => item.id).sort()).toEqual([activeIds[0], activeIds[1]]);
+
+      const rows = await pg.find(
+        'jobs',
+        { status: 'active', applicationEndDate: { $lt: '2026-11-01' } } as never,
+        { sort: [['id', 1]] },
+      );
+      expect(rows.map((row) => row.id)).toEqual(['job_pg_r03_a']);
+      expect(
+        await pg.count('jobs', {
+          $and: [{ status: { $in: ['active'] } }, { 'classification.decision': { $exists: false } }],
+        } as never),
+      ).toBe(1);
+      // $or'un bir dalı çevrilemezse $or kısıtsız sayılır; seçici kardeş koşul yine daraltır.
+      expect(
+        await pg.count('jobs', {
+          id: { $in: activeIds },
+          $or: [{ applicationEndDate: null }, { applicationEndDate: { $gte: '2026-11-01' } }],
+        } as never),
+      ).toBe(2);
+
+      // Seçici koşul yoksa sınır korunur: sessiz kırpma yerine açık hata.
+      await expect(pg.find('jobs', { applicationEndDate: { $lt: '2027-01-01' } } as never)).rejects.toThrow(
+        /20000 satırı aştı/,
+      );
+    } finally {
+      await pglite.query("DELETE FROM kamuilan_test_jobs WHERE id LIKE 'z_r03_bulk_%'");
+      await pg.deleteMany('jobs', { id: { $in: activeIds } });
+    }
+  });
+
+  it('rastgele bileşik sorgularda Postgres ön filtresi dosya sürücüsüyle aynı sonucu verir', async () => {
+    // Tohumlu sözde rastgele üreteç: başarısızlık her koşumda aynı sorguyla tekrarlanır.
+    let seed = 20261021;
+    const rand = (): number => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+    const pick = <T,>(items: readonly T[]): T => items[Math.floor(rand() * items.length)] as T;
+
+    const statuses = ['active', 'closed', 'upcoming', 'cancelled'] as const;
+    const cities = ['Ankara', 'İzmir', 'Bursa'] as const;
+    const dates = ['2026-09-01', '2026-10-15', '2026-11-30', null] as const;
+    const keys = ['kaynak-a', 'kaynak-b', 'kaynak-c'] as const;
+    const docs = Array.from({ length: 40 }, (_, index) => {
+      const base = job({
+        id: `job_pg_rand_${String(index).padStart(2, '0')}`,
+        status: pick(statuses),
+        city: pick(cities),
+        applicationEndDate: pick(dates),
+        sourceKeys: [pick(keys), ...(rand() < 0.4 ? [pick(keys)] : [])],
+        quota: Math.floor(rand() * 5),
+      } as never) as unknown as Record<string, unknown>;
+      // Noktalı yol biçimleri: nesne, nesne dizisi ve yaprakta iç içe dizi (getPathValues düzleştirir).
+      const decision = pick(['accept', 'review']);
+      const shape = rand();
+      if (shape < 0.4) base.classification = { decision };
+      else if (shape < 0.55) base.classification = [{ kind: 'job' }, { decision }];
+      else if (shape < 0.65) base.classification = { decision: [[decision]] };
+      if (rand() < 0.6) {
+        base.requirements = {
+          educationLevels: rand() < 0.5 ? [pick(['lisans', 'onlisans'])] : pick(['lisans', 'onlisans']),
+          kpssMinScore: pick([60, 70, '70', null]),
+        };
+      }
+      if (rand() < 0.3) delete base.applicationUrl;
+      else if (rand() < 0.5) base.applicationUrl = 'https://ornek.test/basvuru';
+      return base as unknown as JobDoc;
+    });
+    await pg.insertMany('jobs', docs);
+    await file.insertMany('jobs', docs);
+
+    const leaf = (): Record<string, unknown> =>
+      pick([
+        () => ({ status: pick(statuses) }),
+        () => ({ status: { $in: [pick(statuses), pick(statuses)] } }),
+        () => ({ status: { $ne: pick(statuses) } }),
+        () => ({ city: pick(cities) }),
+        () => ({ sourceKeys: pick(keys) }),
+        () => ({ applicationEndDate: pick(dates) }),
+        () => ({ applicationEndDate: { $lt: pick(['2026-10-01', '2026-11-01', '2027-01-01']) } }),
+        () => ({ applicationEndDate: { $gte: '2026-10-01', $eq: pick(dates) } }),
+        () => ({ applicationUrl: { $exists: rand() < 0.5 } }),
+        () => ({ applicationUrl: null }),
+        () => ({ 'classification.decision': pick(['accept', 'review']) }),
+        () => ({ 'classification.decision': { $in: ['accept', pick(['review', 'reject'])] } }),
+        () => ({ 'requirements.educationLevels': pick(['lisans', 'onlisans']) }),
+        () => ({ 'requirements.kpssMinScore': pick([70, '70', 60, null]) }),
+        () => ({ 'requirements.kpssMinScore': { $lte: 65 } }),
+        () => ({ quota: { $gte: Math.floor(rand() * 5) } }),
+        () => ({ titleNormalized: { $regex: 'personel' } }),
+      ])();
+    const node = (depth: number): Record<string, unknown> => {
+      if (depth === 0 || rand() < 0.35) return leaf();
+      const children = Array.from({ length: 1 + Math.floor(rand() * 3) }, () => node(depth - 1));
+      const op = pick(['$and', '$or', '$nor', 'implicit'] as const);
+      if (op === 'implicit') return Object.assign({}, ...children) as Record<string, unknown>;
+      return { [op]: children };
+    };
+
+    const ids = docs.map((doc) => doc.id);
+    try {
+      for (let index = 0; index < 250; index += 1) {
+        const query = { id: { $in: ids }, ...node(3) };
+        const pgRows = await pg.find('jobs', query as never, { sort: [['id', 1]] });
+        const fileRows = await file.find('jobs', query as never, { sort: [['id', 1]] });
+        expect(pgRows.map((row) => row.id), JSON.stringify(query)).toEqual(fileRows.map((row) => row.id));
+      }
+    } finally {
+      await pg.deleteMany('jobs', { id: { $in: ids } });
+      await file.deleteMany('jobs', { id: { $in: ids } });
+    }
+  });
+
   it('çevrilemeyen koşulla karışan eşitlik sorguları bind hatası vermez, dosya sürücüsüyle aynı sonucu döner', async () => {
     // Regresyon: ön filtre, çevrilemeyen bir koşul (aralık/$exists/$regex/
     // noktalı yol/$nor) yüzünden düştüğünde, çevrilebilen kardeş koşulların
