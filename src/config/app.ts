@@ -70,7 +70,10 @@ export const CLASSIFICATION_VERSION = '2026.10.5';
 // toplamı pozisyon başı sayıların önüne geçer (gerçek RG: Bursa Uludağ 37, Akdeniz 29, Sayıştay 2).
 // 2026.10.7: kurum ilanlarında pozisyon kırılımı ("N. Unvan" + "(K Kişi – …)") okunur;
 // resmî toplamdan farklıysa tutarsızlık yazılır (gerçek RG: Sayıştay 16.10-4-1, 1 + 1).
-export const EXTRACTION_VERSION = '2026.10.7';
+// 2026.10.8: resmî toplam birden çok kalemi toplar ("6 (altı) Uzman ve 1 (bir) Destek Personeli
+// … alımı yapılacaktır"); rakam yazıyla doğrulanır, OCR'ın okuyamadığı rakamda yazı esas alınır
+// (gerçek RG OCR: Orta Anadolu Kalkınma Ajansı 19.10-4-7, 2 → 7).
+export const EXTRACTION_VERSION = '2026.10.8';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */

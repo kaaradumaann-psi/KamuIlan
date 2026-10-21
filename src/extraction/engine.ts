@@ -628,12 +628,67 @@ export function extractDistrict(text: string): string | null {
   return match?.[1] ? collapseWhitespace(match[1]) : null;
 }
 
+/** Türkçe sayı sözcükleri (yazıyla), birleşik ya da ayrı: "onbir", "yirmi beş", "yüz". */
+const NUMBER_WORDS: readonly [string, number][] = [
+  ['altmış', 60], ['yetmiş', 70], ['seksen', 80], ['doksan', 90], ['yirmi', 20], ['otuz', 30],
+  ['kırk', 40], ['elli', 50], ['sekiz', 8], ['dokuz', 9], ['dört', 4], ['altı', 6], ['yedi', 7],
+  ['bir', 1], ['iki', 2], ['üç', 3], ['beş', 5], ['bin', 1_000], ['yüz', 100], ['on', 10],
+];
+
+/** "Onbir" → 11, "yirmi beş" → 25; tanınmayan sözcükte null. */
+export function parseTurkishNumberWords(raw: string): number | null {
+  let rest = raw.toLocaleLowerCase('tr').replace(/\s+/g, '');
+  if (!rest) return null;
+  let total = 0;
+  let current = 0;
+  while (rest) {
+    const token = NUMBER_WORDS.find(([word]) => rest.startsWith(word));
+    if (!token) return null;
+    const [word, value] = token;
+    rest = rest.slice(word.length);
+    if (value === 100) current = (current || 1) * 100;
+    else if (value === 1_000) {
+      total += (current || 1) * 1_000;
+      current = 0;
+    } else current += value;
+  }
+  return total + current;
+}
+
+const QUOTA_ROLE = String.raw`(?:personel|memur|işçi|eleman|uzman|kadro|mühendis|tekniker|teknisyen|görevli|müfettiş|avukat|hemşire|ebe|şoför)[a-zçğıöşü]*`;
+// Kalem: "6 (altı) Uzman", "| (bir) Destek Personeli" — rakam OCR'da "|", "l", "I" okunabilir.
+const QUOTA_ITEM = String.raw`(\d{1,4}|[|lI])\s*\(([a-zçğıöşü ]{2,30})\)\s+(?:[^\s.;:()]+\s+){0,4}?${QUOTA_ROLE}`;
+const QUOTA_ITEM_UNCAPTURED = String.raw`(?:\d{1,4}|[|lI])\s*\([a-zçğıöşü ]{2,30}\)\s+(?:[^\s.;:()]+\s+){0,4}?${QUOTA_ROLE}`;
+const OFFICIAL_TOTAL = new RegExp(
+  String.raw`${QUOTA_ITEM_UNCAPTURED}(?:\s*(?:,|ve)\s*${QUOTA_ITEM_UNCAPTURED})*` +
+    String.raw`\s*(?:\([^()]{0,40}\)\s*)?(?:alın|alım[ıi]\s+yap|istihdam)`,
+  'iu',
+);
+
+/**
+ * Resmî toplam "sayıyla (yazıyla)": "… 2 (iki) Sözleşmeli Bilişim Personeli alınacaktır" (RG
+ * 16.10-4-1, Sayıştay), "6 (altı) Uzman ve 1 (bir) Destek Personeli … alımı yapılacaktır" (RG
+ * 19.10-4-7). Pozisyon başı "(1 Kişi …)" ifadeleri metinde önce geçse de toplam budur. Her kalemde
+ * rakam yazıyla doğrulanır: çelişki → kural kullanılmaz; rakam okunamıyorsa (OCR "|") yazı esas.
+ */
+function extractOfficialTotal(text: string): { value: number; snippet: string } | null {
+  const match = OFFICIAL_TOTAL.exec(text);
+  if (!match) return null;
+  let total = 0;
+  for (const item of match[0].matchAll(new RegExp(QUOTA_ITEM, 'giu'))) {
+    const words = parseTurkishNumberWords(item[2] ?? '');
+    if (words === null) return null;
+    const digits = /^\d+$/.test(item[1] ?? '') ? Number(item[1]) : null;
+    if (digits !== null && digits !== words) return null;
+    total += words;
+  }
+  return total > 0 && total <= 20_000 ? { value: total, snippet: collapseWhitespace(match[0]) } : null;
+}
+
 export function extractQuota(text: string): { value: number; snippet: string } | null {
+  const official = extractOfficialTotal(text);
+  if (official) return official;
   const patterns: readonly RegExp[] = [
-    // Resmî toplam "sayıyla (yazıyla)": "sözlü sınav sonucunda … 2 (iki) Sözleşmeli Bilişim
-    // Personeli alınacaktır" (RG 16.10-4-1, Sayıştay). Pozisyon başı "(1 Kişi …)" ifadeleri
-    // metinde ÖNCE geçse de toplam budur; en güçlü kanıt olduğu için ilk sırada.
-    /(\d{1,4})\s*\((?:bir|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on|yirmi|otuz|kırk|elli|altmış|yetmiş|seksen|doksan|yüz)[a-zçğıöşü]*\)\s+(?:[^\s.;:()]+\s+){0,4}?(?:personel|memur|işçi|eleman|uzman|kadro)[a-zçğıöşü]*\s+(?:alın|istihdam)/i,
     /kontenjan\s*(?:bilgisi|sayısı|:)?\s*[:.]?\s*(\d{1,4})/i,
     // "adet" çoğu ilanda BELGE sayısıdır: "3 adet vesikalık fotoğraf", "Sabıka Kaydı (1 adet)",
     // "Profesör kadrosu adayları 6 adet, … 4 adet dijital dosya" (gerçek RG metinleri).
