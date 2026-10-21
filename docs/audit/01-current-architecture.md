@@ -58,7 +58,7 @@ src/server/     56 rota, RBAC, CSRF, hız sınırı, güvenlik başlıkları, se
 src/pages/, src/components/, src/lib/, src/styles/   React arayüzü (giriş kapılı)
 functions/api/[[path]].ts   Cloudflare vekili (/api → API süreci)
 scripts/        31 operasyon betiği (kurulum, bakım, rapor, fixture, değerlendirme)
-tests/          114 dosya → bu denetimde 119 dosya / 1.399 test (bkz. 04)
+tests/          bu denetim sonunda 122 dosya / 1.409 test (bkz. 04)
 e2e/            Playwright (tarayıcı kurulu olmadığı için bu ortamda KOŞULAMADI)
 ```
 

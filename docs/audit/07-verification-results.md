@@ -41,7 +41,7 @@ Raporun kendi kanıt satırları:
 | Üretim sağlığı | **NOT RUN** | Üretim adresine erişilemedi | `curl /api/health` + `/api/health/worker` |
 | Yük/ölçek testi (10k+ ilan) | **NOT RUN** | Sentetik yük senaryosu yok | 50.000 kayıtlı test veritabanı |
 
-## 3. Bu denetimde eklenen 33 testin sonucu
+## 3. Bu denetimde eklenen 36 testin sonucu
 
 | Test dosyası | Test | Sonuç |
 | --- | --- | --- |
