@@ -222,3 +222,27 @@ Bu bölüm, 21.10.2026'da birleştirilen tüm PR'ların tek listesidir. Ayrınt�
 - **R-13:** gerçek RG örneğinde PDF'lerin %31'inde metin katmanı yok → OCR yok, kayıtlar incelemeye düşüyor.
 - **Çoklu kadro:** yalnız mahalli idare tablosu; üniversite/bakanlık tabloları desteklenmiyor.
 - **robots.txt:** vitrin açılınca `Sitemap: /api/sitemap.xml` satırı eklenmeli.
+
+## 11. 22–23.10.2026 birleşmeleri — `main` @ `4c15843`
+
+Hepsi CI `verify` success ile birleşti. Üretime **dağıtım yapılmadı**; üretim DB'sine
+**dokunulmadı**; LLM sağlayıcısına **çağrı yapılmadı**. Ayrıntı: 13 §00, risk durumu 03.
+
+| PR | Merge | Ne değişti |
+| --- | --- | --- |
+| #37 | `20b9520` | R-03: Postgres filtre/sıralama/sayfalama/sayım SQL'de (`src/db/postgres-exact.ts`); PGlite 50k liste 3.480 → 158 ms |
+| #38 | `44360db` | Birleştirmede `publishedAt` korunur |
+| #39 | `53c9f0d` | Eski sürümlü ret kararları yeniden değerlendirilir (`CLASSIFICATION_VERSION 2026.10.5`) |
+| #41 | `b423339` | Birim çıkarımı tablo başlığı artığını almaz |
+| #43 | `fd22e72` | Kontenjan belge adedinden okunmaz; kadro tablosu toplamı |
+| #40 | `98a7a92` | Arayüz: mobil hero, rota kaydırması, durum kartı, kısmi tarama |
+| #42 | `be37fe9` | Düzeltme ilanı → Resmî Gazete atfıyla hedef (iptal değil) |
+| #44 | `177f655` | Belge 13 §0 |
+| #45 | `caa70f5` | Windows yerel test hataları (9) kök nedenden |
+| #46 | `47cbb66` | İptal/düzeltme → `job-changed` bildirimi |
+| #47 | `f211cc2` | PDF metni konuma göre birleşir |
+| #48 | `03c3162` | Üniversite kadro tabloları ve yazıyla toplam (`EXTRACTION_VERSION 2026.10.6`) |
+| #49 | `b2753b3` | OCR (tesseract.js, `OCR_ENABLED=0`) + "İlan Tarihi" başvuru penceresine karışmaz |
+| #50 | `4c15843` | AI mock testleri (eşzamanlılık, mojibake) + `eval:build-set` varsayılan `--limit` hatası |
+
+**Açık:** #51 tekilleştirme benzerlik önbelleği — CI success, birleştirme bekletiliyor.

@@ -1,12 +1,42 @@
 # 13 — Devir ve Sonraki Adımlar
 
-**Tarih:** 22.10.2026 · **main:** `20ee0bc` (CI success) · **Açık PR:** 7 (#37–#43, birleştirme onayı bekliyor)
+**Tarih:** 23.10.2026 · **main:** `4c15843` (#50 birleşmesi) · **Açık PR:** #51 (CI success; birleştirme depo sahibi kararıyla bekletiliyor)
 **Amaç:** Bir sonraki oturumun (insan ya da yapay zekâ) baştan analiz yapmadan doğrudan
-devam edebilmesi. Yapılanların kanıtı 07 §6–§8, risk durumu 03, birleşen PR listesi README §10.
+devam edebilmesi. Yapılanların kanıtı 07 §6–§8, risk durumu 03, birleşen PR listesi README §10–§11,
+kaynak durumu 14.
 
 ---
 
-## 0. 22.10.2026 oturumu — açık PR'lar (hepsi `main`'den, birbirinden bağımsız)
+## 00. 23.10.2026 durumu (güncel)
+
+**Birleşen PR'lar (#37–#50):** hepsi CI `verify` success ile birleşti; liste README §11.
+
+**#51 (tekilleştirme benzerlik önbelleği, head `bbddbed`):** CI success. #50 sonrası `main` ile
+yerelde birleştirilmiş ağaçta typecheck 0 · lint 0 · vitest **144 dosya, 1526 geçti, 1 atlandı,
+0 başarısız** (Windows, 23.10). Birleştirilmedi: depo sahibi kararı (3. seçenek) — birleştirmeden
+önce güncel head SHA ve CI yeniden doğrulanmalı.
+
+**Yerel tam paket (`main` `4c15843` öncesi #50 head `705793c`, Windows):** typecheck 0 · lint 0 ·
+vitest **142 dosya, 1516 geçti, 1 atlandı, 0 başarısız**.
+
+**Değişmeyen sınırlar:** üretime dağıtım yok · üretim DB'sine erişim yok · gerçek LLM sağlayıcı
+çağrısı yok (anahtar yok) · insan etiketli kayıt 0 → kesinlik/duyarlılık üretilemez ·
+gerçek Postgres ölçümü yok (yalnız PGlite).
+
+**Açık teknik işler (öncelik sırası):**
+
+| # | İş | Durum / engel |
+| --- | --- | --- |
+| 1 | Kaynak matrisi | 14 belgesi (statik envanter + izin + canlı kanıt) |
+| 2 | İŞKUR liste | BLOCKED — statik HTML'de liste yok; robots `/api/` ve `/*?*` yasak; resmî veri kanalı gerekli |
+| 3 | Bakanlık/kurum çok pozisyonlu tablo (Sayıştay tipi "(1 Kişi …)") | `extractOpenings` resmî toplamı okuyor (#48), pozisyon kırılımı yok |
+| 4 | `q` araması / filtreli sayım (PGlite 570–720 ms) | `pg_trgm` kararı gerçek Postgres ölçümüne bağlı (R-03) |
+| 5 | OCR satır güveni / tablo gürültüsü | Kod var, varsayılan kapalı (R-13) |
+| 6 | `scrapeRuns` saklama süresi | Tablo sınırsız büyüyor; silme işi ayrı PR, üretimde çalıştırılmaz |
+| 7 | Mock adaptörle uçtan uca veri E2E | E2E seed'inde ilan tohumu yok |
+| 8 | Görsel regresyon | Referanslar CI (Linux) üzerinde üretilmeli |
+
+## 0. 22.10.2026 oturumu — açık PR'lar (TARİHSEL; hepsi birleşti)
 
 Her PR: kök neden kanıtı + eski kodda kırmızı test (mutasyon kontrolü) + tam paket
 (yalnız bilinen 9 Windows ortam hatası). Birleştirme ve dağıtım yapılmadı.
@@ -38,8 +68,8 @@ Postgres ölçümünden sonra); düzeltme/iptal bildirimi yok (ürün kararı); 
 
 | Alan | Durum | Kanıt |
 | --- | --- | --- |
-| Kod kalitesi | typecheck/lint/build temiz; 131 dosya / 1475 test | 07 §6.3; son yerel koşum `cedb889` öncesi `d8b591c` |
-| Yerel test (Windows) | 1465 geçti · 9 başarısız (ortam) · 1 atlandı | 9 hata `4fd9acb`'de de aynı: CRLF CSS/PDF özeti, Windows yolu, `staging-capture` alt süreç |
+| Kod kalitesi | typecheck/lint temiz; 142 dosya / 1517 test (#50 head) | §00; yerel koşum 23.10 |
+| Yerel test (Windows) | 1516 geçti · 0 başarısız · 1 atlandı | 9 ortam hatası #45 ile kök nedenden kapandı |
 | CI (Linux) | `verify:all` + Playwright E2E her merge'de success | GitHub Actions `verify` |
 | Gerçek veri | Resmî Gazete: 3 + 16 belge, yanlış kabul 0 (ajan etiketi) | 07 §8, §8.1 |
 | Üretim | **Doğrulanmadı**; dağıtım yapılmadı, üretim DB'sine dokunulmadı | R-08 |
@@ -61,6 +91,9 @@ Her madde için: ne yapılacak · nerede · kabul ölçütü.
 | K8 | **Canlı kaynak onayları** | Yeni kaynak için `config/source-terms.json` YEREL doldurulur (commit edilmez — `tests/source-terms.test.ts`) | `staging:capture --live` koşumu `partial`/`complete` |
 
 ## 3. Teknik iş listesi (öncelik sırasıyla)
+
+> **23.10 notu:** Bu listenin 1 (#37), 2-üniversite (#48), 5 (#49, varsayılan kapalı),
+> 6 (#42) ve 10 (#45) maddeleri birleşti. Güncel açık iş listesi §00'dadır.
 
 ### P1
 1. **R-03 kalan — SQL'de sıralama/sayfalama.**
@@ -112,8 +145,8 @@ Her madde için: ne yapılacak · nerede · kabul ölçütü.
 
 ## 6. Bir sonraki oturumun ilk 5 adımı
 
-1. `git -C D:\coding\claude\kamuradar pull` → `main` = `cedb889` ya da sonrası; `gh pr list` boş olmalı.
-2. Bu belge + README §10 + 03 (R-18, R-19) oku; 2. bölümdeki kararlardan hangilerinin verildiğini sor.
-3. `npm ci && npm run typecheck && npm run lint && npx vitest run` → yalnız 9 bilinen ortam hatası beklenir.
+1. `git -C D:\coding\claude\kamuradar pull` → `main` = `4c15843` ya da sonrası; `gh pr list` → #51 (ve sonraki docs/kod PR'ları).
+2. Bu belge §00 + README §11 + 03 (R-03, R-04, R-13) + 14 oku; 2. bölümdeki kararlardan hangilerinin verildiğini sor.
+3. `npm ci && npm run typecheck && npm run lint && npx vitest run` → 0 başarısız beklenir (Windows hataları #45 ile kapandı).
 4. Karar yoksa 3. bölümdeki P1 listesinden sıradaki işi ayrı dalda yap; mutasyon kontrolü + tam paket + PR.
 5. Oturum sonunda bu belgenin 1–3. bölümlerini güncelle.
