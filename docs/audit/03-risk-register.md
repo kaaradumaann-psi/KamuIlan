@@ -178,7 +178,8 @@
 - **Kapanış ölçütü:** staging Postgres'te 50.000 kayıtla `GET /api/jobs?page=1` < 200 ms.
 - **Durum (23.10.2026):** AÇIK. #37 birleşti; yukarıdaki tüm sayılar **PGlite/WASM** ölçümüdür,
   gerçek Postgres sonucu yerine geçmez. `pg_trgm` indeksi gerçek Postgres `EXPLAIN ANALYZE`
-  ölçümü olmadan eklenmeyecek. `scrapeRuns` hâlâ temizlenmiyor (saklama işi açık).
+  ölçümü olmadan eklenmeyecek. `scrapeRuns` saklama kodu #54 ile geldi (90 gün; dağıtımla
+  etkinleşir, üretimde henüz çalışmadı).
 
 ### R-08 · Üretim ortamının gerçek durumu doğrulanamadı
 - **Kanıt:** [4] Üretim sağlık ucu bu ortamdan erişilemedi; `https://api.kamuilan...`

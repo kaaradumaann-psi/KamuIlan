@@ -223,7 +223,7 @@ Bu bölüm, 21.10.2026'da birleştirilen tüm PR'ların tek listesidir. Ayrınt�
 - **Çoklu kadro:** yalnız mahalli idare tablosu; üniversite/bakanlık tabloları desteklenmiyor.
 - **robots.txt:** vitrin açılınca `Sitemap: /api/sitemap.xml` satırı eklenmeli.
 
-## 11. 22–23.10.2026 birleşmeleri — `main` @ `4c15843`
+## 11. 22–23.10.2026 birleşmeleri — `main` @ `a3146a7`
 
 Hepsi CI `verify` success ile birleşti. Üretime **dağıtım yapılmadı**; üretim DB'sine
 **dokunulmadı**; LLM sağlayıcısına **çağrı yapılmadı**. Ayrıntı: 13 §00, risk durumu 03.
@@ -244,5 +244,10 @@ Hepsi CI `verify` success ile birleşti. Üretime **dağıtım yapılmadı**; ü
 | #48 | `03c3162` | Üniversite kadro tabloları ve yazıyla toplam (`EXTRACTION_VERSION 2026.10.6`) |
 | #49 | `b2753b3` | OCR (tesseract.js, `OCR_ENABLED=0`) + "İlan Tarihi" başvuru penceresine karışmaz |
 | #50 | `4c15843` | AI mock testleri (eşzamanlılık, mojibake) + `eval:build-set` varsayılan `--limit` hatası |
-
-**Açık:** #51 tekilleştirme benzerlik önbelleği — CI success, birleştirme bekletiliyor.
+| #52 | `e6f8581` | Belgeler: 13 §00, risk kaydı, 14 kaynak matrisi |
+| #53 | `8ed7efc` | Kurum ilanlarında pozisyon başına kontenjan (Sayıştay tipi), `EXTRACTION_VERSION 2026.10.7` |
+| #54 | `fca3fc6` | `scrapeRuns` 90 gün saklama (bakım görevi; dağıtım sonrası veri siler) + `npm run runs:retention` önizleme |
+| #55 | `8ff0018` | robots.txt `Disallow` istek katmanında (İŞKUR `/api/`, `/*?*`), yönlendirme dahil |
+| #51 | `10eea6e` | Tekilleştirme benzerlik önbelleği (yerel p50 130 → 1,6 ms) + `scripts/bench-pipeline.ts` |
+| #56 | `da58ca7` | Örnek ilan tohumu (`seed:e2e-jobs`) + tarayıcı ilan akışı E2E (CI 26/26) |
+| #57 | `a3146a7` | Çok kalemli resmî toplam, OCR rakamı yazıyla doğrulanır (ORAN 2 → 7), `EXTRACTION_VERSION 2026.10.8` |
