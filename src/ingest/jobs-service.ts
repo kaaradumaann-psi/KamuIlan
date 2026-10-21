@@ -902,6 +902,10 @@ async function mergeIntoExistingJob(
     applicationUrl: document.applicationUrl ?? previous.applicationUrl,
     applicationMethod: document.applicationMethod ?? previous.applicationMethod ?? null,
     quota: document.quota ?? previous.quota,
+    // İlk yayım tarihi korunur, yoksa yeni okumadan doldurulur. Alan burada
+    // atanmadığında aşağıdaki durum hesabı yayım tarihini `null` görüyor ve son
+    // başvurusu olmayan eski (kapalı) ilanı her birleştirmede `unknown` yapıyordu.
+    publishedAt: previous.publishedAt ?? document.publishedAt,
     city: previous.city ?? document.city,
     titles: previous.titles.length >= document.titles.length ? previous.titles : document.titles,
     // Yeni okumada tablo varsa o geçerlidir (ilan güncellenmiş olabilir); yoksa eskisi korunur.
