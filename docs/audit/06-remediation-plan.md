@@ -88,16 +88,16 @@ Toplam: **+36 test** (1373 → 1409).
 | --- | --- | --- | --- |
 | R-03 | Postgres sorgularında SQL düzeyi filtre/sıralama/sayfalama; 20.000 satır sınırının kaldırılması | AÇIK | Bugün doğru davranıyor (sessiz kırpma yok, açık hata). 10 binden sonra zorunlu. |
 | R-08 | Üretim sağlık/worker uçlarının doğrulanması | ENGELLİ | Ağ erişimi yok; dağıtım sahibi tarafından yapılmalı. |
-| R-10 | Chromium ile E2E | ENGELLİ | Tarayıcı ikilisi yok; CI'da kurulabilir. |
+| R-10 | Chromium ile E2E | **CI'da YAPILDI** | CI `verify` işi 4 spec / 20 test ile geçiyor (run `39597847874`). Yalnızca bu sandbox'ta Chromium yok. |
 | R-13 | PDF/OCR kapsamı | AÇIK | Önce "metin katmanı yok" ölçümü + kapsam raporu. |
-| R-15 | CI'da haftalık `npm audit` | AÇIK | Bugün 0 açık; otomatikleştirilmedi. |
+| R-15 | CI'da haftalık `npm audit` | AÇIK | Bugün 0 açık; otomatikleştirilmedi. CI yalnızca `verify:all` koşuyor. |
 
 ## 4. P3 — temizlik
 
 | ID | İş | Durum |
 | --- | --- | --- |
 | R-11 | Hız sınırı sayacını DB yerine bellek/Redis'e taşıma | AÇIK |
-| R-14 | README kaynak sayısı 27 → 28 | AÇIK (tek satır) |
+| R-14 | README kaynak sayısı 27 → 28 | **YAPILDI** |
 | R-16 | Metaveri/SEO | P1-2'ye bağlı |
 | R-17 | Arşiv sekmesi | P1-2 / R-12 kararına bağlı |
 
@@ -105,5 +105,5 @@ Toplam: **+36 test** (1373 → 1409).
 
 1. **Onay gerekenler (tek pakette):** P1-2 (herkese açık erişim), P1-4 (DB rolü/RLS).
 2. **İnsan emeği:** P1-3 (150 etiket).
-3. **Bağımsız, ajan tarafından yapılabilir:** R-03 (SQL'e taşıma), R-11, R-14, R-16, R-17.
-4. **CI/ortam:** R-10, R-15, R-08.
+3. **Bağımsız, ajan tarafından yapılabilir:** R-03 (SQL'e taşıma), R-11, R-16, R-17 (R-14 yapıldı).
+4. **CI/ortam:** R-15 (haftalık `npm audit`), R-08 (üretim doğrulaması). R-10 CI'da kapandı.

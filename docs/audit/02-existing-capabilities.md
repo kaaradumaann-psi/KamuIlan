@@ -16,7 +16,7 @@ Eksik olan şey veri toplama değil, **halka açık erişim ve ölçek**tir (bkz
 
 | Alan | Durum | Kanıt | Sınır / not |
 | --- | --- | --- | --- |
-| Kaynak tanımları | **VAR** — 28 kaynak (24 `enabled`, 4 kapalı) | `src/config/sources.ts` | README hâlâ "27 kayıtlı kaynak" diyor → **R-14** |
+| Kaynak tanımları | **VAR** — 28 kaynak (24 `enabled`, 4 kapalı) | `src/config/sources.ts` | README 28'e güncellendi (R-14 kapandı) |
 | Adaptörler | **VAR** — 10 kayıtlı adaptör kimliği (8 dosya): `anchor-list`, `ilan-gov-tr`, `ilan-gov-tr-api`, `kariyerkapisi`, `osym`, `resmigazete`, `sbb-kamuilan`, `manual-entry` | `src/sources/adapters/` | Kaynak başına seçim `src/config/sources.ts` |
 | HTTP istemcisi | **VAR** — SSRF savunması (DNS cevabı doğrulama), elle yönlendirme + her adımda allowlist, host başına aralık, Retry-After, gövde boyutu sınırı, ETag/Last-Modified | `src/sources/fetcher.ts`, `src/sources/network-safety.ts` | TLS doğrulaması kapatılmıyor; AIA ile zincir tamamlama opsiyonel |
 | PDF metni | **VAR** | `src/extraction/pdf.ts`, `scripts/make-pdf-fixtures.ts` | Taranmış görüntü PDF'lerde OCR **yok** [1] |

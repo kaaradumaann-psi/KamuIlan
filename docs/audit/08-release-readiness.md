@@ -17,7 +17,7 @@ Bu belge "derleniyor, o hâlde hazır" demiyor. Her boyut ayrı ölçüldü.
 | KVKK/gizlilik | **KISMİ** | Veri minimizasyonu, saklama temizliği, hesap silme, rıza akışı var; **RLS ve silme provası yok** |
 | Gözlemlenebilirlik | **KISMİ** | Sağlık uçları, heartbeat, denetim kaydı var; **üretim doğrulanmadı** (R-08) |
 | Ölçek | **ZAYIF** | Sorgular bellekte; 20.000 satır sınırı (R-03) |
-| Erişilebilirlik/UX | **KISMİ** | jsdom testleri var; **gerçek tarayıcı/E2E yok** (R-10) |
+| Erişilebilirlik/UX | **PASS (CI)** | Playwright 4 spec / 20 test CI'da geçiyor (run `39597847874`); yerel sandbox'ta koşulamıyor (R-10) |
 | Dokümantasyon | **PASS** | `docs/` + bu denetim seti (01–08) |
 | Halka açık erişim / keşfedilebilirlik | **FAIL** | Giriş kapılı, sitemap/meta yok (R-01, R-16) |
 
@@ -36,7 +36,7 @@ Bu belge "derleniyor, o hâlde hazır" demiyor. Her boyut ayrı ölçüldü.
 3. **R-04** Gerçek insan etiketli kalite ölçümü (kesinlik ≥ 0,95) — *yok*
 4. **R-03** Ölçek: SQL düzeyi filtre/sıralama — *yok*
 5. **R-08** Üretim sağlık doğrulaması — *yapılmadı*
-6. **R-10** Tarayıcı E2E — *engelli*
+6. ~~R-10 Tarayıcı E2E~~ — **CI'da geçiyor**; yerel ortamda kurulum gerekli
 7. **R-16** Sitemap/meta/`llms.txt` — *yok*
 8. Yasal: KVKK aydınlatma/çerez metinleri yayın modeliyle uyumlu — *güncellenmeli*
 

@@ -23,9 +23,12 @@
 | 11 | Bütünleşik doğrulayıcı | `npm run verify:all` | **PASS** | `status: PASS_OFFLINE_CHECKS`, çıkış 0 |
 | 12 | Bağımlılık güvenliği | `npm audit` | **PASS** | üretim 160 + geliştirme 242 paket → **0 bilinen açık** |
 | 13 | Lisanslar | `node_modules` taraması | **PASS** | MIT 19 · Apache-2.0 2 · BSD-2-Clause 1 · MIT-0 1 · copyleft yok |
+| 14 | Tarayıcı E2E (CI) | GitHub Actions `verify` işi | **PASS** | 4 spec / 20 test; adımlar `Playwright tarayıcıları` + `Uçtan uca testler` = success (run `39597847874`, commit `911b0b4`) |
 
-**Doğrulayıcı raporu:** `artifacts/verify-all/2026-10-21T11-55-04-414Z/report.json`
-Raporun kendi kanıt satırları:
+**Son doğrulayıcı raporu:** `artifacts/verify-all/2026-10-21T12-20-51-914Z/report.json`
+(`status: PASS_OFFLINE_CHECKS`, 122 dosya / 1.409 test, kapsam %77,52).
+Önceki koşum: `artifacts/verify-all/2026-10-21T11-55-04-414Z/report.json`.
+Raporun kendi kanıt satırları (her iki koşumda aynı):
 - `Dış HTTP guard: 12 engellenen deneme; gerçek outbound çağrı 0`
 - `Gerçek-insan etiketi: 0` · `LLM doctor çağrısı: 0`
 - `Kaynak envanteri: 28 kaynak, 24 etkin, fixture none`
@@ -34,7 +37,7 @@ Raporun kendi kanıt satırları:
 
 | Kontrol | Durum | Neden | Nasıl kapanır |
 | --- | --- | --- | --- |
-| Playwright E2E (`npm run test:e2e`) | **BLOCKED** | Chromium ikilisi yok (`/home/user/.cache/ms-playwright/.../chrome` mevcut değil) | CI'da `npx playwright install chromium` |
+| Playwright E2E — **yerel sandbox** | **BLOCKED** | Chromium ikilisi yok (`/home/user/.cache/ms-playwright/.../chrome` mevcut değil). **CI'da aynı testler geçiyor** (bkz. §1 satır 14) | Yerelde `npx playwright install chromium` |
 | Canlı kaynak taraması (`npm run test:live`) | **NOT RUN** | Bu ortamda dış ağ yalnızca paket depolarına açık; kaynak sitelere istek atılmadı | Üretim benzeri ortamda, kaynak başına tek istek |
 | Gerçek LLM çağrısı | **NOT RUN (bilinçli)** | API anahtarı yok; ücret doğurur | Anahtar + bütçe onayı ile `npm run llm:doctor -- --live` |
 | Gerçek Postgres/Mongo | **NOT RUN** | Sunucu yok; sürücü testleri taklit düzeyinde | Docker/CI servis konteyneri |

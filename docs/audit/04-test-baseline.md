@@ -13,13 +13,14 @@
 | 1 | Tip denetimi | `npm run typecheck` | **PASS** | ~13 s | 0 hata |
 | 2 | Lint | `npm run lint` | **PASS** | ~8 s | 0 uyarı/hata |
 | 3 | Birim + entegrasyon | `npx vitest run` | **PASS** — 122 dosya / 1409 test | ~150 s | 0 başarısız, 0 atlanmış |
-| 4 | Kapsam | `npx vitest run --coverage` | **PASS** — %77,52 ifade / %80,07 satır / %68,06 dal | ~151 s | aşağıda tablo |
+| 4 | Kapsam | `npx vitest run --coverage` | **PASS** — %77,52 ifade / %80,07 satır / %68,06 dal | ~154 s | aşağıda tablo |
 | 5 | Üretim derlemesi | `npm run build` | **PASS** | ~30 s | `tsc --noEmit && vite build` |
 | 6 | Ortam denetimi | `npm run env:check` | **PASS** (uyarılı) | ~2 s | `ADMIN_EMAIL`/`ADMIN_PASSWORD` yok uyarısı |
 | 7 | Kaynak/fixture sözleşmesi | `verify:all` içinde | **PASS** | — | fixture'lar şema + kaynak kurallarına uyuyor |
 | 8 | Sınıflandırma/çıkarım eval | `verify:all` içinde | **PASS (deterministik)** | — | **Sentetik** set; kesinlik/duyarlılık iddiası yok |
 | 9 | LLM doktoru | `verify:all` içinde | **PASS** | — | Anahtar yok → istek atılmadı (0 çağrı) |
-| 10 | Tarayıcı E2E | `npx playwright test` | **BLOCKED** | — | Chromium ikilisi kurulu değil |
+| 10 | Tarayıcı E2E — **bu sandbox** | `npx playwright test` | **BLOCKED** | — | Chromium ikilisi kurulu değil; kurulum yapılmadı |
+| 10b | Tarayıcı E2E — **CI** | GitHub Actions `verify` işi | **PASS** | ~1 dk | 4 spec / 20 test; iş adımı `success` (run `39597847874`, commit `911b0b4`) |
 | 11 | Canlı kaynak taraması | `npm run test:live` | **NOT RUN** | — | Bu ortamda internet yalnızca paket depolarına açık; canlı tarama yapılmadı |
 | 12 | Gerçek LLM çağrısı | `npm run llm:doctor` | **NOT RUN (bilinçli)** | — | Anahtar yok; ücret doğuracak çağrı yapılmadı |
 
@@ -61,7 +62,7 @@ Yani yerel testler **ağa çıkmadı**; canlı entegrasyon kanıtı değildir.
 
 | Alan | Durum | Neden |
 | --- | --- | --- |
-| Gerçek tarayıcı davranışı (klavye, odak, mobil) | **BLOCKED** | Chromium yok |
+| Gerçek tarayıcı davranışı (klavye, odak, mobil) | **CI'da PASS** | `e2e/accessibility.spec.ts` (6), `smoke` (9), `security` (2), `sources` (3). Yerel sandbox'ta koşulamadı (Chromium yok) |
 | Gerçek Postgres/Mongo davranışı | **KISMİ** | Sunucu yok; sürücüler birim testleriyle taklit ediliyor |
 | Gerçek SMTP/Telegram gönderimi | **NOT RUN** | Kimlik bilgisi yok; `file` sağlayıcısıyla test ediliyor |
 | Gerçek LLM yanıtı | **NOT RUN** | Anahtar yok, ücret doğurur |

@@ -13,8 +13,8 @@
 | --- | --- | --- |
 | **P0** (üretim verisi bozulması / güvenlik) | 0 açık, 2 azaltıldı | R-05 (yanlış iptal), R-06 (CSRF zorla çıkış) |
 | **P1** (ürün/veri doğruluğu) | 5 | R-01 erişim modeli, R-02 DB yetki, R-04 gerçek altın küme, R-07 haber/duyuru, R-12 süreç duyuruları |
-| **P2** (ölçek/operasyon) | 6 | R-03 tarama sınırı, R-08 üretim durumu, R-09 proxy güveni, R-10 E2E, R-13 PDF/OCR, R-15 bağımlılık |
-| **P3** (temizlik/iyileştirme) | 4 | R-11 hız sınırı deposu, R-14 README, R-16 metaveri/SEO, R-17 arşiv görünümü |
+| **P2** (ölçek/operasyon) | 5 açık, 1 kısmen kapandı | R-03 tarama sınırı, R-08 üretim durumu, R-09 proxy güveni, R-13 PDF/OCR, R-15 bağımlılık (R-10 CI'da geçiyor, yerelde engelli) |
+| **P3** (temizlik/iyileştirme) | 3 açık | R-11 hız sınırı deposu, R-16 metaveri/SEO, R-17 arşiv görünümü (R-14 README düzeltildi) |
 
 ---
 
@@ -148,11 +148,15 @@
 - **Kapanış ölçütü:** Dağıtım dokümanında "yalnızca vekil arkasında `TRUST_PROXY=1`" kuralı
   ve üretimde doğrulama.
 
-### R-10 · Tarayıcı E2E testleri çalıştırılamıyor
-- **Kanıt:** [1] `npx playwright test` → Chromium ikilisi yok; bu ortamda kurulum yapılmadı.
-- **Etki:** Giriş kapısı, filtreler, klavye/erişilebilirlik ve gerçek DOM davranışı
-  otomatik doğrulanmıyor. UI testleri jsdom düzeyinde kalıyor (`@testing-library`).
-- **Kapanış ölçütü:** CI'da Chromium ile `e2e/smoke.spec.ts` yeşil.
+### R-10 · Tarayıcı E2E — **CI'da KAPANDI**, yerel ortamda engelli
+- **Kanıt:** [1] GitHub Actions `verify` işi, run `39597847874` (commit `911b0b4`):
+  `Playwright tarayıcıları` ve `Uçtan uca testler` adımları **success**. 4 spec / 20 test
+  (`e2e/smoke.spec.ts` 9, `accessibility` 6, `sources` 3, `security` 2).
+- **Yerel durum:** Bu denetim sandbox'ında Chromium yok → `npx playwright test` BLOCKED.
+  Yani E2E **kodda ve CI'da var ve geçiyor**; yalnızca bu ortamda koşulamıyor.
+- **Etki:** Giriş kapısı, filtreler, klavye/erişilebilirlik, güvenlik başlıkları gerçek
+  tarayıcıda doğrulanmış durumda. Kalan boşluk: yerel geliştirici geri bildirimi.
+- **Kapanış ölçütü:** Yerel `npm run test:e2e` (Chromium kurulduktan sonra) yeşil.
 
 ### R-13 · PDF ağırlıklı kaynaklar ve OCR yokluğu
 - **Kanıt:** [1] Resmî Gazete 21.10.2026 "Çeşitli İlânlar" bölümünün bir kısmı yalnızca PDF;
@@ -178,9 +182,10 @@
   artırım var mı doğrulanmalı [4]).
 - **Öneri:** Redis/bellek içi kova ya da atomik `UPDATE ... RETURNING`.
 
-### R-14 · README kaynak sayısı bayat
-- **Kanıt:** [1] README "27 kayıtlı kaynak"; `src/config/sources.ts` **28** (24 etkin).
-- **Etki:** Düşük; ama denetimde "kaç kaynak var" sorusuna yanlış cevap verilmesine yol açar.
+### R-14 · README kaynak sayısı bayat — **DÜZELTİLDİ**
+- **Kanıt:** [1] README "27 kayıtlı kaynak" diyordu; `src/config/sources.ts` **28** (24 etkin).
+- **Etki:** Düşük; ama "kaç kaynak var" sorusuna yanlış cevap verilmesine yol açıyordu.
+- **Düzeltme:** README 28'e güncellendi (+ "24 etkin, 4 kapalı" açıklaması ve denetim belgeleri bağlantısı).
 
 ### R-16 · Metaveri/SEO yok
 - **Kanıt:** [1] `public/` sitemap yok; `index.html` tek `<title>`; istemci tarafında
