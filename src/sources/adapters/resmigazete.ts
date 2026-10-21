@@ -699,9 +699,34 @@ export class ResmiGazeteAdapter implements SourceAdapter {
   }
 }
 
+/**
+ * Resmî Gazete ilan PDF'lerinin künye biçimi: "<Kurum>dan:" satırı + büyük harfli
+ * başlık ("İPTAL İLANI", "SÖZLEŞMELİ PERSONEL ALIM İLANI"). Gerçek koşumda
+ * (21.10.2026, 20261021-4-1.pdf) 11 karakterlik "İPTAL İLANI" kısa satır eşiğine
+ * takılıyor ve gövdedeki "ilan iptal edilmiştir." başlık oluyordu.
+ */
+function issuerHeading(lines: readonly string[]): string | null {
+  for (let index = 0; index < Math.min(lines.length - 1, 6); index += 1) {
+    const issuer = lines[index] ?? '';
+    const heading = lines[index + 1] ?? '';
+    if (!/\p{L}(?:dan|den|tan|ten|ndan|nden):$/u.test(issuer) || issuer.length < 6) continue;
+    const letters = heading.replace(/[^\p{L}]/gu, '');
+    if (letters.length < 4 || letters !== letters.toLocaleUpperCase('tr-TR')) continue;
+    return `${issuer} ${heading}`.slice(0, 300);
+  }
+  return null;
+}
+
 function deriveTitle(pdfText: string, rowText: string, institution: string | null, dateOnly: string): string {
   const normalizedRow = collapseWhitespace(rowText.replace(/[:;]\s*$/, ''));
   if (pdfText) {
+    const issued = issuerHeading(
+      pdfText
+        .split('\n')
+        .map((line) => collapseWhitespace(line))
+        .filter((line) => line.length > 0),
+    );
+    if (issued) return issued;
     const lines = pdfText
       .split('\n')
       .map((line) => collapseWhitespace(line))

@@ -224,6 +224,18 @@
 
 ---
 
+### R-18 · Varsayılan tarayıcı kimliği Resmî Gazete'de engelleniyor — **YENİ (21.10.2026)**
+- **Kanıt:** [1] Gerçek staging koşumu (07 §8): varsayılan `SCRAPE_USER_AGENT`
+  (`Mozilla/5.0 (compatible; KamuIlanBot/0.2; +https://…)`) ile Resmî Gazete yanıt başlığı
+  göndermiyor (zaman aşımı); `Bot` sözcüğü çıkarılınca anında 200.
+- **Etki:** Üretim aynı varsayılanı kullanıyorsa Resmî Gazete taraması **her koşumda** zaman
+  aşımına düşüyor olabilir; kaynak sağlığı "başarısız" görünür, ilan gelmez. Üretim ayarı
+  doğrulanamadı [4].
+- **Öneri (karar gerekiyor):** Varsayılanı kimliği ve iletişim adresini koruyarak
+  `Mozilla/5.0 (compatible; KamuIlan/0.2; +https://kamuilan.halilkaraduman.com.tr)` yapmak.
+  Bu, kaynağın filtresine karşı bir kimlik tercihidir; kod varsayılanı değiştirilmedi.
+- **Kapanış ölçütü:** Üretim kaynak sağlığında Resmî Gazete son koşumu `complete`/`partial`.
+
 ## Kapsam dışı bırakılanlar [5]
 
 - KadroNerede'nin iç algoritması, veri kaynakları, güncelleme sıklığı (bilinmiyor, tahmin edilmedi).
