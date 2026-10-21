@@ -11,6 +11,7 @@ ile "kanıtlandı" arasındaki farkı yazıya dökmek. Hiçbir satır tahminle y
 
 ## 1. Nasıl okunur (5 dakikalık yol)
 
+0. **[13-devir-ve-sonraki-adimlar.md](13-devir-ve-sonraki-adimlar.md)** — devralan için başlangıç noktası (güncel durum + yapılacaklar).
 1. **[08-release-readiness.md](08-release-readiness.md)** — tek paragrafta hüküm ve yayın kapıları.
 2. **[03-risk-register.md](03-risk-register.md)** — 17 risk, öncelik sırasıyla.
 3. **[07-verification-results.md](07-verification-results.md)** — ne çalıştırıldı, ne çalıştırılamadı.
@@ -37,6 +38,7 @@ Derinleşmek için 01, 02, 09–12.
 | 10 | [Veri doğruluğu ve kaynak envanteri](10-veri-dogrulugu-ve-kaynak-envanteri.md) | 28 kaynağın güven katmanı, sınıflandırma ayrımları, tarih/durum kuralları, tekilleştirme, **ölçülmeyen kesinlik** | Veri kalitesi |
 | 11 | [LLM + güvenlik + KVKK](11-llm-guvenlik-kvkk.md) | Bütçe/timeout/retry/kanıt doğrulama, prompt injection, güvenlik tablosu, KVKK yükümlülükleri, **açık riskler** | Güvenlik, hukuk |
 | 12 | [Kod kalitesi ve performans](12-kod-kalitesi-performans.md) | Ölçülen metrikler, paket boyutu, sunucu tarafı riskler, ölçülmeyenler | Geliştirici |
+| 13 | [Devir ve sonraki adımlar](13-devir-ve-sonraki-adimlar.md) | Güncel durum, karar bekleyenler (K1–K8), öncelikli teknik iş listesi, çalışma kuralları, ilk 5 adım | Sonraki oturum |
 
 ### Kanıt düzeyleri (tüm belgelerde kullanılır)
 
