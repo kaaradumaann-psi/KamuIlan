@@ -684,9 +684,20 @@ export function extractApplicationWindow(
       sentence,
     );
 
+  // "İlan Tarihi 19/10/2026 Başvuru Tarihleri 09/11/2026 — 03/12/2026" (tablo biçimli ilan,
+  // RG 19.10.2026-4-7): etiketli ilan/yayım tarihi başvuru penceresi değildir. Aralık
+  // okunmadan önce çıkarılır; yoksa ilan tarihi başlangıç, başvuru başlangıcı BİTİŞ sanılıyor
+  // ve ilan haftalar önce "kapandı" görünüyordu.
+  const withoutPublicationDate = (sentence: string): string =>
+    sentence.replace(
+      // `\b` "İ" önünde çalışmaz (ASCII dışı): Unicode harf geriye bakışı kullanılır.
+      /(?<![\p{L}\d])(?:[İi]lan|ILAN|İLAN|Yay[ıi]m|Yay[ıi]n|YAYIM|YAYIN)\s+(?:[Tt]arihi|TARİHİ)\s*:?\s*(?:\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}|\d{1,2}\s+\p{L}+\s+\d{4})/gu,
+      ' ',
+    );
+
   const windowSentences = sentences.filter(isWindowSentence);
   for (const sentence of windowSentences) {
-    const range = parseTurkishDateRange(sentence);
+    const range = parseTurkishDateRange(withoutPublicationDate(sentence));
     if (!range.start) continue;
     const hasRange = range.end && range.end.dateOnly !== range.start.dateOnly;
     const mentionsStart = /(?:ba[şs]lang[ıi]ç|ba[şs]vurular[ıi]n ba[şs]lan|itibaren)/iu.test(sentence);

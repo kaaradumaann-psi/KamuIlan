@@ -152,6 +152,8 @@ export interface RawAnnouncement {
   bodyTextSource?: 'detail' | 'listing' | 'document';
   /** True when the adapter hit its extraction/storage cap. */
   bodyTextTruncated?: boolean;
+  /** Gövde metni OCR ile okunduysa ortalama güven (0–100); OCR yoksa alan yoktur. */
+  ocrConfidence?: number;
   institution?: string;
   publishedAt?: string;
   applicationStartAt?: string;

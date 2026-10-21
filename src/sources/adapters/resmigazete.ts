@@ -20,6 +20,9 @@ import { AdapterStructureError } from '../errors';
 import { cleanInstitution, ownCardText } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
+import { sharedOcrEngine } from '../../extraction/ocr';
+import { getEnv } from '../../config/env';
+import { join } from 'node:path';
 import { budgetedTimeoutMs, hasBudgetFor } from '../scan-budget';
 import { assertSafeUrl, FetchError, isTransientTransportFailure, type FetchResponse } from '../fetcher';
 import { launchChromium } from '../browser-session';
@@ -253,6 +256,15 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     let notModified = false;
     let detailFetches = 0;
     let failedPdfFetches = 0;
+    // OCR (taranmış belge): ayar açıksa, koşu başı sınır dolmadıysa ve tarama bütçesi
+    // yetiyorsa. Belge başı ~5–15 sn CPU; sınır, taramanın zaman aşımına düşmesini önler.
+    const env = getEnv();
+    let ocrDocs = 0;
+    const ocrEngine = sharedOcrEngine({
+      enabled: env.OCR_ENABLED,
+      langPath: env.OCR_LANG_PATH,
+      cachePath: join(env.DATA_DIR, 'ocr-cache'),
+    });
     let limitNoted = false;
     // Zaman bütçesi dolduğunda kalan belgeler atlanır ve koşum KISMİ kapsamla
     // döner (eski davranış: sert zaman aşımı → hiçbir kayıt oluşmaz).
@@ -473,9 +485,18 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               continue;
             }
 
-            const pdf = await extractPdfText(new Uint8Array(pdfBody), { maxPages: 16, maxChars: 60_000 });
+            const ocrAllowed = ocrEngine !== null && ocrDocs < env.OCR_MAX_DOCS_PER_RUN && hasBudgetFor(ctx, 60_000);
+            const pdf = await extractPdfText(new Uint8Array(pdfBody), {
+              maxPages: 16,
+              maxChars: 60_000,
+              ...(ocrAllowed && ocrEngine
+                ? { ocr: { engine: await ocrEngine, minConfidence: env.OCR_MIN_CONFIDENCE, maxPages: env.OCR_MAX_PAGES } }
+                : {}),
+            });
+            if (pdf.ocr) ocrDocs += 1;
             const itemNotes: string[] = [];
             if (pdf.error) itemNotes.push(`PDF okunamadı: ${pdf.error}`);
+            if (pdf.ocr) itemNotes.push(pdf.ocr.note);
             if (pdf.noTextLayer && !pdf.error) {
               itemNotes.push(
                 'PDF metin katmanı yok (taranmış görüntü olabilir); metin alanları boş bırakıldı, belge saklandı.',
@@ -506,6 +527,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               title,
               bodyText,
               bodyTextSource: 'document',
+              ...(pdf.ocr?.used && pdf.ocr.confidence !== null ? { ocrConfidence: pdf.ocr.confidence } : {}),
               ...(pdf.truncated ? { bodyTextTruncated: true } : {}),
               ...(rowInstitution ? { institution: rowInstitution } : {}),
               publishedAt,
