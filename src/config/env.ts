@@ -367,6 +367,8 @@ const envSchema = z.object({
   OCR_MAX_DOCS_PER_RUN: z.coerce.number().int().min(0).max(50).default(3),
   /** İstem sürümüyle birlikte önbellek anahtarını belirleyen model adı. Boşsa LLM_MODEL kullanılır. */
   LLM_CLASSIFIER_MODEL: z.string().default(''),
+  // Virgülle ayrılmış yedek modeller (aynı sağlayıcı/uç nokta); sıra = deneme sırası.
+  LLM_CLASSIFIER_FALLBACK_MODELS: z.string().default(''),
   /** Sağlayıcıya gönderilecek azami ilan metni uzunluğu (karakter). Fazlası kırpılır. */
   LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(1_000).max(40_000).default(12_000),
   /** Tek kaynak taramasında yapılacak azami LLM çağrısı (maliyet freni). 0 = kapı bu koşuda çalışmaz. */

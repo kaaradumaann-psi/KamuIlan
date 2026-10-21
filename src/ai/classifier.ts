@@ -49,7 +49,17 @@ import {
 } from '../domain/types';
 import { RECRUITMENT_EVIDENCE_PATTERN, PROCESS_TITLE_SIGNAL_PATTERN } from '../classification/rules';
 import type { Logger } from '../lib/logger';
-import { callChatCompletion, computeRetryDelayMs, redactSecret, type LlmConfig, type LlmFetch } from './llm';
+import {
+  callChatCompletion,
+  computeRetryDelayMs,
+  isDailyQuotaExhausted,
+  isModelUnavailable,
+  redactSecret,
+  type LlmConfig,
+  type LlmFetch,
+  type LlmFailureCategory,
+  type LlmResult,
+} from './llm';
 import { createLlmBudgetFromEnv, type LlmBudgetBlockReason } from './budget';
 
 /**
@@ -433,18 +443,52 @@ function classifierModel(env: Env): string {
   return env.LLM_CLASSIFIER_MODEL.trim() || env.LLM_MODEL.trim();
 }
 
+/** Sınıflandırıcı yapılandırması: ana model + aynı uç noktadaki yedek modeller (deneme sırası). */
+export interface ClassifierLlmConfig extends LlmConfig {
+  fallbackModels: string[];
+}
+
 /** Kapı etkin mi? (bayrak + sağlayıcı yapılandırması + bütçe) */
-export function llmClassifierConfig(env: Env): LlmConfig | null {
+export function llmClassifierConfig(env: Env): ClassifierLlmConfig | null {
   if (!env.LLM_CLASSIFIER_ENABLED) return null;
   const model = classifierModel(env);
   if (!env.LLM_BASE_URL || !env.LLM_API_KEY || !model) return null;
   if (env.LLM_MAX_CALLS_PER_RUN <= 0) return null;
+  const fallbackModels = [
+    ...new Set(
+      env.LLM_CLASSIFIER_FALLBACK_MODELS.split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0 && entry !== model),
+    ),
+  ];
   return {
     baseUrl: env.LLM_BASE_URL,
     apiKey: env.LLM_API_KEY,
     model,
     timeoutMs: env.LLM_TIMEOUT_MS,
+    fallbackModels,
   };
+}
+
+/**
+ * Süreç boyunca geçici olarak atlanan modeller (`uç nokta|model` → bitiş zamanı). Günlük kotası
+ * tükenen (429 + günlük kanıtı) ya da bulunamayan (404/model_decommissioned) modele, süre dolana
+ * kadar yeni istek gönderilmez; sıradaki yedek denenir.
+ */
+const unavailableModels = new Map<string, { untilMs: number; reason: string }>();
+const MODEL_NOT_FOUND_SKIP_MS = 6 * 3_600_000;
+const DAILY_QUOTA_DEFAULT_SKIP_MS = 3_600_000;
+
+/** Yalnız testler için: atlanan model listesini temizler. */
+export function resetUnavailableLlmModels(): void {
+  unavailableModels.clear();
+}
+
+/** Şu an atlanan modeller (tanı/rapor için). */
+export function listUnavailableLlmModels(nowMs = Date.now()): { model: string; untilMs: number; reason: string }[] {
+  return [...unavailableModels.entries()]
+    .filter(([, value]) => value.untilMs > nowMs)
+    .map(([key, value]) => ({ model: key.slice(key.indexOf('|') + 1), ...value }));
 }
 
 /** Kod çitleri ve boşluklar ayıklanmış JSON gövdesi. */
@@ -747,17 +791,34 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     };
   }
 
+  /**
+   * Model zinciri: ana model, sonra `LLM_CLASSIFIER_FALLBACK_MODELS` sırası. Her modelde sınırlı
+   * yeniden deneme (429/5xx/zaman aşımı/ağ). Sıradaki modele geçilen durumlar: kota (429; günlük
+   * kanıtı varsa model süreç boyunca atlanır), geçici hata, erişilemeyen model (404 /
+   * model_decommissioned), boş/bozuk çıktı. Geçilmeyen durumlar: 401/403 (aynı anahtar her modelde
+   * reddedilir; hata gizlenmez), diğer 400'ler ve bütçe engeli. Hepsi başarısızsa kayıt incelemede kalır.
+   */
   async function callProvider(
-    config_: LlmConfig,
+    config_: ClassifierLlmConfig,
     messages: { role: string; content: string }[],
   ): Promise<
-    | { ok: true; content: string; usage: { promptTokens: number | null; completionTokens: number | null }; latencyMs: number }
+    | {
+        ok: true;
+        content: string;
+        usage: { promptTokens: number | null; completionTokens: number | null };
+        latencyMs: number;
+        model: string;
+        modelsTried: string[];
+      }
     | {
         ok: false;
         reason: string;
         status: 'error' | 'timeout';
         latencyMs: number;
         attempts: number;
+        model: string;
+        modelsTried: string[];
+        failureCategory?: LlmFailureCategory;
         blockedByBudget?: boolean;
         budgetReason?: LlmBudgetBlockReason;
       }
@@ -767,58 +828,111 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
     // deneme süreleri dahil toplam süre, gecikme yüzdelerinin (p50/p95) gerçek kalması için gerekir.
     const overallStartedAt = Date.now();
     let attempts = 0;
-    let lastFailure: { reason: string; status: 'error' | 'timeout'; retryAfterMs?: number | null } = {
-      reason: 'Sağlayıcı çağrısı yapılmadı',
-      status: 'error',
-    };
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      if (attempt > 0) {
-        const waitMs = computeRetryDelayMs(attempt, retryBackoffMs, lastFailure.retryAfterMs);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
-      }
-      const reservation = await budget.reserve(messages, maxOutputTokens);
-      if (!reservation.allowed) {
-        return {
-          ok: false,
-          reason:
-            attempts === 0
-              ? 'LLM günlük/koşu bütçesi için güvenli rezervasyon yapılamadı; kayıt incelemede kalıyor.'
-              : `${lastFailure.reason} Yeniden deneme LLM bütçesi/kotası nedeniyle yapılmadı.`,
-          status: lastFailure.status,
-          latencyMs: Date.now() - overallStartedAt,
-          attempts,
-          blockedByBudget: true,
-          budgetReason: reservation.reason,
-        };
-      }
+    const modelsTried: string[] = [];
+    const notes: string[] = [];
+    let lastFailure: {
+      reason: string;
+      status: 'error' | 'timeout';
+      retryAfterMs?: number | null;
+      failureCategory?: LlmFailureCategory;
+    } = { reason: 'Sağlayıcı çağrısı yapılmadı', status: 'error' };
+    const chain = [config_.model, ...config_.fallbackModels];
 
-      attempts += 1;
-      totals.calls += 1;
-      const startedAt = Date.now();
-      await semaphore.acquire();
-      let result;
-      try {
-        result = await callChatCompletion(config_, messages, {
-          fetchImpl: deps.fetchImpl,
-          temperature: 0.1,
-          maxTokens: maxOutputTokens,
-          jsonMode: true,
-        });
-      } finally {
-        semaphore.release();
+    for (const model of chain) {
+      const skipKey = `${config_.baseUrl}|${model}`;
+      const skipped = unavailableModels.get(skipKey);
+      if (skipped && skipped.untilMs > Date.now()) {
+        notes.push(`${model} atlandı (${skipped.reason})`);
+        continue;
       }
-      const latencyMs = Date.now() - startedAt;
-      if (result.ok) {
-        return { ok: true, content: result.content, usage: result.usage, latencyMs };
+      modelsTried.push(model);
+      const modelConfig: LlmConfig = { ...config_, model };
+      let result: Extract<LlmResult, { ok: false }> | null = null;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (attempt > 0) {
+          const waitMs = computeRetryDelayMs(attempt, retryBackoffMs, lastFailure.retryAfterMs);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+        const reservation = await budget.reserve(messages, maxOutputTokens);
+        if (!reservation.allowed) {
+          return {
+            ok: false,
+            reason:
+              attempts === 0
+                ? 'LLM günlük/koşu bütçesi için güvenli rezervasyon yapılamadı; kayıt incelemede kalıyor.'
+                : `${lastFailure.reason} Yeniden deneme LLM bütçesi/kotası nedeniyle yapılmadı.`,
+            status: lastFailure.status,
+            latencyMs: Date.now() - overallStartedAt,
+            attempts,
+            model,
+            modelsTried,
+            blockedByBudget: true,
+            budgetReason: reservation.reason,
+          };
+        }
+
+        attempts += 1;
+        totals.calls += 1;
+        await semaphore.acquire();
+        let response: LlmResult;
+        try {
+          response = await callChatCompletion(modelConfig, messages, {
+            fetchImpl: deps.fetchImpl,
+            temperature: 0.1,
+            maxTokens: maxOutputTokens,
+            jsonMode: true,
+          });
+        } finally {
+          semaphore.release();
+        }
+        if (response.ok) {
+          return {
+            ok: true,
+            content: response.content,
+            usage: response.usage,
+            latencyMs: Date.now() - overallStartedAt,
+            model,
+            modelsTried,
+          };
+        }
+        result = response;
+        lastFailure = {
+          reason: response.reason,
+          status: response.timedOut ? 'timeout' : 'error',
+          retryAfterMs: response.diagnostics?.retryAfterMs ?? null,
+          ...(response.failureCategory ? { failureCategory: response.failureCategory } : {}),
+        };
+        // Günlük kota tükendiyse aynı modelde yeniden deneme kotayı boşa harcar.
+        if (!response.retryable || isDailyQuotaExhausted(response)) break;
       }
-      lastFailure = {
-        reason: result.reason,
-        status: result.timedOut ? 'timeout' : 'error',
-        retryAfterMs: result.diagnostics?.retryAfterMs ?? null,
-      };
-      if (!result.retryable) break;
+      if (!result) continue;
+      const category = result.failureCategory;
+      if (category === 'auth' || (category === 'bad-request' && !isModelUnavailable(result)) || category === 'config') {
+        // Aynı anahtar/istem başka modelde de reddedilir: hata gizlenmez, zincir durur.
+        break;
+      }
+      if (isModelUnavailable(result)) {
+        unavailableModels.set(skipKey, { untilMs: Date.now() + MODEL_NOT_FOUND_SKIP_MS, reason: 'model bulunamadı/kaldırıldı' });
+      } else if (isDailyQuotaExhausted(result)) {
+        const rate = result.diagnostics?.rateLimit;
+        const waitMs = rate?.retryAfterMs ?? rate?.resetRequestsMs ?? DAILY_QUOTA_DEFAULT_SKIP_MS;
+        unavailableModels.set(skipKey, { untilMs: Date.now() + Math.max(60_000, waitMs), reason: 'günlük kota tükendi' });
+      }
+      notes.push(`${model}: ${category ?? 'hata'}`);
     }
-    return { ok: false, ...lastFailure, latencyMs: Date.now() - overallStartedAt, attempts };
+    const tried = modelsTried.length > 0 ? modelsTried : chain;
+    return {
+      ok: false,
+      ...lastFailure,
+      reason:
+        chain.length > 1
+          ? `${lastFailure.reason} [model zinciri: ${notes.join('; ') || tried.join(', ')}]`
+          : lastFailure.reason,
+      latencyMs: Date.now() - overallStartedAt,
+      attempts,
+      model: tried[tried.length - 1] ?? config_.model,
+      modelsTried,
+    };
   }
 
   return {
@@ -841,16 +955,20 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       const titleNormalized = normalizeTr(titleForLlm);
       const haystack = `${titleForLlm}\n${bodyForLlm}\n${input.sourceCategory ?? ''}`;
       const contentKey = sha256Hex(normalizeTr(haystack));
-      const cacheKey = sha256Hex([LLM_PROMPT_VERSION, config.model, contentKey].join('|'));
+      const cacheKeyFor = (model: string): string => sha256Hex([LLM_PROMPT_VERSION, model, contentKey].join('|'));
+      const cacheKey = cacheKeyFor(config.model);
 
       // 1) Önbellek: aynı içerik + model + istem sürümü daha önce analiz edildi mi?
       //    İsabet varsa API çağrısı YAPILMAZ; saklanan karar aynı doğrulama
       //    boru hattından (kanıt birebir + deterministik kalıp) yeniden geçirilir.
       //    Böylece model/istem sürümü değişmedikçe aynı içerik aynı kararı verir
-      //    (tekrarlanan taramada idempotentlik korunur).
+      //    (tekrarlanan taramada idempotentlik korunur). Zincirdeki her modelin anahtarı aranır:
+      //    yedek modelin doğrulanmış kararı da yeniden çağrı yapılmadan kullanılır.
+      const chainKeys = [config.model, ...config.fallbackModels].map(cacheKeyFor);
       const cached = await repos.store
-        .find('llmAnalyses', { cacheKey, status: 'ok' }, { limit: 1, sort: [['createdAt', -1]] })
+        .find('llmAnalyses', { cacheKey: { $in: chainKeys }, status: 'ok' }, { limit: 1, sort: [['createdAt', -1]] })
         .then((rows) => rows[0] ?? null);
+      const hitModel = cached?.model ?? config.model;
       if (cached && cached.verdict && cached.contentType) {
         totals.cacheHits += 1;
         const reconstructed: LlmClassifierOutput = {
@@ -874,7 +992,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           contentKey,
           sourceKey: input.sourceKey,
           url: input.url,
-          model: config.model,
+          model: hitModel,
           promptVersion: LLM_PROMPT_VERSION,
           status: 'ok',
           cacheHit: true,
@@ -891,7 +1009,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         });
         if (!revalidated.failure) {
           const audit: ClassificationLlmAudit = {
-            model: config.model,
+            model: hitModel,
             promptVersion: LLM_PROMPT_VERSION,
             verdict: revalidated.verdict,
             confidence: reconstructed.guven,
@@ -924,7 +1042,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
             contentType: cached.contentType,
             summary: cached.summary,
             reasons: [revalidated.failure],
-            model: config.model,
+            model: hitModel,
             cacheHit: true,
           },
           callMade: false,
@@ -962,11 +1080,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         if (call.blockedByBudget) totals.blocked += 1;
         totals.errors += 1;
         await recordTelemetry({
-          cacheKey,
+          cacheKey: cacheKeyFor(call.model),
           contentKey,
           sourceKey: input.sourceKey,
           url: input.url,
-          model: config.model,
+          model: call.model,
           promptVersion: LLM_PROMPT_VERSION,
           status: call.status,
           cacheHit: false,
@@ -995,7 +1113,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
             contentType: null,
             summary: null,
             reasons: [call.reason],
-            model: config.model,
+            model: call.model,
             cacheHit: false,
           },
           callMade: true,
@@ -1009,11 +1127,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       } catch (error) {
         totals.invalid += 1;
         await recordTelemetry({
-          cacheKey,
+          cacheKey: cacheKeyFor(call.model),
           contentKey,
           sourceKey: input.sourceKey,
           url: input.url,
-          model: config.model,
+          model: call.model,
           promptVersion: LLM_PROMPT_VERSION,
           status: 'invalid',
           cacheHit: false,
@@ -1039,7 +1157,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
             contentType: null,
             summary: null,
             reasons: ['Model çıktısı şema doğrulamasından geçmedi'],
-            model: config.model,
+            model: call.model,
             cacheHit: false,
           },
           callMade: true,
@@ -1051,11 +1169,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       if (validated.failure) {
         totals.invalid += 1;
         await recordTelemetry({
-          cacheKey,
+          cacheKey: cacheKeyFor(call.model),
           contentKey,
           sourceKey: input.sourceKey,
           url: input.url,
-          model: config.model,
+          model: call.model,
           promptVersion: LLM_PROMPT_VERSION,
           status: 'invalid',
           cacheHit: false,
@@ -1083,7 +1201,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
             contentType: output.icerikTuru,
             summary: output.ozet,
             reasons: [validated.failure],
-            model: config.model,
+            model: call.model,
             cacheHit: false,
           },
           callMade: true,
@@ -1092,7 +1210,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
 
       // 7) Doğrulanmış karar: önbelleğe ve telemetriye yaz, sınıflandırmayı güncelle.
       const audit: ClassificationLlmAudit = {
-        model: config.model,
+        model: call.model,
         promptVersion: LLM_PROMPT_VERSION,
         verdict: validated.verdict,
         confidence: output.guven,
@@ -1101,11 +1219,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         analyzedAt: repos.clock.now().toISOString(),
       };
       await recordTelemetry({
-        cacheKey,
+        cacheKey: cacheKeyFor(call.model),
         contentKey,
         sourceKey: input.sourceKey,
         url: input.url,
-        model: config.model,
+        model: call.model,
         promptVersion: LLM_PROMPT_VERSION,
         status: 'ok',
         cacheHit: false,
