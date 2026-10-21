@@ -42,7 +42,12 @@ export const APP_VERSION = '2026.10.1';
 // teknikeri alımı", "destek personeli alımı", "uzman erbaş temin ilanı" gibi
 // gerçek ilan başlıkları kanıt kapısında reddediliyordu. Eski sürümle
 // sınıflanmış kayıtlar `npm run jobs:reclassify -- --apply` ile güncellenir.
-export const CLASSIFICATION_VERSION = '2026.10.4';
+// 2026.10.5: 21.10.2026 kural düzeltmeleri — haber kapısı görev unvanlı ilanı reddetmez
+// (#25), başlıktaki statü gövdedeki dışlama cümlesine üstün (#27), "Bursa" kurum adı
+// "burs" sayılmaz (#31). Eski sürümle verilmiş RET kararları tarama belleğinden düşer
+// (src/ingest/pipeline.ts `loadKnownItemIds`): kaynakta hâlâ listelenen kayıt bir kez
+// yeniden indirilip güncel kuralla değerlendirilir.
+export const CLASSIFICATION_VERSION = '2026.10.5';
 // 2026.10.2: gövde metni artık sayfa iskeletinden (menü, çerez/KVKK modali,
 // erişilebilirlik araç çubuğu) arındırılarak çıkarılıyor.
 // 2026.10.3: iskelet temizliği metin katmanında da genişletildi —
