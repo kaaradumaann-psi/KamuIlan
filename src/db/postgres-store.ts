@@ -11,9 +11,13 @@
  *     JSONB kapsama (`@>`) ile daraltılır; bilinmeyen koşullarda ön filtre
  *     tamamen atlanır.
  *  2. Nihai filtre kararı `matchesQuery` ile verilir; sıralama varsayılan olarak
- *     `sortDocuments` üzerinden yapılır. Tek istisna, boş filtre + yalnızca `id`
- *     sıralaması + limit içeren tam tablo sayfalarıdır: bu durumda SQL, kararlı
- *     ID sayfalamasını doğrudan uygular (göçler için gerekli).
+ *     `sortDocuments` üzerinden yapılır. İstisnalar:
+ *     - boş filtre + yalnızca `id` sıralaması + limit: kararlı ID sayfalaması SQL'de
+ *       (göçler için gerekli);
+ *     - sorgu ve sıralama şeması sabit alanlarda TAM çevrilebiliyorsa
+ *       (`postgres-exact.ts`, R-03): filtre, ORDER BY, LIMIT/OFFSET ve COUNT SQL'de.
+ *       Satırlar yine `matchesQuery`'den geçirilir; çeviri hatası yanlış satır
+ *       döndüremez (karşılaştırma: tests/r03-sql-tam-ceviri.test.ts).
  *  3. Ön filtre bir üst sınırı aşarsa (`MAX_SCAN_ROWS`) sessizce kırpmak yerine
  *     açık hata verilir.
  *
@@ -37,6 +41,7 @@ import {
 } from './query';
 import type { IndexSpec, InsertIfAbsentResult, StoragePort } from './ports';
 import { INDEXES } from './indexes';
+import { DEVIANT_INDEX_VERSION, EXACT_FIELDS, deviantPredicate, exactPlan, textSortExpression } from './postgres-exact';
 
 /** Ön filtrenin üst sınırı: aşılırsa açık hata (sessiz kırpma yok). */
 const MAX_SCAN_ROWS = 20_000;
@@ -493,7 +498,30 @@ export class PostgresStore implements StoragePort {
         await this.pool.query(
           `CREATE ${spec.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table} (${expression})`,
         );
+        // Tam çeviri (R-03) metin ifadesiyle süzer/sıralar: `data -> 'alan'` (jsonb)
+        // indeksi o ifadede kullanılamaz. Aynı ifadeyle ikinci bir indeks kurulur;
+        // ad ayrı tutulur ki eski kurulumlarda IF NOT EXISTS mevcut indeksi atlamasın.
+        const exactFields = EXACT_FIELDS[spec.collection];
+        if (!spec.unique && exactFields && spec.keys.every(([path]) => exactFields[path] === 'string')) {
+          const textName = indexIdentifier(table, `txt_${spec.name}`);
+          const textExpression = spec.keys
+            .map(([path, direction]) => `${textSortExpression(path)} ${direction === -1 ? 'DESC' : 'ASC'} NULLS LAST`)
+            .join(', ');
+          await this.pool.query(`CREATE INDEX IF NOT EXISTS ${textName} ON ${table} (${textExpression})`);
+        }
         return { spec, result: { collection: spec.collection, name, created: true } };
+      }),
+    );
+
+    // Tip sapmalı satırlar için kısmi indeks (R-03): koşul `deviantPredicate` ile
+    // metin olarak aynıdır; normal durumda indeks boştur ve sorgu ~0 maliyetlidir.
+    await Promise.all(
+      this.collections.map(async (collection) => {
+        const deviant = deviantPredicate(collection);
+        if (!deviant) return;
+        const table = this.table(collection);
+        const name = indexIdentifier(table, `sapma_v${DEVIANT_INDEX_VERSION}`);
+        await this.pool.query(`CREATE INDEX IF NOT EXISTS ${name} ON ${table} (id) WHERE ${deviant}`);
       }),
     );
 
@@ -514,7 +542,10 @@ export class PostgresStore implements StoragePort {
   ): Promise<DocumentOf<K>[]> {
     const table = this.table(collection);
     const params: unknown[] = [];
-    const where = buildPrefilter(filter, params);
+    const plan = exactPlan(collection, filter, undefined, params);
+    // Tam çeviri varsa koşul ön filtreden daha dardır (eşleşen satırların kendisi);
+    // tip sapmalı satırlar ayrıca çekilip bellekte değerlendirilir.
+    const where = plan ? plan.where : buildPrefilter(filter, params);
     const result = await this.pool.query<{ data: unknown }>(
       `SELECT data FROM ${table} WHERE ${where} LIMIT ${MAX_SCAN_ROWS + 1}`,
       // Savunma katmanı: ön filtre yoksa SQL'de yer tutucu da yoktur; parametre
@@ -531,6 +562,13 @@ export class PostgresStore implements StoragePort {
       );
     }
     const docs = result.rows.map((row) => row.data as DocumentOf<K>);
+    if (plan) {
+      const byId = new Map(docs.map((doc) => [String((doc as { id: string }).id), doc]));
+      for (const doc of await this.deviantRows(collection, plan.deviant)) {
+        byId.set(String((doc as { id: string }).id), doc);
+      }
+      return [...byId.values()].filter((doc) => matchesQuery(doc, filter));
+    }
     return docs.filter((doc) => matchesQuery(doc, filter));
   }
 
@@ -585,8 +623,73 @@ export class PostgresStore implements StoragePort {
   }
 
   async findOne<K extends CollectionName>(collection: K, filter: Query): Promise<DocumentOf<K> | null> {
+    const exact = await this.exactFind(collection, filter, { limit: 1 });
+    if (exact) return exact[0] ?? null;
     const docs = await this.selectMatching(collection, filter);
     return docs[0] ?? null;
+  }
+
+  /**
+   * Filtre + sıralama + sayfalama SQL'de (R-03). Sorgu ya da sıralama tam
+   * çevrilemiyorsa `null` döner; çağıran bellek yoluna düşer.
+   *
+   * Şemaya uyan satırlar SQL'de süzülür, sıralanır ve sayfalanır. Tip sapmalı
+   * satırlar (`plan.deviant`, normalde yok) ayrıca çekilip bellekte karara
+   * bağlanır ve aynı karşılaştırıcıyla (`sortDocuments`) sayfaya katılır.
+   */
+  private async exactFind<K extends CollectionName>(
+    collection: K,
+    filter: Query | undefined,
+    options: FindOptions | undefined,
+  ): Promise<DocumentOf<K>[] | null> {
+    const limit = options?.limit;
+    const skip = options?.skip ?? 0;
+    if (limit !== undefined && !(Number.isSafeInteger(limit) && limit >= 0)) return null;
+    if (!(Number.isSafeInteger(skip) && skip >= 0)) return null;
+    const params: unknown[] = [];
+    const plan = exactPlan(collection, filter, options?.sort, params);
+    if (!plan) return null;
+
+    const deviantRows = await this.deviantRows(collection, plan.deviant);
+    const uncertain = deviantRows.filter((doc) => matchesQuery(doc, filter));
+    const table = this.table(collection);
+    const order = plan.orderBy ? ` ORDER BY ${plan.orderBy}` : '';
+    // Sapmalı satır yoksa (normal durum) koşul sade kalır: sıralama indeksi kullanılabilir.
+    const where = deviantRows.length > 0 ? `${plan.where} AND NOT ${plan.deviant}` : plan.where;
+    // Limitsiz istekte bellek sınırı korunur: sessiz kırpma yerine açık hata.
+    const window = limit === undefined ? MAX_SCAN_ROWS + 1 : uncertain.length > 0 ? skip + limit : limit;
+    const offset = limit !== undefined && uncertain.length === 0 ? skip : 0;
+    params.push(window, offset);
+    const result = await this.pool.query<{ data: unknown }>(
+      `SELECT data FROM ${table} WHERE ${where}${order} LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    if (limit === undefined && result.rows.length > MAX_SCAN_ROWS) {
+      throw new Error(
+        `Sorgu ${MAX_SCAN_ROWS} satırı aştı; sorguya limit ya da daha seçici bir koşul ekleyin ` +
+          `(koleksiyon: ${collection}). Sessiz kırpma yapılmaz.`,
+      );
+    }
+    const certain = result.rows.map((row) => row.data as DocumentOf<K>).filter((doc) => matchesQuery(doc, filter));
+    if (offset > 0 || (uncertain.length === 0 && limit !== undefined)) return certain;
+    const combined = sortDocuments([...certain, ...uncertain], options?.sort);
+    return limit === undefined ? combined.slice(skip) : combined.slice(skip, skip + limit);
+  }
+
+  /**
+   * Tip sapmalı satırların tamamı (filtreden bağımsız; kısmi indeksle normalde
+   * boş ve ~0 maliyetli). Çağıran bunları bellekte `matchesQuery` ile değerlendirir.
+   */
+  private async deviantRows<K extends CollectionName>(collection: K, deviant: string): Promise<DocumentOf<K>[]> {
+    const result = await this.pool.query<{ data: unknown }>(
+      `SELECT data FROM ${this.table(collection)} WHERE ${deviant} LIMIT ${MAX_SCAN_ROWS + 1}`,
+    );
+    if (result.rows.length > MAX_SCAN_ROWS) {
+      throw new Error(
+        `Şemaya uymayan ${MAX_SCAN_ROWS}+ satır var (koleksiyon: ${collection}); veri onarımı gerekir. Sessiz kırpma yapılmaz.`,
+      );
+    }
+    return result.rows.map((row) => row.data as DocumentOf<K>);
   }
 
   async find<K extends CollectionName>(
@@ -622,6 +725,9 @@ export class PostgresStore implements StoragePort {
       return result.rows.map((row) => row.data as DocumentOf<K>);
     }
 
+    const exact = await this.exactFind(collection, filter, options);
+    if (exact) return exact;
+
     const docs = await this.selectMatching(collection, filter);
     const sorted = sortDocuments(docs, options?.sort);
     const limited =
@@ -630,6 +736,17 @@ export class PostgresStore implements StoragePort {
   }
 
   async count<K extends CollectionName>(collection: K, filter?: Query): Promise<number> {
+    const params: unknown[] = [];
+    const plan = exactPlan(collection, filter, undefined, params);
+    if (plan) {
+      const deviantRows = await this.deviantRows(collection, plan.deviant);
+      const where = deviantRows.length > 0 ? `${plan.where} AND NOT ${plan.deviant}` : plan.where;
+      const result = await this.pool.query<{ count: string | number }>(
+        `SELECT count(*) AS count FROM ${this.table(collection)} WHERE ${where}`,
+        params,
+      );
+      return Number(result.rows[0]?.count ?? 0) + deviantRows.filter((doc) => matchesQuery(doc, filter)).length;
+    }
     const docs = await this.selectMatching(collection, filter);
     return docs.length;
   }

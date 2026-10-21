@@ -17,6 +17,8 @@ export const INDEXES: readonly IndexSpec[] = [
   { collection: 'jobs', name: 'uniq_normalized_url', keys: [['normalizedUrl', 1]], unique: true },
   { collection: 'jobs', name: 'status_deadline', keys: [['status', 1], ['applicationEndDate', 1]] },
   { collection: 'jobs', name: 'created_desc', keys: [['createdAt', -1]] },
+  // İlan listesi `sort=deadline` (R-03: Postgres'te SQL sıralaması bu indeksi kullanır).
+  { collection: 'jobs', name: 'deadline_asc', keys: [['applicationEndDate', 1]] },
   { collection: 'jobs', name: 'published_desc', keys: [['publishedAt', -1]] },
   { collection: 'jobs', name: 'institution', keys: [['institutionNormalized', 1]] },
   { collection: 'jobs', name: 'city', keys: [['city', 1]] },

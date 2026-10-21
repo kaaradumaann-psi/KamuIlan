@@ -141,28 +141,37 @@
 
 ## P2
 
-### R-03 · Postgres deposunda sorgu başına 20.000 satır tarama sınırı — **KISMEN AZALTILDI**
+### R-03 · Postgres deposunda sorgu başına 20.000 satır tarama sınırı — **BÜYÜK ÖLÇÜDE AZALTILDI (22.10.2026)**
 - **Kanıt:** [1] `src/db/postgres-store.ts` — `MAX_SCAN_ROWS = 20_000`, aşılırsa **hata**
-  (sessiz kırpma yok — doğru davranış), sıralama/sayfalama bellekte.
-- **Kök neden (bağımsız doğrulamada bulundu):** SQL ön filtresi tek bir çevrilemeyen
-  koşulda (aralık, `$exists`, `$regex`, **noktalı yol**) tamamen düşüyordu. İlan listesi her
-  sorguda `classification.decision = accept` (noktalı yol) eklediği için **her liste/arama
-  sorgusu tüm `jobs` tablosunu** okuyordu; reddedilen kayıtlar da sınıra sayılıyordu.
-- **Düzeltme (`fix/r03-postgres-onfiltre`):** çevrilemeyen bağlaç atlanır (üst küme korunur),
-  noktalı yol eşitliği lax JSONPath (`jsonb_path_exists`) ile SQL'de uygulanır. [2]
-  `tests/postgres-store.test.ts`: 20.050 satırlık PGlite tablosunda `repos.jobs.search`
-  (eski kodda "20000 satırı aştı" hatası, yenide doğru 2 kayıt) + 250 rastgele bileşik
-  sorguda Postgres = dosya sürücüsü (7 tohumla yerelde 1.750 sorgu).
-- **Kalan:** sıralama/sayfalama hâlâ bellekte; sınır artık *eşleşen* satırlara uygulanır
-  (kabul edilmiş + filtreye uyan > 20.000 olursa yine açık hata). `jsonb_path_exists` GIN
-  indeksini kullanmaz (SQL içinde sıralı tarama). Gerçek Supabase/Postgres'te ve yük altında
-  **ölçülmedi** [4] — yalnızca PGlite (Postgres 16 WASM).
-- **Etki:** İlan sayısı ~20 bine yaklaşınca filtresiz liste/arama 500 verir; her istek
-  O(n) bellek kullanır.
-- **Öneri:** Filtre → SQL `WHERE data @> ...` / ifade indeksleri; sıralama ve `LIMIT/OFFSET`
-  SQL'de; `count` ayrı sorgu.
-- **Doğrulama:** 50.000 kayıtlı veri ile `GET /api/jobs?page=1` < 200 ms ve doğru sayfa.
-- **Kapanış ölçütü:** Yük testi + sayfalama doğruluğu.
+  (sessiz kırpma yok); eski hâlde sıralama/sayfalama/sayım bellekte.
+- **Bağımsız doğrulamada bulunan ek kırılmalar** (`tests/r03-sql-tam-ceviri.test.ts`, eski kodda kırmızı):
+  - İlan kabul hattı her kayıtta `find('jobs', {}, {limit: 400, sort: createdAt})` çağırıyor
+    (`src/ingest/jobs-service.ts` `findCandidates`): `jobs` 20.000 satırı geçince **her ilan işlenemez,
+    tarama durur** — liste ekranından önce bozulan yol buydu.
+  - `scrapeRuns` hiç temizlenmiyor; `count('scrapeRuns', {})` tüm tabloyu okuyor (24 kaynak × saatlik
+    ≈ 5 haftada 20.000 satır → özet/panel uçları hata).
+  - `jobs:reclassify` / `jobs:restore` tüm tabloyu `find('jobs', {}, {limit: 100_000})` ile okuyor.
+  - Sorgu dili `$ne`/`$nin` koşulunda eksik alanı eşlemiyordu (Mongo eşler): `classification.kind`
+    alanı olmayan eski ilanlar `kind=job` listesinden ve ana sayfa sayılarından düşüyordu.
+- **Düzeltme (`fix/r03-sql-siralama-sayfalama`):**
+  - `src/db/postgres-exact.ts`: şeması sabit alanlarda (`EXACT_FIELDS`: jobs, jobSources,
+    sourceItemDecisions, scrapeRuns) sorgu `matchesQuery` ile **eşdeğer** SQL'e çevrilir;
+    filtre, `ORDER BY`, `LIMIT/OFFSET` ve `COUNT` SQL'de. Çevrilemeyen sorgu eski yola düşer.
+  - Şemaya uymayan satırlar (`quota: "25"` gibi) SQL'de karara bağlanmaz; kısmi indeksli
+    (`*_sapma_v1`) ayrı sorguyla çekilip bellekte değerlendirilir. Dönen satırlar yine
+    `matchesQuery`'den geçer: çeviri hatası yanlış satır döndüremez.
+  - Sıralama ifadeleri için metin indeksleri (`*_txt_*`, `NULLS LAST`) ve `deadline_asc`.
+  - `src/db/query.ts`: `$ne`/`$nin` eksik alanı Mongo gibi eşler (`$ne: null` eşlemez).
+- **Doğrulama [2]:** 20.050 satırda kabul hattı sorguları, liste sayfası ve özet sayıları doğru;
+  400 belgede 240 rastgele ilan araması + 9 operatör sorgusu × 3 sıralama Postgres = dosya sürücüsü
+  (toplam ve sayfa kimlikleri birebir); mevcut PGlite fark testleri (şemaya aykırı verili) yeşil.
+- **Ölçüm** (`scripts/bench-postgres-list.ts`, **PGlite/WASM**, 50.000 satır, medyan):
+  `GET /api/jobs?page=1` 3.480 → **158 ms**; `sort=deadline` **159 ms**; kabul hattı son 400 ilan
+  1.086 → **15 ms**; filtreli liste (`kind+status+şehir`) **568 ms**; metin araması `q` **723 ms**.
+- **Kalan:** gerçek Postgres/Supabase'te ölçüm **yapılmadı** [4] (staging yok; komut
+  `BENCH_POSTGRES_URL` ile hazır). Filtreli sayım tam tarama; `q` araması için trigram (pg_trgm)
+  indeksi ölçüm sonrası değerlendirilmeli. `EXACT_FIELDS` dışındaki koleksiyonlar eski yolda.
+- **Kapanış ölçütü:** staging Postgres'te 50.000 kayıtla `GET /api/jobs?page=1` < 200 ms.
 
 ### R-08 · Üretim ortamının gerçek durumu doğrulanamadı
 - **Kanıt:** [4] Üretim sağlık ucu bu ortamdan erişilemedi; `https://api.kamuilan...`

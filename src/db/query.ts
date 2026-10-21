@@ -154,6 +154,35 @@ function matchValue(value: unknown, condition: FieldCondition): boolean {
   return true;
 }
 
+/**
+ * Eksik alan (yol hiçbir değere ulaşmıyor) bir operatör koşulunu sağlar mı?
+ *
+ * MongoDB ile aynı: `$exists:false`, `$ne: <null olmayan>` ve `null` içermeyen
+ * `$nin` eksik alanı EŞLER; diğer operatörler eşlemez. Eski kod yalnızca
+ * `$exists:false`'u tanıyordu: `{ 'classification.kind': { $ne: 'process' } }`
+ * alanı hiç olmayan eski ilanları sessizce dışarıda bırakıyordu (Mongo sürücüsü
+ * ise dahil ediyordu — sürücüler arasında farklı sonuç).
+ */
+function missingSatisfies(condition: ConditionOperators): boolean {
+  for (const [operator, value] of Object.entries(condition)) {
+    if (operator === '$regexFlags') continue;
+    if (operator === '$exists') {
+      if (value !== false) return false;
+      continue;
+    }
+    if (operator === '$ne') {
+      if (value === null || value === undefined) return false;
+      continue;
+    }
+    if (operator === '$nin') {
+      if (((value as readonly unknown[] | undefined) ?? []).some((candidate) => candidate === null)) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 export function matchesQuery(doc: unknown, query: Query | undefined): boolean {
   if (!query) return true;
   for (const [key, condition] of Object.entries(query)) {
@@ -174,7 +203,7 @@ export function matchesQuery(doc: unknown, query: Query | undefined): boolean {
     }
     const values = getPathValues(doc, key);
     if (values.length === 0) {
-      if (isOperatorObject(condition) && (condition as ConditionOperators).$exists === false) continue;
+      if (isOperatorObject(condition) && missingSatisfies(condition as ConditionOperators)) continue;
       return false;
     }
     if (!values.some((value) => matchValue(value, condition))) return false;
