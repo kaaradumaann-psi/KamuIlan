@@ -55,6 +55,11 @@ export interface SourceDefinition {
   minRequestIntervalMs: number;
   maxConcurrency: number;
   allowedHosts: string[];
+  /**
+   * İncelenmiş robots.txt `Disallow` kuralları (`User-agent: *`); HTTP istemcisi eşleşen
+   * adrese istek göndermez. İnceleme tarihi/kaynağı `config/source-terms.json` notundadır.
+   */
+  robotsDisallow?: string[];
   /** İçerik değişmediyse (ETag/Last-Modified) ayrıntı isteği yapılmaz. */
   conditionalRequests?: boolean;
   tags: string[];
@@ -204,6 +209,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['iskur.gov.tr', 'www.iskur.gov.tr'],
+    // robots.txt (21.10.2026, User-agent *): /api/ ve sorgu dizeli adresler yasak.
+    robotsDisallow: ['/api/', '/*?*'],
     tags: ['cekirdek', 'html'],
   },
   {
@@ -228,6 +235,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['iskur.gov.tr', 'www.iskur.gov.tr'],
+    // robots.txt (21.10.2026, User-agent *): /api/ ve sorgu dizeli adresler yasak.
+    robotsDisallow: ['/api/', '/*?*'],
     tags: ['cekirdek', 'isci', 'html'],
   },
   {
