@@ -15,7 +15,13 @@ import {
   normalizeTr,
   redactContactDetails,
 } from '../domain/text';
-import { isStalePublication, plausibleApplicationEnd, sanePublishedDate, toIstanbulDateOnly } from '../domain/dates';
+import {
+  addDaysDateOnly,
+  isStalePublication,
+  plausibleApplicationEnd,
+  sanePublishedDate,
+  toIstanbulDateOnly,
+} from '../domain/dates';
 import { normalizeUrl } from '../domain/urls';
 import type { EmploymentType, JobStatus, RawAnnouncement, ClassificationResult } from '../domain';
 import { CLASSIFICATION_VERSION, EXTRACTION_VERSION, DEDUPE_VERSION } from '../config/app';
@@ -323,6 +329,46 @@ export function selectWithdrawalTarget(
   return best.candidate;
 }
 
+/**
+ * "16.10.2026 tarih ve 33402 sayılı Resmî Gazete'de yayınlanan …" atfının günü (YYYY-MM-DD).
+ *
+ * Gerçek düzeltme ilanları (RG 17.10.2026-4-12, 20.10.2026-4-5) hedeflerini bu
+ * biçimde yazar. Tarih + sayı + "Resmî Gazete" birlikte aranır: tek başına tarih
+ * ("sınav 16.10.2026 tarihinde") atıf sayılmaz.
+ */
+export function citedResmiGazeteDate(text: string): string | null {
+  const match = /\b(\d{1,2})\.(\d{1,2})\.(\d{4}) tarih\w* ve \d{4,6} sayili resm[iî] gazete/u.exec(
+    normalizeTr(text),
+  );
+  if (!match) return null;
+  const [day, month, year] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** İki kurum adı aynı kurumu mu gösteriyor? (normalize; biri diğerini içerebilir: "…rektorlugu" / "…rektorlugunden") */
+function institutionsMatch(left: string, right: string): boolean {
+  return left.length > 0 && right.length > 0 && (left === right || left.includes(right) || right.includes(left));
+}
+
+/**
+ * Düzeltme duyurusunun Resmî Gazete atfıyla hedefi: atıf yapılan günde
+ * yayımlanmış, AYNI kurumun TEK ilanı. Birden fazla aday ya da hiç aday yoksa
+ * `null` (çağıran insan incelemesine gönderir; belirsizlikte tahmin yok).
+ */
+async function targetByCitedGazette(repos: Repos, raw: RawAnnouncement): Promise<string | null> {
+  const day = citedResmiGazeteDate(raw.bodyText ?? raw.rawExcerpt ?? '');
+  const institution = normalizeTr(raw.institution ?? '');
+  if (!day || !institution) return null;
+  const sameDay = await repos.store.find(
+    'jobs',
+    { publishedAt: { $gte: day, $lt: addDaysDateOnly(day, 1) } },
+    { limit: 50 },
+  );
+  const matches = sameDay.filter((job) => institutionsMatch(job.institutionNormalized, institution));
+  return matches.length === 1 ? (matches[0]?.id ?? null) : null;
+}
+
 /** İlan dokümanını ham kayıttan üretir (kaydetmez). */
 export function buildJobDocument(
   raw: RawAnnouncement,
@@ -621,8 +667,14 @@ export async function applyRawAnnouncement(
     // Hedef YALNIZCA kanıtla seçilir (resmî no, kanonik URL, başlık kapsama,
     // kurum + yüksek benzerlik). Aday listesinin ilk elemanına düşmek, ilgisiz
     // bir ilanı "iptal edildi" diye kapatıyordu.
-    const target = selectWithdrawalTarget(raw, candidates);
-    if (!target) {
+    // DÜZELTME duyurusu atıf yaptığı Resmî Gazete gününü yazıyorsa o gün + kurum ikinci
+    // kanıttır. İPTAL için kullanılmaz: "… tarihli Resmî Gazete'de yayımlanan ihale iptal
+    // edilmiştir" metni, kurumun o günkü tek personel ilanını yanlışlıkla kapatabilirdi.
+    // Düzeltme ilanın durumunu değiştirmez (not + sürüm), iptal ilanı kullanıcıdan saklar.
+    const targetId =
+      selectWithdrawalTarget(raw, candidates)?.id ??
+      (withdrawal === 'correction' ? await targetByCitedGazette(ctx.repos, raw) : null);
+    if (!targetId) {
       const reason =
         withdrawal === 'withdrawn'
           ? 'İptal/geri çekme duyurusu için eşleşen ilan bulunamadı; insan incelemesi gerekiyor.'
@@ -651,7 +703,7 @@ export async function applyRawAnnouncement(
         revisionCreated: false,
       };
     }
-    return applyWithdrawal(raw, ctx, target.id, withdrawal, classification);
+    return applyWithdrawal(raw, ctx, targetId, withdrawal, classification);
   }
 
   const document = buildJobDocument(raw, classification, { now: ctx.now, provenance: ctx.provenance });
