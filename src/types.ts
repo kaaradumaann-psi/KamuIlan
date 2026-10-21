@@ -58,8 +58,19 @@ export interface PublicJobSummary {
   criticalMissingFields?: string[];
 }
 
+export interface JobOpeningView {
+  title: string;
+  quota: number;
+  serviceClass: string | null;
+  degree: number | null;
+  qualification: string | null;
+  evidence: string;
+}
+
 export interface PublicJobDetail extends PublicJobSummary {
   applicationMethod: string | null;
+  /** Kadro kırılımı; yalnızca ilan tablosundan okunduysa dolu. */
+  openings?: JobOpeningView[];
   originalRefNo: string | null;
   textExcerpt: string;
   requirements: {

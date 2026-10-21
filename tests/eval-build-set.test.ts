@@ -336,6 +336,7 @@ describe('CLI uçtan uca (geçici dosya deposu)', () => {
         specialConditions: [],
         },
       titles: [],
+      openings: [],
       textExcerpt: 'Sözleşmeli personel alımı yapılacaktır; başvurular e-Devlet üzerinden alınacaktır.',
       textNormalized: 'sozlesmeli personel alimi yapilacaktir; basvurular e-devlet uzerinden alinacaktir.',
       originalRefNo: null,

@@ -36,6 +36,7 @@ import {
 } from './dictionaries';
 import { EXTRACTION_VERSION } from '../config/app';
 import { extractPdfText } from './pdf';
+import { extractOpenings, type JobOpening } from './openings';
 import type {
   EmploymentType,
   EducationLevel,
@@ -107,6 +108,8 @@ export interface ExtractedJob {
   referenceNo: string | null;
   cadreStatus: string | null;
   titles: string[];
+  /** Tablodan okunan kadro kırılımı (unvan × kontenjan); kanıtsız tablo üretilmez. */
+  openings: JobOpening[];
   educationLevels: EducationLevel[];
   departments: string[];
   kpssScoreTypes: KpssScoreType[];
@@ -380,6 +383,7 @@ export function extract(input: ExtractionInput): ExtractedJob {
     referenceNo,
     cadreStatus,
     titles,
+    openings: extractOpenings(rawBody),
     educationLevels,
     departments,
     kpssScoreTypes: kpss.types,

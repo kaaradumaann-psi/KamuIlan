@@ -51,6 +51,7 @@ export interface PublicJobSummary {
 export interface PublicJobDetail extends PublicJobSummary {
   applicationUrl: string | null;
   applicationMethod: string | null;
+  openings: JobDoc['openings'];
   originalRefNo: string | null;
   textExcerpt: string;
   requirements: JobDoc['requirements'];
@@ -224,6 +225,8 @@ export function toPublicJobDetail(
     ...summary,
     applicationUrl: safeHref(job.applicationUrl),
     applicationMethod: job.applicationMethod ?? null,
+    // Eski dokümanlarda alan yoksa boş liste (API sözleşmesi sabit).
+    openings: job.openings ?? [],
     originalRefNo: job.originalRefNo,
     textExcerpt: publicTextExcerpt(job.textExcerpt),
     requirements: {
