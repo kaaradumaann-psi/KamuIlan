@@ -42,6 +42,7 @@
     "fixtures:capture": "tsx scripts/capture-fixtures.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "seed:e2e-sources": "tsx scripts/seed-e2e-sources.ts",
+    "seed:e2e-jobs": "tsx scripts/seed-e2e-jobs.ts",
     "fixtures:pdf": "tsx scripts/make-pdf-fixtures.ts",
     "jobs:reclassify": "tsx scripts/reclassify-jobs.ts",
     "jobs:restore": "tsx scripts/restore-jobs-backup.ts",
