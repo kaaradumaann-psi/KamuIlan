@@ -1,0 +1,83 @@
+{
+  "observedAt": "2026-10-21T12:10:00+03:00",
+  "source": {
+    "key": "icisleri-bakanligi-duyurular",
+    "url": "https://www.icisleri.gov.tr/duyurular",
+    "name": "İçişleri Bakanlığı — Duyurular"
+  },
+  "provenance": "agent-observed",
+  "humanVerified": false,
+  "note": "Gerçek sayfa, tek herkese açık istek (21.10.2026). Başlıklar sayfada göründüğü gibi; gövde metni indirilmedi (chunk yok). Etiketler ajan tarafından konuldu; insan doğrulaması YOK.",
+  "items": [
+    {
+      "id": "icisleri-1",
+      "path": "/icisleri-bakanligi-bakanlik-merkez-ve-tasra-teskilati-personeli-gorevde-yukselme-ve-unvan-degisikligi-sinav-duyurusu",
+      "publishedLabel": "11 Eyl 2026",
+      "title": "İçişleri Bakanlığı Bakanlık Merkez Ve Taşra Teşkilatı Personeli Görevde Yükselme Ve Ünvan Değişikliği Sınav Duyurusu",
+      "expected": "process"
+    },
+    {
+      "id": "icisleri-2",
+      "path": "/terorle-mucadelede-yaralanip-malul-sayilmayanlara-yonelik-basvuru-sureci-hakkinda-duyuru",
+      "publishedLabel": "25 Ağu 2026",
+      "title": "Terörle Mücadelede Yaralanıp Malul Sayılmayanlara Yönelik Başvuru Süreci Hakkında Duyuru",
+      "expected": "not-job"
+    },
+    {
+      "id": "icisleri-3",
+      "path": "/kaymakam-adayligi-nihai-basari-bilgileri-yargi-karari",
+      "publishedLabel": "10 Ağu 2026",
+      "title": "Kaymakam Adaylığı Nihai Başarı Bilgileri (Yargı kararı)",
+      "expected": "not-job"
+    },
+    {
+      "id": "icisleri-4",
+      "path": "/kaymakam-adayligi-nihai-basari-bilgileri",
+      "publishedLabel": "10 Ağu 2026",
+      "title": "Kaymakam Adaylığı Nihai Başarı Bilgileri",
+      "expected": "not-job"
+    },
+    {
+      "id": "icisleri-5",
+      "path": "/gorevde-yukselme-ve-unvan-degisikligi-yazili-sinavlari-28-kasim-2026-tarihinde-yapilacaktir",
+      "publishedLabel": "05 Ağu 2026",
+      "title": "Görevde Yükselme ve Unvan Değişikliği Yazılı Sınavları, 28 Kasım 2026 Tarihinde Yapılacaktır",
+      "expected": "process"
+    },
+    {
+      "id": "icisleri-6",
+      "path": "/sozlesmeli-bilisim-personeli-sozlu-sinav-sonuc-listesi-26-2i",
+      "publishedLabel": "18 Haz 2026",
+      "title": "Sözleşmeli Bilişim Personeli Sözlü Sınav Sonuç Listesi",
+      "expected": "process"
+    },
+    {
+      "id": "icisleri-7",
+      "path": "/cumhurbaskanligi-atama-kararnamesi-yayimlandi-26-148",
+      "publishedLabel": "17 Haz 2026",
+      "title": "Cumhurbaşkanlığı Atama Kararnamesi Yayımlandı",
+      "expected": "not-job"
+    },
+    {
+      "id": "icisleri-8",
+      "path": "/sozlesmeli-bilisim-personeli-sozlu-sinavina-girmeye-hak-kazananlar-26-1",
+      "publishedLabel": "12 May 2026",
+      "title": "Sözleşmeli Bilişim Personeli Sözlü Sınavına Girmeye Hak Kazananlar",
+      "expected": "process"
+    },
+    {
+      "id": "icisleri-9",
+      "path": "/2026-yili-il-planlama-uzman-yardimcisi-giris-sozlu-sinavi-asilyedek-bilgisine-iliskin-duyuru",
+      "publishedLabel": "30 Nis 2026",
+      "title": "2026 Yılı İl Planlama Uzman Yardımcısı Giriş (Sözlü) Sınavı Asıl/Yedek Bilgisine İlişkin Duyuru",
+      "expected": "not-job"
+    },
+    {
+      "id": "icisleri-10",
+      "path": "/2026-yili-icisleri-uzman-yardimcisi-giris-sozlu-sinavi-asilyedek-bilgisine-iliskin-duyuru",
+      "publishedLabel": "30 Nis 2026",
+      "title": "2026 Yılı İçişleri Uzman Yardımcısı Giriş (Sözlü) Sınavı Asıl/Yedek Bilgisine İlişkin Duyuru",
+      "expected": "not-job"
+    }
+  ]
+}

@@ -667,3 +667,71 @@ export const EMPLOYMENT_TYPE_RULES: readonly { type: EmploymentType; pattern: Re
     pattern: /\bpersonel\w*\s+al(?:i?m|inacak|imi)|alim\s+ilan\w*/,
   },
 ];
+
+/**
+ * HABER DİLİ — "personel alımından haber veren" başlıklar (ilan değil).
+ *
+ * Gözlem (21.10.2026, kural tabanlı sınıflandırıcı üzerinde tekrarlanabilir
+ * prob): "Vali, personel alımı yapılacağını açıkladı", "Bakan: 100 bin personel
+ * alınacak", "Memur alımı müjdesi", "… alımı rekoru", "… hakkında bilgilendirme"
+ * gibi başlıklar `accept` alıyordu; yani bir kurumun haber/duyuru metni iş ilanı
+ * olarak yayımlanabiliyordu. Bu, projenin bir numaralı doğruluk riskidir.
+ *
+ * Ayrım ölçütü (deterministik, kanıta dayalı):
+ *  - Başlıkta haber/aktarım dili VAR (aşağıdaki kalıplar), VE
+ *  - Gövdede somut başvuru kanıtı YOK (son başvuru tarihi ya da "başvurular …
+ *    yapılacaktır" gibi bir başvuru yolu).
+ * O zaman kayıt reddedilir. Somut kanıt varsa kayıt SİLİNMEZ; insan incelemesine
+ * düşer (haber diliyle yazılmış gerçek bir ilan olabilir).
+ *
+ * Ters koruma: resmî ilan kalıbı "… Alımı Yapılacağı Duyurulur" (edilgen,
+ * ilan dili) bu kurala TAKILMAZ; yalnızca aktarma fiilleri (duyurdu/söyledi)
+ * haber sayılır.
+ */
+export const NEWS_TITLE_MARKERS: readonly { id: string; reason: string; pattern: RegExp }[] = [
+  {
+    id: 'haber.aktarim-fili',
+    reason: 'Başlık aktarma/haber fiili içeriyor (açıkladı, söyledi, duyurdu…) — ilan metni değil',
+    pattern:
+      /\b(?:acikladi|aciklamada\s+bulundu|soyledi|belirtti|ifade\s+etti|duyurdu|bildirdi|kaydetti|vurguladi|aktardi)\b/,
+  },
+  {
+    id: 'haber.konusmaci-aktarimi',
+    reason: 'Başlık bir yetkilinin sözünü aktarıyor (Vali/Bakan/Başkan: …)',
+    // Not: normalizeTr iki nokta üst üste gibi noktalama işaretlerini siler; bu yüzden
+    // "Bakan Yılmaz: …" kalıbı "bakan yilmaz …" olarak gelir (ünvan + ad).
+    pattern:
+      /^(?:vali|bakan|baskan|baskan\s+yardimcisi|bakan\s+yardimcisi|mudur|genel\s+mudur|sozcu|yetkili)\s+[a-z]{2,}\b/,
+  },
+  {
+    id: 'haber.isim',
+    reason: 'Başlık haber/isim kalıbı (müjde, iddia, rekor, bilgilendirme, önerge…)',
+    pattern:
+      /\b(?:mujde\w*|iddia\w*|haberi|haberler\w*|rekor\w*|bilgilendirme\w*|soru\s+onergesi|arastirma\s+onergesi|kanun\s+teklifi|genel\s+gorusme|komisyon\s+raporu)\b/,
+  },
+  {
+    id: 'haber.aciklama-basligi',
+    reason: 'Başlık "… hakkında açıklama" biçiminde bir basın açıklaması',
+    pattern:
+      /\b(?:hakkinda|hakkinda\s+olarak|iliskin|dair)\s+(?:bir\s+)?aciklama\w*|\baciklama\w*\s+yapil|\baciklama\s*$/,
+  },
+];
+
+/** Gövdede aktarma/haber dili: "… söyledi", "… öğrenildi", "… bildirildi". */
+export const REPORTED_SPEECH_PATTERN =
+  /\b(?:acikladi|soyledi|belirtti|ifade\s+etti|duyurdu|bildirdi|kaydetti|vurguladi|ogrenildi|bildirildi|iddia\s+edildi|aktarildi)\b/;
+
+/**
+ * Somut başvuru kanıtı: tarih ya da başvuru yolu. Yalnızca "alınacak/alınacaktır"
+ * ifadesi YETMEZ; haber metinleri de bu fiili kullanır.
+ */
+export const CONCRETE_APPLICATION_EVIDENCE_PATTERN = new RegExp(
+  [
+    String.raw`son\s+basvuru`,
+    String.raw`basvuru\w*\s+\d{1,2}[.\/]\d{1,2}[.\/]\d{4}`,
+    String.raw`\d{1,2}[.\/]\d{1,2}[.\/]\d{4}\s*(?:tarih\w*\s*)?(?:ne|na)?\s*kadar`,
+    String.raw`basvuru\w*\s+(?:yapilacak|alinacak|baslayacak|edecek|yapilir|alinir)`,
+    String.raw`basvuru\s+(?:adresi|merkezi|ekrani|sayfasi|formu|sistemi)`,
+    String.raw`e-devlet\s+uzerinden\s+basvuru`,
+  ].join('|'),
+);
