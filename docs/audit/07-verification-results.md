@@ -171,3 +171,55 @@ Dağıtım kararıdır, bu turda kod değişmedi.
 | Rastgele fark testi, ek tohumlar | 6 ek tohum × 250 sorgu (yerel, commit edilmedi) | **PASS** | 1.750 sorguda Postgres = dosya sürücüsü |
 | Tam test (Windows) | `npx vitest run` | **PARTIAL** | 1414 test: 1404 geçti, 9 başarısız (§6.3'teki aynı ortam hataları), 1 atlandı |
 | Gerçek Postgres/Supabase, yük süresi | — | **BLOCKED** | Postgres/Docker yok; üretim DB'ye erişilmedi |
+
+## 8. Gerçek kaynak staging koşumu (21.10.2026, `fix/resmigazete-baslik-ve-canli-staging`)
+
+**Yetki:** Depo sahibi oturumda Resmî Gazete + İŞKUR için onay verdi. `config/source-terms.json`
+yerelde doldurulup koşum sonrası şablona (`unknown`) geri alındı. Tasarım gereği bu dosya commit
+edilmez (`tests/source-terms.test.ts`). Veri yalnızca `.staging/` altındaki geçici dosya deposuna
+yazıldı; üretim DB'si, e-posta, Telegram ve LLM kapalıydı.
+
+| Kaynak | Komut (özet) | Sonuç | Değerlendirme |
+| --- | --- | --- | --- |
+| Resmî Gazete (varsayılan UA) | `staging:capture --live --max-requests=5` | **FAIL** — `UND_ERR_HEADERS_TIMEOUT`, 0 ilan, exit 6 | Sunucu `Bot` sözcüğü geçen UA'yı bekletip düşürüyor (curl: `KamuIlanBot` → 0 bayt/40 sn; `KamuIlan/0.2` → 200/0,16 sn). Sistem sahte veri üretmedi; koşumu başarı saymadı. |
+| Resmî Gazete (`SCRAPE_USER_AGENT=Mozilla/5.0 (compatible; KamuIlan/0.2; +https://kamuilan…)`) | aynı, 5 istek | **PARTIAL** — 3 kayıt: 0 kabul, 1 inceleme, 2 ret | **3/3 karar doğru:** İzmir Kalkınma Ajansı İPTAL İLANI → eşleşme yok, incelemeye gitti (ilgisiz ilan kapatılmadı); 2 × "İHALELERE KATILMAKTAN YASAKLAMA KARARI" → ret. PDF metinleri yeniden indirilip okunarak doğrulandı. |
+| İŞKUR kamu memur / kurum dışı işçi | `--max-pages=1` (robots `/*?*` yasağı) | **FAIL** — `parse-failure`, 0 ilan | Sayfanın statik HTML'inde ilan listesi yok (menü + il müdürlüğü bağlantıları + DataTables betikleri). Liste istemci tarafında ya da robots'un yasakladığı yoldan yükleniyor → **BLOCKED** (tarayıcı geri dönüşü veya resmî veri kanalı gerekir). |
+
+**Bulunan ve düzeltilen hata:** İptal PDF'inin başlığı "ilan iptal edilmiştir." olarak çıkıyordu
+(11 karakterlik "İPTAL İLANI" kısa satır eşiğine takılıyordu). `deriveTitle` artık Resmî Gazete
+künye biçimini ("<Kurum>dan:" + büyük harfli başlık) tanıyor:
+"İzmir Kalkınma Ajansından: İPTAL İLANI". Test: `tests/resmigazete-gercek-staging.test.ts`
+(gerçek PDF metinleri, `humanVerified: false`; eski kodda 2/6 kırmızı).
+
+**Sınır:** Tek günün 3 kaydı kesinlik ölçümü değildir. Kabul edilmesi gereken gerçek bir alım
+ilanı bu kesitte yoktu; doğru kabul (recall) bu koşumla ölçülmedi.
+
+### 8.1 Resmî Gazete — 16 gerçek PDF üzerinde değerlendirme (14–20 Ekim 2026)
+
+**Yöntem:** Onaylı kaynaktan 7 dizin sayfası + 16 PDF (istekler arası 2 sn), depo dışına
+indirildi. PDF metni projenin çıkarıcısıyla okundu; başlık bu dalın `deriveTitle`'ı, karar
+`classify` (PR #31'deki Bursa düzeltmesiyle) ile üretildi. **Etiketler ajan tarafından PDF
+okunarak konuldu — insan etiketi değildir; kesinlik/duyarlılık iddiası taşımaz (R-04).**
+Belge metinleri depoya konmadı (ihale yasaklama kararları kişi/şirket adı içerir); yalnızca
+iki üniversite ilanının ilk 3 satırı fixture'da.
+
+| Ajan etiketi | Adet | Sonuç |
+| --- | --- | --- |
+| Gerçek personel alım ilanı | 9 | 6 kabul · 3 inceleme (2'si metin katmanı yok → `documentTextMissing`, 1 Bursa Uludağ öğretim elemanı) · **0 ret** |
+| İlan düzeltme/açıklama (Bursa Uludağ "DÜZELTME İLANI") | 2 | ret — düzeltme sinyali ayrıca hatta (`detectWithdrawalSignal`) değerlendirilir |
+| İhaleye katılmaktan yasaklama kararı | 4 | 4 ret |
+| Mahkeme dosyası imha ilanı | 1 | ret |
+| **Yanlış kabul** | — | **0** |
+
+**Başlık kalitesi:** 16 belgenin 15'inde başlık "<Kurum>dan: BAŞLIK" ya da "<Kurum>dan: <alım
+cümlesi>" biçiminde. Önceki sürümde 13'ünde başlık kurum içermiyordu ya da gövdeden rastgele
+bir satırdı ("başvuracaktır. (Dilekçe örneği…").
+
+**Bulunan bağımlılık:** Bu dalın başlık düzeltmesi Bursa Uludağ ilanlarının başlığını
+"Bursa Uludağ Üniversitesi Rektörlüğünden: …" yapar; PR #31 olmadan bu başlık `ret-baslik.staj-burs`
+kuralına takılıyordu (gerçek ilan reddi). PR #31'deki tek satırlık kural düzeltmesi bu dala da
+birebir uygulandı; iki PR çakışmadan birleşir.
+
+**Metin katmanı olmayan PDF'ler:** 16 belgenin 5'inde (%31) metin 80–110 karakter; bunlar
+`documentTextMissing` ile incelemeye düşüyor (yayımlanmıyor). OCR olmadan bu ilanların
+alanları çıkarılamaz (R-13).

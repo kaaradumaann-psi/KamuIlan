@@ -1,0 +1,56 @@
+{
+  "observedAt": "2026-10-21T16:29:00+03:00",
+  "source": {
+    "key": "resmigazete-cestili-ilanlar",
+    "url": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4.htm",
+    "name": "Resmî Gazete — Çeşitli İlânlar (21.10.2026)"
+  },
+  "provenance": "staging-live-capture",
+  "humanVerified": false,
+  "note": "Bütçeli staging koşumu (npm run staging:capture, 5 istek) ve aynı PDF'lerin tek istekle yeniden indirilmesi. Metinler projenin PDF metin çıkarıcısının (src/extraction/pdf.ts) çıktısıdır; kişisel veri içermez (kurum adı + ilan numarası). Beklenen değerler ajan tarafından PDF metni okunarak yazıldı; insan doğrulaması YOK. 16-4-14 ve 20-4-9 kayıtlarında yalnızca ilk 3 satır (kurumsal metin) tutulur.",
+  "items": [
+    {
+      "id": "rg-20261021-4-1",
+      "pdfUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4-1.pdf",
+      "text": "İzmir Kalkınma Ajansından:\nİPTAL İLANI\n7 Nisan 2026 tarihli ve 33217 sayılı Resmî Gazete’de yayımlanan personel alımına ilişkin\nilan iptal edilmiştir.\nKamoyuna ilanen duyurulur.\n10917/1-1",
+      "expected": {
+        "title": "İzmir Kalkınma Ajansından: İPTAL İLANI",
+        "withdrawal": "withdrawn",
+        "isRecruitmentAd": false
+      }
+    },
+    {
+      "id": "rg-20261021-4-3",
+      "pdfUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261021-4-3.pdf",
+      "text": "Milli Eğitim Bakanlığı Destek Hizmetleri Genel Müdürlüğünden:\nİHALELERE KATILMAKTAN YASAKLAMA KARARI\n10883/1-1",
+      "expected": {
+        "title": "Milli Eğitim Bakanlığı Destek Hizmetleri Genel Müdürlüğünden: İHALELERE KATILMAKTAN YASAKLAMA KARARI",
+        "withdrawal": null,
+        "isRecruitmentAd": false,
+        "decision": "reject"
+      }
+    },
+    {
+      "id": "rg-20261016-4-14",
+      "pdfUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261016-4-14.pdf",
+      "text": "Bursa Uludağ Üniversitesi Rektörlüğünden:\nÜniversitemize bağlı birimlere 2547 Sayılı Yükseköğretim Kanunu ve bu kanuna dayalı olarak çıkartılan ilgili mevzuat hükümleri uyarınca öğretim\nelemanı alınacaktır.\n",
+      "excerptOnly": true,
+      "expected": {
+        "title": "Bursa Uludağ Üniversitesi Rektörlüğünden: Üniversitemize bağlı birimlere 2547 Sayılı Yükseköğretim Kanunu ve bu kanuna dayalı olarak çıkartılan ilgili mevzuat hükümleri uyarınca öğretim elemanı alınacaktır.",
+        "withdrawal": null,
+        "isRecruitmentAd": true
+      }
+    },
+    {
+      "id": "rg-20261020-4-9",
+      "pdfUrl": "https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261020-4-9.pdf",
+      "text": "Akdeniz Üniversitesi Rektörlüğünden:\nÖĞRETİM ÜYESİ ALIM İLANI\nÜniversitemizin akademik birimlerine, 2547 sayılı Yükseköğretim Kanunu, 2914 sayılı Yükseköğretim Personel Kanunu, Öğretim Üyeliğine\n",
+      "excerptOnly": true,
+      "expected": {
+        "title": "Akdeniz Üniversitesi Rektörlüğünden: ÖĞRETİM ÜYESİ ALIM İLANI",
+        "withdrawal": null,
+        "isRecruitmentAd": true
+      }
+    }
+  ]
+}

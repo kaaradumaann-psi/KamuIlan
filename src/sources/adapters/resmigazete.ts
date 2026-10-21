@@ -699,9 +699,48 @@ export class ResmiGazeteAdapter implements SourceAdapter {
   }
 }
 
+/**
+ * Resmî Gazete ilan PDF'lerinin künye biçimi: "<Kurum>dan:" satırı + büyük harfli
+ * başlık ("İPTAL İLANI", "SÖZLEŞMELİ PERSONEL ALIM İLANI"). Gerçek koşumda
+ * (21.10.2026, 20261021-4-1.pdf) 11 karakterlik "İPTAL İLANI" kısa satır eşiğine
+ * takılıyor ve gövdedeki "ilan iptal edilmiştir." başlık oluyordu.
+ *
+ * Büyük harfli başlık yoksa (üniversite ilanlarında sık: "… Rektörlüğünden:" +
+ * "… öğretim üyesi alınacaktır."), alım fiili taşıyan ilk cümle kurumla birlikte
+ * başlık olur. Metin kaynaktan birebir alınır; tür/unvan uydurulmaz.
+ */
+function issuerHeading(lines: readonly string[]): string | null {
+  for (let index = 0; index < Math.min(lines.length - 1, 6); index += 1) {
+    const issuer = lines[index] ?? '';
+    const heading = lines[index + 1] ?? '';
+    if (!/\p{L}(?:dan|den|tan|ten|ndan|nden):$/u.test(issuer) || issuer.length < 6) continue;
+    const letters = heading.replace(/[^\p{L}]/gu, '');
+    if (letters.length >= 4 && letters === letters.toLocaleUpperCase('tr-TR')) {
+      return `${issuer} ${heading}`.slice(0, 300);
+    }
+    const paragraph = lines.slice(index + 1, index + 6).join(' ');
+    const sentence = paragraph
+      .split(/(?<=\.)\s+/)
+      .find((part) => /\b(?:al[ıi]nacakt[ıi]r|al[ıi]m[ıi]\s+yap[ıi]lacakt[ıi]r|istihdam\s+edilecektir)/iu.test(part));
+    if (sentence) {
+      const trimmed = sentence.length > 200 ? `${sentence.slice(0, 199).trimEnd()}…` : sentence;
+      return `${issuer} ${trimmed}`.slice(0, 300);
+    }
+    return null;
+  }
+  return null;
+}
+
 function deriveTitle(pdfText: string, rowText: string, institution: string | null, dateOnly: string): string {
   const normalizedRow = collapseWhitespace(rowText.replace(/[:;]\s*$/, ''));
   if (pdfText) {
+    const issued = issuerHeading(
+      pdfText
+        .split('\n')
+        .map((line) => collapseWhitespace(line))
+        .filter((line) => line.length > 0),
+    );
+    if (issued) return issued;
     const lines = pdfText
       .split('\n')
       .map((line) => collapseWhitespace(line))
