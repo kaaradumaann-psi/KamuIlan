@@ -53,6 +53,8 @@ describe('Resmî Gazete gerçek PDF metinleri', () => {
       expect(detectWithdrawalSignal(title, item.text)).toBe(item.expected.withdrawal);
       const result = classify({ title, body: item.text });
       if (!item.expected.isRecruitmentAd) expect(result.decision).not.toBe('accept');
+      // Gerçek alım ilanı sessizce reddedilmemeli (kabul ya da inceleme).
+      if (item.expected.isRecruitmentAd) expect(result.decision).not.toBe('reject');
       if (item.expected.decision) expect(result.decision).toBe(item.expected.decision);
     },
   );
