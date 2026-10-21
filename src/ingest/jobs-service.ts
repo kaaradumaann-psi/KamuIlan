@@ -464,7 +464,14 @@ export function buildJobDocument(
     extractionConfidence: extraction.confidence,
     fieldSources: extraction.fieldSources,
     evidence: extraction.evidence,
-    uncertainties: extraction.uncertainties,
+    // OCR ile okunan metinde rakam/tarih okuma hatası olabilir: detayda açıkça yazılır.
+    uncertainties:
+      raw.ocrConfidence !== undefined
+        ? [
+            ...extraction.uncertainties,
+            `İlan metni taranmış belgeden OCR ile okundu (güven ${raw.ocrConfidence}); tarih, kontenjan ve sayıları resmî belgeden doğrulayın.`,
+          ]
+        : extraction.uncertainties,
     provenance: options.provenance,
     // Taranan ilan kayıt anında kaynakta görülmüştür: "son kontrol" o andır
     // (birleştirmede de aynı alan güncellenir). Manuel/örnek kayıt doğrulanmamıştır.

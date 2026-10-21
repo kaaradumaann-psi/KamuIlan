@@ -352,6 +352,19 @@ const envSchema = z.object({
    * LLM hiçbir zaman tek başına ilan YAYIMLAMAZ (kanıt doğrulaması zorunludur).
    */
   LLM_CLASSIFIER_ENABLED: flag('0'),
+  /**
+   * Taranmış (metin katmanı olmayan) PDF ilanlar için OCR (tesseract.js, Türkçe).
+   * Varsayılan KAPALI. Güveni OCR_MIN_CONFIDENCE altındaki metin kullanılmaz.
+   */
+  OCR_ENABLED: flag('0'),
+  /** Türkçe dil verisinin (tur.traineddata) yerel dizini ya da adresi. Boşsa tesseract.js'in varsayılan dağıtımı. */
+  OCR_LANG_PATH: z.string().default(''),
+  /** Bu ortalama güvenin (0–100) altındaki OCR metni kullanılmaz; kayıt incelemeye gider. */
+  OCR_MIN_CONFIDENCE: z.coerce.number().int().min(0).max(100).default(70),
+  /** Belge başına OCR yapılacak azami sayfa. */
+  OCR_MAX_PAGES: z.coerce.number().int().min(1).max(20).default(4),
+  /** Tek tarama koşusunda OCR yapılacak azami belge (CPU ve tarama süresi freni). */
+  OCR_MAX_DOCS_PER_RUN: z.coerce.number().int().min(0).max(50).default(3),
   /** İstem sürümüyle birlikte önbellek anahtarını belirleyen model adı. Boşsa LLM_MODEL kullanılır. */
   LLM_CLASSIFIER_MODEL: z.string().default(''),
   /** Sağlayıcıya gönderilecek azami ilan metni uzunluğu (karakter). Fazlası kırpılır. */

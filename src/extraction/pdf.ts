@@ -3,11 +3,14 @@
  *
  * İlkeler:
  *  - Önce metin katmanı okunur (pdfjs). Taranmış (görüntü) PDF'lerde metin
- *    katmanı yoktur; bu durumda OCR'a ZORLAMAK yerine durum bildirilir, PDF
- *    ek olarak saklanır ve kayıt "metin çıkarılamadı" notu ile doğrulanır.
+ *    katmanı yoktur; OCR verilmediyse (varsayılan) durum bildirilir, PDF ek olarak
+ *    saklanır ve kayıt "metin çıkarılamadı" notu ile doğrulanır. OCR verildiyse
+ *    (`OCR_ENABLED=1`) sayfa görüntüleri okunur; güveni eşiğin altındaki OCR
+ *    metni KULLANILMAZ (bkz. src/extraction/ocr.ts).
  *  - Bozuk/şifreli PDF uygulamayı çökertmez; hata nesnesi döner.
  *  - Metin uzunluğu sınırlanır (bellek) ama kırpıldığı bilgisi açıkça döner.
  */
+import { ocrImages, stitchStrips, type OcrEngine, type OcrPageImage } from './ocr';
 
 export interface PdfTextResult {
   text: string;
@@ -18,6 +21,8 @@ export interface PdfTextResult {
   truncated: boolean;
   title: string | null;
   error: string | null;
+  /** OCR denendiyse sonucu; denenmediyse alan yoktur. */
+  ocr?: { used: boolean; confidence: number | null; note: string };
 }
 
 export interface PdfExtractOptions {
@@ -25,7 +30,15 @@ export interface PdfExtractOptions {
   maxChars?: number;
   /** Sayfa başına en az bu kadar karakter varsa metin katmanı var sayılır. */
   minCharsForTextLayer?: number;
+  /** Taranmış belge için OCR (varsayılan: yok). */
+  ocr?: { engine: OcrEngine; minConfidence: number; maxPages: number };
 }
+
+/**
+ * Metin katmanı bu kadar karakterden kısaysa belge taranmış sayılır ve OCR denenir.
+ * Gerçek RG örneği: taranmış belgelerde yalnız başlık satırı metindir (80–190 karakter).
+ */
+export const OCR_TRIGGER_CHARS = 300;
 
 /** pdfjs metin parçası: `transform[4..5]` sayfa konumu (x, y), `width` yatay genişlik. */
 export type PdfTextItem = { str?: string; hasEOL?: boolean; transform?: number[]; width?: number; height?: number };
@@ -86,6 +99,9 @@ export function joinPdfTextItems(items: readonly PdfTextItem[]): string {
 
 interface PdfPage {
   getTextContent(): Promise<{ items: PdfTextItem[] }>;
+  getOperatorList?(): Promise<{ fnArray: number[]; argsArray: unknown[][] }>;
+  objs?: { get(name: string, callback: (value: unknown) => void): void };
+  commonObjs?: { get(name: string, callback: (value: unknown) => void): void };
   cleanup?(): void;
 }
 
@@ -103,6 +119,36 @@ interface PdfLoadingTask {
 
 interface PdfModule {
   getDocument(params: Record<string, unknown>): PdfLoadingTask;
+  OPS?: { paintImageXObject: number; paintInlineImageXObject: number };
+}
+
+/** Sayfadaki çözülmüş görüntüler (OCR girdisi). Okunamayan görüntü atlanır. */
+async function pageImages(page: PdfPage, ops: NonNullable<PdfModule['OPS']>): Promise<OcrPageImage[]> {
+  if (!page.getOperatorList) return [];
+  const list = await page.getOperatorList();
+  const images: OcrPageImage[] = [];
+  for (let index = 0; index < list.fnArray.length; index += 1) {
+    const fn = list.fnArray[index];
+    const args = list.argsArray[index] ?? [];
+    let image: unknown = null;
+    if (fn === ops.paintInlineImageXObject) image = args[0];
+    else if (fn === ops.paintImageXObject && typeof args[0] === 'string') {
+      const name = args[0];
+      const store = name.startsWith('g_') ? page.commonObjs : page.objs;
+      image = await new Promise<unknown>((resolve) => {
+        const timer = setTimeout(() => resolve(null), 5_000);
+        store?.get(name, (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        });
+      });
+    }
+    const candidate = image as Partial<OcrPageImage> | null;
+    if (candidate && typeof candidate.width === 'number' && typeof candidate.height === 'number' && candidate.data) {
+      images.push({ width: candidate.width, height: candidate.height, kind: candidate.kind ?? 0, data: candidate.data });
+    }
+  }
+  return images;
 }
 
 let cachedModule: PdfModule | null = null;
@@ -194,8 +240,7 @@ export async function extractPdfText(
     // Tek sayfa bile sınırı aşmış olabilir; o durumda da kırpıldığı bildirilir.
     if (text.length < joined.length) truncated = true;
     const noTextLayer = text.replace(/\s/g, '').length < minChars;
-
-    return {
+    const base: PdfTextResult = {
       text,
       pages: doc.numPages,
       pagesRead,
@@ -203,6 +248,37 @@ export async function extractPdfText(
       truncated: truncated || doc.numPages > pagesToRead,
       title,
       error: null,
+    };
+
+    if (!options.ocr || text.replace(/\s/g, '').length >= OCR_TRIGGER_CHARS || !pdfjs.OPS) return base;
+    const images: OcrPageImage[] = [];
+    for (let pageNumber = 1; pageNumber <= Math.min(doc.numPages, options.ocr.maxPages); pageNumber += 1) {
+      const page = await doc.getPage(pageNumber);
+      // Sayfa içindeki şeritler birleştirilir; sayfalar arası birleştirme yapılmaz.
+      images.push(...stitchStrips(await pageImages(page, pdfjs.OPS)));
+      page.cleanup?.();
+    }
+    const outcome = await ocrImages(images, options.ocr.engine);
+    if (!outcome || outcome.text.replace(/\s/g, '').length < minChars) {
+      return { ...base, ocr: { used: false, confidence: outcome?.confidence ?? null, note: 'OCR: okunabilir görüntü/metin bulunamadı.' } };
+    }
+    if (outcome.confidence < options.ocr.minConfidence) {
+      return {
+        ...base,
+        ocr: {
+          used: false,
+          confidence: outcome.confidence,
+          note: `OCR güveni düşük (${outcome.confidence} < ${options.ocr.minConfidence}); metin kullanılmadı, kayıt incelemeye gider.`,
+        },
+      };
+    }
+    // Metin katmanındaki başlık korunur; OCR gövdesi arkasına eklenir.
+    const merged = normalizePdfWhitespace([text, outcome.text].filter((part) => part.trim()).join('\n\n')).slice(0, maxChars);
+    return {
+      ...base,
+      text: merged,
+      noTextLayer: false,
+      ocr: { used: true, confidence: outcome.confidence, note: `Metin OCR ile okundu (güven ${outcome.confidence}).` },
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
