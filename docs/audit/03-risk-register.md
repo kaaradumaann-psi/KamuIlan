@@ -224,6 +224,18 @@
 
 ---
 
+### R-19 · "Bursa" kurumlarının ilanları "burs" sayılıp reddediliyordu — **DÜZELTİLDİ (21.10.2026)**
+- **Kanıt:** [2] `ret-baslik.staj-burs` kalıbı `\bburs\w*` idi; "Bursa Valiliği / Belediyesi /
+  Uludağ Üniversitesi …" başlıkları başlık düzeyinde %92 güvenle `reject` alıyordu. 81 il × 4
+  kurum biçimi taramasında kabul dışı kalan 4 başlığın 4'ü de Bursa'ydı.
+- **Etki:** Türkiye'nin 4. büyük ilindeki kurumların gerçek ilanları sessizce akıştan düşüyordu
+  (yanlış ret; inceleme kuyruğuna da gitmez).
+- **Düzeltme (`fix/bursa-burs-yanlis-ret`):** `burs(?!a)\w*`. Test: `tests/classification.test.ts`
+  81 il taraması + burs duyurularının hâlâ reddedildiği 3 örnek.
+- **Kalan:** Mevcut kayıtlarda Bursa ilanları reddedilmiş olabilir → düzeltme ancak
+  `jobs:reclassify` ile uygulanır (üretim DB — karar gerekiyor). Apostrofsuz yazılmış "burs'a"
+  ("bursa başvuru") artık bu kurala takılmaz; diğer kurallar/inceleme devreye girer.
+
 ## Kapsam dışı bırakılanlar [5]
 
 - KadroNerede'nin iç algoritması, veri kaynakları, güncelleme sıklığı (bilinmiyor, tahmin edilmedi).
