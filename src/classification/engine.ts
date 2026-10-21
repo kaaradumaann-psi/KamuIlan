@@ -76,7 +76,26 @@ function matchRules(text: string, rules: readonly KeywordRule[]): MatchedRule[] 
   return matched;
 }
 
+/** Başlıkta görüldüğünde gövdeye üstün gelen istihdam statüleri (yöntem/genel ifade değil). */
+const TITLE_PRIORITY_TYPES: ReadonlySet<EmploymentType> = new Set<EmploymentType>([
+  'akademik',
+  'kamu-isci',
+  'kariyer-meslek',
+  'sozlesmeli',
+  'kadrolu',
+]);
+
 export function detectEmploymentType(title: string, body: string): { type: EmploymentType; reason: string } {
+  // Başlıkta açıkça yazılan STATÜ önce gelir: gövdedeki dışlama cümleleri ("sürekli
+  // işçi olarak çalışanlar başvuramaz") "Sözleşmeli Personel Alım İlanı"nı işçi ya da
+  // akademik ilan yapıyordu. Yöntem (`kuruma-ozel-sinav`: "Giriş Sınavı") ve genel
+  // ifade (`diger-kamu`) statü değildir; başlıkta öncelik almaz, gövdedeki statü ezilmez.
+  const titleText = normalizeForClassification(title);
+  for (const rule of EMPLOYMENT_TYPE_RULES) {
+    if (TITLE_PRIORITY_TYPES.has(rule.type) && rule.pattern.test(titleText)) {
+      return { type: rule.type, reason: rule.reason };
+    }
+  }
   // Ham metinle de çağrılabilir: normalize burada yapılır.
   const combined = normalizeForClassification(`${title} ${body}`);
   for (const rule of EMPLOYMENT_TYPE_RULES) {

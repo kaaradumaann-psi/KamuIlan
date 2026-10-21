@@ -269,6 +269,72 @@ describe('sınıflandırma: yardımcılar', () => {
   });
 });
 
+// Bağımsız doğrulamada bulunan hata (21.10.2026): tür, başlık + gövde birleşik metinde
+// kural sırasıyla seçiliyordu; gövdedeki dışlama cümlesi başlıktaki açık türü eziyordu.
+describe('istihdam türü: başlıktaki açık tür gövdedeki dışlama cümlesine üstün gelir', () => {
+  const window = 'Başvurular 01.11.2026 - 10.11.2026 tarihleri arasında yapılacaktır.';
+
+  it.each([
+    [
+      'Sözleşmeli Personel Alım İlanı',
+      `657 sayılı Kanunun 4/B maddesi uyarınca 3 sözleşmeli personel alınacaktır. Kurumumuzda sürekli işçi olarak çalışanlar başvuramaz. ${window}`,
+      'sozlesmeli',
+    ],
+    [
+      'Sözleşmeli Bilişim Personeli Alımı',
+      `Kurumumuzda sözleşmeli bilişim personeli alınacaktır. Adayların öğretim görevlisi olarak çalışmıyor olması gerekir. ${window}`,
+      'sozlesmeli',
+    ],
+    [
+      'Sürekli İşçi Alım İlanı',
+      `İŞKUR üzerinden 4 sürekli işçi alınacaktır. Sözleşmeli personel statüsünde çalışanlar başvuramaz. ${window}`,
+      'kamu-isci',
+    ],
+  ])('%s → %s', (title, body, expected) => {
+    expect(detectEmploymentType(title, body).type).toBe(expected);
+    expect(classify({ title, body }).employmentType).toBe(expected);
+  });
+
+  // PR #27 incelemesinde bulunan regresyon: başlıktaki yöntem ("Giriş Sınavı", "Sözlü Sınav")
+  // tür sayılıp gövdedeki 4/B statüsünü eziyordu. Yöntem başlıkta öncelik almaz.
+  it.each([
+    ['Personel Alımı Giriş Sınavı Duyurusu', 'sozlesmeli'],
+    ['Kurumumuz Sözlü Sınav ile Personel Alımı', 'sozlesmeli'],
+    ['Sözleşmeli Personel Giriş Sınavı İlanı', 'sozlesmeli'],
+  ])('başlıktaki işe alım yöntemi gövdedeki statüyü ezmez: %s → %s', (title, expected) => {
+    const body = `657 sayılı Kanunun 4/B maddesi uyarınca 10 sözleşmeli personel alınacaktır. ${window}`;
+    expect(detectEmploymentType(title, body).type).toBe(expected);
+  });
+
+  it('başlıkta yalnızca yöntem, gövdede statü yoksa yöntem türü korunur', () => {
+    expect(
+      detectEmploymentType(
+        'Personel Alımı Giriş Sınavı Duyurusu',
+        `Kurumumuza personel alınacaktır. ${window}`,
+      ).type,
+    ).toBe('kuruma-ozel-sinav');
+  });
+
+  it('başlıktaki kariyer mesleği ve memur statüsü gövdedeki çelişkili ifadeye üstün gelir', () => {
+    expect(
+      detectEmploymentType(
+        'Uzman Yardımcılığı Giriş Sınavı İlanı',
+        `Sürekli işçi kadrosunda çalışanlar başvuramaz. ${window}`,
+      ).type,
+    ).toBe('kariyer-meslek');
+    expect(
+      detectEmploymentType('Memur Alımı İlanı', `Sürekli işçi kadrosunda çalışanlar başvuramaz. ${window}`)
+        .type,
+    ).toBe('kadrolu');
+  });
+
+  it('başlık genel ifadeyse (Personel Alım İlanı) tür gövdeden belirlenir', () => {
+    expect(
+      detectEmploymentType('Personel Alım İlanı', `Kurumumuza 5 sürekli işçi alınacaktır. ${window}`).type,
+    ).toBe('kamu-isci');
+  });
+});
+
 // Bağımsız doğrulamada bulunan hata (21.10.2026): `ret-baslik.staj-burs` kalıbındaki
 // `burs\w*` "Bursa" ile başlayan her başlığı eşliyordu; Bursa kurumlarının gerçek
 // ilanları başlık düzeyinde %92 güvenle reddediliyordu. 81 il taraması bunu
