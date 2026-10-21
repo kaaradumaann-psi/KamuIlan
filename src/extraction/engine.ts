@@ -219,7 +219,22 @@ export function extract(input: ExtractionInput): ExtractedJob {
   setField('district', districtFromListing ? 'listing' : sourceForEvidence(input, district), district);
 
   // --- Kontenjan -----------------------------------------------------------
-  const quota = extractQuota(haystack);
+  // Kadro tablosu (başlığı doğrulanmış, her satırı kanıtlı) metindeki tek sayıdan
+  // güçlü kanıttır: varsa kontenjan tablo toplamıdır. Metindeki sayı farklıysa
+  // sessizce ezilmez; tutarsızlık belirsizlik olarak yazılır (detayda görünür).
+  const openings = extractOpenings(rawBody);
+  const tableTotal = openings.reduce((total, opening) => total + opening.quota, 0);
+  const textQuota = extractQuota(haystack);
+  let quota = textQuota;
+  if (openings.length > 0) {
+    if (textQuota && textQuota.value !== tableTotal) {
+      uncertainties.push(
+        `Kontenjan tutarsız: metinde ${textQuota.value} geçiyor, kadro tablosunun toplamı ${tableTotal}. ` +
+          'Tablo toplamı gösteriliyor; resmî metinden doğrulayın.',
+      );
+    }
+    quota = { value: tableTotal, snippet: openings.map((opening) => opening.evidence).join(' | ').slice(0, 300) };
+  }
   setField('quota', sourceForEvidence(input, quota?.snippet), quota?.snippet ?? null);
   if (!quota) uncertainties.push('Kontenjan bilgisi ilanda sayı olarak belirtilmemiş.');
 
@@ -383,7 +398,7 @@ export function extract(input: ExtractionInput): ExtractedJob {
     referenceNo,
     cadreStatus,
     titles,
-    openings: extractOpenings(rawBody),
+    openings,
     educationLevels,
     departments,
     kpssScoreTypes: kpss.types,
@@ -565,7 +580,11 @@ export function extractDistrict(text: string): string | null {
 export function extractQuota(text: string): { value: number; snippet: string } | null {
   const patterns: readonly RegExp[] = [
     /kontenjan\s*(?:bilgisi|sayısı|:)?\s*[:.]?\s*(\d{1,4})/i,
-    /(\d{1,4})\s*(?:kişi|adet|personel|pozisyon|eleman|işçi)(?:\s+alım|\s+alınacak)?/i,
+    // "adet" çoğu ilanda BELGE sayısıdır: "3 adet vesikalık fotoğraf", "Sabıka Kaydı (1 adet)",
+    // "Profesör kadrosu adayları 6 adet, … 4 adet dijital dosya" (gerçek RG metinleri).
+    // Yalnızca ardından en çok dört kelime içinde kadro/personel sözcüğü gelirse kontenjandır:
+    // "5 adet sözleşmeli personel", "1 adet Zabıta Memuru kadrosu".
+    /(\d{1,4})\s*(?:kişi|adet(?=\s+(?:[^\s,.;:()]+\s+){0,4}?(?:kadro|personel|memur|işçi|pozisyon|eleman|uzman|mühendis|tekniker|teknisyen|şoför|hemşire|ebe|öğretim|görevli|avukat|müfettiş|zabıta|itfaiye|bekçi)[\wçğıöşü]*)|personel|pozisyon|eleman|işçi)(?:\s+alım|\s+alınacak)?/i,
     /toplam\s*(\d{1,4})/i,
     /(\d{1,4})\s*daimi işçi/i,
   ];
