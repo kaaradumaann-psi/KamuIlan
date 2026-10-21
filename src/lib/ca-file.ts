@@ -22,7 +22,7 @@
  * ya da tanılama üretir (bkz. `loadTrustedCaCertificates`).
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve as resolvePath } from 'node:path';
+import { dirname, normalize as normalizePath, resolve as resolvePath } from 'node:path';
 import { X509Certificate } from 'node:crypto';
 import { envFileSource } from '../config/load-env';
 
@@ -142,9 +142,12 @@ export function expandPathTokens(value: string): string {
     const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '';
     if (home) expanded = resolvePath(home, expanded.slice(1).replace(/^\//, ''));
   }
+  const beforeTokens = expanded;
   expanded = expanded.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => process.env[name] ?? '');
   expanded = expanded.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/g, (_match, name: string) => process.env[name] ?? '');
-  return expanded;
+  // Değişken genişletildiyse ayraçlar platforma göre birleştirilir: Windows'ta
+  // "%USERPROFILE%/certs/x.pem" → "C:\Users\…/certs/x.pem" karışık kalıyordu.
+  return expanded === beforeTokens ? expanded : normalizePath(expanded);
 }
 
 /** PEM gövdesini 64 sütuna sarar (bazı TLS yığınları uzun satırı reddeder). */
