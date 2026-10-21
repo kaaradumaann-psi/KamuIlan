@@ -403,6 +403,7 @@ export function buildJobDocument(
     attachments,
     requirements,
     titles: extraction.titles,
+    openings: extraction.openings,
     textExcerpt,
     // Gövde metni aramada da bulunsun: normalleştirilmiş kopya saklanır.
     textNormalized: normalizeTr(textExcerpt),
@@ -903,6 +904,8 @@ async function mergeIntoExistingJob(
     quota: document.quota ?? previous.quota,
     city: previous.city ?? document.city,
     titles: previous.titles.length >= document.titles.length ? previous.titles : document.titles,
+    // Yeni okumada tablo varsa o geçerlidir (ilan güncellenmiş olabilir); yoksa eskisi korunur.
+    openings: document.openings.length > 0 ? document.openings : (previous.openings ?? []),
     requirements:
       document.requirements.departments.length +
         document.requirements.educationLevels.length +

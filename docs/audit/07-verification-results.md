@@ -160,3 +160,14 @@ erişilebiliyorsa saldırgan vekili atlayıp sahte `X-Forwarded-For` gönderebil
 kapanış: API'de yalnızca Cloudflare IP aralıklarından gelen isteklere güvenmek
 (`trustProxy` IP listesi) ya da kökeni Cloudflare Tunnel/erişim kuralıyla kapatmak.
 Dağıtım kararıdır, bu turda kod değişmedi.
+
+## 7. R-03 ön filtre değişikliği (`fix/r03-postgres-onfiltre`, 21.10.2026)
+
+| Kontrol | Komut | Durum | Sonuç |
+| --- | --- | --- | --- |
+| Tip / lint | `npm run typecheck`, `npx eslint` (değişen dosyalar) | **PASS** | çıkış 0 |
+| Postgres sürücüsü (PGlite, Postgres 16 WASM) | `npx vitest run tests/postgres-store.test.ts` | **PASS** | 14/14 (2 yeni test) |
+| Mutasyon kontrolü | Aynı testler eski `postgres-store.ts` ile | beklenen **FAIL** | Yeni R-03 testi "20000 satırı aştı" hatasıyla kırılıyor; rastgele fark testi eski kodda da geçiyor (doğruluk korunmuş) |
+| Rastgele fark testi, ek tohumlar | 6 ek tohum × 250 sorgu (yerel, commit edilmedi) | **PASS** | 1.750 sorguda Postgres = dosya sürücüsü |
+| Tam test (Windows) | `npx vitest run` | **PARTIAL** | 1414 test: 1404 geçti, 9 başarısız (§6.3'teki aynı ortam hataları), 1 atlandı |
+| Gerçek Postgres/Supabase, yük süresi | — | **BLOCKED** | Postgres/Docker yok; üretim DB'ye erişilmedi |

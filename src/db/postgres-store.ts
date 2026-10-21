@@ -186,6 +186,46 @@ function scalarEqualityClause(field: string, values: unknown[], params: unknown[
   return ors.length > 0 ? ors.join(' OR ') : null;
 }
 
+/**
+ * Noktalı yol (`classification.decision`) için eşitlik ön filtresi.
+ *
+ * JSONB kapsaması (`@>`) burada ÜST KÜME vermez: `getPathValues` ara dizilerin
+ * nesne elemanlarını gezer ve yaprakta iç içe dizileri düzleştirir
+ * (`{a:{b:[["x"]]}}` → `a.b = "x"` eşleşir), kapsama ise bunu kaçırır. Bu yüzden
+ * lax JSONPath kullanılır: her erişimci bir dizi düzeyini açar, yapraktaki `.**`
+ * tüm iç içe değerleri kapsar. Fazladan eşleşmeler `matchesQuery`'de elenir.
+ *
+ * Yalnızca metin/sayı/mantıksal değerler çevrilir: `null` eşitliği eksik alanı da
+ * eşlediği için JSONPath ile güvenle ifade edilemez → çağıran bağlacı atlar.
+ * Değerler parametre (`vars`) olarak geçer; yol parçaları JSON dizesi olarak alıntılanır.
+ */
+function dottedEqualityClause(path: string, values: unknown[], params: unknown[]): string | null {
+  const vars: Record<string, unknown> = {};
+  const add = (value: unknown): void => {
+    vars[`v${Object.keys(vars).length}`] = value;
+  };
+  for (const value of values) {
+    if (typeof value === 'boolean') add(value);
+    else if (typeof value === 'number' && Number.isFinite(value)) {
+      add(value);
+      add(String(value));
+    } else if (typeof value === 'string') {
+      add(value);
+      if (value.trim() !== '' && Number.isFinite(Number(value))) add(Number(value));
+    } else return null;
+  }
+  const names = Object.keys(vars);
+  if (names.length === 0) return null;
+  const accessor = path
+    .split('.')
+    .map((segment) => `.${JSON.stringify(segment)}`)
+    .join('');
+  params.push(`lax $${accessor}.** ? (${names.map((name) => `@ == $${name}`).join(' || ')})`);
+  const pathIndex = params.length;
+  params.push(JSON.stringify(vars));
+  return `jsonb_path_exists(data, $${pathIndex}::jsonpath, $${params.length}::jsonb)`;
+}
+
 /** `id` birincil anahtarı doğrudan SQL koşuluna çevrilir (indeks kullanılır). */
 function idClause(condition: unknown, params: unknown[]): string | null {
   if (!isOperatorObject(condition)) {
@@ -211,83 +251,89 @@ function idClause(condition: unknown, params: unknown[]): string | null {
 }
 
 /**
- * Sorgunun SQL ön filtresini üretir. Çevrilemeyen koşulda `null` döner ve
- * çağıran taraf ön filtreyi tamamen atlar (doğruluk > hız).
+ * Sorgunun SQL ön filtresini üretir; hiçbir koşul çevrilemezse `TRUE` döner.
+ * Ön filtre her zaman nihai sonucun ÜST KÜMESİDİR; kesin karar `matchesQuery`'dedir.
  *
- * Nokta içeren (iç içe) yollar bilinçli olarak ÇEVRİLMEZ: `getPathValues` dizi
- * içindeki nesneleri de gezdiği için (`attachments.url`) JSONB kapsaması bu
- * durumu güvenilir biçimde ifade edemez. Yanlış bir ön filtre kayıt elerdi;
- * bunun yerine tam tarama yapılır ve üst sınır (`MAX_SCAN_ROWS`) aşılırsa açık
- * hata verilir. Sessiz yanlış sonuç hiçbir koşulda üretilmez.
+ * Nokta içeren (iç içe) yollar JSONB kapsamasıyla DEĞİL, lax JSONPath ile
+ * çevrilir (`dottedEqualityClause`): `getPathValues` dizi içindeki nesneleri de
+ * gezdiği için (`attachments.url`) kapsama kayıt elerdi. Çevrilemeyen koşul ön
+ * filtreden çıkarılır; üst sınır (`MAX_SCAN_ROWS`) aşılırsa açık hata verilir.
+ * Sessiz yanlış sonuç hiçbir koşulda üretilmez.
  */
-function buildPrefilter(query: Query | undefined, table: string, params: unknown[]): string | null {
+function buildPrefilter(query: Query | undefined, params: unknown[]): string {
   if (!query) return 'TRUE';
+  return relaxedPrefilter(query, params) ?? 'TRUE';
+}
 
-  // DEĞİŞMEZ KURAL: `null` dönen bir ön filtre, `params`'ı bulduğu gibi bırakır.
-  //
-  // Gerekçe: çevrilemeyen koşul (aralık `$lt/$gte`, `$exists`, `$regex`,
-  // noktalı yol, `$nor` …) ön filtrenin TAMAMINI düşürür ve çağıran taraf
-  // yer tutucusuz `WHERE TRUE` sorgusu çalıştırır. Çeviri sırasında — özellikle
-  // `$and`/`$or` kardeş dallarından veya aynı nesnedeki önceki alanlardan —
-  // `params`'a yazılmış değerler geri alınmazsa Postgres, yer tutucusu olmayan
-  // bir ifadeye parametre bağlandığı için sorguyu reddeder:
-  //   "bind message supplies N parameters, but prepared statement \"\" requires 0"
-  // Bu hata ilk kez `db:migrate`'ın
-  // `{ $or: [{ textNormalized: { $exists: false } }, { textNormalized: '' }] }`
-  // sorgusunda görüldü; eşitlik + aralık/noktalı yol karıştıran HER sorgu
-  // (zamanlayıcı `listDue`, kuyruk/outbox `claim`, ilan arama/kapatma …)
-  // aynı şekilde kırılıyordu. Bu yüzden her vazgeçiş, bu çağrının eklediği
-  // parametreleri geri alır (özyinelemeli dallar da kendi payını geri alır,
-  // üst katman kardeş dalların payını bu yolla temizler).
-  const checkpoint = params.length;
-  const abandon = (): null => {
-    params.length = checkpoint;
-    return null;
+/**
+ * Gevşetilmiş ön filtre: ÜST KÜME garantisiyle mümkün olan en dar SQL koşulu.
+ *
+ * `null` = "kısıt yok" (TRUE). Eski davranış tek bir çevrilemeyen koşulda
+ * (aralık, `$exists`, `$regex`, noktalı yol…) ön filtrenin TAMAMINI düşürüyordu;
+ * bu yüzden `{ status: 'active', applicationEndDate: { $lt: … } }` ve ilan listesinin
+ * her sorguda eklediği `classification.decision` gibi koşullar
+ * tüm tabloyu tarıyor ve tablo 20.000 satırı geçince hata veriyordu (R-03).
+ *
+ * Kural (her adım nihai sonucun üst kümesini korur; kesin karar `matchesQuery`):
+ *  - VE bağlamı (nesne alanları, `$and`): çevrilemeyen bağlaç atlanır.
+ *  - VEYA (`$or`): tek bir dal çevrilemezse `$or`'un tamamı kısıtsız sayılır.
+ *  - `$nor`: kısıtsız sayılır.
+ *  - Alan operatörleri: yalnızca `$eq`/`$in` kısmı kullanılır; diğerleri atlanır.
+ * Her vazgeçiş kendi yazdığı parametreleri geri alır (bind hatası değişmezi).
+ */
+function relaxedPrefilter(query: Query, params: unknown[]): string | null {
+  const conditions: string[] = [];
+  const attempt = (build: () => string | null): void => {
+    const checkpoint = params.length;
+    const clause = build();
+    if (clause === null) params.length = checkpoint;
+    else conditions.push(clause);
   };
 
-  const conditions: string[] = [];
   for (const [key, condition] of Object.entries(query)) {
-    if (key === '$and' || key === '$or' || key === '$nor') {
-      const clauses = (condition as Query[]) ?? [];
-      if (key === '$nor') return abandon();
-      const translated = clauses.map((clause) => buildPrefilter(clause, table, params));
-      if (translated.some((clause) => clause === null)) return abandon();
-      if (translated.length === 0) continue;
-      conditions.push(`(${translated.join(key === '$and' ? ' AND ' : ' OR ')})`);
+    if (key === '$nor') continue;
+    if (key === '$and') {
+      for (const clause of (condition as Query[]) ?? []) attempt(() => relaxedPrefilter(clause, params));
       continue;
     }
-
+    if (key === '$or') {
+      attempt(() => {
+        const clauses = (condition as Query[]) ?? [];
+        if (clauses.length === 0) return null;
+        const translated: string[] = [];
+        for (const clause of clauses) {
+          const branch = relaxedPrefilter(clause, params);
+          if (branch === null) return null;
+          translated.push(branch);
+        }
+        return `(${translated.join(' OR ')})`;
+      });
+      continue;
+    }
     if (key === 'id') {
-      const clause = idClause(condition, params);
-      if (clause === null) return abandon();
-      conditions.push(clause);
+      attempt(() => idClause(condition, params));
       continue;
     }
-
-    // İç içe yollar (nokta içeren) ön filtreye çevrilmez: bkz. fonksiyon başlığı.
-    if (key.includes('.')) return abandon();
-
-    const values: unknown[] = [];
-    if (!isOperatorObject(condition)) {
-      if (Array.isArray(condition)) values.push(...condition);
-      else values.push(condition);
-    } else {
-      const operators = condition as ConditionOperators;
-      const onlyEquality = Object.keys(operators).every(
-        (operator) => operator === '$eq' || operator === '$in',
-      );
-      if (!onlyEquality) return abandon();
-      if (operators.$eq !== undefined) values.push(operators.$eq);
-      if (operators.$in) values.push(...operators.$in);
-    }
-    if (values.length === 0) return abandon();
-
-    const clause = scalarEqualityClause(key, values, params);
-    if (clause === null) return abandon();
-    conditions.push(`(${clause})`);
+    attempt(() => {
+      const values: unknown[] = [];
+      if (!isOperatorObject(condition)) {
+        if (Array.isArray(condition)) values.push(...condition);
+        else values.push(condition);
+      } else {
+        const operators = condition as ConditionOperators;
+        if (operators.$eq !== undefined) values.push(operators.$eq);
+        if (operators.$in) values.push(...operators.$in);
+        // `$eq` ve `$in` birlikteyse kesişim gerekir; birleşim üst küme olarak yeterli.
+      }
+      if (values.length === 0) return null;
+      const clause = key.includes('.')
+        ? dottedEqualityClause(key, values, params)
+        : scalarEqualityClause(key, values, params);
+      return clause === null ? null : `(${clause})`;
+    });
   }
 
-  return conditions.length > 0 ? conditions.join(' AND ') : 'TRUE';
+  return conditions.length > 0 ? conditions.join(' AND ') : null;
 }
 
 /**
@@ -468,16 +514,15 @@ export class PostgresStore implements StoragePort {
   ): Promise<DocumentOf<K>[]> {
     const table = this.table(collection);
     const params: unknown[] = [];
-    const prefilter = buildPrefilter(filter, table, params);
-    const where = prefilter === null ? 'TRUE' : prefilter;
+    const where = buildPrefilter(filter, params);
     const result = await this.pool.query<{ data: unknown }>(
       `SELECT data FROM ${table} WHERE ${where} LIMIT ${MAX_SCAN_ROWS + 1}`,
       // Savunma katmanı: ön filtre yoksa SQL'de yer tutucu da yoktur; parametre
-      // GÖNDERİLMEZ. `buildPrefilter` zaten vazgeçişte parametreleri geri alır,
+      // GÖNDERİLMEZ. `relaxedPrefilter` zaten vazgeçişte parametreleri geri alır,
       // ancak "yer tutucu sayısı = parametre sayısı" eşitliği bu son noktada da
       // garanti edilir ki aynı bind hatası başka bir çeviri yolundan geri
       // gelemesin.
-      prefilter === null ? [] : params,
+      where === 'TRUE' ? [] : params,
     );
     if (result.rows.length > MAX_SCAN_ROWS) {
       throw new Error(

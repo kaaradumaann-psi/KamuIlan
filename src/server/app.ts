@@ -103,7 +103,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // pino örneği Fastify'nin beklediği arayüzü karşılar; tip parametresi
     // FastifyBaseLogger'a sabitlenir (aksi halde rota tipleri uyuşmaz).
     loggerInstance: logger as unknown as FastifyBaseLogger,
-    // X-Forwarded-For'a yalnızca TRUST_PROXY=1 iken güvenilir (bkz. env.ts).
+    // X-Forwarded-For'a yalnızca TRUST_PROXY açıkken ve (liste verildiyse) yalnızca
+    // güvenilen vekillerden gelince güvenilir (bkz. src/config/trust-proxy.ts).
     trustProxy: env.TRUST_PROXY,
     bodyLimit: 256 * 1024,
     // İstek kimliğilogları için bile tahmin edilebilir olmamalı: Math.random yerine CSPRNG.

@@ -8,6 +8,7 @@
 import { CLASSIFICATION_VERSION } from '../src/config/app';
 import { describe, expect, it } from 'vitest';
 import { classify, detectEmploymentType, preFilterListingItem } from '../src/classification/engine';
+import { PROVINCE_NAMES } from '../src/domain/provinces';
 
 describe('sınıflandırma: kabul edilmesi gerekenler', () => {
   it('personel alım ilanını kabul eder', () => {
@@ -331,5 +332,39 @@ describe('istihdam türü: başlıktaki açık tür gövdedeki dışlama cümles
     expect(
       detectEmploymentType('Personel Alım İlanı', `Kurumumuza 5 sürekli işçi alınacaktır. ${window}`).type,
     ).toBe('kamu-isci');
+  });
+});
+
+// Bağımsız doğrulamada bulunan hata (21.10.2026): `ret-baslik.staj-burs` kalıbındaki
+// `burs\w*` "Bursa" ile başlayan her başlığı eşliyordu; Bursa kurumlarının gerçek
+// ilanları başlık düzeyinde %92 güvenle reddediliyordu. 81 il taraması bunu
+// yakalar ve başka bir il adının ret kuralına takılmasını da önler.
+describe('il adları ret kurallarına takılmaz', () => {
+  const body =
+    'Kurumumuzda istihdam edilmek üzere 5 sözleşmeli personel alınacaktır. Başvurular 01.11.2026 - 10.11.2026 tarihleri arasında yapılacaktır.';
+  const forms = (il: string): string[] => [
+    `${il} Valiliği Sözleşmeli Personel Alım İlanı`,
+    `${il} Belediyesi Zabıta Memuru Alım İlanı`,
+    `${il} Üniversitesi Sözleşmeli Personel Alım İlanı`,
+    `${il} İl Sağlık Müdürlüğü Sürekli İşçi Alım İlanı`,
+  ];
+
+  it('81 ilin 4 kurum biçiminde gerçek ilan başlığı kabul edilir', () => {
+    const notAccepted = PROVINCE_NAMES.flatMap(forms)
+      .map((title) => ({ title, result: classify({ title, body }) }))
+      .filter(({ result }) => result.decision !== 'accept')
+      .map(({ title, result }) => `${title} → ${result.decision} (${result.rules.join(',')})`);
+    expect(PROVINCE_NAMES).toHaveLength(81);
+    expect(notAccepted).toEqual([]);
+  });
+
+  it.each([
+    'Üniversite Öğrencilerine Burs Başvurusu',
+    'Burs Sonuçları Açıklandı',
+    'Yükseköğrenim Bursu Başvuruları',
+  ])('burs duyurusu yine reddedilir: %s', (title) => {
+    const result = classify({ title, body: 'Burs başvuruları 01.11.2026 tarihine kadar alınacaktır.' });
+    expect(result.decision).toBe('reject');
+    expect(result.rules).toContain('ret-baslik.staj-burs');
   });
 });

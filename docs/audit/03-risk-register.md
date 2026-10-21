@@ -66,6 +66,17 @@
   metinleri buna göre güncellendi.
 - **Neden şimdi yapılmadı:** Erişim modeli değişikliği ürün/politika kararı; izinsiz
   yapılmadı (kullanıcı talimatı: geri dönüşü zor/ürün kararı olan değişiklikler onay ister).
+- **Bulgu (21.10.2026, bağımsız doğrulama):** [1] API ilan uçları (`GET /api/jobs`,
+  `/api/jobs/stats`, `/api/jobs/:id`, `/api/jobs/:id/sources`) **zaten oturumsuz** yanıt
+  veriyor (yalnızca onaylı ilanlar, `toPublic*` serileştiricileri). "Kapalı sistem" kapısı
+  yalnızca arayüzde; onaylı ilan verisi bugün de herkese açık.
+- **Uygulandı (bayrak arkasında, `feat/herkese-acik-ilanlar`):** `PUBLIC_LISTINGS_ENABLED`
+  (varsayılan **0**). Açıkken oturumsuz ziyaretçi ana sayfa, ilan listesi/detayı ve kaynakları
+  görür; panel, kayıtlı ilanlar, geçmiş ve yönetim kendi `RequiresSession` kapısıyla korunur.
+  Kayıt politikası (`ALLOW_PUBLIC_REGISTRATION`) değişmez. [2]
+  `tests/herkese-acik-vitrin.test.tsx` (6), `tests/herkese-acik-vitrin-api.test.ts` (4).
+- **Açmadan önce gereken karar:** Gizlilik/KVKK ve SSS metinleri "kapalı sistem" dilini
+  içeriyor; vitrin açılırsa güncellenmeli. Üretimde bayrak açılmadı.
 
 ### R-02 · Veritabanında RLS yok; tek kimlikle tam yetki
 - **Kanıt:** [1] `src/db/postgres-store.ts` (tek `pg.Pool`, tablo bazlı erişim, RLS politikası yok);
@@ -130,9 +141,22 @@
 
 ## P2
 
-### R-03 · Postgres deposunda sorgu başına 20.000 satır tarama sınırı
+### R-03 · Postgres deposunda sorgu başına 20.000 satır tarama sınırı — **KISMEN AZALTILDI**
 - **Kanıt:** [1] `src/db/postgres-store.ts` — `MAX_SCAN_ROWS = 20_000`, aşılırsa **hata**
   (sessiz kırpma yok — doğru davranış), sıralama/sayfalama bellekte.
+- **Kök neden (bağımsız doğrulamada bulundu):** SQL ön filtresi tek bir çevrilemeyen
+  koşulda (aralık, `$exists`, `$regex`, **noktalı yol**) tamamen düşüyordu. İlan listesi her
+  sorguda `classification.decision = accept` (noktalı yol) eklediği için **her liste/arama
+  sorgusu tüm `jobs` tablosunu** okuyordu; reddedilen kayıtlar da sınıra sayılıyordu.
+- **Düzeltme (`fix/r03-postgres-onfiltre`):** çevrilemeyen bağlaç atlanır (üst küme korunur),
+  noktalı yol eşitliği lax JSONPath (`jsonb_path_exists`) ile SQL'de uygulanır. [2]
+  `tests/postgres-store.test.ts`: 20.050 satırlık PGlite tablosunda `repos.jobs.search`
+  (eski kodda "20000 satırı aştı" hatası, yenide doğru 2 kayıt) + 250 rastgele bileşik
+  sorguda Postgres = dosya sürücüsü (7 tohumla yerelde 1.750 sorgu).
+- **Kalan:** sıralama/sayfalama hâlâ bellekte; sınır artık *eşleşen* satırlara uygulanır
+  (kabul edilmiş + filtreye uyan > 20.000 olursa yine açık hata). `jsonb_path_exists` GIN
+  indeksini kullanmaz (SQL içinde sıralı tarama). Gerçek Supabase/Postgres'te ve yük altında
+  **ölçülmedi** [4] — yalnızca PGlite (Postgres 16 WASM).
 - **Etki:** İlan sayısı ~20 bine yaklaşınca filtresiz liste/arama 500 verir; her istek
   O(n) bellek kullanır.
 - **Öneri:** Filtre → SQL `WHERE data @> ...` / ifade indeksleri; sıralama ve `LIMIT/OFFSET`
@@ -155,8 +179,14 @@
   kovaya düşebilirdi.
 - **Kalan risk:** `TRUST_PROXY` yanlış yapılandırılırsa (API doğrudan internete açıkken 1)
   aynı sorun geri gelir → dağıtım denetim maddesi.
-- **Kapanış ölçütü:** Dağıtım dokümanında "yalnızca vekil arkasında `TRUST_PROXY=1`" kuralı
-  ve üretimde doğrulama.
+- **Azaltma (`fix/r09-vekil-guven-siniri`):** `TRUST_PROXY` artık güvenilen vekil listesi
+  kabul ediyor (`cloudflare`, CIDR, `uniquelocal`…); `clientIp()` ham başlık yerine
+  Fastify/proxy-addr kararını (`request.ip`) kullanıyor. [2] `tests/vekil-guven-siniri.test.ts`
+  (7): vekili atlayan sahte başlık yeni kova açamıyor; Cloudflare arkasındaki farklı
+  istemciler ayrı kovada; zincire sola eklenen sahte değer yok sayılıyor.
+- **Kapanış ölçütü:** Üretimde `TRUST_PROXY=cloudflare` (veya gerçek vekil listesi) ayarlı
+  ve kökene doğrudan istekte sahte `X-Forwarded-For` ile hız sınırının aşılamadığı doğrulandı
+  — **üretim ayarı kullanıcı/işletim kararı; bu depoda değiştirilmedi.**
 
 ### R-10 · Tarayıcı E2E — **CI'da KAPANDI**, yerel ortamda engelli
 - **Kanıt:** [1] GitHub Actions `verify` işi, run `39597847874` (commit `911b0b4`):
@@ -210,6 +240,18 @@
 - **Bağımlılık:** R-12 ile aynı ürün kararı.
 
 ---
+
+### R-19 · "Bursa" kurumlarının ilanları "burs" sayılıp reddediliyordu — **DÜZELTİLDİ (21.10.2026)**
+- **Kanıt:** [2] `ret-baslik.staj-burs` kalıbı `\bburs\w*` idi; "Bursa Valiliği / Belediyesi /
+  Uludağ Üniversitesi …" başlıkları başlık düzeyinde %92 güvenle `reject` alıyordu. 81 il × 4
+  kurum biçimi taramasında kabul dışı kalan 4 başlığın 4'ü de Bursa'ydı.
+- **Etki:** Türkiye'nin 4. büyük ilindeki kurumların gerçek ilanları sessizce akıştan düşüyordu
+  (yanlış ret; inceleme kuyruğuna da gitmez).
+- **Düzeltme (`fix/bursa-burs-yanlis-ret`):** `burs(?!a)\w*`. Test: `tests/classification.test.ts`
+  81 il taraması + burs duyurularının hâlâ reddedildiği 3 örnek.
+- **Kalan:** Mevcut kayıtlarda Bursa ilanları reddedilmiş olabilir → düzeltme ancak
+  `jobs:reclassify` ile uygulanır (üretim DB — karar gerekiyor). Apostrofsuz yazılmış "burs'a"
+  ("bursa başvuru") artık bu kurala takılmaz; diğer kurallar/inceleme devreye girer.
 
 ## Kapsam dışı bırakılanlar [5]
 

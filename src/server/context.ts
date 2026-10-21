@@ -68,14 +68,6 @@ export function sessionTtlHours(): number {
 }
 
 /**
- * İstemci IP'si.
- *
- * X-Forwarded-For'a YALNIZCA `TRUST_PROXY=1` iken bakılır: başlığı istemci
- * serbestçe yazabildiği için (aksi hâlde) her istekte farklı bir IP uydurulup
- * hız sınırı atlanır ve denetim kaydı zehirlenir. Vekil arkasında ilk değer
- * gerçek istemcidir.
- */
-/**
  * İsteğin eşleştiği rota yolunu döndürür (sorgu dizesi olmadan).
  *
  * Fastify (find-my-way) yüzde kodlu yolları ÇÖZEREK rotayla eşleştirir:
@@ -112,16 +104,19 @@ export function matchesPathPrefix(request: FastifyRequest, prefix: string): bool
   }
 }
 
+/**
+ * İstemci IP'si.
+ *
+ * X-Forwarded-For yalnızca `TRUST_PROXY` açıkken değerlendirilir: başlığı istemci
+ * serbestçe yazabildiği için (aksi hâlde) her istekte farklı bir IP uydurulup
+ * hız sınırı atlanır ve denetim kaydı zehirlenir.
+ */
 export function clientIp(request: FastifyRequest): string {
-  if (getEnv().TRUST_PROXY) {
-    const forwarded = request.headers['x-forwarded-for'];
-    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    if (typeof raw === 'string' && raw.length > 0) {
-      const first = raw.split(',')[0]?.trim();
-      if (first && first.length > 0) return first;
-    }
-  }
-  return request.ip ?? 'bilinmiyor';
+  // Güven kararı Fastify'a (`trustProxy`, proxy-addr) aittir: `TRUST_PROXY=1` iken
+  // zincirin en solundaki adres, vekil listesi verildiyse yalnızca güvenilen
+  // vekillerin eklediği zincir değerlendirilir. Ham başlık burada OKUNMAZ; aksi
+  // hâlde liste biçimi vekili atlayan istemcinin sahte başlığını geri getirirdi.
+  return request.ip || 'bilinmiyor';
 }
 
 export interface RateLimitDecision {

@@ -294,8 +294,10 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
   {
     id: 'ret-baslik.staj-burs',
     reason: 'Başlık staj/burs/öğrenci programı — personel alımı değil',
+    // `burs(?!a)`: "Bursa" ili (Bursa Valiliği, Bursa Uludağ Üniversitesi…) burs sayılmaz;
+    // eski `burs\w*` Bursa kurumlarının TÜM ilanlarını başlıkta reddediyordu.
     pattern:
-      /\b(?:burs\w*|ulusal\s+staj|staj\s+program\w*|staj\s+basvuru\w*|ogrenci\s+alim\w*|yatay\s+gecis|yatili\s+ogretim|ozel\s+yetenek\s+sinavi)/,
+      /\b(?:burs(?!a)\w*|ulusal\s+staj|staj\s+program\w*|staj\s+basvuru\w*|ogrenci\s+alim\w*|yatay\s+gecis|yatili\s+ogretim|ozel\s+yetenek\s+sinavi)/,
     weight: 0,
   },
   {

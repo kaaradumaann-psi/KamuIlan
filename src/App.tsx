@@ -280,7 +280,7 @@ function AppShell({ children }: { children: ReactNode }) {
  * dönecek şekilde giriş ekranına yönlendirilir.
  */
 function RequireAuthGate({ children }: { children: ReactNode }) {
-  const { user, loading, sessionFetching, sessionError, retrySession } = useAuth();
+  const { user, loading, sessionFetching, sessionError, retrySession, publicListings } = useAuth();
   const location = useLocation();
   // Oturum yenilenirken (giriş sonrası tazeleme gibi) kapı karar vermez:
   // eski "oturum yok" bilgisiyle girişe geri atmak kullanıcıyı giriş
@@ -327,6 +327,9 @@ function RequireAuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
+  // Herkese açık vitrin: ilan sayfaları oturumsuz açılır. Panel, kayıtlı ilanlar,
+  // geçmiş ve yönetim rotaları kendi `RequiresSession` kapısıyla korunmaya devam eder.
+  if (!user && publicListings) return <>{children}</>;
   if (!user) {
     const from = `${location.pathname}${location.search}`;
     return (

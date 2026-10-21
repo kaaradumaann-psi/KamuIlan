@@ -70,3 +70,47 @@ sayfa hızı, HTML semantiği, JSON-LD, gerçek veri tazeliği (kaç dakikada bi
 > KadroNerede'nin algoritması, veri kaynağı listesi veya güncelleme sıklığı **bilinmiyor**;
 > hiçbir öneri onların iç işleyişini kopyalamaya dayanmıyor. Öneriler yalnızca gözlenen
 > kullanıcı ihtiyacını Kamuİlan'ın kendi mimarisiyle karşılamayı amaçlıyor.
+
+## 5. Ek kanıt (21.10.2026, ~15:50 TR) — sitemap, llms.txt ve ilan örnekleri
+
+**Yöntem:** `curl` ile 6 herkese açık istek (robots.txt'de izinli yollar). Tarayıcı/REA
+kullanılmadı. Etiketler: **G** = gözlemlendi · **K** = koddan doğrulandı · **Ç** = çıkarım.
+
+### 5.1 Keşif dosyaları
+
+| Bulgu | Kanıt | Etiket |
+| --- | --- | --- |
+| `sitemap.xml` 826 URL: `ilan/` 365 · `bolum/` 134 · `unvan/` 109 · `kurum/` 109 · `il/` 67 · `rehber/` 10 · `haberler/` 9 · araç/statik sayfalar | `<loc>` sayımı; 386 kayıtta `<lastmod>` (ör. `2026-10-21T10:05:27Z`) | G |
+| `llms.txt`: kaynaklar "ilan.gov.tr ve İŞKUR gibi", "günde birkaç kez otomatik"; süresi dolan ilanlar silinmez ("başvuru sona erdi"); kişi adı içeren sonuç/atama belgeleri yayımlanmaz; üyelik yok, profil yalnızca tarayıcı çerezinde | Sitenin kendi beyanı — doğruluğu bağımsız doğrulanmadı | G (beyan) |
+| Makine tüketimi için `openapi.json`, `.well-known/api-catalog` (RFC 9727), `auth.md` ("anonim erişim") ilan edilmiş | `llms.txt` bağlantıları; içerikleri açılmadı | G |
+| Adres kalıpları: `/ilan/{slug}`, `/il/`, `/kurum/`, `/bolum/`, `/unvan/`, `/ogrenim/`, `/nitelik-kodu/{kod}` | `llms.txt` "Adres kalıpları" | G |
+
+### 5.2 İlan örnekleri
+
+| Örnek | Kadro/unvan/il/kontenjan | Tarih ve durum | Kaynak gösterimi | Etiket |
+| --- | --- | --- | --- | --- |
+| TCDD Taşımacılık — 166 Sürekli İşçi (aktif) | **8 kadro bloğu**, her biri kontenjan + **il bazında dağılım** (Mekaniker-Lokomotif 41 = 17 ilin toplamı; toplandı, tutarlı), bölüm listesi, yaş, cinsiyet, askerlik | 21–26 Ekim, sınav 18 Kasım; "5 gün" sayacı | ilan.gov.tr bağlantısı, "Son kontrol"; ayrıca **"Bu ilanın bazı bilgileri otomatik okunurken tam doğrulanamadı; özellikle tarihleri resmi ilandan kontrol edin"** uyarısı | G |
+| Doğanyol Belediyesi — Sözleşmeli Personel (aktif) | 1 kadro: Çözümleyici, 2 kişi, lisans + bölümler, KPSS P3 ≥ 55 | Başvuru 2–4 Aralık; JSON-LD `validThrough` 2026-12-04T23:59:59+03:00 | ilan.gov.tr | G |
+| Aynı ilan — **tutarsızlık** | Başlık "Sözleşmeli Personel", özet alanı "Kadro türü: **Memur**" | — | — | G (tutarsızlık) · Ç (resmî metin 4/B ise alan yanlış; resmî metin açılmadı) |
+| Polatlı Öğretmenevi — Şoför (arşiv) | 1 kadro, ilköğretim, noter kurası | "kapandı · 20 Eki" + "**Başvuru sona erdi**"; detay sayfası tüm alanlarıyla duruyor | İŞKUR e-Şube | G |
+| Yapılandırılmış veri | Detay sayfalarında `JobPosting` JSON-LD: `title`, `datePosted`, `validThrough`, `totalJobOpenings`, `jobLocation` (il/ilçe), `hiringOrganization`, `identifier` | — | — | G |
+
+### 5.3 Kamuİlan için karar destekleyen sonuçlar
+
+1. **Kadro kırılımı (05 §3 satır 3):** Rakip, ilan içinde *unvan × il × kontenjan* tablosu veriyor
+   ve toplamları tutarlı. Kamuİlan'da ilan başına tek `quota`, tek `city` ve kontenjan/il bağı olmayan `titles[]` var (K: `src/db/schemas.ts` `jobSchema`).
+   Uygulama için yeni alan + çıkarım kuralı + gerçek çok kadrolu fixture gerekir; şema
+   değişikliği olduğu için bu turda yapılmadı.
+2. **Düşük güven uyarısı:** Rakip, alan çıkarımından emin olmadığı ilanı yayımlıyor ama
+   uyarı gösteriyor. Kamuİlan aynı durumda kaydı `review`'a gönderiyor ve yayımlamıyor (K:
+   sınıflandırma eşikleri). Kamuİlan'ın yaklaşımı daha muhafazakâr; kapsama karşı doğruluk
+   tercihi bir ürün kararıdır.
+3. **Tür tutarlılığı:** Doğanyol örneği, başlık ile yapılandırılmış alanın çeliştiği bir
+   hata sınıfını gösteriyor. Kamuİlan'da `detectEmploymentType` başlık + gövdeden tür
+   çıkarıyor (K); başlık/alan çelişkisi için ayrı bir tutarlılık testi yok → test adayı.
+4. **Arşiv ve JSON-LD:** Arşivdeki ilan, detay sayfasıyla birlikte erişilebilir duruyor;
+   `JobPosting` verisi arama motorlarına açık. Kamuİlan'da ikisi de yok (R-16, R-17) ve
+   ikisi de erişim modeli kararına (R-01) bağlı.
+
+**DOĞRULANAMADI:** görsel düzen, mobil görünüm, erişilebilirlik ağacı, Core Web Vitals,
+istemci tarafı JS davranışı, gerçek güncelleme sıklığı (tarayıcı/ölçüm aracı kullanılmadı).

@@ -8,6 +8,7 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { z } from 'zod';
+import { invalidTrustProxyEntries, parseTrustProxy } from './trust-proxy';
 import { inspectCaFile } from '../lib/ca-file';
 import { effectiveDriver } from '../db/store';
 import { describeTlsVerificationOverride, systemCaStoreAvailable, tlsVerificationDisabled } from '../lib/tls-trust';
@@ -88,11 +89,22 @@ const envSchema = z.object({
    * saldırgan her istekte farklı bir IP uydurup hız sınırını atlar ve denetim
    * kaydına yalan IP yazdırır. Yalnızca uygulama, başlığı KENDİSİ ÜRETEN bir
    * vekil sunucunun (Cloudflare/Nginx) arkasındayken 1 yapın.
+   *
+   * Daha güvenli biçim: güvenilen vekil adreslerini listeleyin (`cloudflare`,
+   * `10.0.0.0/8`, `uniquelocal` …). O zaman başlık yalnızca bu adreslerden gelen
+   * isteklerde değerlendirilir; kökene doğrudan gelen istek sahte IP yazamaz.
+   * Ayrıntı: `src/config/trust-proxy.ts`.
    */
   TRUST_PROXY: z
     .string()
     .default('0')
-    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+    .superRefine((value, ctx) => {
+      const invalid = invalidTrustProxyEntries(value);
+      if (invalid.length > 0) {
+        ctx.addIssue({ code: 'custom', message: `TRUST_PROXY geçersiz öğe içeriyor: ${invalid.join(', ')}` });
+      }
+    })
+    .transform((value) => parseTrustProxy(value)),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /**
    * OpenAPI arayüzü (/api/docs). Varsayılan: yalnızca üretim dışı ortamlarda açık.
@@ -391,6 +403,18 @@ const envSchema = z.object({
    * bilinçli olarak 1 yapılabilir; üretimde açık bırakmak istenmez.
    */
   ALLOW_PUBLIC_REGISTRATION: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+  /**
+   * Herkese açık ilan vitrini: KAPALI (varsayılan). Açıkken oturumsuz ziyaretçi
+   * ilan listesi, ilan detayı ve kaynaklar sayfalarını görür; panel, kayıtlı
+   * ilanlar, bildirimler ve yönetim yine oturum ister. Kayıt politikasını
+   * (`ALLOW_PUBLIC_REGISTRATION`) DEĞİŞTİRMEZ. API ilan uçları bu bayraktan
+   * bağımsız olarak zaten yalnızca onaylı ilanları oturumsuz döndürür.
+   * Açmak ürün + KVKK kararıdır (docs/audit/03 R-01).
+   */
+  PUBLIC_LISTINGS_ENABLED: z
     .string()
     .default('0')
     .transform((value) => value === '1' || value.toLowerCase() === 'true'),
@@ -909,6 +933,7 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
     // Test aşamasında 1; üretimde 0 ya da 30–360 önerilir.
     scanIntervalMinutes: env.SCAN_INTERVAL_MINUTES === 0 ? 'kaynak başına' : env.SCAN_INTERVAL_MINUTES,
     publicRegistration: env.ALLOW_PUBLIC_REGISTRATION,
+    publicListings: env.PUBLIC_LISTINGS_ENABLED,
     liveFetch: env.SOURCE_LIVE_FETCH,
     scheduler: env.SCHEDULER_ENABLED,
     dataDir: env.DATA_DIR,
