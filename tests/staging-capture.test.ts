@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const TSX = join(process.cwd(), 'node_modules', '.bin', 'tsx');
+// `.bin/tsx` Windows'ta kabuk betiğidir; kabuksuz spawnSync onu çalıştıramaz (status null).
+// tsx CLI'si doğrudan Node ile çalıştırılır: her platformda aynı.
+const TSX_CLI = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const SCRIPT = join(process.cwd(), 'scripts', 'staging-capture.ts');
 
 function runStaging(args: string[], extraEnv: Record<string, string> = {}) {
@@ -12,6 +14,10 @@ function runStaging(args: string[], extraEnv: Record<string, string> = {}) {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
+    // Windows'ta Node/OpenSSL için gerekli sistem değişkenleri (Linux'ta tanımsızdır).
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    ...(process.env.TEMP ? { TEMP: process.env.TEMP, TMP: process.env.TEMP } : {}),
+    ...(process.env.USERPROFILE ? { USERPROFILE: process.env.USERPROFILE } : {}),
     NODE_ENV: 'development',
     LOG_LEVEL: 'silent',
   };
@@ -21,7 +27,7 @@ function runStaging(args: string[], extraEnv: Record<string, string> = {}) {
     delete env[key];
   }
   Object.assign(env, extraEnv);
-  const result = spawnSync(TSX, [SCRIPT, ...args, `--data-root=${root}`], {
+  const result = spawnSync(process.execPath, [TSX_CLI, SCRIPT, ...args, `--data-root=${root}`], {
     env,
     encoding: 'utf8',
     timeout: 30_000,
