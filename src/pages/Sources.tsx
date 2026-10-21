@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { CONTACT_EMAIL } from '../site';
 import { api, errorMessage } from '../lib/api';
+import { usePageMeta } from '../lib/page-meta';
 import {
   RUN_STATUS_LABELS,
   formatDateTime,
@@ -80,6 +81,10 @@ function sourceTag(source: SourceListResponse['sources'][number]): ReactNode {
 }
 
 export function SourcesPage(): ReactNode {
+  usePageMeta({
+    title: 'İlan kaynakları',
+    description: 'Kamuİlan’ın ilan topladığı resmî kaynaklar, doğrulama durumları ve son tarama zamanları.',
+  });
   const query = useQuery({
     queryKey: ['sources'],
     queryFn: ({ signal }) => api.get<SourceListResponse>('/api/sources', undefined, signal),

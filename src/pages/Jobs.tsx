@@ -43,6 +43,7 @@ import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
 import { EmptyState, ErrorNotice, LoadingCard, Pagination, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
+import { usePageMeta } from '../lib/page-meta';
 import { formatNumber } from '../lib/format';
 import { HONESTY_NOTE } from '../site';
 import type { JobListResponse } from '../types';
@@ -50,6 +51,7 @@ import type { JobListResponse } from '../types';
 const PAGE_SIZE = 20;
 
 export function JobsPage() {
+  usePageMeta({ title: 'Kamu personel alım ilanları' });
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
   const urlFilters = filtersFromParams(params);

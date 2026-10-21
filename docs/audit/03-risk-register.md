@@ -232,6 +232,13 @@
   `document.title` güncellemesi **görülmedi**.
 - **Etki:** Paylaşılan bağlantılar başlıksız görünür; arama motoru indekslemesi yok.
 - **Not:** R-01 çözülmeden SEO'nun anlamı yok → R-01'e bağımlı.
+- **Uygulandı (`feat/seo-metaveri`, PR #30'a bağlı):** sayfa başlığı/açıklaması ve `og:` etiketleri
+  istemci tarafında; ilan detayında yalnızca mevcut alanlardan `JobPosting` JSON-LD (`</script>`
+  kaçışlı); `GET /api/sitemap.xml` yalnızca `PUBLIC_LISTINGS_ENABLED=1` iken ve yalnızca onaylı
+  ilanlarla. [2] `tests/seo-metaveri.test.ts` (5), `tests/seo-ui.test.tsx` (1).
+- **Kalan:** `public/robots.txt`'e `Sitemap:` satırı eklenmedi (statik dosya bayrağa göre
+  değişemez; vitrin açılınca eklenmeli). Sitemap `/api/` altında; Cloudflare vekili bu yolu
+  API'ye taşır. SPA olduğu için sunucu tarafı ön-render yok.
 
 ### R-17 · Arşiv/iptal görünümü yok
 - **Kanıt:** [1] `Filters.tsx` durum filtresi var, ayrı sekme yok; kapalı ilanlar varsayılan

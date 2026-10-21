@@ -36,6 +36,7 @@ import {
 import { registerAdminRoutes } from './routes/admin';
 import { registerAuthRoutes } from './routes/auth';
 import { registerHealthRoutes } from './routes/health';
+import { registerSitemapRoutes } from './routes/sitemap';
 import { registerJobRoutes } from './routes/jobs';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerTelegramRoutes, TELEGRAM_WEBHOOK_PATH } from './routes/telegram';
@@ -259,6 +260,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerTelegramRoutes(app, repos);
   registerAiRoutes(app, repos);
   registerAdminRoutes(app, repos);
+  registerSitemapRoutes(app, repos);
 
   if (options.serveStatic && env.NODE_ENV === 'production') {
     const fastifyStatic = (await import('@fastify/static')).default;
