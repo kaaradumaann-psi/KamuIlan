@@ -119,7 +119,7 @@ teknik yetersizlik değil.
 | Canlı kaynak taraması | Ortamda dış ağ kapalı | CI/üretim benzeri ortam |
 | Tarayıcı E2E — yalnızca **yerel** (R-10) | Bu sandbox'ta Chromium yok; **CI'da 20 test geçiyor** | Yerelde `playwright install` |
 | PDF/OCR kapsamı (R-13) | OCR bağımlılığı eklenmedi | Geliştirici + karar |
-| Ölçek (20.000 satır sınırı, R-03) | Plan yazıldı, kod değişmedi | Geliştirici |
+| Ölçek (20.000 satır sınırı, R-03) | Filtre SQL'e taşındı (kısmi); SQL sıralama/sayfalama ve gerçek Postgres yük testi yapılmadı (Postgres/Docker yok) | Geliştirici + staging DB |
 | Herkese açık vitrin (R-01) | Ürün + KVKK politikası kararı | Proje sahibi |
 | KadroNerede'nin iç işleyişi | Bilinmiyor; tahmin edilmedi, REA ile de çıkarılamaz | — (kapsam dışı) |
 | Üçüncü taraf sitelerde test/tarama | Yetkisiz erişim olurdu | Yapılmadı, yapılmayacak |

@@ -86,7 +86,7 @@ Toplam: **+36 test** (1373 → 1409).
 
 | ID | İş | Durum | Not |
 | --- | --- | --- | --- |
-| R-03 | Postgres sorgularında SQL düzeyi filtre/sıralama/sayfalama; 20.000 satır sınırının kaldırılması | AÇIK | Bugün doğru davranıyor (sessiz kırpma yok, açık hata). 10 binden sonra zorunlu. |
+| R-03 | Postgres sorgularında SQL düzeyi filtre/sıralama/sayfalama; 20.000 satır sınırının kaldırılması | **KISMEN YAPILDI** | Filtre SQL'e taşındı (gevşetilmiş ön filtre + noktalı yol JSONPath; `fix/r03-postgres-onfiltre`). Kalan: SQL'de sıralama/`LIMIT`, gerçek Postgres yük testi. |
 | R-08 | Üretim sağlık/worker uçlarının doğrulanması | ENGELLİ | Ağ erişimi yok; dağıtım sahibi tarafından yapılmalı. |
 | R-10 | Chromium ile E2E | **CI'da YAPILDI** | CI `verify` işi 4 spec / 20 test ile geçiyor (run `39597847874`). Yalnızca bu sandbox'ta Chromium yok. |
 | R-13 | PDF/OCR kapsamı | AÇIK | Önce "metin katmanı yok" ölçümü + kapsam raporu. |
