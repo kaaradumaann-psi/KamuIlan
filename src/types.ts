@@ -275,6 +275,8 @@ export interface SessionResponse {
   csrfToken: string | null;
   /** Kurulum tanılaması: hesabın hangi veritabanında arandığını gösterir. */
   setup?: SessionSetupInfo;
+  /** Erişim modeli: herkese açık ilan vitrini açık mı (PUBLIC_LISTINGS_ENABLED). */
+  access?: { publicListings: boolean };
 }
 
 export interface CandidateProfile {

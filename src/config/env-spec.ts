@@ -340,6 +340,15 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     defaultValue: '0',
     optional: true,
   },
+  {
+    key: 'PUBLIC_LISTINGS_ENABLED',
+    group: 'guvenlik',
+    label: 'Herkese açık ilan vitrini',
+    help: 'Açıkken (1) oturumsuz ziyaretçi ilan listesi, detayı ve kaynakları görür; panel ve yönetim yine giriş ister. Ürün + KVKK kararıdır; varsayılan 0.',
+    type: 'boolean',
+    defaultValue: '0',
+    optional: true,
+  },
 
   /* --- Veritabanı --- */
   {
