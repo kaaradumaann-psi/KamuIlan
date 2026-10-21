@@ -1,0 +1,16 @@
+# Satır sonları her platformda LF (Windows'ta core.autocrlf=true CRLF'ye çeviriyordu):
+# paylaşılan CSS katmanlarının bayt özeti ve üretilen PDF fixture'ları bozuluyordu.
+* text=auto eol=lf
+
+# İkili dosyalar asla dönüştürülmez.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pfx binary
+*.der binary
+*.cer binary
