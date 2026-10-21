@@ -104,6 +104,10 @@
 - **Doğrulama testi:** `eval:classification` çıktısında `precision/recall` yalnızca
   `labelProvenance: human` iken görünür.
 - **Kapanış ölçütü:** ≥100 insan etiketli kayıt, kesinlik ≥0.95, yanlış kabul ≤%2.
+- **Durum (23.10.2026):** AÇIK. İnsan etiketli kayıt **0** (hedef 145). #50 ile
+  `npm run eval:build-set` varsayılan çağrısı düzeltildi; yerel çalışma sayfasında 6 gerçek
+  kayıt var (`data/`, git dışı, etiketsiz). Gerçek LLM sağlayıcı testi yapılmadı (anahtar yok);
+  AI testlerinin tamamı sahte sağlayıcıyla (mock) çalışır.
 
 ### R-07 · Kurumsal haber/duyuru metinlerinin iş ilanı olarak yayımlanması — **AZALTILDI**
 - **Kanıt:** [2] düzeltme öncesi tekrarlanan prob: 9/9 haber başlığı `accept`;
@@ -172,6 +176,9 @@
   `BENCH_POSTGRES_URL` ile hazır). Filtreli sayım tam tarama; `q` araması için trigram (pg_trgm)
   indeksi ölçüm sonrası değerlendirilmeli. `EXACT_FIELDS` dışındaki koleksiyonlar eski yolda.
 - **Kapanış ölçütü:** staging Postgres'te 50.000 kayıtla `GET /api/jobs?page=1` < 200 ms.
+- **Durum (23.10.2026):** AÇIK. #37 birleşti; yukarıdaki tüm sayılar **PGlite/WASM** ölçümüdür,
+  gerçek Postgres sonucu yerine geçmez. `pg_trgm` indeksi gerçek Postgres `EXPLAIN ANALYZE`
+  ölçümü olmadan eklenmeyecek. `scrapeRuns` hâlâ temizlenmiyor (saklama işi açık).
 
 ### R-08 · Üretim ortamının gerçek durumu doğrulanamadı
 - **Kanıt:** [4] Üretim sağlık ucu bu ortamdan erişilemedi; `https://api.kamuilan...`
@@ -213,6 +220,18 @@
 - **Etki:** Metin katmanı olmayan PDF'lerde alan çıkarımı boş kalır → kayıt `review`'a düşer
   (yayımlanmaz, doğru davranış) ama kapsam kaybı olur.
 - **Kapanış ölçütü:** OCR veya "PDF metni yok" göstergesi + kapsam raporunda ölçüm.
+- **Durum (23.10.2026): KOD TAMAM, VARSAYILAN KAPALI.** #49: `src/extraction/ocr.ts`
+  (tesseract.js, Türkçe), `OCR_ENABLED=0` varsayılan; açıkken güveni eşiğin altındaki OCR metni
+  kullanılmaz (`src/extraction/pdf.ts`) — kayıt metinsiz PDF yolundan geçer. Dil verisi: `OCR_LANG_PATH` boşsa tesseract.js kendi dağıtım adresinden
+  ilk çalıştırmada indirir ve `DATA_DIR/ocr-cache`'e yazar — ağsız sunucuda `OCR_LANG_PATH`
+  verilmelidir. Gerçek doğrulama yalnız yerel 2 RG belgesi (güven 90 ve 91). Üretimde açılması
+  dağıtım kararıdır. Açık: tablo bölgesinde gürültü, satır/kelime güveniyle ayıklama yok.
+- **Ayrıca (#47):** PDF metni konuma göre birleşiyor; harf kopukluğu yerel 16 PDF'te 569 → 0.
+
+### K3 notu · Mevcut kayıtları yeniden işleme (23.10.2026)
+- #39 (eski sürümlü ret kararlarının yeniden değerlendirilmesi) **yeni tarama yolunda** çalışır;
+  `jobs:reclassify` ret kayıtlarına ulaşmaz. Üretimde yeniden sınıflandırma **çalıştırılmadı**
+  (üretim DB yazımı, depo sahibi onayı gerekir).
 
 ### R-15 · Bağımlılık ve lisans durumu
 - **Kanıt:** [1] `npm audit` (21.10.2026): üretim 160, geliştirme 242 bağımlılık — **0 bilinen açık**.

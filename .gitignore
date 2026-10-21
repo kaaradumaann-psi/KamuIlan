@@ -21,3 +21,5 @@ probe-resmigazete-*.json
 
 # Yerel veritabanı / kurumsal CA dosyaları
 certs/
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
