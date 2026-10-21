@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
+  ARCHIVE_STATUS,
   EMPTY_FILTERS,
   FilterForm,
   activeFilterCount,
@@ -17,6 +18,26 @@ import {
 } from '../components/Filters';
 
 const EMPTY_PRESET: JobFilters = EMPTY_FILTERS;
+
+type JobsPreset = 'all' | 'open' | 'closing7' | 'newest' | 'upcoming' | 'archive';
+
+const PRESETS: readonly { id: JobsPreset; label: string }[] = [
+  { id: 'all', label: 'Tümü' },
+  { id: 'open', label: 'Başvurusu açık' },
+  { id: 'closing7', label: 'Son günü yaklaşanlar' },
+  { id: 'upcoming', label: 'Yakında başlayacak' },
+  { id: 'newest', label: 'Yeni eklenenler' },
+  { id: 'archive', label: 'Arşiv' },
+];
+
+/** URL filtrelerinin hangi hazır görünüme karşılık geldiği (aria-pressed için). */
+function activePreset(filters: JobFilters): JobsPreset | null {
+  if (filters.status === ARCHIVE_STATUS) return 'archive';
+  if (filters.status === 'upcoming') return 'upcoming';
+  if (filters.status === 'active') return filters.deadlineTo ? 'closing7' : 'open';
+  if (activeFilterCount(filters) === 0) return filters.sort === 'newest' ? 'all' : null;
+  return null;
+}
 import { toIstanbulDateOnly } from '../domain/dates';
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
@@ -113,8 +134,8 @@ export function JobsPage() {
     );
   }
 
-  /** Hazır görünümler: adayın en sık kullandığı üç bakış (URL filtrelerine çevrilir). */
-  function applyPreset(preset: 'all' | 'open' | 'closing7' | 'newest'): void {
+  /** Hazır görünümler: adayın en sık kullandığı bakışlar (URL filtrelerine çevrilir). */
+  function applyPreset(preset: JobsPreset): void {
     // Tarih Türkiye gününe göre hesaplanır: `toISOString()` UTC verir ve gece
     // 00:00-03:00 arasında pencereyi bir gün kaydırıyordu.
     const now = Date.now();
@@ -126,8 +147,15 @@ export function JobsPage() {
       apply({ ...base, status: 'active', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
     else if (preset === 'closing7')
       apply({ ...base, status: 'active', deadlineFrom: today, deadlineTo: in7, sort: 'deadline' });
+    else if (preset === 'upcoming')
+      apply({ ...base, status: 'upcoming', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
+    // Arşiv: süresi dolan ve iptal edilen ilanlar silinmez, burada bulunur.
+    else if (preset === 'archive')
+      apply({ ...base, kind: '', status: ARCHIVE_STATUS, deadlineFrom: '', deadlineTo: '', sort: 'newest' });
     else apply({ ...base, sort: 'newest' });
   }
+
+  const currentPreset = activePreset(urlFilters);
 
   function goToPage(next: number): void {
     const nextParams = filtersToParams(urlFilters, next, PAGE_SIZE);
@@ -164,18 +192,17 @@ export function JobsPage() {
       </header>
 
       <div className="preset-row" role="group" aria-label="Hazır görünümler">
-        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('all')}>
-          Tümü
-        </button>
-        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('open')}>
-          Başvurusu açık
-        </button>
-        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('closing7')}>
-          Son günü yaklaşanlar
-        </button>
-        <button type="button" className="btn-secondary btn-sm" onClick={() => applyPreset('newest')}>
-          Yeni eklenenler
-        </button>
+        {PRESETS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className={currentPreset === preset.id ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+            aria-pressed={currentPreset === preset.id}
+            onClick={() => applyPreset(preset.id)}
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
 
       {panelOpen && (
