@@ -129,3 +129,20 @@ enabled=24, verified=15, stale=24` — README'deki "27 kaynak" ifadesi güncelli
 | Cloudflare üretim yapılandırması (routes, secrets) | **[3]** `wrangler.jsonc` depoda; panonun gerçek durumu doğrulanamadı. |
 | Gerçek kaynak taramasının canlı çalışması | **[4]** `SOURCE_LIVE_FETCH=0`; bu denetimde canlı tarama yapılmadı. |
 | Playwright/E2E ve mobil tarayıcı davranışı | **[5]** Tarayıcı ikilisi yok → KOŞULAMADI (04). |
+
+## 9. Bu denetim setinin tamamı
+
+| Belge | İçerik |
+| --- | --- |
+| 01 | Bu belge — mimari |
+| 02 | Yetenek envanteri (ne var, ne yok) |
+| 03 | Risk kaydı R-01…R-17 |
+| 04 | Test/doğrulama temeli |
+| 05 | KadroNerede karşılaştırması |
+| 06 | İyileştirme planı |
+| 07 | Doğrulama sonuçları |
+| 08 | Yayına hazırlık |
+| 09 | REA değerlendirmesi (Phase 2) |
+| 10 | Veri doğruluğu ve kaynak envanteri (Phase 4) |
+| 11 | LLM + güvenlik + KVKK (Phase 5–6) |
+| 12 | Kod kalitesi ve performans (Phase 7) |
