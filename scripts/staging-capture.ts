@@ -209,6 +209,7 @@ async function main(): Promise<number> {
     userAgent: env.SCRAPE_USER_AGENT,
     maxRequests: maxRequests.value,
     maxTextRequests: maxPages.value,
+    disallowedPaths: def.robotsDisallow,
   });
 
   let runResult: RunSourceResult | null = null;

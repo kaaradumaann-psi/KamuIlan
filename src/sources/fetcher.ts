@@ -247,6 +247,30 @@ export interface HttpClientOptions {
   maxRequests?: number;
   /** İsteğe bağlı fetchText belge sınırı; canlı probe'da sayfa + detay için tutucu üst sınır. */
   maxTextRequests?: number;
+  /**
+   * Kaynağın robots.txt `Disallow` kuralları (bkz. `SourceDefinition.robotsDisallow`).
+   * Eşleşen adrese — yönlendirme hedefi dahil — istek gönderilmez.
+   */
+  disallowedPaths?: readonly string[];
+}
+
+/**
+ * robots.txt `Disallow` eşleşmesi: yol + sorgu, kuralın başından; `*` herhangi dizi,
+ * sondaki `$` bitişi sabitler. `Allow` istisnaları bilinçli olarak yok sayılır (yalnız
+ * daha kısıtlayıcı). Eşleşen kuralı, yoksa null döner.
+ */
+export function robotsDisallowMatch(url: URL, patterns: readonly string[]): string | null {
+  const target = `${url.pathname}${url.search}`;
+  for (const pattern of patterns) {
+    const anchored = pattern.endsWith('$');
+    const body = anchored ? pattern.slice(0, -1) : pattern;
+    const source = body
+      .split('*')
+      .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+      .join('.*');
+    if (new RegExp(`^${source}${anchored ? '$' : ''}`, 'u').test(target)) return pattern;
+  }
+  return null;
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -344,6 +368,7 @@ export class HttpClient {
   private readonly signal: AbortSignal | undefined;
   private readonly maxRequests: number | null;
   private readonly maxTextRequests: number | null;
+  private readonly disallowedPaths: readonly string[];
   private requestCount = 0;
   private requestReservations = 0;
   private textRequestCount = 0;
@@ -375,6 +400,7 @@ export class HttpClient {
     }
     this.maxRequests = options.maxRequests ?? null;
     this.maxTextRequests = options.maxTextRequests ?? null;
+    this.disallowedPaths = options.disallowedPaths ?? [];
     this.limiter = options.rateLimiter ?? PROCESS_HOST_RATE_LIMITER;
     this.logger = options.logger ?? createLogger('fetch');
     this.signal = options.signal;
@@ -643,6 +669,10 @@ export class HttpClient {
 
     for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
       const url = new URL(currentUrl);
+      const robotsRule = robotsDisallowMatch(url, this.disallowedPaths);
+      if (robotsRule) {
+        throw new FetchError(currentUrl, `robots.txt kuralı bu adresi yasaklıyor (Disallow: ${robotsRule}); istek gönderilmedi.`, null, false);
+      }
       if (!this.isMockDispatcher && shouldBlockExternalHttpInTest(currentUrl, 'source-http')) {
         throw new FetchError(
           currentUrl,

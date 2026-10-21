@@ -302,7 +302,14 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const liveScanDisabled = !liveFetch && options.adapter === undefined;
   const ownedHttp = options.http === undefined;
   const requestAbort = new AbortController();
-  const http = options.http ?? new HttpClient({ logger, signal: requestAbort.signal });
+  const http =
+    options.http ??
+    new HttpClient({
+      logger,
+      signal: requestAbort.signal,
+      // robots kuralları DB kaydında değil, incelenmiş kod tanımında tutulur.
+      disallowedPaths: findSourceDefinition(source.key)?.robotsDisallow,
+    });
   // LLM sınıflandırma kapısı: koşu başına bir örnek (bütçe sayaçları koşuya ait).
   // Kapalıysa veya yapılandırma eksikse no-op kapı kullanılır (davranış değişmez).
   const llmGate =
