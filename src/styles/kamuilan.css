@@ -527,6 +527,47 @@
     color: var(--accent);
   }
 
+  /* Kadro kırılımı: dar ekranda yalnızca tablo kendi içinde yatay kayar. */
+  .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .openings-table {
+    width: 100%;
+    min-width: 520px;
+    border-collapse: collapse;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .openings-table th,
+  .openings-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .openings-table thead th {
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .openings-table td:nth-child(2),
+  .openings-table tfoot td:first-of-type {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .openings-table tfoot th,
+  .openings-table tfoot td {
+    border-bottom: 0;
+    font-weight: 600;
+  }
+
   .definition-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

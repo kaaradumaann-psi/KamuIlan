@@ -9,7 +9,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -228,6 +228,48 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
       (payloads.get('/api/notifications/preferences') as { preference: { enabled: boolean } }).preference
         .enabled,
     ).toBe(false);
+  });
+
+  it('ilan detayı kadro kırılımını tablo olarak gösterir (gerçek API cevabı + kadro satırları)', async () => {
+    const detail = payloads.get(`/api/jobs/${jobId}`) as Record<string, unknown>;
+    // Tablosuz gerçek ilan: API sözleşmesi boş liste döner, kart hiç çizilmez.
+    expect(detail.openings).toEqual([]);
+    const withOpenings = {
+      ...detail,
+      id: 'job_kadrolu',
+      openings: [
+        {
+          title: 'Mühendis',
+          quota: 1,
+          serviceClass: 'TH',
+          degree: 8,
+          qualification: 'İnşaat mühendisliği mezunu olmak.',
+          evidence: '1 Mühendis TH 8 1',
+        },
+        {
+          title: 'Mühendis',
+          quota: 1,
+          serviceClass: 'TH',
+          degree: 8,
+          qualification: 'Elektrik-elektronik mühendisliği mezunu olmak.',
+          evidence: '2 Mühendis TH 8 1',
+        },
+      ],
+    };
+    payloads.set('/api/jobs/job_kadrolu', withOpenings);
+    renderPage(
+      <Routes>
+        <Route path="/ilanlar/:id" element={<JobDetailPage />} />
+      </Routes>,
+      '/ilanlar/job_kadrolu',
+    );
+    const table = await screen.findByRole('table', { name: /Unvan, kontenjan ve nitelik/ });
+    const rows = within(table).getAllByRole('row');
+    // başlık + 2 kadro + toplam
+    expect(rows).toHaveLength(4);
+    expect(within(rows[1]!).getByText(/İnşaat mühendisliği/)).toBeTruthy();
+    expect(within(rows[2]!).getByText(/Elektrik-elektronik/)).toBeTruthy();
+    expect(within(rows[3]!).getByText('2')).toBeTruthy();
   });
 
   it('kaynaklar', async () => {

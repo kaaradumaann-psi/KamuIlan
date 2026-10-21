@@ -154,6 +154,22 @@ export const jobSchema = z.object({
     specialConditions: z.array(z.string()),
   }),
   titles: z.array(z.string()),
+  /**
+   * Kadro kırılımı (unvan × kontenjan), yalnızca ilan tablosundan okunduğunda dolu.
+   * Eski belgelerde alan yoktur → boş liste (geçiş gerekmez).
+   */
+  openings: z
+    .array(
+      z.object({
+        title: z.string(),
+        quota: z.number().int().positive(),
+        serviceClass: z.string().nullable(),
+        degree: z.number().int().nullable(),
+        qualification: z.string().nullable(),
+        evidence: z.string(),
+      }),
+    )
+    .default([]),
   /** Contact-redacted, bounded excerpt used by search, matching, extraction and detail UI. */
   textExcerpt: z.string().default(''),
   /** Turkish-normalized derivative of the retained excerpt; consumed by job search. */
