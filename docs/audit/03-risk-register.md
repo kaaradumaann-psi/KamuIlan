@@ -225,7 +225,7 @@
 ---
 
 ### R-19 · "Bursa" kurumlarının ilanları "burs" sayılıp reddediliyordu — **DÜZELTİLDİ (21.10.2026)**
-- **Kanıt:** [2] `ret-baslik.staj-burs` kalıbı `burs\w*` idi; "Bursa Valiliği / Belediyesi /
+- **Kanıt:** [2] `ret-baslik.staj-burs` kalıbı `\bburs\w*` idi; "Bursa Valiliği / Belediyesi /
   Uludağ Üniversitesi …" başlıkları başlık düzeyinde %92 güvenle `reject` alıyordu. 81 il × 4
   kurum biçimi taramasında kabul dışı kalan 4 başlığın 4'ü de Bursa'ydı.
 - **Etki:** Türkiye'nin 4. büyük ilindeki kurumların gerçek ilanları sessizce akıştan düşüyordu
