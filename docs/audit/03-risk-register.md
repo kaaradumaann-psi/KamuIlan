@@ -130,9 +130,22 @@
 
 ## P2
 
-### R-03 · Postgres deposunda sorgu başına 20.000 satır tarama sınırı
+### R-03 · Postgres deposunda sorgu başına 20.000 satır tarama sınırı — **KISMEN AZALTILDI**
 - **Kanıt:** [1] `src/db/postgres-store.ts` — `MAX_SCAN_ROWS = 20_000`, aşılırsa **hata**
   (sessiz kırpma yok — doğru davranış), sıralama/sayfalama bellekte.
+- **Kök neden (bağımsız doğrulamada bulundu):** SQL ön filtresi tek bir çevrilemeyen
+  koşulda (aralık, `$exists`, `$regex`, **noktalı yol**) tamamen düşüyordu. İlan listesi her
+  sorguda `classification.decision = accept` (noktalı yol) eklediği için **her liste/arama
+  sorgusu tüm `jobs` tablosunu** okuyordu; reddedilen kayıtlar da sınıra sayılıyordu.
+- **Düzeltme (`fix/r03-postgres-onfiltre`):** çevrilemeyen bağlaç atlanır (üst küme korunur),
+  noktalı yol eşitliği lax JSONPath (`jsonb_path_exists`) ile SQL'de uygulanır. [2]
+  `tests/postgres-store.test.ts`: 20.050 satırlık PGlite tablosunda `repos.jobs.search`
+  (eski kodda "20000 satırı aştı" hatası, yenide doğru 2 kayıt) + 250 rastgele bileşik
+  sorguda Postgres = dosya sürücüsü (7 tohumla yerelde 1.750 sorgu).
+- **Kalan:** sıralama/sayfalama hâlâ bellekte; sınır artık *eşleşen* satırlara uygulanır
+  (kabul edilmiş + filtreye uyan > 20.000 olursa yine açık hata). `jsonb_path_exists` GIN
+  indeksini kullanmaz (SQL içinde sıralı tarama). Gerçek Supabase/Postgres'te ve yük altında
+  **ölçülmedi** [4] — yalnızca PGlite (Postgres 16 WASM).
 - **Etki:** İlan sayısı ~20 bine yaklaşınca filtresiz liste/arama 500 verir; her istek
   O(n) bellek kullanır.
 - **Öneri:** Filtre → SQL `WHERE data @> ...` / ifade indeksleri; sıralama ve `LIMIT/OFFSET`
