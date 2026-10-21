@@ -406,6 +406,18 @@ const envSchema = z.object({
     .string()
     .default('0')
     .transform((value) => value === '1' || value.toLowerCase() === 'true'),
+  /**
+   * Herkese açık ilan vitrini: KAPALI (varsayılan). Açıkken oturumsuz ziyaretçi
+   * ilan listesi, ilan detayı ve kaynaklar sayfalarını görür; panel, kayıtlı
+   * ilanlar, bildirimler ve yönetim yine oturum ister. Kayıt politikasını
+   * (`ALLOW_PUBLIC_REGISTRATION`) DEĞİŞTİRMEZ. API ilan uçları bu bayraktan
+   * bağımsız olarak zaten yalnızca onaylı ilanları oturumsuz döndürür.
+   * Açmak ürün + KVKK kararıdır (docs/audit/03 R-01).
+   */
+  PUBLIC_LISTINGS_ENABLED: z
+    .string()
+    .default('0')
+    .transform((value) => value === '1' || value.toLowerCase() === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -921,6 +933,7 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
     // Test aşamasında 1; üretimde 0 ya da 30–360 önerilir.
     scanIntervalMinutes: env.SCAN_INTERVAL_MINUTES === 0 ? 'kaynak başına' : env.SCAN_INTERVAL_MINUTES,
     publicRegistration: env.ALLOW_PUBLIC_REGISTRATION,
+    publicListings: env.PUBLIC_LISTINGS_ENABLED,
     liveFetch: env.SOURCE_LIVE_FETCH,
     scheduler: env.SCHEDULER_ENABLED,
     dataDir: env.DATA_DIR,

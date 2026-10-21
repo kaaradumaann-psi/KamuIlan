@@ -66,6 +66,17 @@
   metinleri buna göre güncellendi.
 - **Neden şimdi yapılmadı:** Erişim modeli değişikliği ürün/politika kararı; izinsiz
   yapılmadı (kullanıcı talimatı: geri dönüşü zor/ürün kararı olan değişiklikler onay ister).
+- **Bulgu (21.10.2026, bağımsız doğrulama):** [1] API ilan uçları (`GET /api/jobs`,
+  `/api/jobs/stats`, `/api/jobs/:id`, `/api/jobs/:id/sources`) **zaten oturumsuz** yanıt
+  veriyor (yalnızca onaylı ilanlar, `toPublic*` serileştiricileri). "Kapalı sistem" kapısı
+  yalnızca arayüzde; onaylı ilan verisi bugün de herkese açık.
+- **Uygulandı (bayrak arkasında, `feat/herkese-acik-ilanlar`):** `PUBLIC_LISTINGS_ENABLED`
+  (varsayılan **0**). Açıkken oturumsuz ziyaretçi ana sayfa, ilan listesi/detayı ve kaynakları
+  görür; panel, kayıtlı ilanlar, geçmiş ve yönetim kendi `RequiresSession` kapısıyla korunur.
+  Kayıt politikası (`ALLOW_PUBLIC_REGISTRATION`) değişmez. [2]
+  `tests/herkese-acik-vitrin.test.tsx` (6), `tests/herkese-acik-vitrin-api.test.ts` (4).
+- **Açmadan önce gereken karar:** Gizlilik/KVKK ve SSS metinleri "kapalı sistem" dilini
+  içeriyor; vitrin açılırsa güncellenmeli. Üretimde bayrak açılmadı.
 
 ### R-02 · Veritabanında RLS yok; tek kimlikle tam yetki
 - **Kanıt:** [1] `src/db/postgres-store.ts` (tek `pg.Pool`, tablo bazlı erişim, RLS politikası yok);

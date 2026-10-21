@@ -28,6 +28,8 @@ export interface SessionUser {
 
 interface AuthContextValue {
   user: SessionUser | null;
+  /** Herkese açık ilan vitrini açık mı (sunucu: PUBLIC_LISTINGS_ENABLED). */
+  publicListings: boolean;
   /** İlk yükleme sürüyor (oturum henüz doğrulanmadı). */
   loading: boolean;
   /** Oturum bilgisi şu an yenileniyor (ör. giriş sonrası tazeleme). */
@@ -92,6 +94,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const user = session.data?.user ?? null;
     return {
       user,
+      publicListings: session.data?.access?.publicListings === true,
       loading: session.isLoading,
       sessionFetching: session.isFetching,
       sessionError: session.error ?? null,
