@@ -8,6 +8,8 @@ export default tseslint.config(
       'node_modules/**',
       'coverage/**',
       'data/**',
+      // Git dışı canlı staging verisi ve yerel inceleme betikleri (.gitignore ile aynı).
+      '.staging/**',
       'fixtures/live/**',
       'playwright-report/**',
       'test-results/**',
