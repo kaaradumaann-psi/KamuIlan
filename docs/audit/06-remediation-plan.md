@@ -18,7 +18,7 @@ gerekiyor, tek taraflı yapılmadı · `AÇIK` = planlandı, başlanmadı · `EN
 | R-09 | P2 | **YAPILDI** | Vekilde istemci IP sahteciliği kapatıldı | `tests/vekil-istemci-ip.test.ts` (5) |
 | R-07 | P1 | **YAPILDI** | 20 gerçek ilan/gozlem + 10 gerçek İçişleri duyurusu regresyonu | `tests/gercek-ilan-regresyon.test.ts` (5), `tests/gercek-kaynak-icisleri-regresyon.test.ts` (4) |
 
-Toplam: **+33 test** (1376 → 1409).
+Toplam: **+36 test** (1373 → 1409).
 
 ## 1. P0 — üretim verisi / güvenlik
 
