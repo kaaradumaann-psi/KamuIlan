@@ -37,6 +37,8 @@ export interface ReclassifySummary {
   /** Akışa yeni girecek kayıtlar (normalde 0). */
   newlyAccepted: number;
   titlesCleaned: number;
+  /** Tablo başlığı artığı taşıyan birim alanı düzeltilecek kayıtlar. */
+  unitsCleaned: number;
   statusChanged: number;
   kindChanged: number;
   changed: number;
@@ -60,6 +62,7 @@ export function planReclassification(
     rejected: 0,
     newlyAccepted: 0,
     titlesCleaned: 0,
+    unitsCleaned: 0,
     statusChanged: 0,
     kindChanged: 0,
     changed: 0,
@@ -80,6 +83,7 @@ export function planReclassification(
     if (result.decisionTo === 'accept' && job.classification.decision !== 'accept')
       summary.newlyAccepted += 1;
     if (result.titleCleaned) summary.titlesCleaned += 1;
+    if ('unit' in result.patch) summary.unitsCleaned += 1;
     if (result.statusFrom !== result.statusTo) summary.statusChanged += 1;
     if (result.kindFrom !== result.kindTo) summary.kindChanged += 1;
     if (result.patch.publishedAt === null) summary.publishedAtCleared += 1;

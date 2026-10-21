@@ -62,7 +62,10 @@ export const CLASSIFICATION_VERSION = '2026.10.5';
 // metni menünün SONUNDA, kesme sınırının ötesinde kalıyordu. Artık metninin
 // yarısından fazlası bağlantı olan aday ilan gövdesi sayılmaz (menü atlanır);
 // sayfa tümüyle menüyse en az bağlantı yoğun adaya düşülür, kayıt boş kalmaz.
-export const EXTRACTION_VERSION = '2026.10.4';
+// 2026.10.5: birim (`unit`) çıkarımı tablo başlığı artıklarını almaz; birden fazla
+// farklı birim varsa alan boş kalır (gerçek RG kanıtı: "SI KADRO ÜNVANI AÇIKLAMA
+// MDF01 Mühendislik ve Doğa Bilimleri Fakültesi"). Yeni/yeniden görülen kayıtlara uygulanır.
+export const EXTRACTION_VERSION = '2026.10.5';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */

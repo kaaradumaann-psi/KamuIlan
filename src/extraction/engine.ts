@@ -430,15 +430,66 @@ export function extractInstitutionFromBody(body: string): string | null {
   return null;
 }
 
+/** Birim adını bitiren kelimeler (yalın hâl; "Başkanlığına" gibi ekli biçim sayılmaz). */
+const UNIT_SUFFIX_WORDS: ReadonlySet<string> = new Set([
+  'Müdürlüğü',
+  'Fakültesi',
+  'Enstitüsü',
+  'Yüksekokulu',
+  'Hastanesi',
+  'Başhekimliği',
+  'Birimi',
+  'Koordinatörlüğü',
+]);
+/** Tek başına birim sayılmayan son kelimeler için iki kelimelik bitişler. */
+const UNIT_SUFFIX_PAIRS: ReadonlySet<string> = new Set(['Daire Başkanlığı', 'Bölüm Başkanlığı']);
+/**
+ * Tablo başlığı / kalıp sözcükleri (küçük harf). PDF tabloları gövdede tek satıra
+ * sıkışır: "KADRO ÜNVANI AÇIKLAMA MDF01 Mühendislik … Fakültesi" (RG 21.10.2026).
+ */
+const UNIT_STOP_WORDS: ReadonlySet<string> = new Set([
+  'kadro', 'kadrosu', 'unvan', 'unvanı', 'ünvan', 'ünvanı', 'açıklama', 'aranan', 'koşullar',
+  'koşulları', 'takvimi', 'gereken', 'bölümler', 'fakülteler', 'sayısı', 'program', 'dalı',
+  'birim', 'akademik', 'sınav', 'dil', 'ilan', 'kodu', 'tablo', 'nitelik', 'nitelikleri',
+  'şartlar', 'şartları', 'adet', 'derece', 'sınıfı',
+]);
+const UNIT_TITLE_CASE = /^[A-ZÇĞİÖŞÜÂÎÛ][a-zçğıöşüâîû’'-]+$/u;
+const MAX_UNIT_WORDS = 8;
+
+/**
+ * İlanın birimi (ör. "Mühendislik ve Doğa Bilimleri Fakültesi").
+ *
+ * Birim adı, bitiş kelimesinden geriye doğru yalnızca Başlık Biçimli kelimeler ve
+ * "ve/ile" ile toplanır; büyük harfli kod/tablo başlığı ("MDF01", "ÜNVANI"),
+ * kalıp sözcüğü, noktalama ya da başka bir birim bitişi görülünce durulur.
+ * Metinde birden fazla FARKLI birim varsa (çok fakülteli akademik ilan, mezuniyet
+ * şartı tablosu) tek birim uydurulmaz: `null`.
+ */
 export function extractUnit(text: string): string | null {
-  const match =
-    /([A-ZÇĞİÖŞÜ][\wçğıöşüÇĞİÖŞÜ\s-]{2,60}?(?:Daire Başkanlığı|Şube Müdürlüğü|Müdürlüğü|Fakültesi|Enstitüsü|Yüksekokulu|Meslek Yüksekokulu|Hastanesi|Hastane Başhekimliği|Başhekimliği|Birimi|Bölüm Başkanlığı|Koordinatörlüğü))/u.exec(
-      text,
-    );
-  if (!match?.[1]) return null;
-  const value = collapseWhitespace(match[1]);
-  if (value.length < 8) return null;
-  return value.length > 140 ? value.slice(0, 140) : value;
+  const tokens = collapseWhitespace(text).split(' ');
+  const found: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const word = (tokens[index] ?? '').replace(/[.,;:)]+$/u, '');
+    const pair = index > 0 && UNIT_SUFFIX_PAIRS.has(`${tokens[index - 1] ?? ''} ${word}`);
+    if (!UNIT_SUFFIX_WORDS.has(word) && !pair) continue;
+    const parts = [word];
+    for (let back = index - 1; back >= 0 && parts.length < MAX_UNIT_WORDS; back -= 1) {
+      const token = tokens[back] ?? '';
+      if (/[.,;:)]$/u.test(token) || UNIT_SUFFIX_WORDS.has(token)) break;
+      const lower = token.toLocaleLowerCase('tr');
+      const connector = lower === 've' || lower === 'ile';
+      if (!connector && (!UNIT_TITLE_CASE.test(token) || UNIT_STOP_WORDS.has(lower))) break;
+      parts.unshift(token);
+    }
+    while (parts.length > 1 && /^(?:ve|ile)$/iu.test(parts[0] ?? '')) parts.shift();
+    const value = parts.join(' ');
+    if (parts.length >= 2 && value.length >= 8) found.push(value.slice(0, 140));
+  }
+  // Aynı birimin önüne cümle başı kelimesi eklenmiş biçimi ("Başvurular Hukuk Fakültesi") aynı birimdir.
+  const distinct = [...new Set(found)].filter(
+    (candidate, _, all) => !all.some((other) => other !== candidate && candidate.endsWith(` ${other}`)),
+  );
+  return distinct.length === 1 ? (distinct[0] ?? null) : null;
 }
 
 /** Türkçe hâl ekleri: "Ankara'da", "Muş'ta", "Van ilinde" gibi kullanımlar için. */
