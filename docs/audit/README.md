@@ -77,6 +77,7 @@ Derinleşmek için 01, 02, 09–12.
 | `functions/api/[[path]].ts` | `buildForwardHeaders()` | İstemci IP sahteciliği → hız sınırı atlatma |
 | `src/server/app.ts` | `unsubscribe` CSRF muafiyeti kaldırıldı | Zorla oturum kapatma yüzeyi |
 | `README.md` | 27 → 28 kaynak, denetim bağlantısı | Bayat bilgi (R-14) |
+| `src/classification/rules.ts` + `engine.ts` (bağımsız doğrulama) | Konuşmacı kalıbı görev unvanını ad sanmıyor; başlık "ilan" içeriyorsa haber kapısı en fazla `review` | Haber kapısı "Müdür Yardımcısı Alım İlanı" gibi gerçek ilanları reddediyordu (07 §6.2) |
 
 **Yeni testler:** `ilan-iptal-guvenligi`, `guvenlik-cikis-csrf`, `api-filtre-sozlesmesi`,
 `sorgu-motoru-exists`, `vekil-istemci-ip`, `gercek-ilan-regresyon`,
@@ -157,5 +158,28 @@ sözleşmesini doğrular; **gerçek dünya doğruluğu ölçülmemiştir** (04 �
 | `37a9344` | 01–08 belgeleri |
 | `ef1a8ac`, `911b0b4` | Belge sayı düzeltmeleri |
 | `739eee3` | 09–12 belgeleri |
+| `82385f9` | Bu giriş noktası, README düzeltmesi, E2E kanıtı |
+| bağımsız doğrulama (2 commit) | Haber kapısı yan etkisi düzeltmesi (+3 test) · 07 §6, 03/R-07, 06 güncellemesi |
 
 Her commit bağımsız geri alınabilir; şema değişikliği ve veri göçü yok.
+
+---
+
+## 9. Bağımsız doğrulama (Claude Code, 21.10.2026)
+
+Arena'nın iddiaları ayrı bir ortamda yeniden koşuldu; ayrıntı **[07 §6](07-verification-results.md)**.
+
+- **Testler hatayı yakalıyor:** PR'ın 36 testi düzeltme öncesi koda karşı koşuldu → 18 kırmızı;
+  7 düzeltmenin her birinin en az bir testi eski kodda kırılıyor.
+- **Yeni bulgu (P1, düzeltildi):** haber kapısı görev unvanlı gerçek ilanları (`Müdür Yardımcısı
+  Alım İlanı`, `Vali Yardımcısı Kadrosu Personel Alımı`) reddediyordu. +3 test.
+- **Kanıt düzeyi düzeltmesi:** 03/R-07'deki web aramasına dayalı haber örnekleri [1] → [4].
+- **Düzeltilen ifade:** 07 §4'teki İçişleri satırı düzeltme kanıtı değil, temel çizgi
+  (test eski kodda da geçiyor).
+- **Açık güvenlik notu (R-09):** API kökeni doğrudan erişilebiliyorsa `X-Forwarded-For`
+  sahtelemesi vekil atlanarak hâlâ mümkün; üretimde doğrulanmadı (07 §6.5).
+
+**İnsan kararı / harici erişim gerektirenler (tek liste):** R-01 erişim modeli + KVKK metni ·
+R-12/R-17 varsayılan liste ve arşiv sekmesi · R-02 DB rolleri/RLS (staging Postgres provası) ·
+R-09 API kökeninin yalnızca Cloudflare'den erişilebilirliği · R-04 insan etiketli altın küme ·
+R-08 üretim sağlık uçları.

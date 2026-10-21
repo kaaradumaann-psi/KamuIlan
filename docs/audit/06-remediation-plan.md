@@ -12,7 +12,7 @@ gerekiyor, tek taraflı yapılmadı · `AÇIK` = planlandı, başlanmadı · `EN
 | --- | --- | --- | --- | --- |
 | R-05 | P0 | **YAPILDI** | `selectWithdrawalTarget()`: kanıtsız hedef yok; iptal, ilgisiz ilanı kapatamaz | `tests/ilan-iptal-guvenligi.test.ts` (6), `tests/list-drain.test.ts` |
 | R-06 | P0 | **YAPILDI** | `/api/auth/unsubscribe` CSRF muafiyeti kaldırıldı | `tests/guvenlik-cikis-csrf.test.ts` (3) |
-| R-07 | P1 | **YAPILDI (kısmi)** | `detectNewsReport()` haber/duyuru kapısı | `tests/classification-haber-dili.test.ts` (6) |
+| R-07 | P1 | **YAPILDI (kısmi)** | `detectNewsReport()` haber/duyuru kapısı; bağımsız doğrulamada ünvan kalıbının gerçek ilanları reddetmesi düzeltildi (07 §6) | `tests/classification-haber-dili.test.ts` (9) |
 | — | P1 | **YAPILDI** | `hasApplicationUrl` üç durumlu ayrıştırma (`true/false/verilmedi`) | `tests/api-filtre-sozlesmesi.test.ts` (3) |
 | — | P1 | **YAPILDI** | `$exists` iki yönlü düzeltme (dosya/Mongo/Postgres ortak) | `tests/sorgu-motoru-exists.test.ts` (4) |
 | R-09 | P2 | **YAPILDI** | Vekilde istemci IP sahteciliği kapatıldı | `tests/vekil-istemci-ip.test.ts` (5) |

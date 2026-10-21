@@ -81,3 +81,82 @@ Raporun kendi kanıt satırları (her iki koşumda aynı):
 | Veri deposu (test) | `file` (`FileStore`), geçici dizin |
 | `.env` | yerel geliştirme; `SCHEDULER_ENABLED=0`, `SOURCE_LIVE_FETCH=0`, `AI_ASSISTANT_ENABLED=0`, `LLM_CLASSIFIER_ENABLED=0` |
 | Gizli değer | **Hiçbiri yazdırılmadı**; yalnızca değişken adları raporlandı |
+
+## 6. Bağımsız yeniden doğrulama (Claude Code, 21.10.2026)
+
+**Kapsam:** PR #25 (`arena/244c8afc-kamuradar`, head `739eee3`) Arena'dan bağımsız olarak
+yeniden koşuldu. Ortam: Windows 11, Node 24.21.0, `npm ci` (kilit dosyasıyla).
+Yerel `D:\coding\claude\Kamuİlan` klasörü git deposu değil; içeriği `main` @ `4fd9acb` ile
+birebir aynı (yalnızca `.git` farkı) — düzeltmeler orada yok.
+
+### 6.1 Testler hatayı gerçekten yakalıyor mu? (mutasyon kontrolü)
+
+PR'ın eklediği 8 test dosyası **düzeltme öncesi** `main` kaynağına karşı koşuldu:
+**18/36 test başarısız** (7 dosya kırmızı). Her düzeltmenin en az bir testi eski kodda
+kırılıyor → testler hata sınıfını yakalıyor [2].
+
+| Düzeltme | Eski kodda kırılan test |
+| --- | --- |
+| İptal hedefi + iptal sinyali | 3 (`ilan-iptal-guvenligi`: ilgisiz ilanı kapatma ×2, "İptal İlanı (…)" biçimi) + 1 (`gercek-ilan-regresyon`: gerçek iptal duyuruları) |
+| Haber dili | 4 |
+| `unsubscribe` CSRF | 1 (başlıksız oturumlu çıkış 403) |
+| `hasApplicationUrl=false` | 1 |
+| `$exists` | 3 |
+| Vekil IP | 5 (`buildForwardHeaders` eski kodda yok — davranış değil, dışa aktarım eksikliği nedeniyle kırılır) |
+
+**Düzeltme:** §4'teki "Gerçek kaynak" satırı bir *düzeltme kanıtı* değildir:
+`tests/gercek-kaynak-icisleri-regresyon.test.ts` eski kodda da 4/4 geçiyor. Bu dosya
+mevcut davranışın temel çizgisidir.
+
+### 6.2 Yeni bulgu: haber kapısı gerçek ilanları reddediyordu (P1, düzeltildi)
+
+Depodaki tüm test başlıkları ve eval kayıtları (205 kayıt) eski ve yeni motorla
+sınıflandırıldı. Kararı değişen kayıtlar yalnızca PR'ın kendi 7 haber başlığı oldu.
+Ancak elle yazılmış ilan biçimli örneklerle yapılan prob şu yan etkileri gösterdi:
+
+| Başlık (gövde: standart ilan metni) | `main` | PR #25 | Bu düzeltme |
+| --- | --- | --- | --- |
+| Müdür Yardımcısı Alım İlanı | accept | **reject** | accept |
+| Vali Yardımcısı Kadrosu Personel Alımı | accept | **reject** | accept |
+| Genel Müdür Alımı İlanı | review | **reject** | review |
+| Başkan Yardımcısı (Sözleşmeli) Personel Alımı (+ tarih) | accept | review | accept |
+| Sürekli İşçi Alımı İlanı Hakkında Açıklama | accept | **reject** | review |
+
+Kök neden: `haber.konusmaci-aktarimi` kalıbı ünvandan sonra herhangi bir sözcüğü kabul
+ediyordu. Düzeltme: `src/classification/rules.ts` (görev/alım sözcüğü gelirse eşleşmez;
+`NEWS_GATE_AD_TITLE_PATTERN`) + `src/classification/engine.ts` (başlık "ilan" içeriyorsa
+haber kapısı en fazla `review`). Test: `tests/classification-haber-dili.test.ts` +3.
+**Sınır:** Örnek başlıklar elle yazıldı (gerçek kaynaktan toplanmadı) [3]; gerçek kesinlik
+hâlâ ölçülmedi (R-04).
+
+### 6.3 Komutlar (bu dal, düzeltme sonrası)
+
+| Kontrol | Komut | Durum | Sonuç |
+| --- | --- | --- | --- |
+| Tip denetimi | `npm run typecheck` | **PASS** | çıkış 0 |
+| Lint | `npm run lint` | **PASS** | çıkış 0 |
+| Tam test (Windows) | `npx vitest run` | **PARTIAL** | 122 dosya / 1412 test: 1402 geçti, **9 başarısız**, 1 atlandı |
+| 9 başarısızlığın kökü | aynı 4 dosya `main`'de | **ortam** | `main` üzerinde de aynı 9 test kırılıyor: CRLF checkout (tasarım CSS ve PDF fixture özeti), Windows yol genişletme, `staging-capture` alt süreç çıkış kodu `null`. Kod değişikliğiyle ilgisiz |
+| Atlanan 1 test | `dev-all-kapanis` | beklenen | `it.skipIf(isWindows)` |
+| Üretim derlemesi | `npm run build` | **PASS** | çıkış 0 |
+| Bağımlılık | `npm audit --json` | **PASS** | 0 açık (npm meta toplamı 449 paket; §1'deki 402 farklı sayım yöntemi) |
+| Linux CI (`verify:all` + E2E) | GitHub Actions `verify` | PR head `739eee3`: **PASS** ×2 | Bu düzeltmenin CI sonucu PR üzerinde |
+| Kapsam | `vitest --coverage` | **NOT RUN** | Bu turda tekrar koşulmadı; §1 değerleri Arena ölçümü |
+| Gerçek Postgres/Mongo, yük testi | — | **BLOCKED** | Bu makinede Docker/Postgres yok |
+| Canlı kaynak, gerçek LLM | — | **NOT RUN (bilinçli)** | Ağ/ücret onayı yok |
+
+### 6.4 KadroNerede kontrolü
+
+`robots.txt` tek istekle yeniden okundu: 05 §1'deki `Disallow` listesi, `Content-Signal`
+ve AI tarayıcı bloğu **gözlemlendi** (aynı). `/sitemap.xml` → 200 `application/xml`,
+`/llms.txt` → 200.
+
+### 6.5 Açık kalan güvenlik notu (R-09)
+
+`clientIp()` `TRUST_PROXY=1` iken `X-Forwarded-For`'un **ilk** değerini alır. Vekil artık
+istemci başlığını taşımıyor; fakat API kökeni (`api.kamuilan…`) doğrudan internetten
+erişilebiliyorsa saldırgan vekili atlayıp sahte `X-Forwarded-For` gönderebilir.
+Üretimde API'nin yalnızca vekilden erişilebilir olduğu **doğrulanmadı** [4]. Önerilen
+kapanış: API'de yalnızca Cloudflare IP aralıklarından gelen isteklere güvenmek
+(`trustProxy` IP listesi) ya da kökeni Cloudflare Tunnel/erişim kuralıyla kapatmak.
+Dağıtım kararıdır, bu turda kod değişmedi.

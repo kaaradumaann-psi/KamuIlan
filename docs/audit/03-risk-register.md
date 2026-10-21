@@ -96,12 +96,22 @@
 
 ### R-07 · Kurumsal haber/duyuru metinlerinin iş ilanı olarak yayımlanması — **AZALTILDI**
 - **Kanıt:** [2] düzeltme öncesi tekrarlanan prob: 9/9 haber başlığı `accept`;
-  [1] gerçek dünya örneği: Ekim 2026'da "Cumhurbaşkanı Erdoğan duyurdu: 38 bin personel
+  [4] gerçek dünya örneği: Ekim 2026'da "Cumhurbaşkanı Erdoğan duyurdu: 38 bin personel
   alımı yapacak", "Bakan Memişoğlu'ndan personel alımı açıklaması" gibi başlıklar
-  (kaynak: web araması, 21.10.2026) — bu kalıp resmî kurum sitelerinde de görülür.
+  (kaynak: web araması, 21.10.2026). *Bağımsız doğrulama notu:* bu başlıkların URL'si ve
+  ham kaydı depoda yok; düzey [1]'den [4]'e indirildi.
 - **Düzeltme:** `detectNewsReport()` — haber/aktarım dili + somut başvuru kanıtı yok → `reject`;
   somut kanıt varsa `review`. Gerçek ilan kalıbı ("… Yapılacağı Duyurulur") etkilenmez.
+- **Bağımsız doğrulamada bulunan yan etki (düzeltildi):** `haber.konusmaci-aktarimi`
+  kalıbı ünvandan sonra herhangi bir sözcüğü kabul ediyordu; "Müdür Yardımcısı Alım İlanı",
+  "Vali Yardımcısı Kadrosu Personel Alımı" gibi **gerçek ilan başlıkları `reject`** alıyordu
+  (önce `accept`). Ayrıca "… Alım İlanı Hakkında Açıklama" başlığı `accept` → `reject`
+  oluyordu. Düzeltme: ünvandan sonraki sözcük görev/alım sözcüğüyse kalıp eşleşmez; başlık
+  kendini "ilan" diye adlandırıyorsa haber kapısı en fazla `review` verir.
+  [2] `tests/classification-haber-dili.test.ts` (+3 test). Bkz. 07 §6.
 - **Kalan risk:** Görülmemiş haber kalıpları (ör. "… alımına yeşil ışık") hâlâ geçebilir.
+  Gövdesinde "bildirildi/duyurdu" geçen gerçek ilanlar `review`'a düşer (yayımlanmaz,
+  kaybolmaz; inceleme yükü artar).
 - **Kapanış ölçütü:** Gerçek altın küme (R-04) üzerinde yanlış kabul ≤%2.
 
 ### R-12 · Süreç duyuruları (sınav/sonuç/kura) varsayılan ilan akışında
