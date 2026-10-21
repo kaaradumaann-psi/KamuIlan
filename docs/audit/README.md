@@ -183,3 +183,40 @@ Arena'nın iddiaları ayrı bir ortamda yeniden koşuldu; ayrıntı **[07 §6](0
 R-12/R-17 varsayılan liste ve arşiv sekmesi · R-02 DB rolleri/RLS (staging Postgres provası) ·
 R-09 API kökeninin yalnızca Cloudflare'den erişilebilirliği · R-04 insan etiketli altın küme ·
 R-08 üretim sağlık uçları.
+
+---
+
+## 10. Gün sonu durumu (21.10.2026) — `main` @ `d8b591c`
+
+Bu bölüm, 21.10.2026'da birleştirilen tüm PR'ların tek listesidir. Ayrıntılı kanıt
+07 §6–§8, risk durumu 03'tedir. Üretime **dağıtım yapılmadı**; üretim DB'sine
+**dokunulmadı**; ücretli LLM çağrısı **yapılmadı**.
+
+| PR | Merge | Ne değişti | Kanıt |
+| --- | --- | --- | --- |
+| #25 | `35e5ec7` | Arena denetimi + 7 düzeltme; bağımsız doğrulamada haber kapısının görev unvanlı gerçek ilanları reddetmesi düzeltildi | 07 §6 (mutasyon: 18/36) |
+| #26 | `390bd29` | R-03: Postgres ön filtresi tam taramaya düşmüyor; noktalı yol JSONPath ile SQL'de | PGlite 20.050 satır + 1.750 rastgele sorgu |
+| #31 | `3244a9f` | R-19 (P0): "Bursa" kurumlarının ilanları "burs" sayılıp reddediliyordu | 81 il × 4 biçim taraması |
+| #28 | `ec53d66` | R-09 (P0): `TRUST_PROXY` güvenilen vekil listesi (`cloudflare`, CIDR) | Vekili atlayan sahte başlık testi |
+| #32 | `3e036fc` | Arşiv / Yakında görünümleri, "İptal edildi" filtresi | API + arayüz testleri |
+| #33 | `3fd8302` | Çoklu kadro (unvan × kontenjan × nitelik), ilan detayında tablo | Gerçek RG belediye tabloları |
+| #30 | `9380528` | `PUBLIC_LISTINGS_ENABLED` (varsayılan 0) herkese açık vitrin | Panel/yönetim yine giriş ister |
+| #29 | `adb7857` | Resmî Gazete künye başlığı; gerçek staging koşumu; 16 gerçek PDF değerlendirmesi | 07 §8 / §8.1 (ajan etiketi) |
+| #27 | `c727d68` | İstihdam türü: başlıktaki statü gövdedeki dışlama cümlesine üstün | +5 regresyon |
+| #34 | `d8b591c` | SEO: sayfa metaverisi, `JobPosting` JSON-LD, bayrağa bağlı sitemap | XSS kaçışı, yalnız onaylı ilan |
+
+### Hâlâ insan kararı / erişim gerektirenler
+
+1. **R-01** `PUBLIC_LISTINGS_ENABLED=1` yapılsın mı? (Gizlilik/SSS "kapalı sistem" metinleri güncellenmeli.)
+2. **R-18** Varsayılan `SCRAPE_USER_AGENT` içindeki `Bot` sözcüğü Resmî Gazete'de zaman aşımına yol açıyor; varsayılan değişsin mi?
+3. **`jobs:reclassify`** — #25/#27/#31/#33 düzeltmelerinin mevcut kayıtlara uygulanması üretim DB'sine yazar.
+4. **R-09 üretim ayarı** `TRUST_PROXY=cloudflare` (API kökeninin erişim yolu doğrulanmalı).
+5. **R-02** RLS / ayrı DB rolü (staging Postgres provası), **R-04** insan etiketli altın küme, **R-08** üretim sağlığı.
+
+### Teknik olarak açık kalanlar
+
+- **R-03 (kalan):** sıralama/sayfalama hâlâ bellekte; gerçek Postgres'te yük ölçümü yok.
+- **İŞKUR:** statik HTML'de ilan listesi yok → adaptör `parse-failure` (BLOCKED; tarayıcı ya da resmî veri kanalı gerekir).
+- **R-13:** gerçek RG örneğinde PDF'lerin %31'inde metin katmanı yok → OCR yok, kayıtlar incelemeye düşüyor.
+- **Çoklu kadro:** yalnız mahalli idare tablosu; üniversite/bakanlık tabloları desteklenmiyor.
+- **robots.txt:** vitrin açılınca `Sitemap: /api/sitemap.xml` satırı eklenmeli.

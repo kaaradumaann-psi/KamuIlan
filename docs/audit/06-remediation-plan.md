@@ -6,6 +6,21 @@ Risk kimlikleri 03 numaralı belgeyle aynıdır.
 **Durum işaretleri:** `YAPILDI` = kod değişti ve testi var · `KARAR` = ürün/politika kararı
 gerekiyor, tek taraflı yapılmadı · `AÇIK` = planlandı, başlanmadı · `ENGELLİ` = ortam/izin yok.
 
+## Güncel durum (21.10.2026 gün sonu)
+
+| ID | Durum | PR |
+| --- | --- | --- |
+| R-03 | **KISMEN YAPILDI** — filtre SQL'de; sıralama/sayfalama bellekte | #26 |
+| R-09 | **YAPILDI (kod)** — üretim ayarı karar bekliyor | #28 |
+| R-01 | **YAPILDI (bayrak, varsayılan kapalı)** — açma kararı bekliyor | #30 |
+| R-16 | **YAPILDI (kod)** — vitrin açılınca etkin | #34 |
+| R-17 | **YAPILDI** — Arşiv görünümü (varsayılan liste değişmedi) | #32 |
+| R-18 | **KARAR** — varsayılan UA | — |
+| R-19 | **YAPILDI** — Bursa yanlış reddi | #31 |
+| Kadro kırılımı | **YAPILDI (mahalli idare tablosu)** | #33 |
+
+Ayrıntı: README §10.
+
 ## 0. Bu dalda yapılanlar (özet)
 
 | ID | P | Durum | Ne değişti | Test |
