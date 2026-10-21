@@ -68,7 +68,9 @@ export const CLASSIFICATION_VERSION = '2026.10.5';
 // 2026.10.6: kontenjan belge adedinden okunmaz, kadro tablosu toplamı önceliklidir (#43);
 // üniversite öğretim elemanı tabloları okunur; "N (yazıyla) … personel alınacaktır" resmî
 // toplamı pozisyon başı sayıların önüne geçer (gerçek RG: Bursa Uludağ 37, Akdeniz 29, Sayıştay 2).
-export const EXTRACTION_VERSION = '2026.10.6';
+// 2026.10.7: kurum ilanlarında pozisyon kırılımı ("N. Unvan" + "(K Kişi – …)") okunur;
+// resmî toplamdan farklıysa tutarsızlık yazılır (gerçek RG: Sayıştay 16.10-4-1, 1 + 1).
+export const EXTRACTION_VERSION = '2026.10.7';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */

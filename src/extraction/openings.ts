@@ -48,10 +48,15 @@ const QUALIFICATION_END = /^(?:\/?\s*(?:erkek|kad[ıi]n)(?![\p{L}])|p\d{1,3}(?![
 
 const MAX_ROWS = 200;
 
-/** Kadro kırılımı: önce mahalli idare tablosu, yoksa üniversite (öğretim elemanı) tablosu. */
+/**
+ * Kadro kırılımı: önce mahalli idare tablosu, yoksa üniversite (öğretim elemanı) tablosu,
+ * o da yoksa pozisyon başlıkları ("N. Unvan" + "(K Kişi – …)").
+ */
 export function extractOpenings(text: string): JobOpening[] {
   const municipal = extractMunicipalOpenings(text);
-  return municipal.length > 0 ? municipal : extractAcademicOpenings(text);
+  if (municipal.length > 0) return municipal;
+  const academic = extractAcademicOpenings(text);
+  return academic.length > 0 ? academic : extractPositionOpenings(text);
 }
 
 function extractMunicipalOpenings(text: string): JobOpening[] {
@@ -211,6 +216,52 @@ export function extractAcademicOpenings(text: string): JobOpening[] {
       }
     }
     openings.push(...sectionOpenings);
+    if (openings.length >= MAX_ROWS) break;
+  }
+  return openings;
+}
+
+/* ---------------------------------------------------------------------------
+ * Bakanlık/kurum ilanlarında pozisyon başlıkları (sözleşmeli bilişim personeli vb.).
+ *
+ * Gerçek biçim (Sayıştay, RG 16.10.2026-4-1, "B. ÖZEL ŞARTLAR" bölümü):
+ *   "1. Kıdemli .Net Yazılım Geliştirme Uzmanı ve Çözüm Mimarı (B Grubu)"
+ *   "(1 Kişi – Tam Zamanlı – Brüt Sözleşme Ücret Tavanının 4 Katına Kadar)"
+ *
+ * Kurallar: yalnız hemen ardından "(K Kişi" satırı gelen numaralı başlık pozisyondur
+ * (başlık en fazla iki satır); numaralar 1'den ardışık değilse ya da kişi sayısı sınır
+ * dışıysa hiç pozisyon üretilmez. "Kişi" sözcüğü zorunludur: "(3 adet vesikalık …)" sayılmaz.
+ * ------------------------------------------------------------------------- */
+
+const POSITION_HEADING = /^(\d{1,2})\.\s+(\S.{1,150})$/u;
+const POSITION_QUOTA = /^\((\d{1,3})\s+(?:Kişi|KİŞİ|kişi)(?![\p{L}])/u;
+
+export function extractPositionOpenings(text: string): JobOpening[] {
+  if (!text) return [];
+  const lines = text.split('\n').map((rawLine) => rawLine.replace(/\s+/g, ' ').trim());
+  const openings: JobOpening[] = [];
+  for (const [index, line] of lines.entries()) {
+    const quotaMatch = POSITION_QUOTA.exec(line);
+    if (!quotaMatch) continue;
+    // Başlık: bir önceki satır ya da (bölünmüşse) iki önceki satır + devamı.
+    const previous = lines[index - 1] ?? '';
+    let heading = POSITION_HEADING.exec(previous);
+    let title = heading?.[2] ?? '';
+    if (!heading && previous && !/^[\d(]/u.test(previous)) {
+      heading = POSITION_HEADING.exec(lines[index - 2] ?? '');
+      title = heading ? `${heading[2]} ${previous}` : '';
+    }
+    if (!heading) continue;
+    const quota = Number(quotaMatch[1]);
+    if (Number(heading[1]) !== openings.length + 1 || quota < 1 || quota > 500) return [];
+    openings.push({
+      title: title.trim(),
+      quota,
+      serviceClass: null,
+      degree: null,
+      qualification: null,
+      evidence: `${heading[1]}. ${title.trim()} ${line}`.slice(0, 200),
+    });
     if (openings.length >= MAX_ROWS) break;
   }
   return openings;
