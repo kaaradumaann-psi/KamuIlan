@@ -1,10 +1,38 @@
 # 13 — Devir ve Sonraki Adımlar
 
-**Tarih:** 21.10.2026 gün sonu · **main:** `cedb889` (CI success) · **Açık PR:** 0
+**Tarih:** 22.10.2026 · **main:** `20ee0bc` (CI success) · **Açık PR:** 7 (#37–#43, birleştirme onayı bekliyor)
 **Amaç:** Bir sonraki oturumun (insan ya da yapay zekâ) baştan analiz yapmadan doğrudan
 devam edebilmesi. Yapılanların kanıtı 07 §6–§8, risk durumu 03, birleşen PR listesi README §10.
 
 ---
+
+## 0. 22.10.2026 oturumu — açık PR'lar (hepsi `main`'den, birbirinden bağımsız)
+
+Her PR: kök neden kanıtı + eski kodda kırmızı test (mutasyon kontrolü) + tam paket
+(yalnız bilinen 9 Windows ortam hatası). Birleştirme ve dağıtım yapılmadı.
+
+| PR | Konu | Gerçek etki |
+| --- | --- | --- |
+| #37 | R-03: filtre/sıralama/sayfalama/sayım SQL'de (`src/db/postgres-exact.ts`) | `jobs` > 20.000'de **kabul hattı duruyordu**; `$ne` eksik alanı eşlemiyordu (eski ilanlar listeden düşüyordu). PGlite 50k: liste 3.480 → 158 ms |
+| #38 | Birleştirmede `publishedAt` | Eski kapalı ilan tekrar görülünce `unknown` oluyordu |
+| #39 | Eski sürümlü RET kararları yeniden değerlendirilir; `CLASSIFICATION_VERSION 2026.10.5` | #31 (Bursa) gibi düzeltmeler reddedilmiş kayıtlara hiç ulaşmıyordu; **`jobs:reclassify` ret kayıtlarına ulaşamaz** (K3 notu) |
+| #40 | Arayüz: mobil hero, rota kaydırması, durum kartı, kısmi tarama, son kontrol | Telefonda ana sayfa araması kartın altında kalıyordu; şerit "başarılı tarama yok" diyordu |
+| #41 | Birim çıkarımı; `EXTRACTION_VERSION 2026.10.5` | Kartlarda "SI KADRO ÜNVANI AÇIKLAMA MDF01 …" |
+| #42 | Düzeltme ilanı → RG atfıyla hedef (yalnız düzeltme, iptal değil) | Gerçek düzeltmeler hep incelemeye düşüyordu |
+| #43 | Kontenjan belge adedinden okunmaz; kadro tablosu toplamı | "3 adet vesikalık fotoğraf" → "3 kişi" |
+
+**Birleştirme sırası önerisi:** #37 → #38 → #39 → #41 → #43 (aynı dosyalarda küçük çakışma
+olabilir: `jobs-service.ts` birleştirme bloğu, `app.ts` sürüm satırı) → #40 → #42.
+
+**Gerçek veriyle yerel doğrulama yöntemi** (tekrarlanabilir, depo dışı `.staging/ui/`):
+dosya sürücüsü + `db:migrate` + yalnız Resmî Gazete tek canlı tarama (onaylı şartlar, 1,5 sn
+aralık, `SCRAPE_USER_AGENT` "Bot" içermeyen kimlik) → `seed:admin` → `npm run start` +
+`npm run preview` → `E2E_BASE_URL=http://localhost:4173 npx playwright test`. 22.10: 25 kayıt,
+6 ilan, E2E 22/22.
+
+**Bilinen ama bu oturumda yapılmayan:** Sayıştay tipi çok pozisyonlu ilanda kontenjan yalnız
+ilk pozisyon; `q` metin araması ve filtreli sayım PGlite'ta 570–720 ms (trigram indeksi gerçek
+Postgres ölçümünden sonra); düzeltme/iptal bildirimi yok (ürün kararı); OCR bağımlılığı (karar).
 
 ## 1. Mevcut durum (tek bakış)
 
