@@ -89,7 +89,10 @@ async function buildWorksheet(): Promise<void> {
     throw new Error('--filter ve --limit için bir değer verin (review|accepted|rejected|all, sayı).');
   }
   const filter = filterOption ?? 'all';
-  const limit = limitRaw === null ? 60 : Number(limitRaw);
+  // `optionValue` bayrak yoksa `undefined` döner (null: bayrak var, değer yok — yukarıda reddedildi).
+  // Eski `=== null` denetimi varsayılanı hiç uygulamıyordu: belgelenen `npm run eval:build-set`
+  // Number(undefined) = NaN ile "--limit 1–500" hatası veriyordu.
+  const limit = limitRaw === undefined ? 60 : Number(limitRaw);
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('--limit 1–500 arasında olmalıdır.');
   const outPath = optionValue('--out') ?? 'data/eval-worksheet.json';
 
