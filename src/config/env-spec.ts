@@ -1070,6 +1070,18 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     skipReason: 'LLM_CLASSIFIER_ENABLED kapalı.',
   },
   {
+    key: 'LLM_CLASSIFIER_FALLBACK_MODELS',
+    group: 'llm',
+    label: 'Yedek modeller (sınıflandırma)',
+    help:
+      'Virgülle ayrılmış, aynı uç noktadaki yedek modeller (ör. qwen/qwen3.8-27b,openai/gpt-oss-120b). ' +
+      'Kota/geçici hata/erişilemeyen modelde sıradakine geçilir; anahtar hatasında (401/403) geçilmez.',
+    type: 'string',
+    optional: true,
+    dependsOn: (values) => truthy(values['LLM_CLASSIFIER_ENABLED']),
+    skipReason: 'LLM_CLASSIFIER_ENABLED kapalı.',
+  },
+  {
     key: 'AI_PROVIDER_LABEL',
     group: 'llm',
     label: 'Sağlayıcı etiketi',

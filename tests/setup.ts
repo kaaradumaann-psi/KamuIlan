@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { beforeEach, vi } from 'vitest';
+import { resetUnavailableLlmModels } from '../src/ai/classifier';
 import { assertNoInsecureTlsOverrideAtTestStartup, shouldBlockExternalHttpInTest } from '../src/lib/offline-network';
 
 assertNoInsecureTlsOverrideAtTestStartup();
@@ -247,4 +248,6 @@ beforeEach(() => {
   vi.restoreAllMocks();
   installNodeNetworkGuards();
   installOfflineFetchGuard();
+  // Süreç düzeyindeki "geçici olarak atlanan LLM modelleri" listesi testler arasında taşınmaz.
+  resetUnavailableLlmModels();
 });

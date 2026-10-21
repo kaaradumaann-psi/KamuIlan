@@ -88,6 +88,80 @@ export interface LlmHttpDiagnostics {
   requestId: string | null;
   requestIdHeader: string | null;
   finishReason?: string | null;
+  /** Sağlayıcının hız sınırı başlıkları (varsa). */
+  rateLimit?: LlmRateLimitInfo | null;
+}
+
+/**
+ * OpenAI/Groq uyumlu hız sınırı başlıkları. Groq belgesine göre (console.groq.com/docs/rate-limits)
+ * `*-requests` alanları günlük istek (RPD), `*-tokens` alanları dakikalık token (TPM) sınırıdır;
+ * başlıklar her yanıtta gelir, `retry-after` yalnızca 429'da.
+ */
+export interface LlmRateLimitInfo {
+  limitRequests: number | null;
+  remainingRequests: number | null;
+  resetRequestsMs: number | null;
+  limitTokens: number | null;
+  remainingTokens: number | null;
+  resetTokensMs: number | null;
+  /** `retry-after` (kırpılmamış, ms). Yeniden deneme beklemesi ayrıca MAX_RETRY_AFTER_MS ile sınırlanır. */
+  retryAfterMs: number | null;
+}
+
+/** "2m59.56s", "7.66s", "1h2m", "120ms" → ms; tanınmazsa null. */
+export function parseDurationMs(raw: string | null | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Math.round(Number(text) * 1_000);
+  const pattern = /(\d+(?:\.\d+)?)(ms|h|m|s)/gy;
+  let total = 0;
+  let consumed = 0;
+  for (const match of text.matchAll(pattern)) {
+    const value = Number(match[1]);
+    const unit = match[2];
+    total += unit === 'h' ? value * 3_600_000 : unit === 'm' ? value * 60_000 : unit === 's' ? value * 1_000 : value;
+    consumed += match[0].length;
+  }
+  return consumed > 0 && consumed === text.length ? Math.round(total) : null;
+}
+
+export function readRateLimitInfo(headers: LlmFetchHeaders | undefined): LlmRateLimitInfo | null {
+  const count = (name: string): number | null => {
+    const value = readResponseHeader(headers, name);
+    return value !== null && /^\d+$/.test(value.trim()) ? Number(value.trim()) : null;
+  };
+  const info: LlmRateLimitInfo = {
+    limitRequests: count('x-ratelimit-limit-requests'),
+    remainingRequests: count('x-ratelimit-remaining-requests'),
+    resetRequestsMs: parseDurationMs(readResponseHeader(headers, 'x-ratelimit-reset-requests')),
+    limitTokens: count('x-ratelimit-limit-tokens'),
+    remainingTokens: count('x-ratelimit-remaining-tokens'),
+    resetTokensMs: parseDurationMs(readResponseHeader(headers, 'x-ratelimit-reset-tokens')),
+    retryAfterMs: parseRetryAfterMs(readResponseHeader(headers, 'retry-after'), Date.now(), Number.MAX_SAFE_INTEGER),
+  };
+  return Object.values(info).some((value) => value !== null) ? info : null;
+}
+
+/** Sağlayıcı mesajı günlük kotayı mı anlatıyor? (Groq: "… on requests per day (RPD) …") */
+const DAILY_QUOTA_PATTERN = /(per\s+day|\(RPD\)|\(TPD\)|\bdaily\b)/i;
+
+/**
+ * 429 günlük kota tükenmesi mi? Kanıt: sağlayıcı mesajı günlük sınırı adlandırıyor ya da
+ * günlük istek sayacı (`x-ratelimit-remaining-requests`) sıfır. Dakikalık sınır (TPM/RPM)
+ * günlük sayılmaz. 401/403/400 hiçbir zaman kota değildir.
+ */
+export function isDailyQuotaExhausted(result: Extract<LlmResult, { ok: false }>): boolean {
+  if (result.failureCategory !== 'rate-limit') return false;
+  // Yalnız SAĞLAYICININ mesajı ve sayacı kanıttır; `reason` uygulamanın kendi ipucunu da taşır.
+  const message = result.diagnostics?.errorMessage ?? '';
+  return DAILY_QUOTA_PATTERN.test(message) || result.diagnostics?.rateLimit?.remainingRequests === 0;
+}
+
+/** Model kullanılamıyor mu (bulunamadı/kaldırıldı)? Bu durumda sıradaki modele geçilir. */
+export function isModelUnavailable(result: Extract<LlmResult, { ok: false }>): boolean {
+  if (result.failureCategory === 'not-found') return true;
+  const code = String(result.diagnostics?.errorCode ?? '');
+  return /model_(?:not_found|decommissioned|not_available)/i.test(code);
 }
 
 export type LlmResult =
@@ -98,6 +172,7 @@ export type LlmResult =
       status: number;
       finishReason?: string | null;
       thoughtsTokens?: number | null;
+      rateLimit?: LlmRateLimitInfo | null;
     }
   | {
       ok: false;
@@ -139,6 +214,9 @@ export function redactSecret(text: string, secret: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, 'Bearer ***')
     .replace(/\bAIza[0-9A-Za-z_-]{10,}/g, '***')
     .replace(/\bsk-[0-9A-Za-z_-]{10,}/g, '***')
+    // Groq anahtarı ("gsk_…") ve hata mesajındaki kuruluş kimliği ("org_…").
+    .replace(/\bgsk_[0-9A-Za-z]{10,}/g, '***')
+    .replace(/\borg_[0-9A-Za-z]{8,}/g, 'org_***')
     .replace(/([?&](?:key|api_key|apikey|access_token)=)[^&\s"']+/gi, '$1***')
     .replace(/((?:x-goog-api-key|authorization)\s*[:=]\s*)(?:Bearer\s+)?[^\s,"';]+/gi, '$1***');
   return cleaned;
@@ -943,6 +1021,7 @@ export async function callChatCompletion(
       // 401/403/400/404 yapılandırma hatasıdır; yeniden deneme kotası tüketmez.
       const retryable = response.status === 429 || response.status >= 500;
       const diagnostics = inspectHttpErrorResponse(raw, response.headers, config.apiKey, response.status);
+      diagnostics.rateLimit = readRateLimitInfo(response.headers);
       const providerMessage = diagnostics.errorMessage ?? providerErrorMessage(raw, config.apiKey);
       return {
         ok: false,
@@ -1058,6 +1137,7 @@ export async function callChatCompletion(
         promptTokens: toCount(envelope?.usage?.prompt_tokens),
         completionTokens: toCount(envelope?.usage?.completion_tokens),
       },
+      rateLimit: readRateLimitInfo(response.headers),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
