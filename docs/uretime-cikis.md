@@ -27,8 +27,12 @@ worker'da yoktu. Ek olarak `.env`'deki boş satırların canlı taramayı açmas
 | **Supabase** | Bağlantı **TLS doğrulamalı** kuruldu — ancak yalnız Supabase kök sertifikası verilince (aşağıda §1). Proje bölgesi **ap-south-1 (Mumbai)**; Türkiye'den gidiş-dönüş ~200 ms; ilan listesi ~0,7 sn, il filtresi ~0,4 sn (bu oturumdaki iyileştirmeyle 0,9 → 0,4). 22 tablonun hepsinde RLS **açık**. Veritabanında eski dağıtımdan veri var (67 ilan, 490 tarama); son worker 21.10, son tarama 16.10; **1.340 bekleyen tarama işi** (worker açılınca otomatik katlanır). Yalnız **okuma** yapıldı. |
 | **Resend** | `halilkaraduman.com.tr` doğrulanmış; uygulamanın kendi outbox yoluyla test e-postası gönderildi, **alıcı teslimi onayladı**. Geçersiz anahtarda hata doğru, anahtar sızmıyor. |
 | **Groq** | Yeni anahtar geçerli; 3 model erişilebilir; sentetik 4 kayıtta 4/4 beklenen karar, yedeğe geçiş yok. |
-| **Telegram** | Token geçerli, bot adı eşleşiyor. **Webhook eski bir geçici tünele (trycloudflare) bakıyor ve 530 hatası alıyor** → bot şu an mesaj alamaz; dağıtımdan sonra `npm run telegram:webhook -- set`. Gerçek mesaj gönderimi test edilmedi (eşleşmiş sohbet yok). |
+| **Telegram** | **Uçtan uca doğrulandı** (yerel API + geçici tünel): tek kullanımlık kodla hesap eşleştirme → bot yanıtı → test bildirimi outbox → worker → Telegram API, ilk denemede kabul. Eski (kapalı tünele bakan, 530 alan) webhook test sonunda **kaldırıldı**; dağıtımdan sonra `npm run telegram:webhook -- set` ve kullanıcılar üretimde yeniden eşleşir. |
 | Gemini, Cloudflare | **BLOCKED** — anahtar/oturum yok. |
+
+**Yerel çalıştırma uyarısı:** anahtarlar Windows kullanıcı ortamında olduğundan her yeni süreç onları görür.
+Yerel `.env` (`.env.example` kopyası, `DATABASE_DRIVER=file`) yerel denemeleri Supabase'ten yalıtır; bu
+satırı değiştirmeyin. `.env.example`'daki boş satırlar artık güvenle varsayılana düşer (#70, #74).
 
 ## 0. Önce kararlar (senin)
 
