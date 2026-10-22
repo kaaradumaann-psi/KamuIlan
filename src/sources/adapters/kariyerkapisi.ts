@@ -824,7 +824,11 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       const item: RawAnnouncement = {
         sourceKey: source.key,
         sourceItemId: row.sourceItemId,
-        url: row.url,
+        // Dış bağlantılı ilanın Kariyer Kapısı'nda kendi sayfası yok; liste adresi (isealim) ilan
+        // adresi olarak yazılırsa hat onu "kaynağın liste sayfası" sayıp REDDEDER (23.10.2026 canlı
+        // ölçümü: 12 ilanın 4'ü — KEGM, TCDD Taşımacılık, J.Gn.K.lığı, Adalet — bu yüzden düşüyordu).
+        // Kurumun kendi başvuru/ilan sayfası kaydın adresidir.
+        url: row.url === source.listingUrl && row.applicationUrl ? row.applicationUrl : row.url,
         title: row.title,
         ...(row.institution ? { institution: row.institution } : {}),
         ...(row.applicationEndAt ? { applicationEndAt: row.applicationEndAt } : {}),

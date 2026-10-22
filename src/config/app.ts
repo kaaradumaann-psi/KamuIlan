@@ -50,7 +50,11 @@ export const APP_VERSION = '2026.10.1';
 // 2026.10.6: "… Türkiye İş Kurumu aracılığıyla alınacaktır" ve "4857 sayılı İş Kanunu kapsamında
 // çalıştırılmak üzere" olumlu kanıt (22.10.2026 Groq ölçümünde İŞKUR aracılı işçi alımı kurallarca
 // reddedilmişti; artık incelemeye/LLM kapısına gider).
-export const CLASSIFICATION_VERSION = '2026.10.6';
+// 2026.10.7: 23.10.2026 yerel hat ölçümü — "İcra Müdür(Yardımcılığı) Sınavı" yargı reddinden çıkar;
+// "Açıktan … atama/sınav", "Meslek Personel Yardımcılığı", "İşçi İstihdamı" başlık kanıtı; başlığı
+// gövdenin ilk cümlesinden türetilmiş resmî ilanda giriş cümlesi ("… alınacaktır") başlık kanıtı
+// yerine geçer. Eski RET kararları yeniden işlenir (pipeline staleRejection).
+export const CLASSIFICATION_VERSION = '2026.10.7';
 // 2026.10.2: gövde metni artık sayfa iskeletinden (menü, çerez/KVKK modali,
 // erişilebilirlik araç çubuğu) arındırılarak çıkarılıyor.
 // 2026.10.3: iskelet temizliği metin katmanında da genişletildi —

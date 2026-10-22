@@ -6,6 +6,25 @@ import { absoluteUrl, blockElementText, cleanAnchorText, elementText } from '../
 import { parseTurkishDate } from '../domain/dates';
 import { collapseWhitespace } from '../domain/text';
 import type { AnyNode, Cheerio } from '../lib/html';
+import { preFilterListingItem } from '../classification/engine';
+
+/**
+ * Detay bütçesi önceliği: liste başlığı alım olası (kabul/inceleme) kayıtlar önce, başlığı
+ * kesin ret olanlar (menü, bülten, "Şifremi Unuttum", ihale…) sona. Hiçbir kayıt atılmaz;
+ * yalnızca sıra değişir ve grup içi kaynak sırası korunur (kararlı sıralama).
+ *
+ * 23.10.2026 canlı ölçümü: ÖSYM listesinde 447 bağlantının ilk 7'si menü/kurumsal sayfaydı ve
+ * 8'lik detay bütçesinin tamamını yiyordu; SPK'da 8/8 menü sayfasıydı. Yeni alım ilanı bütçeye
+ * ancak menü kayıtları bilinen olduktan sonraki koşularda girebiliyordu.
+ */
+export function prioritizeByListingTitle<T>(entries: readonly T[], titleOf: (entry: T) => string): T[] {
+  const likely: T[] = [];
+  const rest: T[] = [];
+  for (const entry of entries) {
+    (preFilterListingItem({ title: titleOf(entry) }).action === 'skip' ? rest : likely).push(entry);
+  }
+  return [...likely, ...rest];
+}
 
 /** Listede görülen yayım/duyuru tarihini YYYY-MM-DD olarak döner. */
 export function parseListingDate(text: string | null | undefined): string | null {
