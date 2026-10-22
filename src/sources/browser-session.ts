@@ -7,7 +7,8 @@
  * HTTP(S) istekleri route katmanında durdurulur; kaynak HTML'i özel ağlara
  * istek yaptıramaz.
  */
-import { assertSafeUrl } from './fetcher';
+import { SOURCE_DEFINITIONS, type SourceDefinition } from '../config/sources';
+import { assertSafeUrl, robotsDisallowMatch } from './fetcher';
 import { resolvePublicAddresses } from './network-safety';
 
 interface BrowserRoute {
@@ -121,6 +122,39 @@ export function isSafeBrowserRequest(rawUrl: string, allowedHosts: ReadonlySet<s
   }
 }
 
+/**
+ * Host → robots.txt `Disallow` kuralları. robots.txt host'a aittir: aynı host'u paylaşan
+ * kaynakların kuralları birleştirilir (yalnız daha kısıtlayıcı). HTTP istemcisi kuralları
+ * kaynak başına uygular (`HttpClient.disallowedPaths`); tarayıcı yedeği bunu atlamasın diye
+ * aynı kurallar burada host bazında uygulanır.
+ */
+export function robotsRulesByHost(
+  definitions: readonly Pick<SourceDefinition, 'allowedHosts' | 'robotsDisallow'>[] = SOURCE_DEFINITIONS,
+): Map<string, string[]> {
+  const rules = new Map<string, string[]>();
+  for (const definition of definitions) {
+    if (!definition.robotsDisallow?.length) continue;
+    for (const rawHost of definition.allowedHosts) {
+      const host = rawHost.trim().toLowerCase().replace(/\.$/, '');
+      rules.set(host, [...new Set([...(rules.get(host) ?? []), ...definition.robotsDisallow])]);
+    }
+  }
+  return rules;
+}
+
+/** Adres robots kuralına takılıyorsa eşleşen kuralı, yoksa null döner. */
+export function browserRobotsRule(rawUrl: string, rules: ReadonlyMap<string, readonly string[]>): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  const patterns = rules.get(url.hostname.toLowerCase().replace(/\.$/, ''));
+  return patterns?.length ? robotsDisallowMatch(url, patterns) : null;
+}
+
 /** Chromium'u başlatır; çağıran `close()` çağırmakla yükümlüdür. */
 /**
  * Tarayıcı yedeği açık mı? (`SOURCE_BROWSER_FALLBACK`)
@@ -141,6 +175,8 @@ export function browserFallbackEnabled(env: NodeJS.ProcessEnv = process.env): bo
 export async function launchChromium(options: {
   allowedHosts: readonly string[];
   signal?: AbortSignal;
+  /** Testler için; varsayılan kaynak tanımlarındaki host bazlı robots kuralları. */
+  robotsRules?: ReadonlyMap<string, readonly string[]>;
 }): Promise<ChromiumSession> {
   throwIfAborted(options.signal);
   if (!browserFallbackEnabled()) {
@@ -150,6 +186,7 @@ export async function launchChromium(options: {
     );
   }
   const pinned = await pinPublicHosts(options.allowedHosts, options.signal);
+  const robotsRules = options.robotsRules ?? robotsRulesByHost();
   // Playwright isteğe bağlı bağımlılıktır: yalnızca gerektiğinde yüklenir.
   const moduleName = 'playwright';
   const playwright = (await waitForAbort(
@@ -205,8 +242,19 @@ export async function launchChromium(options: {
       await activePage.close().catch(() => undefined);
       throwIfAborted(options.signal);
     }
+    // Sayfa adresi robots'a takılıyorsa tarayıcı hiç istek göndermez ve hata açık olur
+    // (route katmanındaki iptal yalnızca belirsiz "ERR_BLOCKED_BY_CLIENT" üretirdi).
+    const goto = activePage.goto;
+    activePage.goto = async (url, gotoOptions) => {
+      const rule = browserRobotsRule(url, robotsRules);
+      if (rule) {
+        throw new Error(`robots.txt kuralı bu adresi yasaklıyor (Disallow: ${rule}); tarayıcı isteği gönderilmedi.`);
+      }
+      return goto.call(activePage, url, gotoOptions);
+    };
     await activePage.route('**/*', async (route) => {
-      if (isSafeBrowserRequest(route.request().url(), pinned.hosts)) {
+      const requestUrl = route.request().url();
+      if (isSafeBrowserRequest(requestUrl, pinned.hosts) && !browserRobotsRule(requestUrl, robotsRules)) {
         await route.continue();
       } else {
         await route.abort('blockedbyclient');
