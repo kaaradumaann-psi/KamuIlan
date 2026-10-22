@@ -43,7 +43,9 @@ const REDACT_PATHS = [
 
 export function createLogger(name: string, options: LoggerOptions = {}): Logger {
   const env = getEnv();
-  const level = options.level ?? process.env.LOG_LEVEL ?? env.LOG_LEVEL;
+  // `.env`'deki `LOG_LEVEL=` boş metin olarak gelir; `??` onu varsayılana düşürmez ve pino
+  // açılışta çöker ("default level: must be included"). Boş = tanımsız (bkz. withoutBlankValues).
+  const level = options.level ?? (process.env.LOG_LEVEL?.trim() || env.LOG_LEVEL);
   const config: LoggerOptions = {
     name,
     level,
