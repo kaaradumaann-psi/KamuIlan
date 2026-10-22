@@ -23,6 +23,8 @@
 - [ ] Yedekleme/geri yükleme denendi ([operations.md](./operations.md))
 - [ ] Sağlık kontrolü izleniyor (`GET /api/health`)
 - [ ] `POSTGRES_MAX_CONNECTIONS`: API + worker toplamı Supabase havuz sınırının altında (ücretsiz planda süreç başına 5)
+- [ ] Supabase kök sertifikası: `POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt` (ayrıntı ve parmak izi: uretime-cikis.md §1); `npm run db:tls-doctor` ✔
+- [ ] Telegram kullanılacaksa dağıtımdan sonra `npm run telegram:webhook -- set` (eski tünel adresine bakan webhook 530 alır)
 - [ ] `SOURCE_TERMS_POLICY` kararı (`warn`/`enforce`) ve `config/source-terms.json` incelemeleri
 - [ ] HSTS: uygulama üretim + https'te `max-age=31536000` gönderir; Cloudflare'de de "Always Use HTTPS" + HSTS
 - [ ] Postgres aynı makinedeyse (127.0.0.1/::1/Unix soketi) `POSTGRES_SSL_MODE=disable` kabul edilir (uyarı); uzak hostta `verify` zorunlu
@@ -154,6 +156,13 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
 
    Worker için aynı dosyanın `ExecStart=/usr/bin/npm run start:worker` hâli.
    `systemctl enable --now kamuilan-api kamuilan-worker`
+
+   **Kalıcı log:** her servise ayrı dosya verin (döndürülür, varsayılan 20 MB × 5):
+   API birimine `Environment=LOG_FILE=/var/log/kamuilan/api.log`, worker birimine
+   `Environment=LOG_FILE=/var/log/kamuilan/worker.log` (dizin servis kullanıcısına ait,
+   `chmod 750`). Aynı satırlar journald'a da gider (`journalctl -u kamuilan-worker`).
+   Durum: `npm run durum -- --log /var/log/kamuilan/api.log --log /var/log/kamuilan/worker.log`;
+   çıkış kodu 2 (kritik) bir izleme/cron alarmına bağlanabilir.
 
 5. **Ters vekil** — `https://kamuilan.example.com` → arayüz `dist/`,
    `/api` → `http://127.0.0.1:3000`, `/api/docs` üretimde kapatılabilir.

@@ -222,6 +222,40 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     optional: true,
   },
   {
+    key: 'LOG_FILE',
+    group: 'genel',
+    label: 'Kalıcı log dosyası',
+    help:
+      'Boş: loglar yalnız standart çıktıya gider (systemd/Docker toplar). Dolu: aynı JSON satırları bu dosyaya da ' +
+      'yazılır ve boyuta göre döndürülür. API ve worker için AYRI dosya verin (ör. ./logs/api.log, ./logs/worker.log). ' +
+      'Sırlar ve e-posta adresleri maskelenir. Durum raporu (npm run durum) son hataları buradan okur.',
+    type: 'path',
+    example: './logs/api.log',
+    optional: true,
+  },
+  {
+    key: 'LOG_FILE_MAX_MB',
+    group: 'genel',
+    label: 'Log dosyası en büyük boyut (MB)',
+    help: 'Bu boyutu aşınca dosya .1 olarak döndürülür. Toplam disk ≈ boyut × (saklanan dosya + 1).',
+    type: 'number',
+    min: 1,
+    max: 1024,
+    integer: true,
+    optional: true,
+  },
+  {
+    key: 'LOG_FILE_MAX_FILES',
+    group: 'genel',
+    label: 'Saklanan eski log dosyası sayısı',
+    help: 'En eskisi silinir. Varsayılan 5 × 20 MB ≈ 120 MB üst sınır.',
+    type: 'number',
+    min: 1,
+    max: 50,
+    integer: true,
+    optional: true,
+  },
+  {
     key: 'DATA_DIR',
     group: 'genel',
     label: 'Veri dizini',

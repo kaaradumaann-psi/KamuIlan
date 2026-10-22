@@ -153,6 +153,11 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
       }
       if ((queueStats.dead ?? 0) > 0) warnings.push(`${queueStats.dead} iş ölü mektup kuyruğunda.`);
       if (runningWorkers === 0) warnings.push('Aktif worker kalp atışı yok; zamanlanmış taramalar şu an yürütülmüyor.');
+      const rlsStore = repos.store as { rowLevelSecurityReport?: () => Promise<{ enabled: boolean }[]> };
+      if (health.ok && typeof rlsStore.rowLevelSecurityReport === 'function') {
+        const rlsOff = (await rlsStore.rowLevelSecurityReport()).filter((row) => !row.enabled).length;
+        if (rlsOff > 0) warnings.push(`${rlsOff} veritabanı tablosunda satır düzeyi güvenlik (RLS) kapalı.`);
+      }
 
       const minutesSinceSuccess = runSummary.lastSuccessAt
         ? Math.round((now.getTime() - Date.parse(runSummary.lastSuccessAt)) / 60_000)

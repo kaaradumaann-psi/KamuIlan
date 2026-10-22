@@ -106,6 +106,10 @@ const envSchema = z.object({
     })
     .transform((value) => parseTrustProxy(value)),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /** Kalıcı JSON log dosyası (boş = yalnız standart çıktı). Her süreç ayrı dosya kullanmalı. */
+  LOG_FILE: z.string().default(''),
+  LOG_FILE_MAX_MB: z.coerce.number().int().min(1).max(1_024).default(20),
+  LOG_FILE_MAX_FILES: z.coerce.number().int().min(1).max(50).default(5),
   /**
    * OpenAPI arayüzü (/api/docs). Varsayılan: yalnızca üretim dışı ortamlarda açık.
    * Üretimde API yüzeyini ve şemayı dışarıya göstermemek için KAPALIDIR;

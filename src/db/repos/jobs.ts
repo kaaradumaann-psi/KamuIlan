@@ -247,12 +247,17 @@ export class JobRepo {
     const pageSize = Math.min(Math.max(options.pageSize ?? 20, 1), 100);
     const page = Math.max(options.page ?? 1, 1);
     const query = this.buildFilter(filters, options.includeNonAccepted ?? false);
-    const total = await this.store.count('jobs', query);
-    const items = await this.store.find('jobs', query, {
-      sort: SORTS[options.sort ?? 'newest'],
-      limit: pageSize,
-      skip: (page - 1) * pageSize,
-    });
+    // Sayım ve sayfa birbirinden bağımsız okumalardır: paralel çalışır. Uzak veritabanında
+    // (Supabase ap-south-1, Türkiye'den ölçülen gidiş-dönüş ~200 ms; 22.10.2026) sıralı çalıştırmak
+    // her listeleme isteğine bir gidiş-dönüş ekliyordu.
+    const [total, items] = await Promise.all([
+      this.store.count('jobs', query),
+      this.store.find('jobs', query, {
+        sort: SORTS[options.sort ?? 'newest'],
+        limit: pageSize,
+        skip: (page - 1) * pageSize,
+      }),
+    ]);
     return { items, total, page, pageSize };
   }
 

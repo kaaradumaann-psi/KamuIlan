@@ -20,6 +20,16 @@ worker'da yoktu. Ek olarak `.env`'deki boş satırların canlı taramayı açmas
 | Çerezler `HttpOnly; Secure; SameSite=Lax`, CSP, HSTS (https'te) | Gerçek kullanıcı yükü / 50k ilanlı Postgres |
 | Worker kurtarma (ölü worker, yarım tarama) | İnsan etiketli doğruluk (kesinlik/duyarlılık) |
 
+### Gerçek servis testleri (22.10.2026 öğleden sonra; anahtarlar kullanıcının Windows ortamında, değerler hiçbir yere yazılmadı)
+
+| Servis | Sonuç |
+| --- | --- |
+| **Supabase** | Bağlantı **TLS doğrulamalı** kuruldu — ancak yalnız Supabase kök sertifikası verilince (aşağıda §1). Proje bölgesi **ap-south-1 (Mumbai)**; Türkiye'den gidiş-dönüş ~200 ms; ilan listesi ~0,7 sn, il filtresi ~0,4 sn (bu oturumdaki iyileştirmeyle 0,9 → 0,4). 22 tablonun hepsinde RLS **açık**. Veritabanında eski dağıtımdan veri var (67 ilan, 490 tarama); son worker 21.10, son tarama 16.10; **1.340 bekleyen tarama işi** (worker açılınca otomatik katlanır). Yalnız **okuma** yapıldı. |
+| **Resend** | `halilkaraduman.com.tr` doğrulanmış; uygulamanın kendi outbox yoluyla test e-postası gönderildi, **alıcı teslimi onayladı**. Geçersiz anahtarda hata doğru, anahtar sızmıyor. |
+| **Groq** | Yeni anahtar geçerli; 3 model erişilebilir; sentetik 4 kayıtta 4/4 beklenen karar, yedeğe geçiş yok. |
+| **Telegram** | Token geçerli, bot adı eşleşiyor. **Webhook eski bir geçici tünele (trycloudflare) bakıyor ve 530 hatası alıyor** → bot şu an mesaj alamaz; dağıtımdan sonra `npm run telegram:webhook -- set`. Gerçek mesaj gönderimi test edilmedi (eşleşmiş sohbet yok). |
+| Gemini, Cloudflare | **BLOCKED** — anahtar/oturum yok. |
+
 ## 0. Önce kararlar (senin)
 
 | # | Karar | Seçenekler | Önerim |
@@ -28,14 +38,21 @@ worker'da yoktu. Ek olarak `.env`'deki boş satırların canlı taramayı açmas
 | K8 | Kaynak kullanım şartları | `SOURCE_TERMS_POLICY=warn` (incelenmemişler de taranır, notla) · `enforce` (yalnız incelenip `allowed` olanlar) | Hukuki emin olunana kadar `enforce` + `config/source-terms.json`'u doldurmak; kapsam o zaman 2 kaynakla (RG, İŞKUR) başlar |
 | LLM | Belirsiz ilanlarda yapay zekâ kapısı | Kapalı · Groq (ücretsiz; verinin ürün geliştirmede kullanımı sağlayıcı şartlarına tabi — KVKK) | Önce kapalı; açılırsa `docs/llm-karari.md` §2.1 ayarlarıyla |
 | OCR | Taranmış PDF okuma | `OCR_ENABLED=0/1` (CPU yükü; ilk çalıştırmada dil verisi iner ya da `OCR_LANG_PATH`) | Worker sunucusu ≥2 vCPU ise 1 |
+| Bölge | Supabase projesi Mumbai'de | API/worker'ı aynı bölgeye yakın barındırmak · ya da projeyi Frankfurt'ta (eu-central-1) yeniden kurup veriyi taşımak | Kullanıcılar Türkiye'de: yeni proje Frankfurt'ta; eski veri 67 ilan, taşıma küçük |
 | Sunucu | API + worker nerede? | VPS (systemd) · Docker · Cloudflare Container/Fly.io | Tek küçük VPS (2 vCPU, 2–4 GB), iki systemd servisi |
 
 ## 1. Hesaplar ve sırlar
 
 1. **Supabase** (veritabanı): proje aç (bölge: `eu-central`), *Project Settings → Database →
    Connection string*. Sunucudan bağlanılacak; **Session pooler** (5432) ya da **Transaction pooler**
-   (6543). Bağlantı dizesine `sslmode=` YAZMA (uygulama TLS'i kendisi doğrular). Sorun olursa:
-   `npm run db:tls-doctor`.
+   (6543). Bağlantı dizesine `sslmode=` YAZMA (uygulama TLS'i kendisi doğrular).
+   - **Kök sertifika zorunlu:** Supabase kendi kökünü ("Supabase Root 2021 CA") kullanır; işletim sistemi
+     onu tanımaz ve bağlantı `self-signed certificate in certificate chain` ile reddedilir. Panel →
+     *Database Settings → SSL Configuration → Download certificate* (ya da
+     `https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt`) →
+     `certs/supabase-ca.crt`; `.env`: `POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt`. SHA-256 parmak izi
+     `80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA`
+     olmalı (`openssl x509 -in certs/supabase-ca.crt -noout -fingerprint -sha256`). Doğrulama: `npm run db:tls-doctor`.
    - **Bağlantı sınırı:** her süreç varsayılan 10 bağlantı açar (`POSTGRES_MAX_CONNECTIONS`).
      API + worker toplamı Supabase havuz sınırını aşmamalı; ücretsiz planda süreç başına `5` öner.
 2. **Resend** (e-posta): alan adını doğrula (SPF/DKIM DNS kayıtları), API anahtarı al, gönderen
@@ -58,6 +75,7 @@ EMAIL_VERIFICATION_SECRET=       # ≥32 karakter, APP_SECRET'ten farklı
 DATABASE_DRIVER=supabase
 POSTGRES_URL=                    # Supabase bağlantı dizesi (sslmode YOK)
 POSTGRES_MAX_CONNECTIONS=5
+POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=
 EMAIL_FROM=Kamuİlan <bildirim@kamuilan.halilkaraduman.com.tr>
@@ -70,6 +88,7 @@ SOURCE_TERMS_POLICY=enforce      # K8 kararına göre
 SOURCE_BROWSER_FALLBACK=0        # 1 → RG yavaşladığında tarayıcıyla okur (chromium kurulu olmalı)
 OCR_ENABLED=0
 LLM_CLASSIFIER_ENABLED=0
+LOG_FILE=/var/log/kamuilan/api.log   # worker servisinde: /var/log/kamuilan/worker.log
 ```
 
 Kontrol: `npm run env:check` → "✔ Ortam yapılandırması kullanılabilir." görmeden ilerleme.
@@ -96,13 +115,15 @@ npx wrangler deploy && npx wrangler secret put API_ORIGIN   # arayüz + /api vek
 - [ ] Yönetici girişi → *Yönetim paneli* açılıyor; *Panelim → Test e-postası gönder* posta kutuna düşüyor
 - [ ] *Yönetim → kaynaklar*: bir kaynağı elle tara → tarama kaydı "başarılı" ya da gerekçeli "kısmi"
 - [ ] `/api/health/worker` → worker kalp atışı taze
+- [ ] `npm run durum` → GENEL: ÇALIŞIYOR (ya da yalnız gerekçeli UYARI); "Veri erişim koruması (RLS): N tabloda açık"
+- [ ] Supabase panelinde *Table Editor* → `kamuilan_users`: "RLS enabled" (uygulama `db:indexes` ile açar; politika eklemeyin)
 - [ ] E2E üretime karşı: `E2E_BASE_URL=https://<alan> ADMIN_EMAIL=… ADMIN_PASSWORD=… npx playwright test --project=chromium`
       (giriş ucu dakikada 10 deneme sınırlıdır; art arda koşuda 1 dk ara ver)
 - [ ] `npm run runs:retention` önizlemesine bak: 90 günden eski tarama kayıtları **silinecek**
 
 ## 5. İlk hafta (K7)
 
-Günde bir: sağlık ucu, *Yönetim → kaynaklar* (sorunlu kaynak), inceleme kuyruğu (yanlış ret/kabul),
+Günde bir: `npm run durum` (sade özet + son log hataları), sağlık ucu, *Yönetim → kaynaklar* (sorunlu kaynak), inceleme kuyruğu (yanlış ret/kabul),
 e-posta teslim hataları, Supabase kullanım/bağlantı grafiği. Resmî Gazete sunucusu sık istekte HTML
 sayfalarını zaman zaman askıya alır: tek başarısız tarama normaldir (saatlik yeniden denenir);
 art arda başarısızlıkta `SOURCE_BROWSER_FALLBACK=1` değerlendir.

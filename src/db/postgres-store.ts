@@ -467,6 +467,37 @@ export class PostgresStore implements StoragePort {
     }
   }
 
+  /**
+   * Satır düzeyi güvenlik (RLS) — POLİTİKASIZ açılır.
+   *
+   * Neden: tablolar Supabase'in `public` şemasındadır; Supabase bu şemayı REST API (PostgREST)
+   * üzerinden `anon`/`authenticated` rollerine açar. RLS kapalıyken anon anahtarını bilen biri
+   * `kamuilan_users` dahil tabloları okuyabilirdi (R-02). Politika YOK = bu roller hiçbir satırı
+   * göremez/yazamaz. Uygulama tablo SAHİBİ rolle bağlanır; sahip RLS'ten muaftır (FORCE kullanılmaz),
+   * davranış değişmez. İdempotenttir. Sahip değilsek (izin hatası) uygulama durmaz; durum
+   * `rowLevelSecurityReport()` ile sağlık ekranında görünür.
+   */
+  private async enableRowLevelSecurity(table: string): Promise<void> {
+    try {
+      await this.pool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+    } catch (error) {
+      if ((error as { code?: string }).code !== '42501') throw error;
+    }
+  }
+
+  /** Her uygulama tablosunun RLS durumu (pg_class.relrowsecurity). */
+  async rowLevelSecurityReport(): Promise<{ table: string; enabled: boolean }[]> {
+    const tables = this.collections.map((collection) => this.table(collection));
+    const result = await this.pool.query<{ relname: string; relrowsecurity: boolean }>(
+      `SELECT c.relname, c.relrowsecurity FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind = 'r' AND n.nspname = current_schema() AND c.relname = ANY($1::text[])`,
+      [tables],
+    );
+    const enabled = new Map(result.rows.map((row) => [row.relname, row.relrowsecurity === true]));
+    return tables.map((table) => ({ table, enabled: enabled.get(table) ?? false }));
+  }
+
   async ensureIndexes(indexes?: readonly IndexSpec[]): Promise<{ collection: string; name: string; created: boolean }[]> {
     // Schema DDL is deliberately here, not init(): initStore(..., {ensureIndexes:false})
     // must be safe for read-only diagnostics against a production database.
@@ -481,6 +512,7 @@ export class PostgresStore implements StoragePort {
            )`,
         );
         await this.pool.query(`CREATE INDEX IF NOT EXISTS ${table}_data_gin ON ${table} USING gin (data jsonb_path_ops)`);
+        await this.enableRowLevelSecurity(table);
       }),
     );
 
@@ -650,10 +682,25 @@ export class PostgresStore implements StoragePort {
     const plan = exactPlan(collection, filter, options?.sort, params);
     if (!plan) return null;
 
-    const deviantRows = await this.deviantRows(collection, plan.deviant);
-    const uncertain = deviantRows.filter((doc) => matchesQuery(doc, filter));
     const table = this.table(collection);
     const order = plan.orderBy ? ` ORDER BY ${plan.orderBy}` : '';
+    // İyimser paralellik: sapmalı satır normalde YOKTUR; sapma kontrolü ile sade sorgu aynı anda
+    // gider (uzak veritabanında bir gidiş-dönüş kazancı). Sapma çıkarsa aşağıdaki kesin yol çalışır.
+    if (limit !== undefined) {
+      const fastParams = [...params, limit, skip];
+      const [deviantFirst, fast] = await Promise.all([
+        this.deviantRows(collection, plan.deviant),
+        this.pool.query<{ data: unknown }>(
+          `SELECT data FROM ${table} WHERE ${plan.where}${order} LIMIT $${fastParams.length - 1} OFFSET $${fastParams.length}`,
+          fastParams,
+        ),
+      ]);
+      if (deviantFirst.length === 0) {
+        return fast.rows.map((row) => row.data as DocumentOf<K>).filter((doc) => matchesQuery(doc, filter));
+      }
+    }
+    const deviantRows = await this.deviantRows(collection, plan.deviant);
+    const uncertain = deviantRows.filter((doc) => matchesQuery(doc, filter));
     // Sapmalı satır yoksa (normal durum) koşul sade kalır: sıralama indeksi kullanılabilir.
     const where = deviantRows.length > 0 ? `${plan.where} AND NOT ${plan.deviant}` : plan.where;
     // Limitsiz istekte bellek sınırı korunur: sessiz kırpma yerine açık hata.
@@ -739,8 +786,16 @@ export class PostgresStore implements StoragePort {
     const params: unknown[] = [];
     const plan = exactPlan(collection, filter, undefined, params);
     if (plan) {
-      const deviantRows = await this.deviantRows(collection, plan.deviant);
-      const where = deviantRows.length > 0 ? `${plan.where} AND NOT ${plan.deviant}` : plan.where;
+      // İyimser paralellik (bkz. exactFind): sapma yoksa sade sayım doğrudan sonuçtur.
+      const [deviantRows, plain] = await Promise.all([
+        this.deviantRows(collection, plan.deviant),
+        this.pool.query<{ count: string | number }>(
+          `SELECT count(*) AS count FROM ${this.table(collection)} WHERE ${plan.where}`,
+          params,
+        ),
+      ]);
+      if (deviantRows.length === 0) return Number(plain.rows[0]?.count ?? 0);
+      const where = `${plan.where} AND NOT ${plan.deviant}`;
       const result = await this.pool.query<{ count: string | number }>(
         `SELECT count(*) AS count FROM ${this.table(collection)} WHERE ${where}`,
         params,
