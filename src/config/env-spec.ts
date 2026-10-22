@@ -622,6 +622,18 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     optional: true,
   },
   {
+    key: 'SOURCE_TERMS_POLICY',
+    group: 'tarama',
+    label: 'Kaynak kullanım şartları kapısı',
+    help:
+      'warn (varsayılan): şartları incelenmemiş kaynak taranır, tarama notunda görünür. enforce: yalnız ' +
+      'config/source-terms.json içinde incelenmiş ve "allowed" kaynak taranır. "blocked" kaynak her iki modda da atlanır.',
+    type: 'enum',
+    options: ['warn', 'enforce'],
+    defaultValue: 'warn',
+    optional: true,
+  },
+  {
     key: 'SOURCE_TLS_AIA_COMPLETION',
     group: 'tarama',
     label: 'Eksik sertifika zinciri AIA ile tamamlansın mı?',

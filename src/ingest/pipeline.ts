@@ -37,6 +37,7 @@ import { queueNotificationsForJob } from '../notifications/service';
 import { createLlmClassificationGate, disabledLlmGate, llmClassifierConfig, type LlmClassificationGate } from '../ai/classifier';
 import { applyRawAnnouncement } from './jobs-service';
 import { sanitizeRawAnnouncement } from './sanitize';
+import { sourceTermsGate } from '../sources/terms';
 
 export interface RunSourceOptions {
   repos: Repos;
@@ -300,6 +301,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   // başarılı tarama" yazmak yerine denemeyi atlandı olarak kaydet; ancak testte
   // açıkça verilen sahte adaptör ağa çıkmadığı için çalıştırılmaya devam eder.
   const liveScanDisabled = !liveFetch && options.adapter === undefined;
+  // Kullanım şartları kapısı yalnız gerçek ağ taramasında (sahte adaptör ağa çıkmaz).
+  const termsGate =
+    !liveScanDisabled && options.adapter === undefined ? sourceTermsGate(source.key, env.SOURCE_TERMS_POLICY) : null;
   const ownedHttp = options.http === undefined;
   const requestAbort = new AbortController();
   const http =
@@ -327,6 +331,11 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       status = 'skipped';
       coverageNote = 'Canlı kaynak erişimi kapalı olduğu için bu çalışmada kapsam doğrulanmadı.';
       resultMessage = 'Canlı kaynak erişimi kapalı (SOURCE_LIVE_FETCH=0); ilan taraması yapılmadı.';
+      adapterNotes = [resultMessage];
+    } else if (termsGate?.skip) {
+      status = 'skipped';
+      coverageNote = 'Kaynak kullanım şartları kapısı nedeniyle bu çalışmada tarama yapılmadı.';
+      resultMessage = termsGate.note ?? 'Kaynak kullanım şartları kapısı taramayı durdurdu.';
       adapterNotes = [resultMessage];
     } else {
       const adapter = options.adapter ?? requireAdapter(source.adapterKey);
@@ -360,6 +369,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       totals.itemsFound = runResult.items.length;
       totals.httpStatuses = (runResult.httpStatuses ?? []).slice(0, 50);
       adapterNotes = runResult.notes.slice(0, 18);
+      if (termsGate?.note) adapterNotes.unshift(termsGate.note);
       coverageStatus = runResult.coverage?.status ?? 'unknown';
       coverageNote =
         runResult.coverage?.note ??

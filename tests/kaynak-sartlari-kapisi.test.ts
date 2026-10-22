@@ -1,0 +1,97 @@
+/**
+ * Kaynak kullanım şartları kapısı tarama hattında (22.10.2026 üretim provası bulgusu: kapı yalnız
+ * staging betiklerinde kullanılıyordu; worker şartları "blocked" bir kaynağı bile tarayabilirdi).
+ */
+import { describe, expect, it } from 'vitest';
+import { sourceTermsGate, type SourceTermsLoadResult, type SourceTermsEntry } from '../src/sources/terms';
+
+const NOW = new Date('2026-10-22T10:00:00Z');
+
+function loaded(entries: SourceTermsEntry[]): SourceTermsLoadResult {
+  return { status: 'available', path: 'config/source-terms.json', entries: new Map(entries.map((e) => [e.sourceKey, e])), errors: [] };
+}
+
+const allowed: SourceTermsEntry = {
+  sourceKey: 'izinli',
+  decision: 'allowed',
+  reviewedAt: '2026-10-21',
+  reviewedBy: 'operatör',
+  robotsUrl: 'https://ornek.gov.tr/robots.txt',
+  termsUrl: 'https://ornek.gov.tr/',
+  allowsStorage: true,
+  notes: '',
+};
+const blocked: SourceTermsEntry = { ...allowed, sourceKey: 'yasakli', decision: 'blocked' };
+const terms = loaded([allowed, blocked]);
+
+describe('sourceTermsGate', () => {
+  it('blocked kaynak her iki politikada atlanır', () => {
+    expect(sourceTermsGate('yasakli', 'warn', terms, NOW).skip).toBe(true);
+    expect(sourceTermsGate('yasakli', 'enforce', terms, NOW).skip).toBe(true);
+  });
+
+  it('incelenmiş + allowed kaynak notsuz taranır', () => {
+    expect(sourceTermsGate('izinli', 'enforce', terms, NOW)).toEqual({ skip: false, note: null });
+  });
+
+  it('kaydı olmayan kaynak: warn → taranır + not; enforce → atlanır', () => {
+    const warn = sourceTermsGate('bilinmeyen', 'warn', terms, NOW);
+    expect(warn.skip).toBe(false);
+    expect(warn.note).toContain('incelenmedi');
+    const enforce = sourceTermsGate('bilinmeyen', 'enforce', terms, NOW);
+    expect(enforce.skip).toBe(true);
+    expect(enforce.note).toContain('SOURCE_TERMS_POLICY=enforce');
+  });
+
+  it('inceleme 365 günden eskiyse enforce taramaz', () => {
+    const stale = loaded([{ ...allowed, reviewedAt: '2025-01-01' }]);
+    expect(sourceTermsGate('izinli', 'enforce', stale, NOW).skip).toBe(true);
+  });
+});
+
+describe('runSourceScrape + SOURCE_TERMS_POLICY=enforce', () => {
+  it('şartları doğrulanmamış kaynak ağa çıkmadan "atlandı" kaydedilir', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { FileStore } = await import('../src/db/file-store');
+    const { createRepos } = await import('../src/db/repos');
+    const { runSourceScrape } = await import('../src/ingest/pipeline');
+    const { resetEnvCache } = await import('../src/config/env');
+    const { SOURCE_DEFINITIONS } = await import('../src/config/sources');
+    const dir = mkdtempSync(join(tmpdir(), 'kamuilan-sartlar-'));
+    const store = new FileStore(dir);
+    const previous = { policy: process.env.SOURCE_TERMS_POLICY, live: process.env.SOURCE_LIVE_FETCH };
+    process.env.SOURCE_TERMS_POLICY = 'enforce';
+    resetEnvCache();
+    try {
+      await store.init();
+      const repos = createRepos(store);
+      const definition = SOURCE_DEFINITIONS.find((entry) => entry.key === 'afad-duyurular')!;
+      await repos.sources.seed([definition]);
+      const source = (await repos.sources.getByKey(definition.key))!;
+      const requests: string[] = [];
+      const http = {
+        fetchText: async (url: string) => {
+          requests.push(url);
+          throw new Error('ağa çıkılmamalıydı');
+        },
+        fetchBinary: async (url: string) => {
+          requests.push(url);
+          throw new Error('ağa çıkılmamalıydı');
+        },
+        close: async () => undefined,
+      };
+      const result = await runSourceScrape({ repos, source, trigger: 'manual', workerId: 'w', liveFetch: true, http: http as never, queueNotifications: false });
+      expect(result.status).toBe('skipped');
+      expect(result.notes.join(' ')).toContain('SOURCE_TERMS_POLICY=enforce');
+      expect(requests).toEqual([]);
+    } finally {
+      if (previous.policy === undefined) delete process.env.SOURCE_TERMS_POLICY;
+      else process.env.SOURCE_TERMS_POLICY = previous.policy;
+      resetEnvCache();
+      await store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

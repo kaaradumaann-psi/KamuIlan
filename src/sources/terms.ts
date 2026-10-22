@@ -83,6 +83,36 @@ export interface SourceTermsAssessment {
 }
 
 /**
+ * Worker/tarama hattı kapısı. `blocked` → her politikada atla. `enforce` → yalnız
+ * `assessSourceTerms` geçerse tara. `warn` → tara ama incelenmemiş olduğunu not et.
+ * Dosya okunamazsa (`invalid`) `enforce` taramaz, `warn` uyarıyla devam eder.
+ */
+export function sourceTermsGate(
+  sourceKey: string,
+  policy: 'warn' | 'enforce',
+  loaded: SourceTermsLoadResult = loadSourceTerms(),
+  now = new Date(),
+): { skip: boolean; note: string | null } {
+  const entry = loaded.entries.get(sourceKey) ?? null;
+  if (entry?.decision === 'blocked') {
+    return { skip: true, note: 'Kaynak kullanım şartları kararı "blocked" (config/source-terms.json); tarama yapılmadı.' };
+  }
+  const assessment = assessSourceTerms(entry, now);
+  if (assessment.allowed) return { skip: false, note: null };
+  const fileProblem = loaded.status === 'invalid' ? ` Şartlar dosyası geçersiz: ${loaded.errors.slice(0, 2).join('; ')}.` : '';
+  if (policy === 'enforce') {
+    return {
+      skip: true,
+      note: `Kaynak kullanım şartları doğrulanmadı (${assessment.reason})${fileProblem} SOURCE_TERMS_POLICY=enforce: tarama yapılmadı.`,
+    };
+  }
+  return {
+    skip: false,
+    note: `Kaynak kullanım şartları incelenmedi (${assessment.reason})${fileProblem} SOURCE_TERMS_POLICY=warn ile tarandı.`,
+  };
+}
+
+/**
  * Canlı koşum için kapı. Yalnızca açık `allowed` kararı, tarih/kaynak URL'leri,
  * `allowsStorage=true` ve taze bir inceleme birlikte sağlanırsa geçer.
  */
