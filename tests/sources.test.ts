@@ -727,6 +727,33 @@ describe('Resmî Gazete adaptörü dayanıklılığı', () => {
     expect(result.notes.some((note) => note.includes('yinelenen kayıt atlandı'))).toBe(true);
   });
 
+  it('bölüm sayfası isteği tarama bütçesinin tamamını alamaz (askıda kalan sunucu taramayı düşürmesin)', async () => {
+    // 22.10.2026 üretim provası: timeoutMs verilmediği için tek istek SCRAPE_TIMEOUT_MS (120 sn) bekliyordu.
+    const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
+    const timeouts: (number | undefined)[] = [];
+    const http = {
+      async fetchText(url: string, options?: { timeoutMs?: number }): Promise<FetchResponse> {
+        timeouts.push(options?.timeoutMs);
+        return htmlResponse(url, '<html><body><h1>ÇEŞİTLİ İLÂNLAR</h1></body></html>');
+      },
+      async fetchBinary(): Promise<FetchResponse> {
+        throw new Error('PDF isteği beklenmiyordu');
+      },
+      async close(): Promise<void> {
+        /* ağ yok */
+      },
+    } as unknown as HttpClient;
+
+    await new ResmiGazeteAdapter().run(contextFor(source!, http, true));
+    expect(timeouts.length).toBeGreaterThan(0);
+    expect(timeouts.every((value) => typeof value === 'number' && value <= 20_000)).toBe(true);
+
+    timeouts.length = 0;
+    const tight = { ...contextFor(source!, http, true), deadlineAt: new Date(Date.now() + 12_000) };
+    await new ResmiGazeteAdapter().run(tight);
+    expect(timeouts.every((value) => typeof value === 'number' && value < 12_000)).toBe(true);
+  });
+
   it('son sayfa işareti yoksa kapsamı bilinmiyor olarak bildirir', async () => {
     const source = SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'resmigazete-cestili');
     expect(source).toBeDefined();

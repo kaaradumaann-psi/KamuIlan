@@ -25,6 +25,7 @@ import {
   getEnv,
   inspectEnvironment,
   postgresTlsMode,
+  postgresUrlIsLoopback,
   postgresUrl,
   postgresUrlTlsConflicts,
   resetEnvCache,
@@ -102,6 +103,45 @@ describe('ortam doğrulaması (env:check ve süreç başlangıcı)', () => {
 
   it('üretimde TLS tamamen kapalıysa (POSTGRES_SSL=0) başlangıç engellenir', () => {
     expect(() => getEnv({ ...base, NODE_ENV: 'production', POSTGRES_SSL: '0' })).toThrow(/TLS tamamen kapalı/i);
+  });
+
+  describe('aynı makinedeki Postgres (loopback)', () => {
+    const production = {
+      NODE_ENV: 'production',
+      DATABASE_DRIVER: 'postgres',
+      APP_SECRET: 'x'.repeat(40),
+      EMAIL_PROVIDER: 'smtp',
+      SMTP_HOST: 'smtp.example',
+      POSTGRES_SSL_MODE: 'disable',
+    } as const;
+
+    it.each([
+      'postgresql://u:p@127.0.0.1:5432/kamuilan',
+      'postgresql://u:p@localhost/kamuilan',
+      'postgresql://u:p@[::1]:5432/kamuilan',
+      'postgresql:///kamuilan?host=/var/run/postgresql',
+    ])('üretimde TLS kapalı + %s → başlangıç engellenmez, uyarı verilir', (url) => {
+      expect(postgresUrlIsLoopback(url)).toBe(true);
+      const inspection = inspectEnvironment(getEnv({ ...production, POSTGRES_URL: url }));
+      expect(inspection.ok).toBe(true);
+      expect(inspection.warnings.join(' ')).toMatch(/aynı makineye \(loopback\)/);
+    });
+
+    it.each([
+      'postgresql://u:p@postgres:5432/kamuilan',
+      'postgresql://u:p@localhost.saldirgan.example/kamuilan',
+      'postgresql://u:p@127.0.0.1.nip.io/kamuilan',
+      'postgresql://u:p@10.0.0.5/kamuilan',
+    ])('uzak/sahte loopback %s → üretimde yine engellenir', (url) => {
+      expect(postgresUrlIsLoopback(url)).toBe(false);
+      expect(() => getEnv({ ...production, POSTGRES_URL: url })).toThrow(/TLS tamamen kapalı/i);
+    });
+
+    it('loopback olsa da no-verify istisnaya girmez', () => {
+      expect(() =>
+        getEnv({ ...production, POSTGRES_URL: 'postgresql://u:p@127.0.0.1/kamuilan', POSTGRES_SSL_MODE: 'no-verify' }),
+      ).toThrow(/sertifikası doğrulanmıyor/i);
+    });
   });
 
   it('geliştirmede aynı durum yalnızca uyarıdır (yerel Postgres çalışabilir)', () => {

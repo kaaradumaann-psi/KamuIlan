@@ -11,6 +11,8 @@
  * Not: Bu dosya iş kuralı içermez; yalnızca taşıma katmanıdır.
  */
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
@@ -48,8 +50,13 @@ export interface BuildAppOptions {
   logger?: ReturnType<typeof createLogger>;
   /** Testlerde hız sınırı kapatılabilir (E2E senaryoları hızlı kalsın). */
   disableRateLimit?: boolean;
-  /** Statik dosya servisi (üretimde derlenmiş arayüz). */
+  /**
+   * Derlenmiş arayüzü (dist/) aynı süreçten sun + SPA geri dönüşü. `main.ts` yalnız üretimde açar.
+   * `dist/index.html` yoksa (arayüz Cloudflare/Nginx'ten sunuluyorsa) yalnız API çalışır.
+   */
   serveStatic?: boolean;
+  /** Testler için statik kök (varsayılan: `staticDistRoot()`). */
+  staticRoot?: string;
 }
 
 /**
@@ -244,9 +251,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     void reply.status(statusCode).send(body);
   });
 
+  // Statik servis kararı 404 işleyicisinden ÖNCE verilir: Fastify önek başına tek bir
+  // setNotFoundHandler kabul eder; ikinci çağrı üretimde API'nin açılışını çökertiyordu.
+  const staticRoot = options.staticRoot ?? staticDistRoot();
+  const spaFallback = Boolean(options.serveStatic) && existsSync(join(staticRoot, 'index.html'));
+  if (options.serveStatic && !spaFallback) {
+    logger.warn(
+      { staticRoot },
+      'dist/index.html bulunamadı: yalnız API sunuluyor (arayüz ayrı sunucudan servis ediliyorsa doğrudur; değilse önce npm run build)',
+    );
+  }
+
   app.setNotFoundHandler((request, reply) => {
+    const pathname = requestPathname(request);
+    if (spaFallback && !pathname.startsWith('/api/') && (request.method === 'GET' || request.method === 'HEAD')) {
+      // Tek sayfa uygulaması: bilinmeyen sayfa yolları arayüze bırakılır.
+      void reply.sendFile('index.html');
+      return;
+    }
     const { statusCode, body } = toErrorBody(
-      ApiError.notFound(`Kayıt bulunamadı: ${request.method} ${request.url.split('?')[0]}`),
+      ApiError.notFound(`Kayıt bulunamadı: ${request.method} ${pathname}`),
       request.id,
     );
     void reply.status(statusCode).send(body);
@@ -262,10 +286,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerAdminRoutes(app, repos);
   registerSitemapRoutes(app, repos);
 
-  if (options.serveStatic && env.NODE_ENV === 'production') {
+  if (spaFallback) {
     const fastifyStatic = (await import('@fastify/static')).default;
     await app.register(fastifyStatic, {
-      root: staticDistRoot(),
+      root: staticRoot,
       prefix: '/',
       // Derlenmiş varlıklar içerik damgalıdır: uzun ömürlü önbellek + tazelik
       // gerektiren dosyalar için no-cache (bkz. context.ts).
@@ -274,15 +298,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           reply.header(name, value);
         }
       },
-    });
-    app.setNotFoundHandler((request, reply) => {
-      if (requestPathname(request).startsWith('/api/')) {
-        const { statusCode, body } = toErrorBody(ApiError.notFound('API yolu bulunamadı.'), request.id);
-        void reply.status(statusCode).send(body);
-        return;
-      }
-      // Tek sayfa uygulaması: bilinmeyen yollar arayüze bırakılır.
-      void reply.sendFile('index.html');
     });
   }
 
