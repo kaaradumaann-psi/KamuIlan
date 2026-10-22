@@ -207,27 +207,27 @@
     gap: 14px;
   }
 
+  /* Doğal kart: ince kenarlık + çok hafif gölge. Renkli sol şerit YOK
+     (her kartta tekrarlanan mavi kenar "şablon" görüntüsü veriyordu). */
   .job-card {
+    position: relative;
     min-width: 0;
     border: 1px solid var(--hairline);
-    border-left: 3px solid var(--accent);
     border-radius: 14px;
     background: var(--white);
-    box-shadow: none;
-    padding: 20px 22px;
+    box-shadow: 0 1px 2px rgba(13, 13, 13, 0.04);
+    padding: 18px 20px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     transition:
-      background-color 0.15s ease-in-out,
-      border-color 0.15s ease-in-out;
+      border-color 0.15s ease-in-out,
+      box-shadow 0.15s ease-in-out;
   }
 
   .job-card:hover {
-    border-color: var(--slate-300);
-    border-left-color: var(--accent);
-    background: #fcfcfd;
-    box-shadow: none;
+    border-color: var(--line-strong);
+    box-shadow: 0 4px 14px rgba(13, 13, 13, 0.06);
   }
 
   .job-card-title {
@@ -257,10 +257,6 @@
     color: var(--soft);
     font-size: 12.5px;
     font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
   }
 
   .job-card-tags {
@@ -277,22 +273,12 @@
   }
 
   .job-card-meta {
-    list-style: none;
     margin: 0;
-    padding: 10px 0 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 16px;
-    border-top: 1px solid var(--hairline);
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: var(--slate-500);
     font-size: 12.5px;
-  }
-
-  .job-card-meta li,
-  .job-card-meta span {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    line-height: 1.5;
   }
 
   /* Rota değişiminde ve atlama bağlantısında odak <main>'e taşınır (ekran okuyucu yeni sayfayı
@@ -2334,4 +2320,371 @@
 .ai-suggestion-item:first-child {
   border-top: 0;
   padding-top: 0.25rem;
+}
+
+/* ===========================================================================
+   Sadeleştirme ve mobil cilası (Ekim 2026)
+   ---------------------------------------------------------------------------
+   Ortak katmanlar (screen/site/theme/coherence/workspace/mobile/responsive/
+   auth/dashboard) psikolog deposuyla bayt bayt aynı tutulur; Kamuİlan'a özgü
+   tüm düzeltmeler burada, uygulama katmanında yapılır.
+   =========================================================================== */
+@media screen {
+  /* Marka işareti: BrandMark artık favicon'un kendisini (koyu kare dahil)
+     çizer; kapsayıcı yalnızca boyut verir. Giriş, üst çubuk, yan menü, bilgi
+     sayfaları ve alt bilgi aynı işareti gösterir. */
+  .brand-mark,
+  .auth-brand-mark,
+  .info-brand-mark,
+  .site-footer-mark {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .brand-mark svg,
+  .auth-brand-mark svg,
+  .info-brand-mark svg,
+  .site-footer-mark svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* İlan kartı alt satırı: son başvuru + kalan gün solda, Kaydet sağda. */
+  .job-card-foot {
+    padding-top: 12px;
+    font-size: 12.5px;
+    color: var(--soft);
+  }
+
+  .job-card-deadline {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .job-card-dates {
+    white-space: nowrap;
+  }
+
+  /* İlan detayındaki tek sorumluluk satırı. */
+  .detail-check-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 0 0;
+    color: var(--soft);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* Ana sayfa "Nasıl kullanılır?" — üç kısa adım. */
+  .how-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    counter-reset: adim;
+  }
+
+  .how-steps li {
+    counter-increment: adim;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: var(--bg-soft);
+  }
+
+  .how-steps li::before {
+    content: counter(adim);
+    margin-bottom: 2px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    line-height: 1;
+    color: var(--accent-ink);
+  }
+
+  .how-steps strong {
+    color: var(--text);
+    font-size: 14px;
+  }
+
+  .how-steps span {
+    color: var(--soft);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* İlan kaynakları: sade liste (kurum · tür · durum · son güncelleme). */
+  .source-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .source-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    min-width: 0;
+    padding: 12px 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .source-item:first-child {
+    border-top: 0;
+    padding-top: 2px;
+  }
+
+  .source-item:last-child {
+    padding-bottom: 2px;
+  }
+
+  .source-item-main {
+    display: flex;
+    flex: 1 1 260px;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .source-item-name {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .source-item-kind {
+    color: var(--soft);
+    font-size: 12.5px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .source-item-side {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .source-item-when {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+}
+
+/* Telefon (≤620 px): kaydırmasız, dokunması kolay düzen. */
+@media screen and (max-width: 620px) {
+  /* Dokunma hedefleri en az 40 px. */
+  .header-brand,
+  .desk-now-go,
+  .desk-now-secondary,
+  .distribution-link,
+  .auth-site-return,
+  .btn-ghost {
+    min-height: 40px;
+  }
+
+  .desk-now-go,
+  .desk-now-secondary,
+  .distribution-link,
+  .auth-site-return {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .job-card {
+    padding: 16px;
+  }
+
+  .job-card-foot {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .source-item-side {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+
+  /* Kadro tablosu telefonda kart olur: her satır bir kart, hücreler etiketli. */
+  .table-scroll:has(.openings-table) {
+    overflow-x: visible;
+  }
+
+  .openings-table,
+  .openings-table tbody,
+  .openings-table tfoot,
+  .openings-table tr,
+  .openings-table th,
+  .openings-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .openings-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .openings-table tbody tr {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+  }
+
+  .openings-table th,
+  .openings-table td {
+    padding: 3px 0;
+    border: 0;
+    text-align: left;
+  }
+
+  .openings-table tbody th {
+    font-weight: 650;
+  }
+
+  .openings-table td[data-label]::before {
+    content: attr(data-label) ': ';
+    color: var(--soft);
+    font-weight: 600;
+  }
+
+  .openings-table tbody td:nth-child(2),
+  .openings-table tfoot td:first-of-type {
+    text-align: left;
+  }
+
+  .openings-table tfoot tr {
+    display: flex;
+    gap: 6px;
+    padding: 4px 12px;
+  }
+
+  .openings-table tfoot th,
+  .openings-table tfoot td {
+    width: auto;
+  }
+
+  .openings-table tfoot td:empty {
+    display: none;
+  }
+}
+
+@media screen {
+  /* Düğme görünümlü bağlantılar altı çizili görünmez (yalnız metin bağlantıları çizilir). */
+  a.btn-primary,
+  a.btn-secondary,
+  a.btn-primary:hover,
+  a.btn-secondary:hover {
+    text-decoration: none;
+  }
+
+  /* Liste olarak çizilen rapor listeleri tarayıcı girintisini almaz. */
+  ul.report-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* Ana sayfa "Yaklaşan son başvuru" satırı: başlık solda, tarih sağda. */
+  .day-board .report-list-item {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 14px;
+  }
+
+  .day-board .report-list-item > div:first-child {
+    display: flex;
+    flex: 1 1 220px;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .day-board .report-list-item > div:first-child a {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .day-board .report-list-item > div:first-child a:hover {
+    color: var(--accent-ink);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .day-board .report-list-item .cell-subtitle {
+    white-space: normal;
+  }
+}
+
+@media screen and (max-width: 620px) {
+  /* Ana sayfa araması: iki alan da tam genişlik (yer tutucu kesilmez). */
+  .hero-search,
+  .hero-search > * {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* Telefonda ölçü kartları ikonsuz: rakam ve etiket için yer kalır. */
+  .stat-item .stat-icon {
+    display: none;
+  }
+
+  .stat-item {
+    padding: 14px 16px;
+  }
+
+  /* Panel sekmeleri: üç eşit sütun, gerekirse iki satır metin (kesilme yok). */
+  .subnav-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .subnav-tab {
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 6px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+
+  .site-footer-link {
+    min-width: 40px;
+    justify-content: center;
+  }
 }

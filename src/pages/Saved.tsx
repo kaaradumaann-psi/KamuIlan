@@ -11,7 +11,6 @@ import { Link } from 'react-router-dom';
 import { JobCard } from '../components/JobCard';
 import { EmptyState, ErrorNotice, LoadingCard } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
-import { HONESTY_NOTE } from '../site';
 import type { SavedJobsResponse } from '../types';
 
 export function SavedJobsPage(): ReactNode {
@@ -27,8 +26,7 @@ export function SavedJobsPage(): ReactNode {
           <span className="kicker">Takip listem</span>
           <h1 className="page-title">Kaydettiğim ilanlar</h1>
           <p className="info-lede">
-            Son başvurusu yakın olan üstte sıralanır. Değişiklik bildirimleri, bildirim tercihiniz açıksa
-            e-posta ile de gelir.
+            Son başvurusu yakın olan ilanlar üstte görünür.
           </p>
         </div>
         <div className="page-head-actions">
@@ -83,7 +81,6 @@ export function SavedJobsPage(): ReactNode {
         </div>
       )}
 
-      <p className="text-muted-sm">{HONESTY_NOTE}</p>
     </div>
   );
 }

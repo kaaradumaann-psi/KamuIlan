@@ -5,7 +5,6 @@
  * yönetir. Böylece aynı bağlantı başka birinde aynı sonucu verir.
  */
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
 import { EDUCATION_LEVELS, EDUCATION_LEVEL_LABELS } from '../domain/types';
 import { EMPLOYMENT_TYPE_LABELS, normalizeEducationLevel } from '../lib/format';
@@ -400,11 +399,6 @@ export function FilterForm({
           />
         </div>
       )}
-
-      <p className="text-muted-sm">
-        Adres çubuğundaki bağlantıyı paylaşırsanız aynı liste karşı tarafta da açılır.{' '}
-        <Link to="/kaynaklar">Hangi kaynaklar taranıyor?</Link>
-      </p>
     </form>
   );
 }

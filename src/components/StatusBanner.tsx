@@ -1,23 +1,25 @@
 /**
  * Durum şeridi (üst bilgi altı).
  *
- * Kamuİlan'da "bulut senkronizasyonu" yoktur; burada gösterilen şey verinin
- * tazeliğidir: son başarılı taramanın üzerinden ne kadar geçti, worker çalışıyor
- * mu, kaç kaynak üst üste başarısız oldu. Sistem "tüm ilanlar burada" demez;
- * kapsam bilgisi aynı şeritte yazılır.
+ * Normal durumda HİÇ görünmez: her sayfada tekrar eden bilgi bandı kullanıcıya
+ * yük olur. Yalnızca kullanıcının gördüğü listeyi etkileyen iki durumda kısa,
+ * teknik olmayan bir cümle gösterilir:
+ *  - sistem erişilemez (`down`),
+ *  - son başarılı güncelleme bir günden eski.
+ * Tarama süreçleri, kaynak sayıları gibi ayrıntılar yönetim panelindedir.
  *
- * Şerit kapatılabilir: kapatma yalnızca oturum belleğinde tutulur (sunucuya
- * yazılmaz), çünkü bu bir bilgilendirme metnidir.
+ * Şerit kapatılabilir: kapatma yalnızca oturum belleğinde tutulur.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../lib/api';
-import { HEALTH_QUERY_KEY, WORKER_HEALTH_QUERY_KEY } from '../lib/query-keys';
-import { formatNumber, formatRelative } from '../lib/format';
-import type { HealthResponse, WorkerHealthResponse } from '../types';
+import { HEALTH_QUERY_KEY } from '../lib/query-keys';
+import { formatRelative } from '../lib/format';
+import type { HealthResponse } from '../types';
 import { Icon } from './Icon';
 
 const DISMISS_KEY = 'kamuilan:status-banner-dismissed';
+const STALE_MINUTES = 24 * 60;
 
 function readDismissed(): boolean {
   try {
@@ -27,6 +29,18 @@ function readDismissed(): boolean {
   }
 }
 
+/** Gösterilecek tek cümle; normal durumda `null`. */
+export function statusBannerMessage(data: HealthResponse): string | null {
+  if (data.status === 'down') {
+    return 'Şu anda ilan listesine ulaşmakta sorun yaşıyoruz. Lütfen biraz sonra yeniden deneyin.';
+  }
+  const minutes = data.scans.minutesSinceSuccess;
+  if (data.scans.lastSuccessAt && minutes !== null && minutes > STALE_MINUTES) {
+    return `İlanlar en son ${formatRelative(data.scans.lastSuccessAt)} güncellendi; yeni ilanlar gecikebilir.`;
+  }
+  return null;
+}
+
 export function StatusBanner() {
   const [dismissed, setDismissed] = useState(readDismissed);
   const health = useQuery({
@@ -34,55 +48,10 @@ export function StatusBanner() {
     queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
     refetchInterval: 60_000,
   });
-  const worker = useQuery({
-    queryKey: WORKER_HEALTH_QUERY_KEY,
-    queryFn: ({ signal }) => api.get<WorkerHealthResponse>('/api/health/worker', undefined, signal),
-    refetchInterval: 10_000,
-  });
 
-  if (dismissed) return null;
-  if (health.isLoading || health.isError || !health.data) return null;
-
-  const data = health.data;
-  const minutes = data.scans.minutesSinceSuccess;
-  const stale = minutes !== null && minutes > 24 * 60;
-  const failing = data.sources.failing > 0;
-  const workerRunning = worker.data?.workers.running ?? data.workers.running;
-  const workerStarting = worker.data?.workers.starting ?? 0;
-  const workerPending = worker.isLoading && !worker.data && workerRunning === 0;
-  const noWorker = workerRunning === 0 && workerStarting === 0 && !workerPending;
-
-  // Uyarı tonu yalnızca KULLANICININ GÖRDÜĞÜ sonucu etkileyen durumlarda:
-  // sistem kapalı, veriler bir günden eski, tarama worker'ı yok ya da başlıyor.
-  // "N kaynağa ulaşılamıyor" tek başına kalıcı sarı bant üretmemeli (bazı
-  // kurum siteleri her koşulda erişilemez); bu bilgi cümlenin içinde açıklanır.
-  const affectsFreshness = data.status === 'down' || stale || noWorker;
-  const tone = affectsFreshness || workerStarting > 0 || workerPending ? 'warning' : 'info';
-  const parts: string[] = [];
-  parts.push(
-    data.scans.lastSuccessAt
-      ? `İlanlar en son ${formatRelative(data.scans.lastSuccessAt)} başarıyla tarandı.`
-      : 'Henüz başarılı tarama kaydı yok.',
-  );
-  parts.push(`${formatNumber(data.sources.enabled)} kaynak tarama için etkin olarak tanımlı.`);
-  if (failing) {
-    parts.push(
-      `${formatNumber(data.sources.failing)} kurum sitesine şu an ulaşılamıyor; o kurumlara ait yeni ilanlar ` +
-        'listeye gecikmeli düşebilir.',
-    );
-  }
-  if (noWorker) {
-    parts.push('Tarama worker’ı şu an çalışmıyor; zamanlanmış taramalar yürütülmüyor.');
-  } else if (workerStarting > 0 || workerPending) {
-    parts.push('Tarama worker’ı başlatılıyor; zamanlanmış görevler hazırlanıyor.');
-  } else if (!data.scans.lastSuccessAt) {
-    parts.push('İlk başarılı taramanın tamamlanması bekleniyor.');
-  }
-  if (data.sources.stale > 0) {
-    parts.push(`${formatNumber(data.sources.stale)} kaynakta uzun süredir başarılı tarama yok.`);
-  }
-  if (stale) parts.push('Son başarılı tarama bir günden eski olabilir.');
-  parts.push('Bazı kurumlar ilanını yalnızca kendi sayfasında duyurur; her ilanı bulamayabiliriz.');
+  if (dismissed || !health.data) return null;
+  const message = statusBannerMessage(health.data);
+  if (!message) return null;
 
   function dismiss() {
     try {
@@ -94,9 +63,9 @@ export function StatusBanner() {
   }
 
   return (
-    <div className={`cloud-sync-banner is-${tone}`} role="status">
+    <div className="cloud-sync-banner is-warning" role="status">
       <Icon name="info" size={15} />
-      <span>{parts.join(' ')}</span>
+      <span>{message}</span>
       <button type="button" className="close-banner-btn" aria-label="Bilgilendirmeyi kapat" onClick={dismiss}>
         <Icon name="close" size={14} />
       </button>

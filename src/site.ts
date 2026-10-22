@@ -19,11 +19,11 @@ export const POLICY_EFFECTIVE_DATE = '12 Ekim 2026';
 export const POLICY_UPDATED_LABEL = `Son güncelleme: ${POLICY_EFFECTIVE_DATE}`;
 
 /**
- * Dürüstlük notu — arayüzün her yerinde aynı metin kullanılır.
+ * Kapsam notu — yalnızca SSS ve Kullanım Koşulları'nda, birer kez kullanılır.
  *
- * Sistem hiçbir zaman "tüm ilanlar burada" demez: kapsam eksiktir ve bu, ilan
- * listesinin altında açıkça yazılıdır.
+ * Sistem hiçbir zaman "tüm ilanlar burada" demez; ama bu not her sayfada
+ * tekrar edilmez (yan menü, alt bilgi ve liste altlarından kaldırıldı).
+ * Kullanıcıya dönük tek sorumluluk satırı ilan detayındadır.
  */
 export const HONESTY_NOTE =
-  'Her ilanı bulamayabiliriz: bazı kurumlar ilanını yalnızca kendi sayfasında duyurur. ' +
-  'Bulduğumuz her ilanda sizi asıl kaynağa götürürüz; emin olmadığımız bilgiyi de açıkça işaretleriz.';
+  'Her ilanı bulamayabiliriz; bazı kurumlar ilanını yalnızca kendi sitesinde duyurur.';

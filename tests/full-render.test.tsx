@@ -219,11 +219,14 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
       `/ilanlar/${jobId}`,
     );
     expect((await screen.findAllByText(/Sözleşmeli Personel Alım İlanı/)).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/Başvuru kontrol listesi/)).toBeTruthy();
+    // Tek sorumluluk satırı; uzun kontrol listesi ve teknik "kaynak metni" kartları yok.
+    expect(await screen.findByText(/Başvurmadan önce resmî ilanı kontrol edin/)).toBeTruthy();
+    expect(screen.queryByText(/Başvuru kontrol listesi/)).toBeNull();
     expect(await screen.findByRole('heading', { name: 'Profilinle ilan eşleşmesi' })).toBeTruthy();
     expect(await screen.findByText(/Meslek\/unvanınız “hemşire”/)).toBeTruthy();
-    expect(await screen.findByRole('heading', { name: 'Kaynak metni' })).toBeTruthy();
-    expect(await screen.findByRole('heading', { name: 'Sınırlı ilan alıntısı' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Yayımlandığı yer' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Kaynak metni' })).toBeNull();
+    expect(screen.queryByText(/Kaynak: ilan metni|kanıtı:/)).toBeNull();
     expect(
       (payloads.get('/api/notifications/preferences') as { preference: { enabled: boolean } }).preference
         .enabled,
@@ -275,9 +278,10 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
   it('kaynaklar', async () => {
     const view = renderPage(<SourcesPage />, '/kaynaklar');
     expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
-    expect(await screen.findByText('Gerçek veriyle doğrulanan')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Kaynak listesi' })).toBeTruthy();
     expect(view.container.querySelector('.page-head .kicker')).toBeTruthy();
-    expect(view.container.querySelector('.stats-grid-4')).toBeTruthy();
+    expect(view.container.querySelector('.source-list .source-item')).toBeTruthy();
+    expect(screen.queryByText('Gerçek veriyle doğrulanan')).toBeNull();
   });
 
   it('panel (tercihler + geçmiş)', async () => {
@@ -286,7 +290,7 @@ describe('Sayfalar (gerçek API cevaplarıyla)', () => {
     expect(first.container.querySelector('.subnav-tabs .subnav-tab.is-active')).toBeTruthy();
     first.unmount();
     renderPage(<PanelPage view="history" />, '/panel/gecmis');
-    expect(await screen.findByText(/Henüz bildirim üretilmedi/)).toBeTruthy();
+    expect(await screen.findByText(/Henüz size bildirim gönderilmedi/)).toBeTruthy();
   });
 
   it('kaydettiklerim gerçek kaydı listeler', async () => {

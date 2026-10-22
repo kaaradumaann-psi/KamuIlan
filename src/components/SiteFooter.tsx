@@ -24,8 +24,8 @@ type SiteFooterProps = {
 /**
  * Site alt bilgisi — psikolog/MMPI ile aynı iskelet (`.site-footer*`).
  *
- * Kamuİlan'da ek olarak dürüstlük notu yazılır: kapsam eksiktir ve bu,
- * yalnızca arayüzde değil alt bilgide de açıkça durur.
+ * Alt bilgide uzun feragat paragrafı yoktur: "resmî ilanı kontrol edin" notu
+ * yalnızca ilan detayında, kapsam notu yalnızca SSS'de bir kez yazılır.
  */
 export function SiteFooter({
   onPrimaryAction,
@@ -86,17 +86,6 @@ export function SiteFooter({
           </a>
         </nav>
       </div>
-
-      {!compact && (
-        <div className="site-footer-legal">
-          <div className="site-footer-legal-inner">
-            <p className="site-footer-disclaimer">
-              Kamuİlan ilanları resmî kaynaklarından toplar ve her birini kaynağına bağlantı ile gösterir.
-              Her ilanı bulamayabiliriz; başvuru yapmadan önce ilanın resmî sayfasını mutlaka kontrol edin.
-            </p>
-          </div>
-        </div>
-      )}
     </footer>
   );
 }
