@@ -257,7 +257,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // Statik servis kararı 404 işleyicisinden ÖNCE verilir: Fastify önek başına tek bir
   // setNotFoundHandler kabul eder; ikinci çağrı üretimde API'nin açılışını çökertiyordu.
-  const staticRoot = options.staticRoot ?? staticDistRoot();
+  // Kök yalnız statik servis istenirse çözülür: jsdom ortamında import.meta.url file: değildir.
+  const staticRoot = options.serveStatic ? (options.staticRoot ?? staticDistRoot()) : '';
   const spaFallback = Boolean(options.serveStatic) && existsSync(join(staticRoot, 'index.html'));
   if (options.serveStatic && !spaFallback) {
     logger.warn(
