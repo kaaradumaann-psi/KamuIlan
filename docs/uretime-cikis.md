@@ -70,6 +70,7 @@ SOURCE_TERMS_POLICY=enforce      # K8 kararına göre
 SOURCE_BROWSER_FALLBACK=0        # 1 → RG yavaşladığında tarayıcıyla okur (chromium kurulu olmalı)
 OCR_ENABLED=0
 LLM_CLASSIFIER_ENABLED=0
+LOG_FILE=/var/log/kamuilan/api.log   # worker servisinde: /var/log/kamuilan/worker.log
 ```
 
 Kontrol: `npm run env:check` → "✔ Ortam yapılandırması kullanılabilir." görmeden ilerleme.
@@ -96,13 +97,15 @@ npx wrangler deploy && npx wrangler secret put API_ORIGIN   # arayüz + /api vek
 - [ ] Yönetici girişi → *Yönetim paneli* açılıyor; *Panelim → Test e-postası gönder* posta kutuna düşüyor
 - [ ] *Yönetim → kaynaklar*: bir kaynağı elle tara → tarama kaydı "başarılı" ya da gerekçeli "kısmi"
 - [ ] `/api/health/worker` → worker kalp atışı taze
+- [ ] `npm run durum` → GENEL: ÇALIŞIYOR (ya da yalnız gerekçeli UYARI); "Veri erişim koruması (RLS): N tabloda açık"
+- [ ] Supabase panelinde *Table Editor* → `kamuilan_users`: "RLS enabled" (uygulama `db:indexes` ile açar; politika eklemeyin)
 - [ ] E2E üretime karşı: `E2E_BASE_URL=https://<alan> ADMIN_EMAIL=… ADMIN_PASSWORD=… npx playwright test --project=chromium`
       (giriş ucu dakikada 10 deneme sınırlıdır; art arda koşuda 1 dk ara ver)
 - [ ] `npm run runs:retention` önizlemesine bak: 90 günden eski tarama kayıtları **silinecek**
 
 ## 5. İlk hafta (K7)
 
-Günde bir: sağlık ucu, *Yönetim → kaynaklar* (sorunlu kaynak), inceleme kuyruğu (yanlış ret/kabul),
+Günde bir: `npm run durum` (sade özet + son log hataları), sağlık ucu, *Yönetim → kaynaklar* (sorunlu kaynak), inceleme kuyruğu (yanlış ret/kabul),
 e-posta teslim hataları, Supabase kullanım/bağlantı grafiği. Resmî Gazete sunucusu sık istekte HTML
 sayfalarını zaman zaman askıya alır: tek başarısız tarama normaldir (saatlik yeniden denenir);
 art arda başarısızlıkta `SOURCE_BROWSER_FALLBACK=1` değerlendir.

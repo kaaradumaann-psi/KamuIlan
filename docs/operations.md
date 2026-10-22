@@ -4,6 +4,7 @@
 
 | Ne                  | Nereden                                                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------- |
+| **Sade Türkçe özet** | `npm run durum` (salt okunur): veritabanı, RLS, worker, kaynaklar, ilanlar, e-posta, Telegram, AI, son log hataları + yapılacak iş. `--json` makine okunur; çıkış 2 = kritik |
 | Genel durum         | `GET /api/health` → `status`, `warnings`, `database`, `scans`, `workers`, `queue`, `sources` |
 | Kaynak bazlı durum  | `GET /api/sources`, `GET /api/sources/:key/status`                                           |
 | Worker kalp atışı   | Yönetim → Özet (`workers`) veya `workerHeartbeats` koleksiyonu                               |
@@ -11,6 +12,20 @@
 | Kuyruk              | Yönetim → Kuyruk & kilitler: bekleyen/aktif/ölü işler, süresi geçmiş kilitler                |
 | E-posta hattı       | Yönetim → E-posta kuyruğu: `pending/sending/accepted/failed/dead/suppressed`                 |
 | İnceleme kuyruğu    | Yönetim → İnceleme kuyruğu (sınıflandırma, tekilleştirme, çıkarım)                           |
+
+Seviyeler: `npm run durum` **ÇALIŞIYOR / UYARI / KRİTİK / BİLİNMİYOR** yazar; ölçülemeyen bileşen
+(ör. Telegram yapılandırılmamış, log dosyası yok) sağlıklı sayılmaz, BİLİNMİYOR görünür. Worker
+durmuşsa `/api/health` 200 dönse bile durum KRİTİK'tir.
+
+### Loglar
+
+- Yapılandırılmış JSON (pino); e-posta, parola, jeton, API anahtarı, bot token'ı, bağlantı dizesi,
+  çerez başlıkları **maskelenir**.
+- `LOG_FILE` verilirse satırlar dosyaya da yazılır; `LOG_FILE_MAX_MB` (20) aşılınca `.1…​.N`
+  (`LOG_FILE_MAX_FILES`, 5) döndürülür → disk üst sınırı ≈ 120 MB/servis. Yeniden başlatmada ekleme yapılır.
+- Kalıcı operasyon kayıtları ayrıca veritabanındadır: tarama koşumları (`scrapeRuns`, 90 gün;
+  her kaynağın son koşumu korunur), e-posta kuyruğu, LLM analizleri, denetim kaydı, worker kalp atışı.
+- Teşhis: `npm run durum` çıktısını (ve gerekirse log dosyasının son kısmını) Claude Code'a verin.
 
 `degraded` durumu genellikle kaynak kaynaklıdır (ör. coğrafi kısıtlı kaynak veya
 ağ erişimi olmayan geliştirme ortamı). `warnings` alanı hangi kaynağın hangi

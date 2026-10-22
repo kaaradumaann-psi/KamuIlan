@@ -155,6 +155,13 @@ proxy'si, güvenlik başlıkları, varlık önbelleği, gzip).
    Worker için aynı dosyanın `ExecStart=/usr/bin/npm run start:worker` hâli.
    `systemctl enable --now kamuilan-api kamuilan-worker`
 
+   **Kalıcı log:** her servise ayrı dosya verin (döndürülür, varsayılan 20 MB × 5):
+   API birimine `Environment=LOG_FILE=/var/log/kamuilan/api.log`, worker birimine
+   `Environment=LOG_FILE=/var/log/kamuilan/worker.log` (dizin servis kullanıcısına ait,
+   `chmod 750`). Aynı satırlar journald'a da gider (`journalctl -u kamuilan-worker`).
+   Durum: `npm run durum -- --log /var/log/kamuilan/api.log --log /var/log/kamuilan/worker.log`;
+   çıkış kodu 2 (kritik) bir izleme/cron alarmına bağlanabilir.
+
 5. **Ters vekil** — `https://kamuilan.example.com` → arayüz `dist/`,
    `/api` → `http://127.0.0.1:3000`, `/api/docs` üretimde kapatılabilir.
    TLS için Let's Encrypt (certbot) yeterlidir.

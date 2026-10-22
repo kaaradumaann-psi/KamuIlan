@@ -6,7 +6,7 @@
  * "tanımlı / boş" durumu gösterilir.
  *
  * Çalıştırma (proje kökünde):
- *   node durum-kontrol.js
+ *   node durum-kontrol.cjs   (ortam değişkeni denetimi; çalışan sistemin durumu için: npm run durum)
  *
  * Node dışında hiçbir bağımlılık kullanmaz; `npm install` gerektirmez.
  */
