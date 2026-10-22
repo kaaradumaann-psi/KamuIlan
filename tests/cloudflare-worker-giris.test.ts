@@ -23,6 +23,18 @@ describe('functions/worker.ts', () => {
     expect(assets.fetch).not.toHaveBeenCalled();
   });
 
+  it('birden çok Set-Cookie ayrı ayrı korunur (üretimde giriş oturumu kayboluyordu)', async () => {
+    const upstreamHeaders = new Headers({ 'content-type': 'application/json' });
+    upstreamHeaders.append('set-cookie', 'kamuilan_session=abc; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=Thu, 29 Oct 2026 18:00:00 GMT');
+    upstreamHeaders.append('set-cookie', 'kamuilan_csrf=xyz; Path=/; Secure; SameSite=Lax; Expires=Thu, 29 Oct 2026 18:00:00 GMT');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"ok":true}', { headers: upstreamHeaders })));
+    const response = await worker.fetch(new Request('https://kamuilan.ornek.tr/api/auth/login', { method: 'POST', body: '{}' }), env);
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    expect(cookies[0]).toMatch(/^kamuilan_session=abc;/);
+    expect(cookies[1]).toMatch(/^kamuilan_csrf=xyz;/);
+  });
+
   it('sayfa yolları statik varlıklardan (SPA) sunulur', async () => {
     const response = await worker.fetch(new Request('https://kamuilan.ornek.tr/ilanlar/abc'), env);
     expect(await response.text()).toContain('<!doctype html>');

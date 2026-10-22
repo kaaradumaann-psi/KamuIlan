@@ -148,8 +148,12 @@ export async function proxy(context: { request: Request; env: ApiProxyEnv }): Pr
 
   const responseHeaders = new Headers();
   upstream.headers.forEach((value, key) => {
-    if (!STRIPPED_RESPONSE_HEADERS.has(key.toLowerCase())) responseHeaders.set(key, value);
+    const name = key.toLowerCase();
+    if (name !== 'set-cookie' && !STRIPPED_RESPONSE_HEADERS.has(name)) responseHeaders.set(key, value);
   });
+  // Set-Cookie birleştirilemez: `set` yalnız sonuncuyu tutar ve oturum çerezi kaybolur
+  // (girişte API oturum + CSRF çerezi gönderir). Her biri ayrı başlık olarak eklenir.
+  for (const cookie of upstream.headers.getSetCookie()) responseHeaders.append('set-cookie', cookie);
 
   return new Response(upstream.body, {
     status: upstream.status,
