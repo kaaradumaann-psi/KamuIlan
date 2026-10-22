@@ -20,7 +20,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import { getEnv } from '../config/env';
+import { getEnv, type Env } from '../config/env';
 import { APP_VERSION, BRANDING } from '../config/app';
 import { getRepos, type Repos } from '../db/repos';
 import { createLogger } from '../lib/logger';
@@ -102,6 +102,11 @@ export function staticDistRoot(): string {
   return fileURLToPath(new URL('../../dist', import.meta.url));
 }
 
+/** Strict-Transport-Security değeri: yalnız üretim + HTTPS taban adres; aksi halde null. */
+export function hstsHeaderFor(env: Pick<Env, 'NODE_ENV' | 'APP_BASE_URL'>): string | null {
+  return env.NODE_ENV === 'production' && env.APP_BASE_URL.startsWith('https://') ? 'max-age=31536000' : null;
+}
+
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const env = getEnv();
   const repos = options.repos ?? getRepos();
@@ -167,8 +172,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
   }
 
+  // HSTS yalnız üretimde ve site HTTPS ise: tarayıcı sonraki ziyaretlerde HTTP'ye hiç düşmez.
+  // includeSubDomains/preload bilinçli olarak YOK (alan adının diğer alt alanlarını bağlamasın).
+  const hsts = hstsHeaderFor(env);
   app.addHook('onRequest', async (_request, reply) => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
+    if (hsts) reply.header('strict-transport-security', hsts);
   });
 
   // Global hız sınırlama: her istek sayılır, kimlik işlemleri daha sıkı sınırlanır.

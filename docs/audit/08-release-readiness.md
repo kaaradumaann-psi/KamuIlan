@@ -1,5 +1,25 @@
 # 08 — Yayına Hazırlık Değerlendirmesi
 
+## ★ 22.10.2026 güncel durum
+
+**Karar:** **Teknik olarak dağıtıma hazır (giriş kapılı kullanım); halka açık yayın için karar ve
+ölçüm maddeleri açık.** Adım adım yol: [../uretime-cikis.md](../uretime-cikis.md).
+
+| Boyut | 21.10 | 22.10 | Kanıt |
+| --- | --- | --- | --- |
+| Üretim açılışı | doğrulanmamış | **PASS** | Üretim provası; API açılış çökmesi düzeltildi (#68) |
+| Otomatik testler | PASS | **PASS** | 154+ dosya / 1636+ test; E2E 32 (6 görsel, Linux) |
+| Ölçek (R-03) | ZAYIF | **KISMİ** | Filtre/sıralama/sayfalama SQL'de (#37); gerçek Supabase ölçümü yok |
+| Güvenlik | KISMİ-PASS | **PASS (uygulama)** | + HSTS, boş `.env` satırı canlı taramayı açmıyor (#70), hız sınırı yalnız API; RLS hâlâ yok (R-02) |
+| Kaynak uyumu | — | **KISMİ** | Şartlar kapısı worker'da (#68); 22 kaynağın şartları incelenmedi (K8) |
+| Veri doğruluğu | KISMİ | KISMİ | İnsan etiketi 0 (R-04); LLM kapısı gerçek Groq ölçümünde 0/28 yanlış karar |
+| Gözlemlenebilirlik | KISMİ | KISMİ | Yedeğe geçiş logları eklendi (#67); üretim izleme 7 gün (K7) yapılmadı |
+| SEO / herkese açık | FAIL | KARAR | `PUBLIC_LISTINGS_ENABLED` + sitemap var; açmak ürün kararı (K1) |
+
+---
+
+## (Tarihsel) 21.10.2026 değerlendirmesi
+
 **Tarih:** 21.10.2026 · **Karar:** **KOŞULLU — iç/demo kullanım için hazır, halka açık
 yayın için HAZIR DEĞİL.**
 
