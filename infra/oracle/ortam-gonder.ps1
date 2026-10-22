@@ -82,8 +82,11 @@ try {
   & ssh @ssh "sudo install -o root -g kamuilan -m 0640 /tmp/$adEnv /etc/kamuilan/kamuilan.env && sudo install -o kamuilan -g kamuilan -m 0644 /tmp/supabase-ca.crt /opt/kamuilan/app/certs/supabase-ca.crt && rm -f /tmp/$adEnv /tmp/supabase-ca.crt && echo 'ortam dosyası yerinde'"
   if ($LASTEXITCODE -ne 0) { throw 'sunucuya yerleştirme başarısız' }
   if ($u['CLOUDFLARE_TUNNEL_TOKEN']) {
-    # Jeton komut satırında görünmesin diye stdin'den okunur.
-    $u['CLOUDFLARE_TUNNEL_TOKEN'] | & ssh @ssh "read -r T && (sudo cloudflared service uninstall >/dev/null 2>&1 || true) && sudo cloudflared service install `"`$T`" >/dev/null 2>&1 && echo 'tünel servisi kuruldu'"
+    # Jeton komut satırında görünmesin diye stdin'den okunur. PowerShell 5.1 boruya BOM ve \r ekler:
+    # jeton alfabesi dışındaki her bayt silinir.
+    # cloudflared 2026.x jetonu /etc/cloudflared/token dosyasından okur (--token-file).
+    # PowerShell 5.1 uzak komuttaki çift tırnakları siler: komutta yalnız tek tırnak var.
+    $u['CLOUDFLARE_TUNNEL_TOKEN'] | & ssh @ssh "T=`$(cat | tr -cd 'A-Za-z0-9+/=_-'); sudo install -d -m 0755 /etc/cloudflared; printf %s `$T | sudo install -m 0600 -o root -g root /dev/stdin /etc/cloudflared/token; test -f /etc/systemd/system/cloudflared.service || sudo cloudflared service install `$T >/dev/null 2>&1; sudo systemctl enable cloudflared >/dev/null 2>&1; sudo systemctl restart cloudflared >/dev/null 2>&1; sleep 8; systemctl is-active --quiet cloudflared && echo 'tünel servisi çalışıyor' || echo 'tünel başlamadı: sudo journalctl -u cloudflared -n 20'"
   }
 } finally {
   if (Test-Path $gecici) { Remove-Item $gecici -Force }
