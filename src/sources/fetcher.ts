@@ -406,7 +406,7 @@ export class HttpClient {
     this.signal = options.signal;
     this.userAgent =
       toHeaderSafeAscii(options.userAgent ?? getEnv().SCRAPE_USER_AGENT) ||
-      'Mozilla/5.0 (compatible; KamuIlanBot/1.0; +https://kamuilan.halilkaraduman.com.tr)';
+      'Mozilla/5.0 (compatible; KamuIlan/0.3; +https://kamuilan.halilkaraduman.com.tr)';
     this.sleep = options.sleep ?? abortableSleep;
     if (options.dispatcher === undefined && !systemCaStoreAvailable() && !trustWarningShown) {
       trustWarningShown = true;
