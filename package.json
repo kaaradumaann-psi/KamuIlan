@@ -32,6 +32,7 @@
     "start:worker": "tsx src/worker/main.ts",
     "env:check": "tsx scripts/check-env.ts",
     "env:setup": "tsx scripts/env-setup.ts",
+    "env:example": "tsx scripts/env-example.ts",
     "telegram:webhook": "tsx scripts/telegram-webhook.ts",
     "db:indexes": "tsx scripts/create-indexes.ts",
     "db:migrate": "tsx scripts/migrate.ts",

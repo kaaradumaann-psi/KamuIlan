@@ -55,6 +55,11 @@ yoktur; Node'un `--env-file` bayrağına gerek kalmaz). Kurallar:
 - `.env.<NODE_ENV>` (ör. `.env.production`) varsa `.env` üzerine yazar.
 - Dosya yoksa sessizce devam edilir; `.env` isteğe bağlıdır.
 - Testte (`NODE_ENV=test`) yüklenmez — testler ortamı kendileri kurar.
+- **Boş bırakılan satır (`KEY=`) tanımsız sayılır** ve şema varsayılanını alır.
+  `.env.example` her alanın varsayılanını yorumunda yazar; yerel geliştirme için
+  dosyayı olduğu gibi kopyalamak yeterlidir.
+- `.env.example` elle düzenlenmez: `src/config/env-spec.ts`'ten `npm run env:example`
+  ile üretilir (yeni bir değişken eklerken önce spec'e ekleyin; test sapmayı yakalar).
 - Sırlar hiçbir zaman günlüğe yazılmaz; `npm run env:check` yalnızca maskeli
   özet gösterir.
 
