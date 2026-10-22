@@ -15,6 +15,8 @@
  *  - Her kadro, okunduğu satırı `evidence` olarak taşır.
  *  - İl/ilçe bu tabloda yoktur; ilanın kendi `city` alanı kullanılır (uydurulmaz).
  */
+import { parseTurkishNumberWords } from './number-words';
+
 export interface JobOpening {
   title: string;
   quota: number;
@@ -228,39 +230,68 @@ export function extractAcademicOpenings(text: string): JobOpening[] {
  *   "1. Kıdemli .Net Yazılım Geliştirme Uzmanı ve Çözüm Mimarı (B Grubu)"
  *   "(1 Kişi – Tam Zamanlı – Brüt Sözleşme Ücret Tavanının 4 Katına Kadar)"
  *
- * Kurallar: yalnız hemen ardından "(K Kişi" satırı gelen numaralı başlık pozisyondur
- * (başlık en fazla iki satır); numaralar 1'den ardışık değilse ya da kişi sayısı sınır
- * dışıysa hiç pozisyon üretilmez. "Kişi" sözcüğü zorunludur: "(3 adet vesikalık …)" sayılmaz.
+ * OCR biçimi (İŞKUR, RG 18.10.2026-4-4, taranmış belge): başlık ve kişi sayısı AYNI satırda,
+ * rakam yazıyla da verilir ve OCR "1"i "|" okuyabilir:
+ *   "1. KIDEMLİ SİSTEM UZMANI (| (Bir) Kişi — Tam Zamanlı- A Grubu —Aylık Brüt"
+ *
+ * Kurallar: yalnız "(K Kişi" ile aynı satırda ya da hemen ardından gelen numaralı başlık
+ * pozisyondur (başlık en fazla iki satır); numaralar 1'den ardışık değilse ya da kişi sayısı
+ * sınır dışıysa hiç pozisyon üretilmez. "Kişi" sözcüğü zorunludur: "(3 adet vesikalık …)"
+ * sayılmaz. Yazıyla verilen sayı rakamı doğrular: çelişki → hiç pozisyon; rakam okunamıyorsa
+ * ("|", "l", "I") yalnız yazı varsa yazı esas alınır.
  * ------------------------------------------------------------------------- */
 
 const POSITION_HEADING = /^(\d{1,2})\.\s+(\S.{1,150})$/u;
-const POSITION_QUOTA = /^\((\d{1,3})\s+(?:Kişi|KİŞİ|kişi)(?![\p{L}])/u;
+const QUOTA_TOKEN = String.raw`\(\s*(\d{1,3}|[|lI])\s*(?:\(([a-zçğıöşüA-ZÇĞİÖŞÜ ]{2,30})\)\s*)?(?:Kişi|KİŞİ|kişi)(?![\p{L}])`;
+const POSITION_QUOTA = new RegExp(`^${QUOTA_TOKEN}`, 'u');
+const POSITION_INLINE = new RegExp(String.raw`^(\d{1,2})\.\s+(\S.{1,150}?)\s*` + QUOTA_TOKEN, 'u');
+
+/** Rakam + (isteğe bağlı) yazıyla sayı → kişi sayısı; çelişki ya da okunamayan rakamda null. */
+function positionQuota(digits: string | undefined, words: string | undefined): number | null {
+  const fromDigits = digits && /^\d+$/.test(digits) ? Number(digits) : null;
+  const fromWords = words ? parseTurkishNumberWords(words) : null;
+  if (words && fromWords === null) return null;
+  if (fromDigits !== null && fromWords !== null && fromDigits !== fromWords) return null;
+  return fromDigits ?? fromWords;
+}
 
 export function extractPositionOpenings(text: string): JobOpening[] {
   if (!text) return [];
   const lines = text.split('\n').map((rawLine) => rawLine.replace(/\s+/g, ' ').trim());
   const openings: JobOpening[] = [];
   for (const [index, line] of lines.entries()) {
-    const quotaMatch = POSITION_QUOTA.exec(line);
-    if (!quotaMatch) continue;
-    // Başlık: bir önceki satır ya da (bölünmüşse) iki önceki satır + devamı.
-    const previous = lines[index - 1] ?? '';
-    let heading = POSITION_HEADING.exec(previous);
-    let title = heading?.[2] ?? '';
-    if (!heading && previous && !/^[\d(]/u.test(previous)) {
-      heading = POSITION_HEADING.exec(lines[index - 2] ?? '');
-      title = heading ? `${heading[2]} ${previous}` : '';
+    let heading: RegExpExecArray | null = null;
+    let title = '';
+    let quotaMatch: RegExpExecArray | null = POSITION_INLINE.exec(line);
+    let digits: string | undefined;
+    let words: string | undefined;
+    if (quotaMatch) {
+      heading = quotaMatch;
+      title = quotaMatch[2] ?? '';
+      [digits, words] = [quotaMatch[3], quotaMatch[4]];
+    } else {
+      quotaMatch = POSITION_QUOTA.exec(line);
+      if (!quotaMatch) continue;
+      [digits, words] = [quotaMatch[1], quotaMatch[2]];
+      // Başlık: bir önceki satır ya da (bölünmüşse) iki önceki satır + devamı.
+      const previous = lines[index - 1] ?? '';
+      heading = POSITION_HEADING.exec(previous);
+      title = heading?.[2] ?? '';
+      if (!heading && previous && !/^[\d(]/u.test(previous)) {
+        heading = POSITION_HEADING.exec(lines[index - 2] ?? '');
+        title = heading ? `${heading[2]} ${previous}` : '';
+      }
+      if (!heading) continue;
     }
-    if (!heading) continue;
-    const quota = Number(quotaMatch[1]);
-    if (Number(heading[1]) !== openings.length + 1 || quota < 1 || quota > 500) return [];
+    const quota = positionQuota(digits, words);
+    if (quota === null || Number(heading[1]) !== openings.length + 1 || quota < 1 || quota > 500) return [];
     openings.push({
       title: title.trim(),
       quota,
       serviceClass: null,
       degree: null,
       qualification: null,
-      evidence: `${heading[1]}. ${title.trim()} ${line}`.slice(0, 200),
+      evidence: (heading === quotaMatch ? line : `${heading[1]}. ${title.trim()} ${line}`).slice(0, 200),
     });
     if (openings.length >= MAX_ROWS) break;
   }
