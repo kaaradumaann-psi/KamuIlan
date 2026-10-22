@@ -111,13 +111,13 @@ const UNCERTAIN: ContentType = 'uncertain';
 export const MIN_HUMAN_PER_CLASS = 20;
 
 /**
- * Etiket provenansının etkin değeri: gerçek kayıtlarda etiket varsayılan olarak insan
- * doğrulamasıdır; sentetik/başlık kayıtlarında ise spesifikasyondan gelir (insan
- * doğrulaması İDDİA EDİLMEZ). `computeHumanRealReport` ve yeterlilik kararı bu tek
- * tanımdan beslenir.
+ * Etiket provenansının etkin değeri. İnsan doğrulaması YALNIZ açıkça `labelProvenance: "human"`
+ * yazılmışsa kabul edilir: provenansı boş gerçek kayıt `machine` sayılır (ajan/kural etiketli bir
+ * kayıt elle eklendiğinde sahte precision/recall üretmesin). Sentetik/başlık kayıtlarında etiket
+ * spesifikasyondan gelir. `computeHumanRealReport` ve yeterlilik kararı bu tek tanımdan beslenir.
  */
-export function effectiveProvenance(record: EvalRecord): 'human' | 'machine' | 'spec' {
-  return record.labelProvenance ?? (record.origin === 'real' ? 'human' : 'spec');
+export function effectiveProvenance(record: Pick<EvalRecord, 'origin' | 'labelProvenance'>): 'human' | 'machine' | 'spec' {
+  return record.labelProvenance ?? (record.origin === 'real' ? 'machine' : 'spec');
 }
 
 export function isHumanReal(record: EvalRecord): boolean {
