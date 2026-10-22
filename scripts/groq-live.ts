@@ -238,6 +238,8 @@ export function gateEnvOverrides(key: string, models: readonly string[]): Record
     LLM_API_KEY: key,
     LLM_CLASSIFIER_MODEL: models[0] ?? '',
     LLM_CLASSIFIER_FALLBACK_MODELS: models.slice(1).join(','),
+    // Ölçüm (22.10.2026): gpt-oss varsayılan akıl yürütmede ~800/900 çıktı tokenı harcıyordu.
+    LLM_REASONING_EFFORT: 'low',
     LLM_COST_USD_PER_MTOK_INPUT: BUDGET_PRICE_INPUT_USD_PER_MTOK,
     LLM_COST_USD_PER_MTOK_OUTPUT: BUDGET_PRICE_OUTPUT_USD_PER_MTOK,
     LLM_RUN_COST_LIMIT_USD: RUN_COST_LIMIT_USD,

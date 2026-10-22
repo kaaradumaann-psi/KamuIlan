@@ -165,7 +165,7 @@ export function isDailyQuotaExhausted(result: Extract<LlmResult, { ok: false }>)
 export function isProviderOutputValidationFailure(result: Extract<LlmResult, { ok: false }>): boolean {
   if (result.status !== 400) return false;
   const code = String(result.diagnostics?.errorCode ?? '');
-  return code === 'json_validate_failed' || /failed to validate json/i.test(result.diagnostics?.errorMessage ?? '');
+  return code === 'json_validate_failed' || /failed to (?:validate|generate) json/i.test(result.diagnostics?.errorMessage ?? '');
 }
 
 /** Model kullanılamıyor mu (bulunamadı/kaldırıldı)? Bu durumda sıradaki modele geçilir. */
@@ -576,6 +576,25 @@ export interface ChatCompletionOptions {
    * (`generationConfig.thinkingConfig.thinkingBudget`). Belirtilmezse gönderilmez.
    */
   thinkingBudget?: number;
+  /**
+   * Yalnız OpenAI uyumlu uçta: akıl yürütme modellerinin `reasoning_effort` değeri (gpt-oss, o-serisi).
+   * Belirtilmezse gönderilmez. Hangi modele gönderileceğine çağıran karar verir
+   * (`reasoningEffortFor`); qwen gibi modeller bu değeri reddeder.
+   */
+  reasoningEffort?: 'low' | 'medium' | 'high';
+}
+
+/**
+ * `reasoning_effort` yalnız bunu destekleyen akıl yürütme modellerine gönderilir (gpt-oss, OpenAI
+ * o-serisi). Groq canlı ölçümü (22.10.2026, gpt-oss-20b, 4 kayıt): `low` → 4/4 şema-geçerli karar,
+ * çıktı ~250 token (varsayılanda ~800/900, kesilme sınırında), gecikme 0,4–0,8 sn.
+ */
+export function reasoningEffortFor(
+  model: string,
+  effort: '' | 'low' | 'medium' | 'high',
+): 'low' | 'medium' | 'high' | undefined {
+  if (!effort) return undefined;
+  return /(?:^|\/)(?:gpt-oss|o\d)(?:[-.]|$)/i.test(model.trim()) ? effort : undefined;
 }
 
 export type LlmTransport = 'openai-compat' | 'gemini-native';
@@ -999,6 +1018,7 @@ export async function callChatCompletion(
     temperature: options.temperature ?? 0.2,
     max_tokens: options.maxTokens ?? 1200,
     ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+    ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
   };
   if (geminiBody && geminiBody.contents.length === 0) {
     return {

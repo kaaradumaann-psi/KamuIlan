@@ -24,7 +24,7 @@ import {
   llmClassifierConfig,
   type LlmGateInput,
 } from '../src/ai/classifier';
-import { parseDurationMs, readRateLimitInfo, redactSecret, type LlmFetch } from '../src/ai/llm';
+import { parseDurationMs, readRateLimitInfo, reasoningEffortFor, redactSecret, type LlmFetch } from '../src/ai/llm';
 
 const GROQ = 'https://api.groq.com/openai/v1';
 const API_KEY = 'gsk_mockGizliAnahtar0123456789abcdef';
@@ -245,6 +245,49 @@ describe('model zinciri (mock)', () => {
     expect(outcome.classification.llm?.model).toBe(M2);
   });
 
+  it('gpt-oss biçimi: kullanılmayan kanıt alanları null → geçerli karar, yedeğe gerek yok', async () => {
+    const withNulls = JSON.stringify({
+      ...JSON.parse(ILAN),
+      kanitlar: { alimIfadesi: 'sözleşmeli personel alımı yapılacaktır', surecIfadesi: null, olumsuzKanit: null, unvan: null },
+    });
+    const { outcome, calls } = await run({ [M1]: ok(withNulls), [M2]: ok() });
+    expect(calls[M1]).toBe(1);
+    expect(calls[M2]).toBeUndefined();
+    expect(outcome.classification.decision).toBe('accept');
+    expect(outcome.classification.llm?.model).toBe(M1);
+  });
+
+  it('gpt-oss biçimi: kullanılmayan kanıt alanları boş dize → geçerli karar', async () => {
+    const withBlanks = JSON.stringify({
+      ...JSON.parse(ILAN),
+      kanitlar: { alimIfadesi: 'sözleşmeli personel alımı yapılacaktır', surecIfadesi: '', olumsuzKanit: ' ', kontenjan: '', gorevYeri: '' },
+    });
+    const { outcome, calls } = await run({ [M1]: ok(withBlanks), [M2]: ok() });
+    expect(calls[M2]).toBeUndefined();
+    expect(outcome.classification.decision).toBe('accept');
+  });
+
+  it('karar için gereken kanıt boş dize ise kabul YOK (incelemede kalır)', async () => {
+    const blankEvidence = JSON.stringify({ ...JSON.parse(ILAN), kanitlar: { alimIfadesi: '' } });
+    const { outcome } = await run({ [M1]: ok(blankEvidence) });
+    expect(outcome.classification.decision).toBe('review');
+  });
+
+  it('zorunlu alan null (karar) yine geçersiz → yedek model', async () => {
+    const { outcome, calls } = await run({ [M1]: ok(JSON.stringify({ ...JSON.parse(ILAN), karar: null })), [M2]: ok() });
+    expect(calls[M1]).toBe(1);
+    expect(outcome.classification.llm?.model).toBe(M2);
+  });
+
+  it('Groq 400 "Failed to generate JSON" varyantı da yedeğe geçer', async () => {
+    const generate400: Reply = {
+      status: 400,
+      body: JSON.stringify({ error: { message: "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.", type: 'invalid_request_error' } }),
+    };
+    const { outcome } = await run({ [M1]: generate400, [M2]: ok() });
+    expect(outcome.classification.llm?.model).toBe(M2);
+  });
+
   it('üç model de json_validate_failed → incelemede kalır, onay YOK, hata gizlenmez', async () => {
     const { outcome, calls } = await run({ [M1]: JSON_VALIDATE_400, [M2]: JSON_VALIDATE_400, [M3]: JSON_VALIDATE_400 });
     expect([calls[M1], calls[M2], calls[M3]]).toEqual([1, 1, 1]);
@@ -341,5 +384,40 @@ describe('hız sınırı başlıkları ve maskeleme', () => {
 
   it('Groq anahtarı ve kuruluş kimliği maskelenir', () => {
     expect(redactSecret('key gsk_abcdefghijKLMNOP0123 org org_01abcdefghijk', '')).toBe('key *** org org_***');
+  });
+});
+
+describe('LLM_REASONING_EFFORT', () => {
+  it('yalnız gpt-oss / o-serisi modellere gider; qwen ve diğerlerine gönderilmez', () => {
+    expect(reasoningEffortFor('openai/gpt-oss-20b', 'low')).toBe('low');
+    expect(reasoningEffortFor('openai/gpt-oss-120b', 'high')).toBe('high');
+    expect(reasoningEffortFor('o3-mini', 'low')).toBe('low');
+    expect(reasoningEffortFor('qwen/qwen3.8-27b', 'low')).toBeUndefined();
+    expect(reasoningEffortFor('llama-3.3-70b-versatile', 'low')).toBeUndefined();
+    expect(reasoningEffortFor('openai/gpt-oss-20b', '')).toBeUndefined();
+  });
+
+  it('kapı isteğinde gpt-oss gövdesine reasoning_effort eklenir, yedek qwen gövdesine eklenmez', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl: LlmFetch = async (_url, init) => {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      bodies.push(body);
+      const reply = body.model === M1 ? groqError(503, 'Service Unavailable', 'service_unavailable') : ok();
+      return { status: reply.status, headers: reply.headers ?? {}, text: async () => reply.body };
+    };
+    const repos = await makeRepos();
+    const gate = createLlmClassificationGate({
+      repos,
+      env: envFor({ LLM_REASONING_EFFORT: 'low', LLM_RETRY_MAX: '0' }),
+      logger: LOGGER,
+      fetchImpl,
+      retryBackoffMs: 1,
+    });
+    const outcome = await gate.evaluate(input());
+    expect(outcome.classification.llm?.model).toBe(M2);
+    expect(bodies.map((body) => [body.model, body.reasoning_effort])).toEqual([
+      [M1, 'low'],
+      [M2, undefined],
+    ]);
   });
 });

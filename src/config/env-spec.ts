@@ -1082,6 +1082,19 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     skipReason: 'LLM_CLASSIFIER_ENABLED kapalı.',
   },
   {
+    key: 'LLM_REASONING_EFFORT',
+    group: 'llm',
+    label: 'Akıl yürütme düzeyi (gpt-oss / o-serisi)',
+    help:
+      'Yalnız gpt-oss ve o-serisi modellere reasoning_effort olarak gönderilir; diğer modellere gönderilmez. ' +
+      'Groq gpt-oss için "low" önerilir: ölçümde çıktı ~800 → ~250 token, şema-geçerli karar. Boş: gönderilmez.',
+    type: 'enum',
+    options: ['', 'low', 'medium', 'high'],
+    optional: true,
+    dependsOn: (values) => truthy(values['LLM_CLASSIFIER_ENABLED']),
+    skipReason: 'LLM_CLASSIFIER_ENABLED kapalı.',
+  },
+  {
     key: 'AI_PROVIDER_LABEL',
     group: 'llm',
     label: 'Sağlayıcı etiketi',

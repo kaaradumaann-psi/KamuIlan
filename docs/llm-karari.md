@@ -95,12 +95,35 @@ Kullanıcının tek API kaynağı Groq (ücretsiz plan). Model sırası (kullan�
 zinciri korur. gpt-oss modelleri akıl yürütme tokenı harcar: `finish_reason=length` artık
 raporlanır (#60).
 
-**Gerçek ölçüm: HENÜZ YOK.** Ölçüm komutu (anahtar gizli girişle, yalnız bellekte):
-`npm run llm:groq` → model listesi, model başına 1 JSON çağrısı (gecikme, token, akıl yürütme
-tokenı, `x-ratelimit-*`), `eval:classification --llm` (en çok 10 çağrı), tarama hattı + gerçek
-kapı (4 sentetik kayıt). Rapor `.staging/groq-live/` (git dışı). Sonuçlar bu bölüme yazılacak;
-insan etiketli gerçek kayıt olmadığı için **doğruluk metriği verilmeyecek**. Bütçe freni için
-fiyat varsayımı 0,5 / 1 USD/Mtok (doğrulanmadı; ücretsiz planda fatura yok).
+**Gerçek ölçüm (22.10.2026, kullanıcının Groq anahtarı, ücretsiz plan, `npm run llm:groq`).**
+Anahtar yalnız süreç ortamında tutuldu; hiçbir çıktı/rapor anahtar içermez. Kayıtlar **sentetik**
+(4 adet: alım, toplantı haberi, sınav aşaması, İŞKUR aracılı işçi alımı); doğruluk metriği DEĞİLDİR.
+
+*Erişim ve tek çağrı (probe, `max_tokens 256`):* üç model de listede ve erişilebilir.
+
+| Model | Gecikme | Çıktı / akıl yürütme tokenı | Hız sınırı (başlıklardan) |
+| --- | --- | --- | --- |
+| openai/gpt-oss-20b | 247–1150 ms | 114 / 98 | 1000 istek/gün · **8000 token/dk** |
+| qwen/qwen3.8-27b | 103–210 ms | 9 / — | 1000 istek/gün · 8000 token/dk |
+| openai/gpt-oss-120b | 522–767 ms | 119 / 103 | 1000 istek/gün · 8000 token/dk |
+
+*Ölçümle bulunan ve düzeltilen hatalar (#67):*
+1. Groq JSON modu, geçersiz model çıktısını **HTTP 400 `json_validate_failed`** ("Failed to validate/generate JSON") ile bildiriyor; zincir bunu "geçersiz istek" sayıp DURUYORDU → artık sıradaki model.
+2. gpt-oss-20b kullanmadığı kanıt alanlarını kimi koşuda `null`, kimi koşuda `""` yazıyor → geçerli karar "şema dışı" sayılıyordu → boş alan = alan yok (`LLM_PROMPT_VERSION kamuilan-sinif-v2`).
+3. gpt-oss varsayılan akıl yürütmede sınıflandırma başına ~800/900 çıktı tokenı harcıyordu (kesilme sınırı, TPM baskısı) → **`LLM_REASONING_EFFORT=low`** (yalnız gpt-oss/o-serisine gönderilir): çıktı ~240–340 token.
+4. "… Türkiye İş Kurumu aracılığıyla alınacaktır" İŞKUR aracılı işçi alımı **kurallarca reddediliyordu** → olumlu kural + kanıt kapısı (`CLASSIFICATION_VERSION 2026.10.6`).
+5. Başarılı sonuçta yedeğe geçiş nedeni görünmüyordu → model/kategori/HTTP durumu uyarı logu.
+
+*Tarama hattı + gerçek kapı (7 koşu × 4 kayıt = 28 değerlendirme; koşular arasında düzeltmeler uygulandı):*
+- **Yanlış otomatik karar: 0/28.** Otomatik çözülen 21/28; 7/28 kanıt doğrulamasından geçmediği için **incelemede kaldı** (güvenli taraf).
+- Nihai yapılandırma (son 2 koşu, 8 değerlendirme): 6/8 çözüldü, yanlış 0; gpt-oss-20b kapı gecikmesi **p50 788 ms, p95 1121 ms** (n=8); çağrı başına ~1220 girdi + ~240–340 çıktı tokenı.
+- İncelemede kalanların nedeni modelin **zayıf alıntı seçmesi** (ör. haber için "personel alımı planları değerlendirilmiştir" — ayırt edici değil); doğrulayıcı haklı, gevşetilmedi. qwen aynı kayıtlarda güçlü alıntı seçip doğrulamadan geçti.
+- Arka arkaya koşularda **429 (dakikalık token)** görüldü; sınırlı yeniden deneme + yedek model işi tamamladı. Kapasite: model başına ~8000/1500 ≈ **5 sınıflandırma/dk**; zincir 3 modelle ~15/dk üst sınır. Yalnız kuralların `review` dediği kayıtlar kapıya gelir.
+- `eval:classification --llm` adımı **0 çağrı** yaptı: 17 kayıtlık sentetik kümede kuralların `review` dediği kayıt yok. Gerçek ölçüm için insan etiketli gerçek kayıt gerekir (hedef 145; şu an 0) → **kesinlik/duyarlılık ÜRETİLMEDİ**.
+
+Önerilen üretim ayarı (kullanıcı kararı; dağıtım yapılmadı): `LLM_CLASSIFIER_MODEL=openai/gpt-oss-20b`,
+`LLM_CLASSIFIER_FALLBACK_MODELS=qwen/qwen3.8-27b,openai/gpt-oss-120b`, `LLM_REASONING_EFFORT=low`.
+Ücretsiz planda verilerin ürün geliştirmede kullanılıp kullanılamayacağı sağlayıcı koşullarına tabidir (KVKK; §4).
 
 ## 3. Maliyet modeli ve bütçe kapısı (tahmini; fatura değil)
 

@@ -113,6 +113,16 @@ export const POSITION_RECRUITMENT_PATTERN = new RegExp(
     `|\\btemin\\s+ilan\\w*`,
 );
 
+/**
+ * İŞKUR aracılı alım: "3 (üç) temizlik görevlisi Türkiye İş Kurumu aracılığıyla alınacaktır",
+ * "İŞKUR üzerinden … alınacak" (her iki sıra). Olumlu kural VE kanıt kapısı aynı tanımı kullanır.
+ */
+const ISKUR_RECRUITMENT_PATTERN =
+  /\b(?:turkiye\s+is\s+kurumu|iskur)\w*\s+(?:araciligiyla|uzerinden)[\s\S]{0,80}?\bal(?:i?m|inacak)\w*|\bal(?:inacak|inacaktir)\w*[\s\S]{0,60}?\b(?:turkiye\s+is\s+kurumu|iskur)\w*\s+(?:araciligiyla|uzerinden)/;
+
+/** "4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere" (işçi statüsünde istihdam). */
+const LABOUR_LAW_EMPLOYMENT_PATTERN = /\b4857\s+sayili\s+is\s+kanunu[\s\S]{0,80}?\bcalistirilmak\s+uzere/;
+
 /** Personel alımı ilanı olduğunu gösteren olumlu kanıtlar. */
 export const POSITIVE_RULES: readonly KeywordRule[] = [
   {
@@ -246,14 +256,13 @@ export const POSITIVE_RULES: readonly KeywordRule[] = [
     reason: 'Türkiye İş Kurumu (İŞKUR) aracılığıyla alım yapılıyor',
     // "3 (üç) temizlik görevlisi Türkiye İş Kurumu aracılığıyla alınacaktır",
     // "İŞKUR üzerinden ... işçi alınacak" (her iki sıra; 22.10.2026 canlı ölçümünde kurallarca reddedildi).
-    pattern:
-      /\b(?:turkiye\s+is\s+kurumu|iskur)\w*\s+(?:araciligiyla|uzerinden)[\s\S]{0,80}?\bal(?:i?m|inacak)\w*|\bal(?:inacak|inacaktir)\w*[\s\S]{0,60}?\b(?:turkiye\s+is\s+kurumu|iskur)\w*\s+(?:araciligiyla|uzerinden)/,
+    pattern: ISKUR_RECRUITMENT_PATTERN,
     weight: 3,
   },
   {
     id: 'pozitif.is-kanunu-calistirma',
     reason: '4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere alım',
-    pattern: /\b4857\s+sayili\s+is\s+kanunu[\s\S]{0,80}?\bcalistirilmak\s+uzere/,
+    pattern: LABOUR_LAW_EMPLOYMENT_PATTERN,
     weight: 2.5,
   },
   {
@@ -572,7 +581,8 @@ const RECRUITMENT_EVIDENCE_BASE =
  * Ünvan + alım/temin kalıpları da kanıttır (bkz. POSITION_RECRUITMENT_PATTERN).
  */
 export const RECRUITMENT_EVIDENCE_PATTERN = new RegExp(
-  `${RECRUITMENT_EVIDENCE_BASE.source}|${POSITION_RECRUITMENT_PATTERN.source}`,
+  `${RECRUITMENT_EVIDENCE_BASE.source}|${POSITION_RECRUITMENT_PATTERN.source}` +
+    `|${ISKUR_RECRUITMENT_PATTERN.source}|${LABOUR_LAW_EMPLOYMENT_PATTERN.source}`,
 );
 
 /**

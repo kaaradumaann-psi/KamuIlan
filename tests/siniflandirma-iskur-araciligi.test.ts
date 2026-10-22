@@ -6,6 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { classify } from '../src/classification/engine';
+import { RECRUITMENT_EVIDENCE_PATTERN } from '../src/classification/rules';
+import { normalizeTr } from '../src/domain/text';
 
 const BODY =
   'Kurumumuz bünyesinde 4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere 3 (üç) temizlik görevlisi ' +
@@ -36,5 +38,16 @@ describe('İŞKUR aracılı alım', () => {
     });
     expect(result.rules).not.toContain('pozitif.iskur-araciligiyla-alim');
     expect(result.decision).not.toBe('accept');
+  });
+});
+
+describe('LLM kanıt kapısı İŞKUR kalıplarını tanır (kural motoruyla aynı tanım)', () => {
+  it('fiilsiz alıntı "4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere …" alım kanıtıdır', () => {
+    expect(RECRUITMENT_EVIDENCE_PATTERN.test(normalizeTr('4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere 3 (üç) temizlik görevlisi'))).toBe(true);
+    expect(RECRUITMENT_EVIDENCE_PATTERN.test(normalizeTr('temizlik görevlisi Türkiye İş Kurumu aracılığıyla alınacak'))).toBe(true);
+  });
+
+  it('İŞKUR adı tek başına kanıt değildir', () => {
+    expect(RECRUITMENT_EVIDENCE_PATTERN.test(normalizeTr('Türkiye İş Kurumu il müdürlüğü ziyaret edildi'))).toBe(false);
   });
 });
