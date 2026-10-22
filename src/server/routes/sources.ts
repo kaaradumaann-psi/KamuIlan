@@ -8,12 +8,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Repos } from '../../db/repos';
+import { getEnv } from '../../config/env';
 import { ApiError } from '../errors';
 import { toCoverageEntry, toPublicSource, toRunSummary, toSourceStatus } from '../serializers';
 
 export function registerSourceRoutes(app: FastifyInstance, repos: Repos): void {
   app.get('/api/sources', { schema: { tags: ['sources'], summary: 'Aktif kaynaklar ve sağlık durumu' } }, async () => {
-    const coverage = await repos.sources.coverage();
+    const coverage = await repos.sources.coverage({ termsPolicy: getEnv().SOURCE_TERMS_POLICY });
     return {
       sources: coverage.sources.map(toCoverageEntry),
       planned: coverage.planned.map((entry) => ({

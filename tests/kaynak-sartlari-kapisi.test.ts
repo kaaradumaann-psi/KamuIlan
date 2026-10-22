@@ -69,6 +69,11 @@ describe('runSourceScrape + SOURCE_TERMS_POLICY=enforce', () => {
       const repos = createRepos(store);
       const definition = SOURCE_DEFINITIONS.find((entry) => entry.key === 'afad-duyurular')!;
       await repos.sources.seed([definition]);
+      // #84 öncesi üretimde yazılmış eski durum: politika atlaması "Bilinmeyen hata" sayılmıştı.
+      await repos.sources.recordHealth(definition.key, {
+        lastRunAt: '2026-10-22T17:39:43.000Z', success: false, durationMs: 30, discoveredCount: 0, acceptedCount: 0, skipped: true,
+      });
+      expect((await repos.sources.getByKey(definition.key))!.health.lastErrorMessage).toBe('Bilinmeyen hata');
       const source = (await repos.sources.getByKey(definition.key))!;
       const requests: string[] = [];
       const http = {
