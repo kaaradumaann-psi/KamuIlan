@@ -23,6 +23,8 @@
 - [ ] Yedekleme/geri yükleme denendi ([operations.md](./operations.md))
 - [ ] Sağlık kontrolü izleniyor (`GET /api/health`)
 - [ ] `POSTGRES_MAX_CONNECTIONS`: API + worker toplamı Supabase havuz sınırının altında (ücretsiz planda süreç başına 5)
+- [ ] Supabase kök sertifikası: `POSTGRES_SSL_CA_FILE=./certs/supabase-ca.crt` (ayrıntı ve parmak izi: uretime-cikis.md §1); `npm run db:tls-doctor` ✔
+- [ ] Telegram kullanılacaksa dağıtımdan sonra `npm run telegram:webhook -- set` (eski tünel adresine bakan webhook 530 alır)
 - [ ] `SOURCE_TERMS_POLICY` kararı (`warn`/`enforce`) ve `config/source-terms.json` incelemeleri
 - [ ] HSTS: uygulama üretim + https'te `max-age=31536000` gönderir; Cloudflare'de de "Always Use HTTPS" + HSTS
 - [ ] Postgres aynı makinedeyse (127.0.0.1/::1/Unix soketi) `POSTGRES_SSL_MODE=disable` kabul edilir (uyarı); uzak hostta `verify` zorunlu

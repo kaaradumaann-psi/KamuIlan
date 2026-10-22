@@ -14,6 +14,8 @@
 | Kaynak uyumu | — | **KISMİ** | Şartlar kapısı worker'da (#68); 22 kaynağın şartları incelenmedi (K8) |
 | Veri doğruluğu | KISMİ | KISMİ | İnsan etiketi 0 (R-04); LLM kapısı gerçek Groq ölçümünde 0/28 yanlış karar |
 | Gözlemlenebilirlik | KISMİ | KISMİ | Yedeğe geçiş logları eklendi (#67); üretim izleme 7 gün (K7) yapılmadı |
+| Dış servisler (gerçek) | — | **KISMİ** | Supabase TLS+RLS+okuma ✔ (CA dosyasıyla) · Resend teslim ✔ · Groq ✔ · Telegram token ✔ / webhook bayat ✖ · Gemini/Cloudflare BLOCKED |
+| İzleme | — | **PASS (yerel)** | Kalıcı döndürülen log, `npm run durum` (worker durunca KRİTİK), çökme sonrası log korunumu yerelde kanıtlandı; 7 günlük üretim gözlemi YAPILMADI |
 | SEO / herkese açık | FAIL | KARAR | `PUBLIC_LISTINGS_ENABLED` + sitemap var; açmak ürün kararı (K1) |
 
 ---
