@@ -1,5 +1,20 @@
 # 145 insan doğrulamalı gerçek kayıt — etiketleme ve ölçüm runbook'u
 
+## En kolay yol (teknik bilgi gerekmez)
+
+```powershell
+cd D:\coding\claude\kamuradar
+npm run eval:build-set      # veritabanındaki gerçek kayıtlardan çalışma sayfası (salt okunur)
+npm run eval:label-page     # data\etiketleme.html üretir
+start data\etiketleme.html  # tarayıcıda açar
+```
+
+Sayfada: adınızı yazın → her kayıtta *Resmî kaynağı aç* → doğru düğme → alıntıda kararı destekleyen
+cümleyi **fareyle seçin** (kanıt kutusu dolar) → bitince **Dışa aktar**. İndirilen dosyayı Claude Code'a
+verin (`npm run eval:build-set -- --import <dosya>` doğrular; `--apply` ile kümeye eklenir). Sistemin
+tahmini yanlılık olmasın diye gizlidir. Emin olmadığınız kaydı boş bırakın. 22.10.2026: veritabanında
+67 gerçek kayıt var (hedef 145 için yeni taramalar gerekir).
+
 **Hedef:** 145 gerçek ilan; her kayıt resmî URL'den **insan tarafından** doğrulanır.
 Bu sayı doldurulmadan sınıflandırma veya alan çıkarımı için başarı yüzdesi
 yayımlanmaz. Sentetik/şartname kayıtları hedefe sayılmaz ve hiçbir orana katılmaz.

@@ -46,7 +46,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const store = await initStore();
+  // Okuma aracı: şema/indeks DDL çalıştırmaz (üretim veritabanına karşı da güvenle çalışır).
+  const store = await initStore(undefined, { ensureIndexes: false });
   const repos = createRepos(store);
   await repos.sources.seed(SOURCE_DEFINITIONS);
   const coverage = await repos.sources.coverage();
