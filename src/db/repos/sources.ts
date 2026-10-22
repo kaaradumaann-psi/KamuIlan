@@ -134,8 +134,20 @@ export class SourceRepo {
           allowHosts: existing.allowHosts,
           tags: existing.tags,
         };
+        // Elle takip (manual-entry) kaynağı otomatik adaptöre geçtiyse, eski "kapalı" durumu bir yönetici
+        // kararı değil yöntem eksikliğiydi: envanterin enabled/aralık değerleri bir kez uygulanır.
+        const promotedFromManual =
+          existing.adapterKey === 'manual-entry' && definition.adapterKey !== 'manual-entry';
+        const schedule = promotedFromManual
+          ? {
+              enabled: definition.enabled,
+              scrapeIntervalMinutes: definition.intervalMinutes,
+              minRequestIntervalMs: definition.minRequestIntervalMs,
+              maxConcurrency: definition.maxConcurrency,
+            }
+          : {};
         if (!isDeepStrictEqual(current, shared)) {
-          await this.store.updateOne('sources', { key: definition.key }, { ...shared, updatedAt: now });
+          await this.store.updateOne('sources', { key: definition.key }, { ...shared, ...schedule, updatedAt: now });
           updated += 1;
         }
         continue;

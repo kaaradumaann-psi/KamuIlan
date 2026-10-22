@@ -28,6 +28,16 @@ import { assertSafeUrl, FetchError, isTransientTransportFailure, type FetchRespo
 import { launchChromium } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import { detectNextPage } from '../pagination';
+import {
+  planRgBackfill,
+  readRgBackfillState,
+  recordRgBackfill,
+  RG_BACKFILL_MAX_ATTEMPTS,
+  type RgBackfillOutcome,
+} from './resmigazete-backfill';
+
+/** RG çok sık istekte HTML'i askıya alıyor; kaynak kaydı daha düşük olsa da en az bu aralık. */
+export const RG_MIN_REQUEST_INTERVAL_MS = 2_000;
 
 const RESMI_GAZETE_HOST = 'https://www.resmigazete.gov.tr';
 const SECTION_PATTERN = /-\d+\.htm$/i;
@@ -302,6 +312,21 @@ export class ResmiGazeteAdapter implements SourceAdapter {
 
     const today = toIstanbulDateOnly(ctx.fetchedAt);
     const days = [0, 1]; // Bugün yayımlanmadıysa dünkü nüsha okunur.
+    // Geriye dönük tarama (RG_BACKFILL_DAYS > 0): olağan günlerden sonra, kalan PDF/zaman bütçesiyle.
+    const backfillPlan = planRgBackfill(readRgBackfillState(ctx.adapterState), {
+      today,
+      windowDays: env.RG_BACKFILL_DAYS,
+      maxDaysPerRun: env.RG_BACKFILL_DAYS_PER_RUN,
+    });
+    const entries = [
+      ...days.map((offset) => ({ offset, dateOnly: addDaysDateOnly(today, -offset), backfill: false })),
+      ...(backfillPlan?.dates ?? []).map((dateOnly) => ({ offset: -1, dateOnly, backfill: true })),
+    ];
+    const backfillResults: { dateOnly: string; outcome: RgBackfillOutcome }[] = [];
+    let backfillItems = 0;
+    let skipCurrentDays = false;
+    // RG çok sık istekte HTML yanıtlarını askıya alıyor: istekler arası en az 2 sn.
+    const minIntervalMs = Math.max(ctx.source.minRequestIntervalMs, RG_MIN_REQUEST_INTERVAL_MS);
     const browserSessionRef: { current: SectionBrowserSession | null } = { current: null };
 
     const fetchSectionPage = async (
@@ -311,7 +336,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       try {
         const response = await ctx.http.fetchText(url, {
           allowedHosts: ctx.source.allowedHosts,
-          minIntervalMs: ctx.source.minRequestIntervalMs,
+          minIntervalMs,
           retries: 1,
           timeoutMs: budgetedTimeoutMs(ctx, SECTION_TIMEOUT_MS),
         });
@@ -340,15 +365,32 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     };
 
     try {
-      for (const offset of days) {
+      for (const { offset, dateOnly, backfill } of entries) {
+        if (!backfill && skipCurrentDays) continue;
+        if (backfill && (budgetExhausted || detailFetches >= ctx.maxDetailFetches)) {
+          // Bütçe olağan günlere harcandı: gün istek yapılmadan sonraki koşuma kalır.
+          backfillResults.push({ dateOnly, outcome: 'deferred' });
+          continue;
+        }
         if (budgetExhausted) break;
-        const dateOnly = addDaysDateOnly(today, -offset);
+        let dayDeferred = false;
+        let dayFailed = false;
         const sectionUrl = this.sectionUrl(dateOnly);
         let firstPage: { response: FetchResponse | null; html: string };
         try {
           firstPage = await fetchSectionPage(sectionUrl, dateOnly);
         } catch (error) {
           if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+          if (backfill) {
+            const noSection = error instanceof FetchError && error.status === 404;
+            backfillResults.push({ dateOnly, outcome: noSection ? 'done' : 'failed' });
+            notes.push(
+              noSection
+                ? `Geri tarama ${dateOnly}: bölüm sayfası yok (404); gün tamamlandı sayıldı.`
+                : `Geri tarama ${dateOnly}: bölüm alınamadı (${error instanceof Error ? error.message : String(error)}); sonraki koşumda yeniden denenecek.`,
+            );
+            continue;
+          }
           const currentIssueNotPublished =
             offset < days.length - 1 && error instanceof FetchError && error.status === 404;
           if (error instanceof FetchError && error.status !== null && !currentIssueNotPublished) throw error;
@@ -363,7 +405,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
           throw error;
         }
 
-        if (offset === 0 && firstPage.response) {
+        if (!backfill && offset === 0 && firstPage.response) {
           etag = firstPage.response.etag;
           lastModified = firstPage.response.lastModified;
         }
@@ -374,14 +416,18 @@ export class ResmiGazeteAdapter implements SourceAdapter {
             note: 'Bölüm 304 döndürdü; bu çalışmada içeriği ve sayfalama sonu yeniden doğrulanmadı.',
           });
           notes.push(`${dateOnly} nüshası değişmemiş (304).`);
+          if (backfill) {
+            backfillResults.push({ dateOnly, outcome: 'failed' });
+            continue;
+          }
           if (offset === 0) {
             notModified = true;
-            break;
+            skipCurrentDays = true;
           }
           continue;
         }
 
-        sectionDatesRead.push(dateOnly);
+        if (!backfill) sectionDatesRead.push(dateOnly);
         let currentUrl = sectionUrl;
         let currentHtml = firstPage.html;
         const visitedPages = new Set<string>();
@@ -411,7 +457,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
             pageText.includes('ilân') || pageText.includes('ilan') || rows.length > 0;
           if (!isAnnouncementPage) {
             const message = `Resmî Gazete Çeşitli İlânlar sayfası beklenen biçimde değil (${currentUrl}).`;
-            if (pageNumber === 1) {
+            if (pageNumber === 1 && !backfill) {
               throw new AdapterStructureError(
                 this.key,
                 message,
@@ -442,6 +488,8 @@ export class ResmiGazeteAdapter implements SourceAdapter {
 
           for (const row of uniqueRows) {
             if (detailFetches >= ctx.maxDetailFetches) {
+              dayDeferred = true;
+              if (backfill) continue;
               if (!limitNoted) {
                 limitNoted = true;
                 notes.push(
@@ -453,6 +501,8 @@ export class ResmiGazeteAdapter implements SourceAdapter {
 
             if (!hasBudgetFor(ctx, MIN_PDF_BUDGET_MS)) {
               budgetExhausted = true;
+              dayDeferred = true;
+              if (backfill) break;
               deferredByBudget += 1;
               if (!budgetNoted) {
                 budgetNoted = true;
@@ -476,7 +526,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               } else {
                 const pdfResponse = await ctx.http.fetchBinary(row.pdfUrl, {
                   allowedHosts: ctx.source.allowedHosts,
-                  minIntervalMs: ctx.source.minRequestIntervalMs,
+                  minIntervalMs,
                   maxBytes: 15_728_640,
                   timeoutMs: budgetedTimeoutMs(ctx, PDF_TIMEOUT_MS),
                   retries: 1,
@@ -485,7 +535,8 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               }
             } catch (error) {
               if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
-              failedPdfFetches += 1;
+              if (backfill) dayFailed = true;
+              else failedPdfFetches += 1;
               notes.push(
                 `PDF indirilemedi, ilan atlandı (sonraki taramada yeniden denenecek): ` +
                   `${row.pdfUrl.split('/').pop() ?? row.pdfUrl} — ${error instanceof Error ? error.message : String(error)}`,
@@ -528,6 +579,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               sizeBytes: pdfBody.byteLength,
             };
 
+            if (backfill) backfillItems += 1;
             items.push({
               sourceKey: ctx.source.key,
               sourceItemId: this.sourceItemId(row.pdfUrl),
@@ -606,6 +658,20 @@ export class ResmiGazeteAdapter implements SourceAdapter {
           }
         }
 
+        if (backfill) {
+          // Son sayfa işareti olmayan ama sonraki bağlantısı da olmayan bölüm (unknown) eksiksiz
+          // gezilmiş sayılır; sayfa sınırı/yapı/sonraki sayfa hatası (partial) yeniden denenir.
+          const outcome: RgBackfillOutcome = dayFailed
+            ? 'failed'
+            : dayDeferred
+              ? 'deferred'
+              : sectionStatus === 'partial'
+                ? 'failed'
+                : 'done';
+          backfillResults.push({ dateOnly, outcome });
+          notes.push(`Geri tarama ${dateOnly}: ${outcome === 'done' ? 'tamamlandı' : outcome === 'deferred' ? 'bütçe doldu, sonraki koşumda sürecek' : `tamamlanamadı (${sectionNote})`}.`);
+          continue;
+        }
         sectionCoverages.push({ dateOnly, status: sectionStatus, note: sectionNote });
       }
     } finally {
@@ -658,14 +724,30 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       `Liste kapsamı: ${coverageStatus === 'complete' ? 'tam' : coverageStatus === 'partial' ? 'kısmi' : 'bilinmiyor'} — ${coverageNote}`,
     );
 
+    let adapterState: Record<string, unknown> | undefined;
+    if (backfillPlan) {
+      const nextState = recordRgBackfill(backfillPlan, backfillResults, ctx.fetchedAt);
+      adapterState = { ...(ctx.adapterState ?? {}), rgBackfill: nextState };
+      const finished = nextState.doneDates.length + nextState.skippedDates.length;
+      notes.push(
+        `Geri tarama (${nextState.windowDays} gün, başlangıç ${nextState.anchorDate}): bu koşumda ` +
+          `${backfillResults.filter((result) => result.outcome === 'done').length}/${backfillResults.length} gün tamamlandı, ` +
+          `${backfillItems} geçmiş ilan; toplam ${finished}/${Math.max(0, nextState.windowDays - 1)} gün` +
+          (nextState.skippedDates.length > 0 ? ` (${nextState.skippedDates.length} gün ${RG_BACKFILL_MAX_ATTEMPTS} denemede okunamadı, atlandı)` : '') +
+          (nextState.completedAt ? '; geri tarama bitti, tekrarlanmayacak.' : '.'),
+      );
+    }
+
     return {
       items,
       requestCount,
       notes,
       etag,
       lastModified,
-      notModified,
+      // Geçmiş günlerden ilan geldiyse koşum "değişmedi" sayılmaz.
+      notModified: notModified && backfillItems === 0,
       coverage: { status: coverageStatus, note: coverageNote },
+      ...(adapterState ? { adapterState } : {}),
     };
   }
 

@@ -61,6 +61,11 @@ export const sourceSchema = z.object({
   coverageNotes: z.string().default(''),
   allowHosts: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
+  /**
+   * Adaptörün koşumlar arası kalıcı küçük durumu (ör. Resmî Gazete geriye dönük tarama ilerlemesi).
+   * Yalnız adaptör okur/yazar; tarama hattı başarılı koşumdan sonra olduğu gibi saklar.
+   */
+  adapterState: z.record(z.string(), z.unknown()).nullable().optional(),
   health: z.object({
     lastRunAt: z.string().nullable(),
     lastSuccessAt: z.string().nullable(),

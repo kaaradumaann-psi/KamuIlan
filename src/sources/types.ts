@@ -36,6 +36,8 @@ export interface AdapterContext {
   knownItemIdsWithDetail?: ReadonlySet<string>;
   /** Adapter'ın indirebileceği ek belge sayısı üst sınırı. */
   maxDetailFetches: number;
+  /** Önceki koşumun kaydettiği adaptör durumu (`AdapterRunResult.adapterState`); yoksa null. */
+  adapterState?: Readonly<Record<string, unknown>> | null;
 }
 
 export interface AdapterRunResult {
@@ -53,6 +55,11 @@ export interface AdapterRunResult {
   coverage?: { status: 'complete' | 'partial' | 'unknown'; note: string };
   /** Görülen HTTP durum kodları (opsiyonel; tarama kaydında gösterilir). */
   httpStatuses?: number[];
+  /**
+   * Sonraki koşuma aktarılacak adaptör durumu. Tanımlıysa hat, ilanların tümü hatasız işlendiğinde
+   * kaynağa yazar (hatalı koşumda yazılmaz; iş sonraki koşumda tekrarlanır). Tanımsızsa dokunulmaz.
+   */
+  adapterState?: Record<string, unknown>;
 }
 
 export interface SourceAdapter {

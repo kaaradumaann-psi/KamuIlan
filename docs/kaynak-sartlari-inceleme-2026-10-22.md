@@ -59,3 +59,11 @@ incelenmelidir.
 ## Ek (22.10.2026, okuyucu onarımı)
 
 | iskur-kamu-memur-alim, iskur-kurumdisi-kamu-isci | robots.txt `Disallow: /*?*` ilan satırı adreslerini (`?idId=&il=`) yasaklıyor; sayfa yalnız il haritası veriyor | — | **blocked** (önceki allowed kararı geri alındı) |
+
+## Ek (23.10.2026, İŞKUR e-Şube)
+
+| Kaynak | Bulgu | Şartlar | Karar |
+|---|---|---|---|
+| iskur-esube-acik-is | robots.txt yalnız `Disallow: /Meslek/ViewMeslekDetayPopUp.aspx/`; arama formu (ASP.NET postback, "Kamu" seçeneği) ve `AcikIsIlanDetay.aspx?uiID=` girişsiz açılıyor, CAPTCHA yok; canlı denemede 90 kamu ilanı / 6 sayfa | Yayımlanmış kullanım şartları metni bulunamadı | **allowed** (site sahibi onayı 23.10.2026; istekler arası ≥5 sn) |
+
+Eski iki `iskur-kamu-*` kaydı (www.iskur.gov.tr il haritası, robots `Disallow: /*?*`) **blocked** kalır.

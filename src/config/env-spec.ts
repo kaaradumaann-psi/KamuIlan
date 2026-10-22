@@ -1064,6 +1064,28 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     skipReason: 'OCR_ENABLED kapalı.',
   },
   {
+    key: 'RG_BACKFILL_DAYS',
+    group: 'tarama',
+    label: 'Resmî Gazete geriye dönük tarama (gün)',
+    help:
+      '0 = kapalı. Örn. 60: worker son 60 günün Çeşitli İlânlar bölümlerini bir kez, kalıcı ilerleme kaydıyla ' +
+      'koşum başına birkaç gün tarar; bitince durur. Süresi geçmiş ilanlar "kapandı" olarak arşivlenir.',
+    type: 'number',
+    defaultValue: '0',
+    optional: true,
+  },
+  {
+    key: 'RG_BACKFILL_DAYS_PER_RUN',
+    group: 'tarama',
+    label: 'Geri taramada koşum başına gün',
+    help: 'Bir Resmî Gazete koşumunda işlenecek azami geçmiş gün; PDF bütçesi günlük taramayla ortaktır.',
+    type: 'number',
+    defaultValue: '3',
+    optional: true,
+    dependsOn: (values) => Number(values['RG_BACKFILL_DAYS'] ?? 0) > 0,
+    skipReason: 'RG_BACKFILL_DAYS kapalı.',
+  },
+  {
     key: 'LLM_CLASSIFIER_ENABLED',
     group: 'llm',
     label: 'LLM sınıflandırma kapısı',

@@ -16,6 +16,7 @@ import { OsymAdapter } from './adapters/osym';
 import { SbbKamuIlanAdapter } from './adapters/sbb-kamuilan';
 import { KariyerKapisiAdapter } from './adapters/kariyerkapisi';
 import { ManualEntryAdapter } from './adapters/manual-entry';
+import { IskurEsubeAdapter } from './adapters/iskur-esube';
 import { createIskurAdapter, createKurumAdapter, createMebAdapter } from './adapters/anchor-list';
 
 const ADAPTERS: readonly SourceAdapter[] = [
@@ -25,6 +26,7 @@ const ADAPTERS: readonly SourceAdapter[] = [
   new OsymAdapter(),
   new SbbKamuIlanAdapter(),
   new KariyerKapisiAdapter(),
+  new IskurEsubeAdapter(),
   createIskurAdapter(),
   createMebAdapter(),
   createKurumAdapter(),
