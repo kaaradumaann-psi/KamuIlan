@@ -133,7 +133,7 @@ export function registerHealthRoutes(app: FastifyInstance, repos: Repos): void {
         repos.runs.summary(),
         repos.heartbeats.list(),
         repos.queue.stats(),
-        repos.sources.coverage(),
+        repos.sources.coverage({ termsPolicy: env.SOURCE_TERMS_POLICY }),
       ]);
 
       const staleThreshold = new Date(now.getTime() - HEARTBEAT_STALE_MS).toISOString();

@@ -409,7 +409,7 @@ export class WorkerRuntime {
         };
       }
       case 'coverage-audit': {
-        const coverage = await this.repos.sources.coverage();
+        const coverage = await this.repos.sources.coverage({ termsPolicy: this.env.SOURCE_TERMS_POLICY });
         await this.repos.audit.append({
           actorUserId: null,
           actorRole: 'worker',
@@ -422,6 +422,7 @@ export class WorkerRuntime {
             verified: coverage.summary.verified,
             failing: coverage.summary.failing,
             stale: coverage.summary.stale,
+            awaitingTerms: coverage.summary.awaitingTerms,
             planned: coverage.planned.length,
             job: payload['taskId'] ?? null,
           },

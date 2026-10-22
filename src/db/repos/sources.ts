@@ -10,6 +10,7 @@ import type { SourceDoc } from '../schemas';
 import { validateDocument } from '../validate';
 import type { SourceDefinition } from '../../config/sources';
 import { PLANNED_SOURCES, SOURCE_DEFINITIONS } from '../../config/sources';
+import { loadSourceTerms, sourceTermsGate } from '../../sources/terms';
 
 export interface SourceHealthUpdate {
   lastRunAt: string;
@@ -41,6 +42,8 @@ export interface SourceHealthUpdate {
 }
 
 export interface SourceCoverageEntry {
+  /** Kullanım şartları kapısı bu kaynağı taramıyor (yalnız `coverage({ termsPolicy })` ile). */
+  termsGated: boolean;
   key: string;
   name: string;
   institution: string;
@@ -297,8 +300,12 @@ export class SourceRepo {
     return this.store.updateOne('sources', { key }, patch);
   }
 
-  /** Kapsam raporu: entegre kaynaklar + henüz entegre edilmemiş hedefler. */
-  async coverage(): Promise<{
+  /**
+   * Kapsam raporu: entegre kaynaklar + henüz entegre edilmemiş hedefler.
+   * `termsPolicy` verilirse kullanım şartları kapısının taramadığı kaynaklar "başarısız"
+   * ya da "eskimiş" sayılmaz; `awaitingTerms` içinde ayrıca sayılır.
+   */
+  async coverage(options: { termsPolicy?: 'warn' | 'enforce' } = {}): Promise<{
     sources: SourceCoverageEntry[];
     planned: typeof PLANNED_SOURCES;
     summary: {
@@ -309,9 +316,12 @@ export class SourceRepo {
       built: number;
       failing: number;
       stale: number;
+      /** Etkin ama kullanım şartları onayı olmadığı için taranmayan kaynak sayısı. */
+      awaitingTerms: number;
       planned: number;
     };
   }> {
+    const terms = options.termsPolicy ? loadSourceTerms() : null;
     // Bağımsız okumalar aynı anda yapılır: uzak veritabanında her gidiş-dönüş
     // yüzlerce milisaniye sürer; sıralı okuma sayfayı istemci zaman aşımına taşır.
     const [allSources, scheduledTasks] = await Promise.all([
@@ -338,9 +348,12 @@ export class SourceRepo {
       // deneme kaynağı "yakın zamanda tarandı" gibi gösteremez.
       const isStale =
         !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
-      if (source.health.consecutiveFailures > 0) failing += 1;
-      if (source.enabled && isStale) stale += 1;
+      const termsGated =
+        terms !== null && options.termsPolicy !== undefined && sourceTermsGate(source.key, options.termsPolicy, terms).skip;
+      if (!termsGated && source.health.consecutiveFailures > 0) failing += 1;
+      if (!termsGated && source.enabled && isStale) stale += 1;
       entries.push({
+        termsGated,
         key: source.key,
         name: source.name,
         institution: source.institution,
@@ -380,6 +393,7 @@ export class SourceRepo {
         built: entries.filter((entry) => entry.built && !entry.verified).length,
         failing,
         stale,
+        awaitingTerms: entries.filter((entry) => entry.enabled && entry.termsGated).length,
         planned: PLANNED_SOURCES.length,
       },
     };

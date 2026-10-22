@@ -143,16 +143,19 @@ export async function buildStatusReport(
         },
   );
 
-  const coverage = await repos.sources.coverage();
-  const enabled = coverage.sources.filter((source) => source.enabled);
+  // Şartlar kapısının taramadığı kaynaklar (K8) arıza değildir: ayrı sayılır.
+  const coverage = await repos.sources.coverage({ termsPolicy: env.SOURCE_TERMS_POLICY });
+  const enabled = coverage.sources.filter((source) => source.enabled && !source.termsGated);
+  const awaitingTerms = coverage.summary.awaitingTerms;
   const failing = enabled.filter((source) => source.health.consecutiveFailures > 0);
   const lastSuccess = enabled.map((source) => source.health.lastSuccessAt).filter(Boolean).sort().pop() ?? null;
   checks.push({
     area: 'Kaynak taraması',
     level: !lastSuccess ? 'warning' : failing.length > Math.max(2, enabled.length / 3) ? 'critical' : failing.length > 0 ? 'warning' : 'healthy',
     summary:
-      `${enabled.length} etkin kaynak · son başarılı tarama ${ago(lastSuccess, now)} · ` +
-      (failing.length ? `başarısız: ${failing.slice(0, 5).map((source) => source.name).join(', ')}${failing.length > 5 ? ` (+${failing.length - 5})` : ''}` : 'başarısız kaynak yok'),
+      `${enabled.length} taranan kaynak · son başarılı tarama ${ago(lastSuccess, now)} · ` +
+      (failing.length ? `başarısız: ${failing.slice(0, 5).map((source) => source.name).join(', ')}${failing.length > 5 ? ` (+${failing.length - 5})` : ''}` : 'başarısız kaynak yok') +
+      (awaitingTerms > 0 ? ` · kullanım şartları onayı bekleyen ${awaitingTerms} kaynak taranmıyor (config/source-terms.json)` : ''),
     ...(enabled.length === 0
       ? { action: 'Kaynak envanteri yüklenmemiş: npm run db:migrate' }
       : failing.length

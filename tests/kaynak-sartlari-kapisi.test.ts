@@ -86,6 +86,17 @@ describe('runSourceScrape + SOURCE_TERMS_POLICY=enforce', () => {
       expect(result.status).toBe('skipped');
       expect(result.notes.join(' ')).toContain('SOURCE_TERMS_POLICY=enforce');
       expect(requests).toEqual([]);
+
+      // Üretim bulgusu (22.10.2026, Oracle): politika atlaması "Bilinmeyen hata" ile başarısızlık
+      // sayılıyor, durum raporu sahte KRİTİK veriyordu. Atlama sağlık sayaçlarına yazılmaz.
+      await runSourceScrape({ repos, source, trigger: 'manual', workerId: 'w', liveFetch: true, http: http as never, queueNotifications: false });
+      const health = (await repos.sources.getByKey(definition.key))!.health;
+      expect(health.consecutiveFailures).toBe(0);
+      expect(health.lastErrorAt).toBeNull();
+      expect(health.lastErrorMessage).toBeNull();
+      const coverage = await repos.sources.coverage({ termsPolicy: 'enforce' });
+      expect(coverage.summary).toMatchObject({ failing: 0, stale: 0, awaitingTerms: 1 });
+      expect(coverage.sources.find((entry) => entry.key === definition.key)?.termsGated).toBe(true);
     } finally {
       if (previous.policy === undefined) delete process.env.SOURCE_TERMS_POLICY;
       else process.env.SOURCE_TERMS_POLICY = previous.policy;

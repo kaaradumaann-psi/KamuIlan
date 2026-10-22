@@ -516,7 +516,10 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   const finished = await repos.runs.finish(run.id, totals, status, resultMessage);
   const durationMs = repos.clock.now().getTime() - startedAt;
 
-  if (!liveScanDisabled) {
+  // Şartlar kapısı atlaması bir toplama denemesi değil, politika kararıdır: sağlık
+  // sayaçlarına "başarısızlık" yazılmaz (yazılırsa durum raporu sahte KRİTİK verir ve
+  // 3 atlamadan sonra yöneticiye "kaynak başarısız" uyarısı gider). Koşu kaydı kalır.
+  if (!liveScanDisabled && !termsGate?.skip) {
     const lastHttpStatus =
       totals.httpStatuses.length > 0
         ? (totals.httpStatuses[totals.httpStatuses.length - 1] ?? null)
