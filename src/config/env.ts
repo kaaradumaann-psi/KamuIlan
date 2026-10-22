@@ -250,6 +250,12 @@ const envSchema = z.object({
       ].join(','),
     )
     .transform(csv),
+  /**
+   * Kaynak kullanım şartları kapısı (`config/source-terms.json`). `blocked` kararlı kaynak HER ZAMAN
+   * atlanır. `warn` (varsayılan): incelenmemiş kaynak taranır, tarama notunda görünür. `enforce`:
+   * yalnız incelenmiş + `allowed` + saklama izni doğrulanmış kaynak taranır.
+   */
+  SOURCE_TERMS_POLICY: z.enum(['warn', 'enforce']).default('warn'),
   /** Canlı kaynak erişimi kapalıysa adaptörler yalnızca doğrulama yapar (test/lint). */
   SOURCE_LIVE_FETCH: z
     .string()
@@ -557,6 +563,25 @@ export const POSTGRES_URL_FORBIDDEN_TLS_PARAMS: readonly string[] = [
 ];
 
 /**
+ * Bağlantı aynı makineye mi (loopback: localhost, 127.0.0.0/8, ::1 ya da Unix soketi)?
+ * Bu durumda trafik ağa çıkmaz; TLS'in kapalı olması MITM riski taşımaz (ör. Postgres'in
+ * API ile aynı sunucuda çalıştığı systemd kurulumu). URL ayrıştırılamazsa false.
+ */
+export function postgresUrlIsLoopback(url: string): boolean {
+  if (!url) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = decodeURIComponent(parsed.hostname).replace(/^\[|\]$/g, '').toLowerCase();
+  const socketHost = parsed.searchParams.get('host') ?? '';
+  if (!host && socketHost.startsWith('/')) return true;
+  return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+/**
  * URL'deki yasak TLS parametrelerinin adlarını döner (değerleri ASLA dönmez;
  * bağlantı dizesi sırdır). URL ayrıştırılamazsa boş döner — biçim hatasını
  * pg'nin kendi açık hatası verir, burada gizlenmez.
@@ -789,7 +814,14 @@ function collectEnvironmentProblems(
         'kimlik doğrulama bilgilerini ele geçirebildiği bir aracı-orta (MITM) riskidir; Supabase için ' +
         'ek dosya gerekmez — POSTGRES_SSL_MODE=verify (varsayılan) bırakın ya da CA yolunu ' +
         'POSTGRES_SSL_CA_FILE ile gösterin.';
-      if (env.NODE_ENV === 'production') problems.push(`Üretimde ${message}`);
+      const loopbackPlaintext = tlsMode === 'disable' && postgresUrlIsLoopback(env.POSTGRES_URL || env.DATABASE_URL);
+      if (loopbackPlaintext) {
+        // Aynı makinedeki Postgres: trafik ağa çıkmaz; üretimde de yalnız uyarı.
+        warnings.push(
+          'Veritabanı bağlantısında TLS kapalı; bağlantı aynı makineye (loopback) olduğu için kabul edildi. ' +
+            'Veritabanı başka bir makineye taşınırsa POSTGRES_SSL_MODE=verify yapın.',
+        );
+      } else if (env.NODE_ENV === 'production') problems.push(`Üretimde ${message}`);
       else warnings.push(message);
     }
   }

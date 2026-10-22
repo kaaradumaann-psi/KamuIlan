@@ -41,6 +41,13 @@ const MAX_SECTION_PAGES = 10;
 const PDF_TIMEOUT_MS = 25_000;
 /** Bir PDF indirmesine başlamak için gereken asgari kalan bütçe. */
 const MIN_PDF_BUDGET_MS = 8_000;
+/**
+ * Tek bölüm (liste) sayfası isteği için üst sınır. Verilmediğinde HttpClient varsayılanı tüm tarama
+ * bütçesidir (SCRAPE_TIMEOUT_MS): sunucu yanıt başlığını göndermeyip bağlantıyı askıda tuttuğunda
+ * (22.10.2026 üretim provası, `UND_ERR_HEADERS_TIMEOUT`) tek istek + yeniden deneme 120 sn'nin tamamını
+ * yiyip taramayı kısmi sonuç yerine "başarısız" bitiriyordu.
+ */
+const SECTION_TIMEOUT_MS = 20_000;
 
 type CoverageStatus = 'complete' | 'partial' | 'unknown';
 
@@ -306,6 +313,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
           allowedHosts: ctx.source.allowedHosts,
           minIntervalMs: ctx.source.minRequestIntervalMs,
           retries: 1,
+          timeoutMs: budgetedTimeoutMs(ctx, SECTION_TIMEOUT_MS),
         });
         requestCount += 1;
         return { response, html: response.decoded?.text ?? response.body.toString('utf8') };

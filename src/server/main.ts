@@ -28,7 +28,8 @@ async function main(): Promise<void> {
   const repos = createRepos(store);
   logger.info({ driver: store.driver }, 'veritabanı ve indeksler hazır');
 
-  const app = await buildApp({ repos, serveStatic: true });
+  // Derlenmiş arayüz yalnız üretimde aynı süreçten sunulur (geliştirmede Vite sunar).
+  const app = await buildApp({ repos, serveStatic: env.NODE_ENV === 'production' });
   const port = env.PORT;
   const host = env.HOST;
 
