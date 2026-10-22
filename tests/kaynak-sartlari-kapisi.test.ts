@@ -67,7 +67,8 @@ describe('runSourceScrape + SOURCE_TERMS_POLICY=enforce', () => {
     try {
       await store.init();
       const repos = createRepos(store);
-      const definition = SOURCE_DEFINITIONS.find((entry) => entry.key === 'afad-duyurular')!;
+      // 22.10.2026 incelemesinde kararı `unknown` kalan kaynak (yasal uyarı bağlantısı çözülmüyor).
+      const definition = SOURCE_DEFINITIONS.find((entry) => entry.key === 'kamuilan-sbb')!;
       await repos.sources.seed([definition]);
       // #84 öncesi üretimde yazılmış eski durum: politika atlaması "Bilinmeyen hata" sayılmıştı.
       await repos.sources.recordHealth(definition.key, {

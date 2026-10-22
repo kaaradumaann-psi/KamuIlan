@@ -14,13 +14,13 @@
     },
     {
       "sourceKey": "osym-duyurular",
-      "decision": "unknown",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "robotsUrl": null,
-      "termsUrl": null,
-      "allowsStorage": null,
-      "notes": "Bu depo tarafından incelenmedi; canlı koşum öncesi operatör doldurmalıdır."
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.osym.gov.tr/robots.txt",
+      "termsUrl": "https://www.osym.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): dosya yok — istek /Home/Index ana sayfasına yönleniyor (HTML); dokuman.osym.gov.tr/robots.txt 404. Kısıt yok. Şartlar sayfası bulunamadı (altbilgide yalnız \"© T.C. ÖSYM Başkanlığı\"; yasal uyarı/kullanım koşulu bağlantısı yok). Otomatik erişimi ya da kaynak gösterilerek kısa özeti yasaklayan ifade görülmedi. AİS (giriş gerektirir) kapsam dışı."
     },
     {
       "sourceKey": "iskur-kamu-memur-alim",
@@ -41,6 +41,206 @@
       "termsUrl": "https://www.iskur.gov.tr/kurumsal-bilgi/kvkk/",
       "allowsStorage": true,
       "notes": "robots.txt (21.10.2026): User-agent * için /api/ ve sorgu dizeli adresler (/*?*) yasak; /ilanlar/ yolları serbest. Sayfalama (?page=) robots gereği izlenmemeli: --max-pages=1. Yayımlanmış kullanım şartları sayfası bulunamadı (termsUrl = KVKK sayfası). Saklama kararı depo sahibinin oturumdaki açık onayına dayanır; hukuki inceleme değildir."
+    },
+    {
+      "sourceKey": "ilan-gov-tr-personel",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.ilan.gov.tr/robots.txt",
+      "termsUrl": "https://www.ilan.gov.tr/",
+      "allowsStorage": false,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste (/ilan/tum-ilanlar/...) ve detay yolları yasaklanmamış; temkinle /*tebligat robotsDisallow olarak eklendi. ŞARTLAR: sitenin altbilgisi (main-es2015 paketi, footer-copyright) \"Bu sitede bulunan yazı, görsel ve video gibi hiçbir içerik izinsiz olarak kullanılamaz.\" diyor — açık izin şartı. Basın İlan Kurumu'ndan yazılı izin (bkz. docs/kaynak-izin-yazisi-taslak.md) alınmadan taranmaz."
+    },
+    {
+      "sourceKey": "ilan-gov-tr-api-personel",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.ilan.gov.tr/robots.txt",
+      "termsUrl": "https://www.ilan.gov.tr/",
+      "allowsStorage": false,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste (/ilan/tum-ilanlar/...) ve /api/api/services/app uç noktaları yasaklanmamış; temkinle /*tebligat robotsDisallow olarak eklendi. ŞARTLAR: sitenin altbilgisi (main-es2015 paketi, footer-copyright) \"Bu sitede bulunan yazı, görsel ve video gibi hiçbir içerik izinsiz olarak kullanılamaz.\" diyor — açık izin şartı. Basın İlan Kurumu'ndan yazılı izin (bkz. docs/kaynak-izin-yazisi-taslak.md) alınmadan taranmaz."
+    },
+    {
+      "sourceKey": "kariyerkapisi-isealim",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://kariyerkapisi.gov.tr/robots.txt",
+      "termsUrl": "https://kariyerkapisi.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): 404, kısıt yok. Şartlar sayfası bulunamadı (ana sayfa ve /isealim istemci tarafında oluşuyor; statik HTML'de yasal uyarı/kullanım koşulu bağlantısı yok). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "meb-personel-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://personel.meb.gov.tr/robots.txt",
+      "termsUrl": "https://personel.meb.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): yalnız adı geçen botlar (ia_archiver, GPTBot, ClaudeBot, CCBot, AhrefsBot vb.) için Disallow: /; User-agent * grubu yok → KamuIlan UA'sı ve RSS yolu (/meb_iys_dosyalar/xml/rss_duyurular.xml) serbest. Şartlar sayfası bulunamadı; altbilgide genel \"Tüm Hakları Saklıdır\" ibaresi var, otomatik erişim/kaynaklı kısa özet için açık yasak yok. Not: arşivleme ve yapay zekâ botlarını engelliyor; biz yalnız başlık+bağlantı+özet saklıyoruz, tam metin arşivlemiyoruz."
+    },
+    {
+      "sourceKey": "kamuilan-sbb",
+      "decision": "unknown",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://kamuilan.sbb.gov.tr/robots.txt",
+      "termsUrl": "https://kamuilan.sbb.gov.tr/",
+      "allowsStorage": null,
+      "notes": "robots.txt (22.10.2026): 404 (IIS \"File or directory not found\"), kısıt yok. ŞARTLAR BELİRSİZ: altbilgideki \"YASAL UYARI\" bağlantısı http://www.dpb.gov.tr/tr-tr/yasal-uyari adresine gidiyor; dpb.gov.tr DNS'te çözülmüyor (22.10.2026, iki deneme). www.sbb.gov.tr ana sayfasında da yasal uyarı sayfası yok. Bağlanan metin okunamadığı için karar verilmedi; SBB'den güncel yasal uyarı ya da yazılı teyit alınınca yeniden değerlendirin."
+    },
+    {
+      "sourceKey": "saglik-bakanligi-personel",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://yhgm.saglik.gov.tr/robots.txt",
+      "termsUrl": "https://yhgm.saglik.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): yhgm.saglik.gov.tr ve www.saglik.gov.tr için dosya yok (\"Sayfa Bulunmadı\" HTML sayfası), kısıt yok. Şartlar sayfası bulunamadı (yalnız /Genel/cerez-politikamiz.aspx ve www.saglik.gov.tr/TR-99306/cerez-politikasi.html çerez politikaları; altbilgide \"Tüm hakları saklıdır\"). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "adalet-bakanligi-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.adalet.gov.tr/robots.txt",
+      "termsUrl": "https://www.adalet.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): \"User-agent: * / Disallow: /yonetim/\" → /arsiv liste yolu serbest; /yonetim/ robotsDisallow olarak eklendi. pgm.adalet.gov.tr/robots.txt 404. Şartlar sayfası bulunamadı (altbilgide yalnız \"© 2026\"). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "icisleri-bakanligi-duyurular",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.icisleri.gov.tr/robots.txt",
+      "termsUrl": "https://www.icisleri.gov.tr/gizlilik-politikasi",
+      "allowsStorage": false,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * için Disallow: /kullanicilar, /ortak_icerik, /kurumlar, /Kurumlar, /Kullanicilar; /duyurular serbest. ŞARTLAR (\"Gizlilik, Kullanım ve Telif Hakları\"): \"Kod ve yazılım da dâhil olmak üzere, bu sitedeki hiç bir malzemeyi değiştiremez, kopyalayamaz, çoğaltamaz, yeniden yayımlayamaz ... ya da dağıtamazsınız.\" — başlık/özet yeniden yayımını da kapsayan açık yasak. Yazılı izin alınmadan taranmaz."
+    },
+    {
+      "sourceKey": "goc-idaresi-duyurular",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.goc.gov.tr/robots.txt",
+      "termsUrl": "https://www.goc.gov.tr/gizlilik-kullanim-ve-telif-haklari",
+      "allowsStorage": false,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * için Disallow: /kullanicilar, /ortak_icerik, /kurumlar, /Kurumlar, /Kullanicilar; /duyurular serbest. ŞARTLAR (\"Gizlilik Kullanım ve Telif Hakları\"): \"bu sitedeki hiç bir malzemeyi değiştiremez, kopyalayamaz, çoğaltamaz, yeniden yayımlayamaz ... ya da dağıtamazsınız.\" — açık yasak. Yazılı izin alınmadan taranmaz."
+    },
+    {
+      "sourceKey": "afad-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.afad.gov.tr/robots.txt",
+      "termsUrl": "https://www.afad.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * için Disallow: /kullanicilar, /ortak_icerik, /kurumlar, /Kurumlar, /Kullanicilar; /duyurular serbest, kurallar robotsDisallow olarak eklendi (/kurumlar/... ekleri istenmez). Şartlar sayfası bulunamadı: altbilgide yalnız \"Bilgi Güvenliği Politikamız\" ve KVKK aydınlatma metni; İçişleri/Göç sitelerindeki /gizlilik-kullanim-ve-telif-haklari sayfası afad.gov.tr'de 404. Açık yasak görülmedi; bağlı olunan İçişleri Bakanlığı'nın kendi sitesinde kopyalama yasağı olduğu not edilir."
+    },
+    {
+      "sourceKey": "sgk-duyurular",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.sgk.gov.tr/robots.txt",
+      "termsUrl": "https://www.sgk.gov.tr/yasaluyari",
+      "allowsStorage": false,
+      "notes": "robots.txt (22.10.2026): 404, kısıt yok. ŞARTLAR (/yasaluyari): \"İnternet sitesinde bulunan hiçbir bilgi; önceden izin alınmadan ve kaynak gösterilmeden ... değiştirilemez, çoğaltılamaz, yeniden yayımlanamaz ...\"; \"Sitenin bütünü veya bir kısmı kaynak gösterilmeden başka bir web sitesinde izinsiz olarak kullanılamaz. Kullananlar hakkında yasal mevzuat süreci uygulanır.\" — önceden izin şartı. SGK'dan yazılı izin alınınca yeniden değerlendirin."
+    },
+    {
+      "sourceKey": "dsi-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.dsi.gov.tr/robots.txt",
+      "termsUrl": "https://www.dsi.gov.tr/Sayfa/Detay/787",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): 404, kısıt yok. ŞARTLAR (Yasal Uyarı, /Sayfa/Detay/787): \"Web sitemizde yayınlanan çalışmalar, kaynak gösterilmek suretiyle yayımlanabilir; ancak bu bilgilerin ticari amaçlarla kullanımı DSİ'nün yazılı iznine tabidir.\" Kamuİlan ticari olmayan, kaynak bağlantısı veren hizmet olduğu sürece uygun; ticari kullanıma geçilirse yeniden inceleyin."
+    },
+    {
+      "sourceKey": "kgm-duyurular",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.kgm.gov.tr/robots.txt",
+      "termsUrl": "https://www.kgm.gov.tr/Sayfalar/KGM/SiteTr/Root/SiteKullanimSartlari.aspx",
+      "allowsStorage": false,
+      "notes": "robots.txt (22.10.2026): dosya yok (SharePoint PageNotFoundError yönlendirmesi), kısıt yok. ŞARTLAR (Web Sitesi Kullanım Şartları md.1): \"Kaynak gösterilmek kaydıyla eğitim, araştırma ve bilgilendirme amacıyla kullanılabilir. Ticari amaçla kullanılamaz. İçeriğin tamamı veya bir bölümü değiştirilemez, çoğaltılamaz, dağıtılamaz veya başka bir platformda yayımlanamaz.\" — kısmi içeriğin başka platformda yayımı açıkça yasak. Yazılı izin alınmadan taranmaz."
+    },
+    {
+      "sourceKey": "tkgm-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.tkgm.gov.tr/robots.txt",
+      "termsUrl": "https://www.tkgm.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): \"User-Agent: * / Allow: / / Disallow: /intranet/, /api/, /login/, /preview/\" → /duyurular serbest; dört kural robotsDisallow olarak eklendi. Şartlar sayfası bulunamadı (altbilgide \"© 2026 Tapu ve Kadastro Genel Müdürlüğü — Tüm Hakları Saklıdır.\"). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "tubitak-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://tubitak.gov.tr/robots.txt",
+      "termsUrl": "https://tubitak.gov.tr/tr",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200; www → tubitak.gov.tr yönlenir): Drupal varsayılanı — Disallow /core/, /profiles/, /admin/, /search/, /user/*, /node/add/, /comment/reply/, /filter/tips, /media/oembed, /index.php/... → /tr serbest; ilgili kurallar robotsDisallow olarak eklendi. Şartlar sayfası bulunamadı (yalnız /tr/kvkk ve \"Her hakkı saklıdır.\"). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "yok-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.yok.gov.tr/robots.txt",
+      "termsUrl": "https://www.yok.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): \"User-agent: * / Disallow:\" (boş — her şey serbest). Şartlar sayfası bulunamadı (altbilgide yalnız KVKK aydınlatma metni PDF'i). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "bddk-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.bddk.org.tr/robots.txt",
+      "termsUrl": "https://www.bddk.org.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): 404, kısıt yok. ŞARTLAR (ana sayfa altbilgisi): \"Web sitemizde yayınlanan çalışmalardan, kaynak gösterilmek suretiyle kısmen alıntı yapılabilir ancak bu bilgilerin ticari amaçlarla kullanımı BDDK'nın yazılı iznine tabidir.\" Başlık+bağlantı+kısa özet kaynaklı kısmi alıntıdır; ticari kullanıma geçilirse yeniden inceleyin."
+    },
+    {
+      "sourceKey": "spk-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.spk.gov.tr/robots.txt",
+      "termsUrl": "https://www.spk.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): dosya yok (\"404 İçerik Bulunamadı\" HTML sayfası), kısıt yok. Şartlar sayfası bulunamadı (altbilgide yasal uyarı/kullanım koşulu bağlantısı yok). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "epdk-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.epdk.gov.tr/robots.txt",
+      "termsUrl": "https://www.epdk.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): dosya yok — istek ana sayfaya yönleniyor (HTML), kısıt yok. Şartlar sayfası bulunamadı (altbilgide yalnız \"T.C. ENERJİ PİYASASI DÜZENLEME KURUMU © 2018\"). Açık yasak görülmedi."
+    },
+    {
+      "sourceKey": "tmsf-duyurular",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-22",
+      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "robotsUrl": "https://www.tmsf.org.tr/robots.txt",
+      "termsUrl": "https://www.tmsf.org.tr/tr/Tmsf/Info/kullanim.kosul/",
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026): dosya yok — istek ana sayfaya yönleniyor (HTML), kısıt yok. ŞARTLAR (Kullanım Koşulları): \"SİTE'de yayınlanan bilgiler kaynak gösterilmek suretiyle izinsiz olarak yayımlanabilir, ancak bu bilgilerin ticari amaçlarla kullanımı TMSF'nin yazılı iznine tabidir.\" Ticari olmayan, kaynaklı kullanım uygun."
     }
   ]
 }
