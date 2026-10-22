@@ -34,8 +34,8 @@ describe('kaynak erişim şartları kapısı', () => {
     const expected: Record<string, 'allowed' | 'blocked' | 'unknown'> = {
       'resmigazete-cestili-ilanlar': 'allowed',
       'osym-duyurular': 'allowed',
-      'iskur-kamu-memur-alim': 'allowed',
-      'iskur-kurumdisi-kamu-isci': 'allowed',
+      'iskur-kamu-memur-alim': 'blocked',
+      'iskur-kurumdisi-kamu-isci': 'blocked',
       'ilan-gov-tr-personel': 'blocked',
       'ilan-gov-tr-api-personel': 'blocked',
       'kariyerkapisi-isealim': 'allowed',

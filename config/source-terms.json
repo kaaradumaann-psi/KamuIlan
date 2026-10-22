@@ -24,23 +24,23 @@
     },
     {
       "sourceKey": "iskur-kamu-memur-alim",
-      "decision": "allowed",
-      "reviewedAt": "2026-10-21",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
       "reviewedBy": "kaaradumaann-psi (depo sahibi; Claude Code oturumunda açık onay); 22.10.2026 üretim kararı olarak yeniden teyit edildi (yalnız izni incelenmiş kaynaklar taranır)",
       "robotsUrl": "https://www.iskur.gov.tr/robots.txt",
       "termsUrl": "https://www.iskur.gov.tr/kurumsal-bilgi/kvkk/",
-      "allowsStorage": true,
-      "notes": "robots.txt (21.10.2026): User-agent * için /api/ ve sorgu dizeli adresler (/*?*) yasak; /ilanlar/ yolları serbest. Sayfalama (?page=) robots gereği izlenmemeli: --max-pages=1. Yayımlanmış kullanım şartları sayfası bulunamadı (termsUrl = KVKK sayfası). Saklama kararı depo sahibinin oturumdaki açık onayına dayanır; hukuki inceleme değildir."
+      "allowsStorage": false,
+      "notes": "22.10.2026 yeniden inceleme: sayfa artık yalnız il haritası/sayaç veriyor; ilan satırları ?idId=&il= adreslerinde ve robots.txt \"Disallow: /*?*\" ile yasak. Resmî veri kanalı bulunana kadar taranmaz."
     },
     {
       "sourceKey": "iskur-kurumdisi-kamu-isci",
-      "decision": "allowed",
-      "reviewedAt": "2026-10-21",
+      "decision": "blocked",
+      "reviewedAt": "2026-10-22",
       "reviewedBy": "kaaradumaann-psi (depo sahibi; Claude Code oturumunda açık onay); 22.10.2026 üretim kararı olarak yeniden teyit edildi (yalnız izni incelenmiş kaynaklar taranır)",
       "robotsUrl": "https://www.iskur.gov.tr/robots.txt",
       "termsUrl": "https://www.iskur.gov.tr/kurumsal-bilgi/kvkk/",
-      "allowsStorage": true,
-      "notes": "robots.txt (21.10.2026): User-agent * için /api/ ve sorgu dizeli adresler (/*?*) yasak; /ilanlar/ yolları serbest. Sayfalama (?page=) robots gereği izlenmemeli: --max-pages=1. Yayımlanmış kullanım şartları sayfası bulunamadı (termsUrl = KVKK sayfası). Saklama kararı depo sahibinin oturumdaki açık onayına dayanır; hukuki inceleme değildir."
+      "allowsStorage": false,
+      "notes": "22.10.2026 yeniden inceleme: sayfa artık yalnız il haritası/sayaç veriyor; ilan satırları ?idId=&il= adreslerinde ve robots.txt \"Disallow: /*?*\" ile yasak. Resmî veri kanalı bulunana kadar taranmaz."
     },
     {
       "sourceKey": "ilan-gov-tr-personel",
