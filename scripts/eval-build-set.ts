@@ -100,7 +100,8 @@ async function buildWorksheet(): Promise<void> {
   resetEnvCache();
   const env = getEnv();
   const driver = effectiveDriver(env);
-  const store = await initStore();
+  // Okuma aracı: şema/indeks DDL çalıştırmaz (üretim veritabanına karşı da güvenle çalışır).
+  const store = await initStore(undefined, { ensureIndexes: false });
   const repos = createRepos(store);
   console.log(
     `Veritabanı: ${describeDriver(driver)}${process.env.DATA_DIR ? ` (${process.env.DATA_DIR})` : ''} · MOD: KURU (salt okunur, hiçbir şey yazılmıyor)`,
