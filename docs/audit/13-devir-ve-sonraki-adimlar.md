@@ -1,13 +1,35 @@
 # 13 — Devir ve Sonraki Adımlar
 
-**Tarih:** 23.10.2026 · **main:** `a3146a7` (#57 birleşmesi) · **Açık PR:** yok
+**Tarih:** 22.10.2026 · **main:** `fc3733e` (#63 birleşmesi) · **Açık PR:** yok
 **Amaç:** Bir sonraki oturumun (insan ya da yapay zekâ) baştan analiz yapmadan doğrudan
 devam edebilmesi. Yapılanların kanıtı 07 §6–§8, risk durumu 03, birleşen PR listesi README §10–§11,
 kaynak durumu 14.
 
 ---
 
-## 00. 23.10.2026 durumu (güncel)
+## 000. 22.10.2026 (öğle) durumu (güncel)
+
+Birleşenler #58–#65 (liste README §12). Birleşik `main` yerel: **150 dosya, 1596 geçti, 0 başarısız**;
+E2E CI **32/32** (6'sı görsel regresyon).
+
+Önceki tablodaki açık işlerin durumu:
+
+| # | İş | Durum |
+| --- | --- | --- |
+| 1 | İŞKUR liste | BLOCKED (resmî veri kanalı gerekli) — değişmedi |
+| 2 | `q` araması / `pg_trgm` | Gerçek Postgres ölçümü olmadan EKLENMEYECEK — değişmedi |
+| 3 | OCR satır güveni | Bilinçli ertelendi — değişmedi |
+| 4 | OCR satır içi pozisyon | **Kapandı (#64)**; ayrıca eksik kırılım resmî toplamı ezmez |
+| 5 | Görsel regresyon | **Kapandı (#63)** |
+| 6 | Tarayıcı yedeği robots | **Kapandı (#61)** |
+| — | Groq canlı deneme komutu | **Kod hazır (#60)**; ölçüm kullanıcının anahtarıyla `npm run llm:groq` çalıştırılınca |
+| — | 200 + bozuk JSON'da yedek model | **Kapandı (#62)** |
+
+Kullanıcı erişimi/kararı bekleyenler: Groq ölçümü (`npm run llm:groq`), insan etiketi (hedef 145),
+staging Postgres URL'si (R-03), İŞKUR veri kanalı, K1–K8, üretimde OCR/AI, dağıtım
+(önce `npm run runs:retention`).
+
+## 00. 23.10.2026 durumu (TARİHSEL)
 
 **Birleşen PR'lar (#37–#57):** hepsi CI `verify` success + yerel tam paket ile, güncel head SHA
 doğrulanarak (`--match-head-commit`) tek tek birleşti; liste README §11.

@@ -251,3 +251,21 @@ Hepsi CI `verify` success ile birleşti. Üretime **dağıtım yapılmadı**; ü
 | #51 | `10eea6e` | Tekilleştirme benzerlik önbelleği (yerel p50 130 → 1,6 ms) + `scripts/bench-pipeline.ts` |
 | #56 | `da58ca7` | Örnek ilan tohumu (`seed:e2e-jobs`) + tarayıcı ilan akışı E2E (CI 26/26) |
 | #57 | `a3146a7` | Çok kalemli resmî toplam, OCR rakamı yazıyla doğrulanır (ORAN 2 → 7), `EXTRACTION_VERSION 2026.10.8` |
+
+## 12. 22.10.2026 (öğle) birleşmeleri — `main` @ `fc3733e`
+
+Hepsi CI `verify` success + yerel tam paket ile, head SHA doğrulanarak tek tek birleşti.
+Birleşik `main` (Windows): typecheck 0 · lint 0 · vitest **150 dosya, 1596 geçti, 1 atlandı, 0 başarısız**.
+Üretime dağıtım yok; üretim DB'sine dokunulmadı; LLM sağlayıcısına çağrı yapılmadı.
+
+| PR | Merge | Ne değişti |
+| --- | --- | --- |
+| #58 | `006c8d4` | Denetim belgeleri (devir 23.10) |
+| #59 | `cd6abdf` | LLM model zinciri (`LLM_CLASSIFIER_FALLBACK_MODELS`), günlük kota tespiti, `x-ratelimit-*`, `gsk_`/`org_` maskeleme |
+| #60 | `4e29297` | `npm run llm:groq` gizli girişli canlı deneme; OpenAI uyumlu yanıtta `finish_reason` ve `reasoning_tokens` artık sonuçta |
+| #61 | `a7b876a` | Tarayıcı yedeği robots `Disallow` kurallarına uyar (host bazlı; `goto` + route) |
+| #62 | `82b5f2f` | HTTP 200 + geçersiz JSON/şema → yedek model (kanıt hatası geçmez) |
+| #64 | `afe0d4d` | OCR satır içi pozisyon "(\| (Bir) Kişi"; yazıyla doğrulanmış resmî toplam eksik kırılımdan güçlü (İŞKUR 11 korunur), `EXTRACTION_VERSION 2026.10.9` |
+| #65 | `332c759` | Provenansı boş gerçek etiket `machine` sayılır (sahte kesinlik/duyarlılık riski) |
+| #63 | `fc3733e` | Görsel regresyon: giriş/liste/detay × masaüstü/mobil; Linux referansları, tarihler DOM'da sabitlenir (CI E2E 32/32) |
+
