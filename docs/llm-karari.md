@@ -75,6 +75,33 @@ Karar `LLM_BASE_URL/LLM_CLASSIFIER_MODEL` ile tek satırda değiştirilebilir �
   değil, küçük modeller Türkçe resmî metinde zayıf. Veri ikametgâhı zorunluluğu doğarsa aynı
   istemciyle Ollama'ya geçilebilir (mimari hazır).
 
+### 2.1 Güncel yapılandırma: Groq model zinciri (22.10.2026)
+
+Kullanıcının tek API kaynağı Groq (ücretsiz plan). Model sırası (kullanıcı kararı):
+`openai/gpt-oss-20b` → `qwen/qwen3.8-27b` → `openai/gpt-oss-120b`
+(`LLM_CLASSIFIER_MODEL` + `LLM_CLASSIFIER_FALLBACK_MODELS`). Yukarıdaki Llama 3.3 önerisi tarihseldir.
+
+| Durum | Davranış |
+| --- | --- |
+| 429 günlük kota (sağlayıcı mesajı RPD/TPD ya da `x-ratelimit-remaining-requests: 0`) | Model süreç boyunca atlanır, sıradaki model |
+| 429 dakikalık, 5xx, zaman aşımı, ağ | Sınırlı yeniden deneme, sonra sıradaki model |
+| 404 / `model_decommissioned` | Model 6 saat atlanır, sıradaki model |
+| HTTP 200 + geçersiz JSON/şema | Aynı model yeniden denenmez, sıradaki model (#62) |
+| 401/403, diğer 400 | Zincir DURUR, hata gizlenmez |
+| Kanıt doğrulanamadı | Yedeğe geçilmez (model yargısı); kayıt incelemede |
+| Hepsi başarısız / bütçe bitti | Otomatik onay YOK; kayıt incelemede |
+
+`qwen/qwen3.8-27b` Groq'ta önizleme modelidir (kısa sürede kaldırılabilir); kaldırılırsa 404 yolu
+zinciri korur. gpt-oss modelleri akıl yürütme tokenı harcar: `finish_reason=length` artık
+raporlanır (#60).
+
+**Gerçek ölçüm: HENÜZ YOK.** Ölçüm komutu (anahtar gizli girişle, yalnız bellekte):
+`npm run llm:groq` → model listesi, model başına 1 JSON çağrısı (gecikme, token, akıl yürütme
+tokenı, `x-ratelimit-*`), `eval:classification --llm` (en çok 10 çağrı), tarama hattı + gerçek
+kapı (4 sentetik kayıt). Rapor `.staging/groq-live/` (git dışı). Sonuçlar bu bölüme yazılacak;
+insan etiketli gerçek kayıt olmadığı için **doğruluk metriği verilmeyecek**. Bütçe freni için
+fiyat varsayımı 0,5 / 1 USD/Mtok (doğrulanmadı; ücretsiz planda fatura yok).
+
 ## 3. Maliyet modeli ve bütçe kapısı (tahmini; fatura değil)
 
 Bu belgede/üstteki karşılaştırma tablosunda geçen sağlayıcı fiyatları üçüncü taraf kaynaklardan
