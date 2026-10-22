@@ -1,0 +1,106 @@
+#cloud-config
+# Kamuİlan — Oracle Cloud (Ubuntu 24.04, Ampere A1) ilk açılış kurulumu.
+# Konsolda: Create instance → Show advanced options → Management → "Paste cloud-init script".
+# Bu dosyada SIR YOK. Sırlar sonradan /etc/kamuilan/kamuilan.env'e SSH ile konur
+# (infra/oracle/ortam-gonder.ps1). Servisler o dosya gelene kadar başlamaz.
+# Gelen trafik için port açılmaz: API dışarıya yalnız Cloudflare Tunnel ile çıkar.
+
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - curl
+  - ca-certificates
+  - gnupg
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/systemd/system/kamuilan-api.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Kamuİlan API
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=/etc/kamuilan/kamuilan.env
+
+      [Service]
+      User=kamuilan
+      Group=kamuilan
+      WorkingDirectory=/opt/kamuilan/app
+      EnvironmentFile=/etc/kamuilan/kamuilan.env
+      Environment=LOG_FILE=/var/log/kamuilan/api.log
+      Environment=HOST=127.0.0.1
+      ExecStart=/opt/kamuilan/app/node_modules/.bin/tsx src/server/main.ts
+      Restart=always
+      RestartSec=5
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths=/var/log/kamuilan /opt/kamuilan/app/data
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/kamuilan-worker.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Kamuİlan tarayıcı (worker)
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=/etc/kamuilan/kamuilan.env
+
+      [Service]
+      User=kamuilan
+      Group=kamuilan
+      WorkingDirectory=/opt/kamuilan/app
+      EnvironmentFile=/etc/kamuilan/kamuilan.env
+      Environment=LOG_FILE=/var/log/kamuilan/worker.log
+      ExecStart=/opt/kamuilan/app/node_modules/.bin/tsx src/worker/main.ts
+      Restart=always
+      RestartSec=10
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths=/var/log/kamuilan /opt/kamuilan/app/data
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/bin/kamuilan-guncelle
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      # main'i çeker, bağımlılıkları kurar, servisleri yeniden başlatır.
+      set -eu
+      cd /opt/kamuilan/app
+      sudo -u kamuilan git pull --ff-only
+      sudo -u kamuilan npm ci --no-audit --no-fund
+      systemctl restart kamuilan-api kamuilan-worker
+      systemctl --no-pager status kamuilan-api kamuilan-worker | grep -E "Active|●"
+
+runcmd:
+  # Node.js 22 (NodeSource, arm64)
+  - curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource.sh
+  - bash /tmp/nodesource.sh
+  - apt-get install -y nodejs
+  # cloudflared (Cloudflare resmî deposu)
+  - mkdir -p --mode=0755 /usr/share/keyrings
+  - curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+  - echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+  - apt-get update
+  - apt-get install -y cloudflared
+  # Servis kullanıcısı ve dizinler
+  - useradd --system --home-dir /opt/kamuilan --create-home --shell /usr/sbin/nologin kamuilan
+  - install -d -o root -g kamuilan -m 0750 /etc/kamuilan
+  - install -d -o kamuilan -g kamuilan -m 0750 /var/log/kamuilan
+  # Kod
+  - sudo -u kamuilan git clone https://github.com/kaaradumaann-psi/KamuIlan.git /opt/kamuilan/app
+  - sudo -u kamuilan sh -c 'cd /opt/kamuilan/app && npm ci --no-audit --no-fund'
+  - install -d -o kamuilan -g kamuilan -m 0750 /opt/kamuilan/app/data /opt/kamuilan/app/certs
+  - systemctl daemon-reload
+  - systemctl enable kamuilan-api kamuilan-worker
+  - touch /var/lib/cloud/instance/kamuilan-hazir
