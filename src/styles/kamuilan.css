@@ -303,6 +303,11 @@
     outline: none;
   }
 
+  /* Dar ekranda "Sayfa 1/1" ikiye bölünmesin. */
+  .filter-summary-page {
+    white-space: nowrap;
+  }
+
   /* Tıklanabilir etiket (ör. "2 filtre etkin" → filtre panelini açar). */
   .tag-button {
     cursor: pointer;

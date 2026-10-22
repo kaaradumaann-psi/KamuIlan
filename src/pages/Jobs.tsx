@@ -245,7 +245,7 @@ export function JobsPage() {
               </button>
             )}
             <span className="inline-sep" />
-            <span className="text-muted-sm">
+            <span className="text-muted-sm filter-summary-page">
               Sayfa {jobs.data.page}/{Math.max(1, jobs.data.pages)}
             </span>
           </>
