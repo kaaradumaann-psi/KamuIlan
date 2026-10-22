@@ -72,10 +72,17 @@ Kullanıcı → Cloudflare (kamuilan.halilkaraduman.com.tr, TLS, WAF, önbellek)
 
    **`/api` proxy'si ZORUNLUDUR.** `dist/` içinde API yoktur. Proxy kurulmazsa
    tarayıcı `/api/health` için statik varlık sunucusundan SPA gövdesini (HTML)
-   alır, JSON bekleyen arayüz boş kalır. Depodaki `functions/api/[[path]].ts`
-   bunu çözer: tüm yöntemleri, gövdeyi, çerezleri ve CSRF başlığını API sürecine
-   aktarır; yalnızca ana makineye bağlı başlıklar ayıklanır. API'ye
-   ulaşılamazsa **502 + JSON** döner (sessiz HTML yanıtı değil).
+   alır, JSON bekleyen arayüz boş kalır. Workers giriş betiği `functions/worker.ts`
+   (`wrangler.jsonc` → `main`, `assets.run_worker_first: ["/api/*"]`) `/api/*`
+   isteklerini `functions/api/[[path]].ts` vekiline verir: tüm yöntemleri, gövdeyi,
+   çerezleri ve CSRF başlığını API sürecine aktarır; yalnızca ana makineye bağlı
+   başlıklar ayıklanır. API'ye ulaşılamazsa **502 + JSON** döner. (Not: `functions/`
+   klasörü tek başına yalnız Cloudflare *Pages*'te çalışır; Workers'ta `main` şarttır.)
+
+   **Cloudflare panelinden Git bağlantısı (Workers Builds):** proje adı `kamuilan`,
+   Build command `npm run build`, Deploy command `npx wrangler deploy`, Build değişkeni
+   `NODE_VERSION=22`, kök dizin `/`, üretim dalı `main`. API sunucusu kurulana kadar site
+   açılır ama `/api` 502 döner.
 
 3. **API + worker**: ayrı süreçler olarak daimi bir ortamda (Cloudflare Container,
    VPS, Fly.io…) çalıştırılır: `npm run start` ve `npm run start:worker`.
