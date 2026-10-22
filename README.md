@@ -1,5 +1,7 @@
 # Kamuİlan
 
+> **Teknik olmayan kullanım:** [docs/kullanim-rehberi.md](docs/kullanim-rehberi.md) · **Canlıya çıkış:** [docs/uretime-cikis.md](docs/uretime-cikis.md) · **Durum:** `npm run durum`
+
 Türkiye'deki **kamu personel alım ilanlarını** resmî kaynaklardan toplayan,
 sınıflandıran, tekilleştiren, yapılandırılmış alanlara ayıran ve kullanıcı
 tercihlerine göre **e-posta ile bildiren** tam yığın (full-stack) TypeScript
