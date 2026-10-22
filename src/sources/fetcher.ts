@@ -33,6 +33,8 @@ import {
   subjectLabel,
 } from '../lib/tls-chain-completion';
 import { X509Certificate } from 'node:crypto';
+import { rootCertificates } from 'node:tls';
+import { loadBundledIntermediates } from '../lib/tls-intermediates';
 
 export interface FetchOptions {
   /** Üst katman iptal/zaman aşımı sinyali. */
@@ -331,6 +333,26 @@ export function loadTrustBundle(): string[] | undefined {
   return tlsLoadCaStore();
 }
 
+let bundledIntermediatesCache: { key: number; pems: string[] } | null = null;
+
+/**
+ * Depodaki doğrulanmış ara sertifikalar (`certs/intermediates`, bkz. `src/lib/tls-intermediates.ts`).
+ * Sunucusu ara sertifikayı göndermeyen siteler (ilan.gov.tr, TMSF) Ubuntu'da da doğrulanır;
+ * dosya yalnız güvenilen bir köke bağlanıyorsa kullanılır. Kök sayısına göre önbelleklenir.
+ */
+export function bundledIntermediatesFor(roots: readonly string[], logger?: Logger): string[] {
+  if (bundledIntermediatesCache && bundledIntermediatesCache.key === roots.length) return bundledIntermediatesCache.pems;
+  const loaded = loadBundledIntermediates(roots);
+  if (loaded.rejected.length > 0) {
+    logger?.warn(
+      { rejected: loaded.rejected },
+      'Depodaki bazı ara sertifikalar reddedildi (CA değil, süresi dışında ya da güvenilen köke bağlanmıyor); kullanılmadı.',
+    );
+  }
+  bundledIntermediatesCache = { key: roots.length, pems: loaded.accepted };
+  return loaded.accepted;
+}
+
 /**
  * Eksik zincir için AIA tamamlaması denenmeli mi?
  *
@@ -376,6 +398,8 @@ export class HttpClient {
   private binaryRequestCount = 0;
   /** Birleşik güven deposu (Node + sistem + NODE_EXTRA_CA_CERTS) PEM listesi. */
   private readonly baseCa: readonly string[];
+  /** Depodan doğrulanarak yüklenen ara sertifikalar (güven kökü değil, zincir halkası). */
+  private readonly bundledIntermediates: readonly string[];
   /**
    * AIA ile tamamlanmış zincirler: `host` → ek halkaları içeren dispatcher.
    *
@@ -417,7 +441,15 @@ export class HttpClient {
     }
     const trustBundle = loadTrustBundle();
     this.baseCa = trustBundle ?? [];
-    this.agent = options.dispatcher ?? this.createAgent(trustBundle);
+    // `ca` verildiğinde Node varsayılan depoyu kullanmaz; sistem deposu API'si yoksa
+    // ara sertifikalar Node'un gömülü kökleriyle birlikte verilir.
+    this.bundledIntermediates =
+      options.dispatcher === undefined ? bundledIntermediatesFor(trustBundle ?? rootCertificates, this.logger) : [];
+    this.agent =
+      options.dispatcher ??
+      this.createAgent(
+        this.bundledIntermediates.length > 0 ? [...(trustBundle ?? rootCertificates)] : trustBundle,
+      );
   }
 
   get requestsMade(): number {
@@ -447,6 +479,7 @@ export class HttpClient {
   }
 
   private createAgent(ca?: readonly string[]): Agent {
+    const trust = ca && ca.length > 0 ? [...ca, ...this.bundledIntermediates] : [];
     return new Agent({
       connections: 8,
       // Yavaş resmî sunucular başlıkları geç gönderebilir; başlık bütçesi
@@ -462,7 +495,7 @@ export class HttpClient {
         autoSelectFamily: true,
         timeout: 15_000,
         lookup: createPublicOnlyLookup(),
-        ...(ca && ca.length > 0 ? { ca: [...ca] } : {}),
+        ...(trust.length > 0 ? { ca: trust } : {}),
       },
     });
   }

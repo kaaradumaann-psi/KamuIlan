@@ -11,9 +11,18 @@
  *   Detay: /IlanDetay?i=<uuid> — #lbl_ILN_NO (ILN...), #lbl_IlanTuru,
  *   #lbl_BasDate / #lbl_BitDate, #lbl_anailanmetni (tam metin),
  *   #href_BasvuruLinki (e-Devlet başvuru adresi), kontenjan bilgisi.
+ *
+ * 22.10.2026 canlı inceleme: `/isealim` HTML'i artık boş `#pnlIlanlar` kabuğudur;
+ * satırları sayfanın kendi betiği (`/js/Index/Main.*.js` → `fillIseAlimPageAsync`)
+ * anonim, kimlik doğrulamasız resmî uçtan çizer:
+ *   POST https://api.kariyerkapisi.gov.tr/api/ilan/GetIseAlimPage
+ *        {"krM_ID":0,"searchText":"","il":"0","ilanTuru":"0"}
+ *   → {searchIlan:[{guid, kurumAdi, birimAdi, ilanBaslik, ilanTipi, bitTarih, basvuruLinki, …}]}
+ * Adaptör önce bu ucu okur (Chromium gerekmez); uç yanıt vermezse eski HTML/tarayıcı
+ * yolu aynen devam eder. Sayfanın yaptığı gibi bitiş tarihi geçmiş satırlar atlanır.
  */
 import { collapseWhitespace, makeExcerpt, normalizeTr } from '../../domain/text';
-import { firstDateOnlyIn, toIstanbulIso } from '../../domain/dates';
+import { firstDateOnlyIn, toIstanbulDateOnly, toIstanbulIso } from '../../domain/dates';
 import { sha256Hex } from '../../domain/ids';
 import { absoluteUrl, anchors, blockElementText, loadHtml, readableAnnouncementText } from '../../lib/html';
 import { cleanInstitution, cleanTitle } from '../listing-utils';
@@ -108,6 +117,125 @@ function pageTitleNote(html: string): string {
 }
 
 const KARIYER_MAX_LIST_PAGES = 10;
+
+/** Sayfanın kendi betiğinin çağırdığı anonim liste ucu (bkz. dosya başı). */
+export const KARIYER_API_LIST_URL = 'https://api.kariyerkapisi.gov.tr/api/ilan/GetIseAlimPage';
+const KARIYER_API_LIST_BODY = { krM_ID: 0, searchText: '', il: '0', ilanTuru: '0' } as const;
+
+/** Detay sayfasının betiğinin (`/js/IlanDetay/IlanDetayV1.*.js`) çağırdığı anonim uç. */
+export const KARIYER_API_DETAIL_URL = 'https://api.kariyerkapisi.gov.tr/api/ilan/GetIlanPreviewPublic';
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** "2026-10-12T14:00:00" → "12.10.2026" (sayfadaki `fDate(..., "sdate")` biçimi). */
+function apiDateText(value: unknown): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(typeof value === 'string' ? value : '');
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : '';
+}
+
+/**
+ * `GetIlanPreviewPublic` yanıtını, sayfanın betiğinin doldurduğu kararlı öğe
+ * kimlikleriyle (lbl_ILN_NO, lbl_BasDate …) aynı HTML'e çevirir; böylece tek
+ * ayrıştırıcı (`parseKariyerDetail`) hem tarayıcı çizimini hem JSON ucunu okur.
+ * İlan metni BBCode'dur: etiketler atılır, satır sonları korunur. Biçim
+ * beklenmiyorsa null döner.
+ */
+export function kariyerDetailHtmlFromApi(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const obj = payload as Record<string, unknown>;
+  const text = (key: string): string => escapeHtml(apiText(obj[key]));
+  const rawBody = typeof obj.ilanMetni === 'string' ? obj.ilanMetni : '';
+  if (!apiText(obj.ilanBaslik) && !rawBody) return null;
+  const body = escapeHtml(rawBody.replace(/\[\/?[a-z*]+(?:=[^\]]*)?\]/gi, ' '))
+    .split(/\r?\n/)
+    .map((line) => `<p>${line}</p>`)
+    .join('');
+  const applyUrl = obj.eDevletteGorunsun === 0 ? apiText(obj.basvuruLinki) : apiText(obj.eDevletServisURL);
+  return (
+    `<html><body><main>` +
+    `<h1 id="lbl_IlanBaslik">${text('ilanBaslik')}</h1>` +
+    `<span id="lbl_KurumAdi">${text('kurumAdi')}</span><span id="lbl_BirimAdi">${text('birimAdi')}</span>` +
+    `<span id="lbl_ILN_NO">${text('ilN_NO')}</span><span id="lbl_IlanTuru">${text('ilanTuru')}</span>` +
+    `<span id="lbl_BasDate">${apiDateText(obj.basTarih)}</span><span id="lbl_BitDate">${apiDateText(obj.bitTarih)}</span>` +
+    (applyUrl ? `<a id="href_BasvuruLinki" href="${escapeHtml(applyUrl)}">Başvur</a>` : '') +
+    `<div id="lbl_anailanmetni">${body}</div>` +
+    `</main></body></html>`
+  );
+}
+
+interface KariyerApiIlan {
+  guid?: unknown;
+  kurumAdi?: unknown;
+  birimAdi?: unknown;
+  ilanBaslik?: unknown;
+  ilanTipi?: unknown;
+  bitTarih?: unknown;
+  basvuruLinki?: unknown;
+}
+
+function apiText(value: unknown): string {
+  return typeof value === 'string' ? collapseWhitespace(value) : '';
+}
+
+/**
+ * `GetIseAlimPage` yanıtını satırlara çevirir. Kimlikler HTML yoluyla aynıdır:
+ * iç ilanlar `/IlanDetay?i=<guid>` uuid'si, dış ilanlar başvuru adresi ya da
+ * kurum|başlık|bitiş özeti. Yanıt beklenen biçimde değilse null döner.
+ */
+export function parseKariyerApiRows(
+  payload: unknown,
+  listingUrl: string,
+  allowedHosts: readonly string[],
+  now: Date = new Date(),
+): { rows: KariyerRow[]; total: number; expired: number } | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const list = (payload as { searchIlan?: unknown }).searchIlan;
+  if (!Array.isArray(list)) return null;
+  const origin = new URL(listingUrl).origin;
+  const today = toIstanbulDateOnly(now);
+  const rows: KariyerRow[] = [];
+  const seen = new Set<string>();
+  let expired = 0;
+  for (const raw of list as KariyerApiIlan[]) {
+    if (!raw || typeof raw !== 'object') continue;
+    const title = cleanTitle(apiText(raw.ilanBaslik));
+    if (title.length < 10) continue;
+    const endDate = /^(\d{4}-\d{2}-\d{2})/.exec(apiText(raw.bitTarih))?.[1] ?? null;
+    const applicationEndAt = endDate ? toIstanbulIso(endDate, '23:59') : undefined;
+    if (endDate && endDate < today) {
+      expired += 1;
+      continue;
+    }
+    const institution = cleanInstitution(apiText(raw.kurumAdi)) ?? undefined;
+    const guid = apiText(raw.guid);
+    const external = apiText(raw.basvuruLinki);
+    let url: string = listingUrl;
+    let applicationUrl: string | undefined;
+    if (raw.ilanTipi === 1 && /^[0-9a-f-]{36}$/i.test(guid)) {
+      url = safeOfficialUrl(`${origin}/IlanDetay?i=${guid}`, allowedHosts) ?? listingUrl;
+    } else if (external) {
+      applicationUrl = safePublicExternalUrl(external) ?? undefined;
+    }
+    const identityUrl = applicationUrl ?? url;
+    const sourceItemId =
+      (url !== listingUrl ? itemIdFromUrl(url) : null) ??
+      (applicationUrl ? itemIdFromUrl(applicationUrl) : null) ??
+      `kk-${sha256Hex(`${institution ?? ''}|${title}|${endDate ?? ''}|${identityUrl}`).slice(0, 16)}`;
+    if (seen.has(sourceItemId)) continue;
+    seen.add(sourceItemId);
+    rows.push({
+      sourceItemId,
+      url,
+      title,
+      ...(institution ? { institution } : {}),
+      ...(applicationEndAt ? { applicationEndAt } : {}),
+      ...(applicationUrl ? { applicationUrl } : {}),
+    });
+  }
+  return { rows, total: list.length, expired };
+}
 const MAX_ITEMS = 40;
 
 function findKariyerNextPage(
@@ -424,31 +552,74 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     let viaBrowser = false;
     let listHtml = '';
 
-    // 1) Düz HTTP: sayfa sunucu tarafında üretiliyor (doğrulandı).
+    // 0) Sayfanın kendi kullandığı anonim JSON ucu (22.10.2026: HTML artık boş kabuk).
+    let apiListed = false;
     try {
-      const response = await ctx.http.fetchText(source.listingUrl, {
+      const response = await ctx.http.fetchText(KARIYER_API_LIST_URL, {
         allowedHosts: source.allowedHosts,
         minIntervalMs: source.minRequestIntervalMs,
+        method: 'POST',
+        jsonBody: KARIYER_API_LIST_BODY,
+        accept: 'application/json',
+        expectedContentTypes: ['application/json', 'text/json'],
+        retries: 1,
       });
       requestCount += 1;
       httpStatuses.push(response.status);
-      listHtml = response.decoded?.text ?? response.body.toString('utf8');
-      rows = parseKariyerRows(listHtml, source.listingUrl, source.allowedHosts);
-      if (rows.length > 0) {
-        notes.push(`Liste HTTP ile okundu: ${rows.length} ilan satırı.`);
-      } else {
-        // 5. canlı koşumda HTTP 200 döndü ama satır ayrıştırılamadı; sunucunun
-        // tarayıcı-dışı istemciye ne verdiği bu notla görünür hale gelir.
+      const parsed = parseKariyerApiRows(
+        JSON.parse(response.decoded?.text ?? response.body.toString('utf8')) as unknown,
+        source.listingUrl,
+        source.allowedHosts,
+        ctx.fetchedAt,
+      );
+      if (parsed && parsed.rows.length > 0) {
+        rows = parsed.rows;
+        apiListed = true;
         notes.push(
-          `HTTP listesi ${response.status} ile alındı (${listHtml.length} karakter) ancak satır ayrıştırılamadı${pageTitleNote(listHtml)}; tarayıcı denenecek.`,
+          `Liste resmî JSON ucundan okundu: ${parsed.total} kayıt, ${parsed.rows.length} aktif ilan` +
+            (parsed.expired > 0 ? ` (${parsed.expired} süresi geçmiş satır sayfadaki gibi atlandı).` : '.'),
+        );
+      } else {
+        notes.push(
+          parsed
+            ? 'Resmî JSON ucu boş liste döndürdü; HTML sayfası denenecek.'
+            : 'Resmî JSON ucu beklenen biçimde değil (searchIlan yok); HTML sayfası denenecek.',
         );
       }
     } catch (error) {
       if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
-      if (!isTransientTransportFailure(error)) throw error;
       notes.push(
-        `HTTP listesi alınamadı (${error instanceof Error ? error.message : String(error)}); geçici aktarım hatası için tarayıcı yedeği denenebilir.`,
+        `Resmî JSON ucu okunamadı (${error instanceof Error ? error.message : String(error)}); HTML sayfası denenecek.`,
       );
+    }
+
+    // 1) Düz HTTP: sayfa sunucu tarafında üretiliyor (doğrulandı).
+    if (!apiListed) {
+      try {
+        const response = await ctx.http.fetchText(source.listingUrl, {
+          allowedHosts: source.allowedHosts,
+          minIntervalMs: source.minRequestIntervalMs,
+        });
+        requestCount += 1;
+        httpStatuses.push(response.status);
+        listHtml = response.decoded?.text ?? response.body.toString('utf8');
+        rows = parseKariyerRows(listHtml, source.listingUrl, source.allowedHosts);
+        if (rows.length > 0) {
+          notes.push(`Liste HTTP ile okundu: ${rows.length} ilan satırı.`);
+        } else {
+          // 5. canlı koşumda HTTP 200 döndü ama satır ayrıştırılamadı; sunucunun
+          // tarayıcı-dışı istemciye ne verdiği bu notla görünür hale gelir.
+          notes.push(
+            `HTTP listesi ${response.status} ile alındı (${listHtml.length} karakter) ancak satır ayrıştırılamadı${pageTitleNote(listHtml)}; tarayıcı denenecek.`,
+          );
+        }
+      } catch (error) {
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+        if (!isTransientTransportFailure(error)) throw error;
+        notes.push(
+          `HTTP listesi alınamadı (${error instanceof Error ? error.message : String(error)}); geçici aktarım hatası için tarayıcı yedeği denenebilir.`,
+        );
+      }
     }
 
     // 2) Tarayıcı yedeği: sayfa boşsa veya HTTP geçici aktarım hatası verdiyse.
@@ -590,6 +761,11 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       }
     }
     rows = [...rowsById.values()];
+    if (apiListed) {
+      // Uç, sayfanın gösterdiği listenin tamamını tek yanıtta verir (sayfalama yok).
+      coverageStatus = 'complete';
+      coverageNote = 'Liste, sayfanın kendi kullandığı resmî JSON ucundan tek yanıtta tam olarak okundu.';
+    }
     if (!coverageNote) coverageNote = 'Sayfa kapsamı doğrulanamadı.';
 
     // 3) Only process new records and records whose detail text was not
@@ -737,6 +913,28 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     preferBrowser: boolean,
   ): Promise<{ html: string; status: number | null }> {
     const safeUrl = assertSafeUrl(url, ctx.source.allowedHosts).toString();
+    const guid = itemIdFromUrl(safeUrl);
+    if (!preferBrowser && guid && /^[0-9a-f-]{36}$/i.test(guid)) {
+      // 22.10.2026: detay HTML'i de boş kabuk; içerik bu anonim uçtan gelir.
+      try {
+        const response = await ctx.http.fetchText(KARIYER_API_DETAIL_URL, {
+          allowedHosts: ctx.source.allowedHosts,
+          minIntervalMs: ctx.source.minRequestIntervalMs,
+          method: 'POST',
+          jsonBody: { ilanGuid: guid },
+          accept: 'application/json',
+          expectedContentTypes: ['application/json', 'text/json'],
+          retries: 1,
+        });
+        const html = kariyerDetailHtmlFromApi(
+          JSON.parse(response.decoded?.text ?? response.body.toString('utf8')) as unknown,
+        );
+        if (html) return { html, status: response.status };
+      } catch (error) {
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+        // Uç okunamazsa aşağıdaki HTML/tarayıcı yolu denenir.
+      }
+    }
     if (!preferBrowser) {
       try {
         const response = await ctx.http.fetchText(safeUrl, {

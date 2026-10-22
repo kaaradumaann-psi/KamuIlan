@@ -55,3 +55,7 @@ incelenmelidir.
 - **kamuilan-sbb:** SBB'den güncel yasal uyarı adresi ya da yazılı teyit alınınca yeniden değerlendirin.
 - Kayıtlar 365 gün geçerli; en geç 22.10.2027'de yeniden inceleyin.
 - Ham kanıtlar (robots.txt ve sayfa indirmeleri) depoya alınmadı; notlardaki alıntılar 22.10.2026 tarihli içeriktir.
+
+## Ek (22.10.2026, okuyucu onarımı)
+
+| iskur-kamu-memur-alim, iskur-kurumdisi-kamu-isci | robots.txt `Disallow: /*?*` ilan satırı adreslerini (`?idId=&il=`) yasaklıyor; sayfa yalnız il haritası veriyor | — | **blocked** (önceki allowed kararı geri alındı) |

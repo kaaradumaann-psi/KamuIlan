@@ -20,7 +20,8 @@ reclassify-report*.json
 probe-resmigazete-*.json
 
 # Yerel veritabanı / kurumsal CA dosyaları
-certs/
+certs/*
+!certs/intermediates/
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 

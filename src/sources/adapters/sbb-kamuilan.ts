@@ -9,7 +9,9 @@
  * (12.10.2026). Kısıt AŞILMAYA ÇALIŞILMAZ; adaptör kısıtı açıkça bildirir ve
  * Türkiye'den çalışan bir kurulumda otomatik devreye girer.
  */
+import { createHash } from 'node:crypto';
 import { collapseWhitespace } from '../../domain/text';
+import { TURKISH_MONTHS, isValidDateParts, toDateOnly, toIstanbulDateOnly } from '../../domain/dates';
 import type { RawAnnouncement } from '../../domain';
 import { AdapterStructureError, SourceAccessError } from '../errors';
 import { loadHtml, readableText, absoluteUrl, elementText } from '../../lib/html';
@@ -22,6 +24,8 @@ const MAX_LIST_PAGES = 10;
 const MAX_LIST_ITEMS = 300;
 
 interface SbbListingRow {
+  /** Kararlı kimlik: `kod` parametresi her istekte yeniden şifrelendiği için URL kimlik olamaz. */
+  id?: string;
   title: string;
   url: string;
   institution: string | null;
@@ -103,17 +107,18 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
       visitedPages.add(normalizedPageUrl);
 
       const $ = loadHtml(currentHtml);
-      const pageRows = this.parseListing($, currentUrl, ctx.source.allowedHosts);
+      const pageRows = this.parseListing($, currentUrl, ctx.source.allowedHosts, ctx.fetchedAt);
+      const declared = declaredListingCount($);
       notes.push(`Sayfa ${page}: ${pageRows.length} ilan satırı.`);
-      const repeated = pageRows.some((row) => rowsByUrl.has(row.url));
+      const repeated = pageRows.some((row) => rowsByUrl.has(row.id ?? row.url));
       let capExceeded = false;
       for (const row of pageRows) {
-        if (rowsByUrl.has(row.url)) continue;
+        if (rowsByUrl.has(row.id ?? row.url)) continue;
         if (rowsByUrl.size >= MAX_LIST_ITEMS) {
           capExceeded = true;
           break;
         }
-        rowsByUrl.set(row.url, row);
+        rowsByUrl.set(row.id ?? row.url, row);
       }
       if (repeated) {
         coverageStatus = 'unknown';
@@ -124,6 +129,17 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
         coverageStatus = 'partial';
         coverageNote = `${MAX_LIST_ITEMS} kayıtlık üst sınıra ulaşıldı; kalan liste kayıtları bu çalışmada alınmadı.`;
         break;
+      }
+
+      // Kamu İlan tüm güncel ilanları tek sayfada verir ve toplamı "N ilan" diye yazar;
+      // okunan kart sayısı bu toplamla birebir eşleşirse kapsam kanıtlanmış sayılır.
+      if (page === 1 && declared !== null && declared === pageRows.length && pageRows.length > 0) {
+        coverageStatus = 'complete';
+        coverageNote = `Sayfanın bildirdiği toplam (${declared} ilan) ile okunan kart sayısı eşleşti.`;
+        break;
+      }
+      if (page === 1 && declared !== null && declared !== pageRows.length) {
+        notes.push(`Sayfa ${declared} ilan bildiriyor, ${pageRows.length} kart okundu.`);
       }
 
       const navigation = detectNextPage(currentHtml, currentUrl);
@@ -187,7 +203,7 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
 
     const items: RawAnnouncement[] = rows.map((row) => ({
       sourceKey: ctx.source.key,
-      sourceItemId: `sbb:${slugFor(row.url)}`,
+      sourceItemId: row.id ?? `sbb:${slugFor(row.url)}`,
       url: row.url,
       title: row.title,
       institution: row.institution ?? 'Belirtilmemiş kurum',
@@ -223,7 +239,10 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
     $: ReturnType<typeof loadHtml>,
     pageUrl: string,
     allowedHosts: readonly string[] = [new URL(pageUrl).hostname],
+    fetchedAt: Date = new Date(),
   ): SbbListingRow[] {
+    const timeline = this.parseTimeline($, pageUrl, allowedHosts, fetchedAt);
+    if (timeline !== null) return timeline;
     const rows: SbbListingRow[] = [];
     const seen = new Set<string>();
 
@@ -239,13 +258,14 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
       }
       const title = cleanTitle(elementText(node, 300));
       if (title.length < 12) return;
-      const key = safeUrl.split('?')[0] ?? safeUrl;
+      // Sorgu parametresi ilanı ayırt eder (ör. ilanDetay.aspx?kod=…); yalnızca #parça atılır.
+      const key = safeUrl.split('#')[0] ?? safeUrl;
       if (seen.has(key)) return;
       seen.add(key);
 
       // Paylaşılmış kapsayıcıda kurum/il komşu ilandan alınmaz.
       const containerText =
-        ownCardText(node, 'li, tr, div, article', (value) => value.split('?')[0] || null, 700) ?? title;
+        ownCardText(node, 'li, tr, div, article', (value) => value.split('#')[0] || null, 700) ?? title;
       const institutionMatch = containerText.match(
         /([A-ZÇĞİÖŞÜ][^|•·]{5,90}?(?:Bakanlığı|Başkanlığı|Rektörlüğü|Müdürlüğü|Belediyesi|Üniversitesi|Kurumu|Genel Müdürlüğü))/u,
       );
@@ -263,6 +283,90 @@ export class SbbKamuIlanAdapter implements SourceAdapter {
 
     return rows;
   }
+
+  /**
+   * Gerçek Kamu İlan düzeni (22.10.2026): güncel ilanlar `ul#nav2.cbp_tmtimeline` içinde
+   * gün başlıklı `<li>` öğeleridir; her ilan `a[href^="ilanDetay.aspx?kod="]` kartıdır
+   * (`p.alt_p1` kurum, `p.alt_p2` başlık + `<em>` başvuru aralığı). Üstteki manşet
+   * kaydırıcısı aynı ilanları farklı `kod` ile tekrarladığından okunmaz. Düzen yoksa null.
+   */
+  private parseTimeline(
+    $: ReturnType<typeof loadHtml>,
+    pageUrl: string,
+    allowedHosts: readonly string[],
+    fetchedAt: Date,
+  ): SbbListingRow[] | null {
+    const days = $('ul.cbp_tmtimeline > li');
+    if (days.length === 0) return null;
+    const rows: SbbListingRow[] = [];
+    const seen = new Set<string>();
+    const today = toIstanbulDateOnly(fetchedAt);
+    days.each((_dayIndex, dayElement) => {
+      const day = $(dayElement);
+      const publishedAt = timelineDate(
+        collapseWhitespace(day.find('time h4').first().text()),
+        collapseWhitespace(day.find('time h3').first().text()),
+        today,
+      );
+      day.find('a[href]').each((_index, element) => {
+        const node = $(element);
+        const href = absoluteUrl(node.attr('href'), pageUrl, $);
+        if (!href || !/ilanDetay\.aspx/i.test(href)) return;
+        let safeUrl: string;
+        try {
+          safeUrl = assertSafeUrl(href, allowedHosts).toString();
+        } catch {
+          return;
+        }
+        const institution = cleanInstitution(collapseWhitespace(node.find('.alt_p1').first().text())) ?? null;
+        const titleNode = node.find('.alt_p2').first().clone();
+        const range = collapseWhitespace(titleNode.find('em').text()).replace(/^\(\s*|\s*\)$/g, '');
+        titleNode.find('em').remove();
+        const heading = collapseWhitespace(titleNode.text());
+        if (!heading) return;
+        const title = cleanTitle([institution, heading].filter(Boolean).join(' '));
+        if (title.length < 6) return;
+        const id = `sbb:${createHash('sha256')
+          .update([institution ?? '', heading, publishedAt ?? '', range].join('|'))
+          .digest('hex')
+          .slice(0, 24)}`;
+        if (seen.has(id)) return;
+        seen.add(id);
+        rows.push({
+          id,
+          title,
+          url: safeUrl,
+          institution,
+          city: null,
+          publishedAt,
+          summary: collapseWhitespace(
+            [institution, heading, range ? `Başvuru aralığı: ${range}` : null].filter(Boolean).join(' — '),
+          ),
+        });
+      });
+    });
+    return rows;
+  }
+}
+
+/** "101 ilan" sayacı (`#lb_ilansayi`); bulunamazsa null. */
+function declaredListingCount($: ReturnType<typeof loadHtml>): number | null {
+  const match = /(\d{1,5})\s*ilan/i.exec(collapseWhitespace($('#lb_ilansayi').first().text()));
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Zaman çizelgesi gün başlığı ("22" + "Ekim") yıl içermez. Liste yayımlanmış ilanları
+ * gösterdiğinden gün bugünden ileri olamaz: bu yıl içinde bugünü aşıyorsa önceki yıldır.
+ */
+function timelineDate(dayText: string, monthText: string, today: string): string | null {
+  const day = Number(dayText);
+  const month = TURKISH_MONTHS[monthText.toLocaleLowerCase('tr').trim()];
+  if (!Number.isInteger(day) || !month) return null;
+  const year = Number(today.slice(0, 4));
+  const candidate = isValidDateParts(year, month, day) ? toDateOnly(year, month, day) : null;
+  if (candidate && candidate <= today) return candidate;
+  return isValidDateParts(year - 1, month, day) ? toDateOnly(year - 1, month, day) : null;
 }
 
 function slugFor(url: string): string {

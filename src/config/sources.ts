@@ -62,6 +62,12 @@ export interface SourceDefinition {
   robotsDisallow?: string[];
   /** İçerik değişmediyse (ETag/Last-Modified) ayrıntı isteği yapılmaz. */
   conditionalRequests?: boolean;
+  /**
+   * Ortak liste adaptörü için kaynağa özgü ayrıştırma ayarları (canlı sayfada doğrulanmış):
+   * `listContainer` liste kapsayıcısının CSS seçicisi, `pathPattern` detay bağlantısı deseni
+   * (RegExp kaynağı; yol + sorgu üzerinde, büyük/küçük harf duyarsız).
+   */
+  listing?: { listContainer?: string; pathPattern?: string };
   tags: string[];
 }
 
@@ -114,6 +120,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
     lastVerifiedAt: null,
     verificationEvidence:
+      "22.10.2026 canlı deneme: TLS: www.ilan.gov.tr ara sertifikayı göndermiyor; certs/intermediates/geotrust-tls-rsa-ca-g1.pem ile Mozilla kökleri üzerinden doğrulandı (yalnız kökle UNABLE_TO_VERIFY_LEAF_SIGNATURE). Liste HTML'i Angular kabuğu (0 satır); veriyi Ad/AdsByFilter API'si veriyor ve tarayıcı dışı istemciye 403 dönüyor → Chromium gerekir (SOURCE_BROWSER_FALLBACK=1). Kullanım şartları incelemesi: BLOCKED. " +
       '14.10.2026 canlı koşumunda bu adres TLS zinciri hatasıyla okunamadı. Aşağıdaki gözlemler ' +
       `tarihseldir (${VERIFIED_AT} ve 13.10.2026): personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
       'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü. ' +
@@ -148,6 +155,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       'HTTP durum kodları ve tarama notları kontrol edilmeli.',
     lastVerifiedAt: null,
     verificationEvidence:
+      "22.10.2026 canlı deneme: POST /api/api/services/app/Ad/AdsByFilter: eski gövde ({keys:{q:[..]}}) 500, sayfanın gövdesi ({keys:{ats:['5']}}) 403 (erişim kısıtı; aşılmadı). Kullanım şartları incelemesi: BLOCKED. " +
       'github.com/Ruchanbas/rg-ilan-botu/src/rgbot/ilanapi.py (canlı doğrulanmış API sözleşmesi: ' +
       'POST /api/api/services/app/Ad/AdsByFilter {"keys":{"q":[terim]}} + GET AdDetail/GetAdDetail); ' +
       'tests/ilan-gov-tr-api.test.ts sözleşmenin fixture doğrulaması. HTML liste adaptörünün ' +
@@ -178,8 +186,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Duyuru listesi ve duyuru detayları HTML olarak okunur; ekler PDF bağlantısı olarak saklanır.',
-    lastVerifiedAt: VERIFIED_AT,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): 447 duyuru bağlantısı bulundu; detay bütçesiyle 2 kayıt işlendi. ' +
       `${VERIFIED_AT} canlı doğrulama: ana sayfa duyuru bloklarında tarih + başlık + detay bağlantısı görüldü ` +
       '(ör. "2026-YDS/2 Geç Başvuru", başvuru penceresi 14.10.2026 10:00–23:59, ücret 1.800,00 TL). AİS (ais.osym.gov.tr) giriş gerektirir; kapsam dışıdır.',
     coverageNote:
@@ -201,11 +210,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.iskur.gov.tr/',
     adapterKey: 'iskur-ilan-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'access-restricted',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
+      'Sayfa artık yalnız il haritası ve il başına ilan SAYISI veriyor; ilan satırları yalnız `?idId=&il=` sorgulu ' +
+      'sayfalarda. robots.txt `Disallow: /*?*` ve `/api/` ile bunları yasaklıyor → satır okunamaz; kısıt aşılmaz (kaynak şartları kaydı ayrıca güncellenmeli).',
     lastVerifiedAt: '2026-10-13',
     verificationEvidence:
+      '22.10.2026 canlı inceleme: liste HTML’inde .clickable-row satırı yok (0); il seçimi `?idId=..&il=..` adresine gider; robots.txt (User-agent: *) `Disallow: /*?*`, `/api/`. JSON ucu robots ile yasak. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 3 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Memur ve sözleşmeli personel duyurularının İŞKUR tarafındaki yayını.',
     enabled: true,
@@ -227,11 +238,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.iskur.gov.tr/',
     adapterKey: 'iskur-ilan-listesi',
     method: 'html-list',
-    status: 'verified',
+    status: 'access-restricted',
     statusNote:
-      'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
+      'Sayfa artık yalnız il haritası ve il başına ilan SAYISI veriyor; ilan satırları yalnız `?idId=&il=` sorgulu ' +
+      'sayfalarda. robots.txt `Disallow: /*?*` ve `/api/` ile bunları yasaklıyor → satır okunamaz; kısıt aşılmaz (kaynak şartları kaydı ayrıca güncellenmeli).',
     lastVerifiedAt: '2026-10-13',
     verificationEvidence:
+      '22.10.2026 canlı inceleme: liste HTML’inde .clickable-row satırı yok (0); il seçimi `?idId=..&il=..` adresine gider; robots.txt (User-agent: *) `Disallow: /*?*`, `/api/`. JSON ucu robots ile yasak. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 3 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Kamu işçisi (sürekli/geçici işçi) alımlarının İŞKUR yayını.',
     enabled: true,
@@ -261,8 +274,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       'Detayda kararlı öğe kimliklerinden ilan numarası (ILN...), tür, başvuru tarihleri, kontenjan ve ' +
       "e-Devlet başvuru adresi okunur (13.10.2026, gerçek sayfa HTML'i ile doğrulandı). Detay bütçesi " +
       'önce daha önce görülmemiş ilanlara harcanır.',
-    lastVerifiedAt: VERIFIED_AT,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Liste resmî anonim JSON ucundan (api.kariyerkapisi.gov.tr/api/ilan/GetIseAlimPage) okundu: 32 aktif ilan; detay GetIlanPreviewPublic ile ILN no/tarih/metin alındı. Chromium gerekmez. ' +
       "13.10.2026: liste ve detay sayfalarının gerçek HTML'i kullanıcıdan alındı; satır/detay yapısı " +
       'birim testlerine fikstür olarak işlendi (tests/sources.test.ts). Canlı koşumda henüz kayıt üretilmedi ' +
       '(3. koşum: ok, 0 kayıt — eski tablo varsayımı); yeniden yazım sonrası koşum bekleniyor. ' +
@@ -277,7 +291,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     intervalMinutes: 60,
     minRequestIntervalMs: 3000,
     maxConcurrency: 1,
-    allowedHosts: ['kariyerkapisi.gov.tr', 'www.kariyerkapisi.gov.tr'],
+    allowedHosts: ['kariyerkapisi.gov.tr', 'www.kariyerkapisi.gov.tr', 'api.kariyerkapisi.gov.tr'],
     tags: ['cekirdek', 'tarayici', 'playwright'],
   },
   {
@@ -293,8 +307,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Liste sayfası JS ile yüklendiği için kurumun resmî RSS beslemesi kullanılır (meb_iys_dosyalar/xml/rss_duyurular.xml). Canlı koşumlarda doğrulandı.',
-    lastVerifiedAt: VERIFIED_AT,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): RSS beslemesinde 50 kayıt; detay bütçesiyle 2 kayıt işlendi. ' +
       'RSS beslemesi 13.10.2026 tarihinde bağımsız incelemeyle açıldı: Haberler (kategori 1) ve Duyurular (kategori 2) kayıtları /www/<slug>/icerik/<id> bağlantıları ve yayın tarihleriyle geliyor. ' +
       '13.10.2026 canlı koşumlarında (1-5) beslemeden her seferinde 50 kayıt okundu, 30 yeni kayıt işlendi.',
     coverageNote:
@@ -319,8 +334,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): ul#nav2 zaman çizelgesinden 101 ilan okundu; sayfanın "101 ilan" sayacıyla eşleşti (kapsam tam). Önceki kod ?kod= sorgusunu atıp 101 ilanı 1\'e indiriyordu. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 4 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote:
       'Memur, sözleşmeli, işçi ve akademik ilanları kurum ayrımı olmadan listeleyen en geniş merkezî kaynak.',
@@ -363,15 +379,16 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     group: 'kurum',
     sourceType: 'institution-page',
     institution: 'T.C. Sağlık Bakanlığı',
-    listingUrl: 'https://yhgm.saglik.gov.tr/',
+    listingUrl: 'https://yhgm.saglik.gov.tr/TR-10084/duyurular.html',
     homepageUrl: 'https://www.saglik.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'scraper-built',
+    status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
-    lastVerifiedAt: null,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Liste adresi anasayfa yerine /TR-10084/duyurular.html (#ada_AltSayfalar_items) yapıldı; 15 duyuru bağlantısı, detayla 2 kayıt işlendi. ' +
       '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Sağlık personeli (sözleşmeli sağlık personeli, sürekli işçi) alım duyuruları.',
     enabled: true,
@@ -380,6 +397,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['yhgm.saglik.gov.tr', 'www.saglik.gov.tr'],
     conditionalRequests: true,
+    listing: { listContainer: '#ada_AltSayfalar_items', pathPattern: '/TR-\\d+/[^/]+\\.html$' },
     tags: ['kurum', 'bakanlik', 'saglik', 'html'],
   },
   {
@@ -395,8 +413,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): 5 duyuru bağlantısı; detayla 2 kayıt işlendi. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 14 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Zabıt kâtibi, infaz ve koruma memuru ve diğer personel alımları.',
     enabled: true,
@@ -434,6 +453,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
     robotsDisallow: ['/kullanicilar', '/ortak_icerik', '/kurumlar', '/Kurumlar', '/Kullanicilar'],
     conditionalRequests: true,
+    listing: { listContainer: '.announcement' },
     tags: ['kurum', 'bakanlik', 'html'],
   },
   {
@@ -461,6 +481,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
     robotsDisallow: ['/kullanicilar', '/ortak_icerik', '/kurumlar', '/Kurumlar', '/Kullanicilar'],
     conditionalRequests: true,
+    listing: { listContainer: '.announcement' },
     tags: ['kurum', 'baskanlik', 'html'],
   },
   {
@@ -476,8 +497,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): ISAY CMS listesi betikle açılan display:none blokta; iskelet temizliği düzeltildi. .announcement içinde 8 bağlantı, detayla 2 kayıt. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 25 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Arama-kurtarma ve destek personeli alımları.',
     enabled: true,
@@ -488,6 +510,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
     robotsDisallow: ['/kullanicilar', '/ortak_icerik', '/kurumlar', '/Kurumlar', '/Kullanicilar'],
     conditionalRequests: true,
+    listing: { listContainer: '.announcement' },
     tags: ['kurum', 'baskanlik', 'html'],
   },
   {
@@ -575,11 +598,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.dsi.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'scraper-built',
+    status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
-    lastVerifiedAt: null,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Liste sayfayı saran WebForms <form> içinde; iskelet temizliği formu silmeyecek şekilde düzeltildi. 10 duyuru bağlantısı (/Duyuru/Detay/<id>) bulundu, detayla 1 kayıt işlendi. ' +
       '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Mühendis, tekniker ve işçi alımları.',
     enabled: true,
@@ -588,6 +612,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['www.dsi.gov.tr', 'dsi.gov.tr'],
     conditionalRequests: true,
+    listing: { pathPattern: '/Duyuru/Detay/\\d+' },
     tags: ['kurum', 'gm', 'html'],
   },
   {
@@ -625,11 +650,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.tkgm.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'scraper-built',
+    status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
-    lastVerifiedAt: null,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Next.js akışlı çizim (<div hidden id="S:n">) içeriği artık silinmiyor; 6 duyuru bağlantısı, detayla 2 kayıt. ' +
       '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Tapu ve kadastro personel alımları.',
     enabled: true,
@@ -640,6 +666,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
     robotsDisallow: ['/intranet/', '/api/', '/login/', '/preview/'],
     conditionalRequests: true,
+    listing: { pathPattern: '^/duyurular/[^/]+$' },
     tags: ['kurum', 'gm', 'html'],
   },
   {
@@ -655,8 +682,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): 20 duyuru bağlantısı; detayla 2 kayıt işlendi. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 25 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Proje personeli, araştırmacı ve uzman alımları.',
     enabled: true,
@@ -694,8 +722,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): <body id="a11y-body-root"> artık iskelet sayılmıyor; 15 duyuru bağlantısı, detayla 2 kayıt. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 17 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'YÖK ve üniversitelere ilişkin duyurular.',
     enabled: true,
@@ -716,11 +745,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.bddk.org.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'scraper-built',
+    status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
-    lastVerifiedAt: null,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Sunucu artık tam zinciri gönderiyor (TLS sorunu giderilmiş). .kategoriList içinde 1052 /Duyuru/Detay bağlantısı; istek adresinde www korunuyor (bddk.org.tr ENOTFOUND hatası giderildi). Detayla 2 kayıt işlendi. ' +
       '14.10.2026 canlı koşumu: TLS zinciri hatası nedeniyle sayfa okunamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'BDDK uzman yardımcısı ve kariyer meslek alımları.',
     enabled: true,
@@ -729,6 +759,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['www.bddk.org.tr', 'bddk.org.tr'],
     conditionalRequests: true,
+    listing: { listContainer: '.kategoriList', pathPattern: '/Duyuru/Detay/\\d+' },
     tags: ['kurum', 'duzenleyici', 'html'],
   },
   {
@@ -744,8 +775,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-13',
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): 32 duyuru bağlantısı; detayla 2 kayıt işlendi. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 2 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'SPK uzman yardımcısı alımları.',
     enabled: true,
@@ -766,11 +798,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.epdk.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'scraper-built',
+    status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
-    lastVerifiedAt: null,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Anasayfa duyuru kaydırıcısı (#duyuru-kaydir) ile menü gürültüsü ayıklandı: 12 bağlantı, detayla 2 kayıt. ' +
       '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'EPDK uzman yardımcısı alımları.',
     enabled: true,
@@ -779,6 +812,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['www.epdk.gov.tr', 'epdk.gov.tr'],
     conditionalRequests: true,
+    listing: { listContainer: '#duyuru-kaydir', pathPattern: '/Detay/Icerik/\\d+-\\d+/' },
     tags: ['kurum', 'duzenleyici', 'html'],
   },
   {
@@ -816,11 +850,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     homepageUrl: 'https://www.tmsf.org.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
-    status: 'scraper-built',
+    status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
-    lastVerifiedAt: null,
+    lastVerifiedAt: '2026-10-22',
     verificationEvidence:
+      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Sunucu ara sertifikayı göndermiyor; certs/intermediates/geotrust-tls-rsa-ca-g1.pem ile doğrulandı. Basın tablosu (form içinde) 10 bağlantı verdi; detayla 1 kayıt işlendi. ' +
       '14.10.2026 canlı koşumu: TLS zinciri hatası nedeniyle sayfa okunamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'TMSF fon uzman yardımcısı alımları.',
     enabled: true,
@@ -829,6 +864,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['www.tmsf.org.tr', 'tmsf.org.tr'],
     conditionalRequests: true,
+    listing: { listContainer: 'table.table-striped', pathPattern: '/tr/Basin/List/[^/]+$' },
     tags: ['kurum', 'duzenleyici', 'html'],
   },
 ] as const;
