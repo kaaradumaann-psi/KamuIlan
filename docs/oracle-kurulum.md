@@ -10,57 +10,75 @@ port açılmaz, TLS'i Cloudflare yapar. Sırlar repoya ve cloud-init'e girmez.
 - Cloud Account Name: `kamuilan` · Home Region: **Germany Central (Frankfurt)** (sonradan değişmez).
 - Pay As You Go'ya **yükseltme** (ücretsiz kota aşımı faturalanır).
 
-## 2. Sunucu (konsol → Compute → Instances → Create instance)
+## 2. Ağ (konsol → Networking → Virtual cloud networks)
+
+**Actions → Start VCN Wizard → Create VCN with Internet Connectivity**, ad `kamuilan-vcn`, varsayılanlar.
+Önce ağı ayrı kurmak gerekir: makine formunda "Create new virtual cloud network" seçilince public IP
+kutusu işaretlenemedi ve oluşturma "API Error: Incorrectly formatted request" verdi (22.10.2026).
+
+## 3. Sunucu (konsol → Compute → Instances → Create instance)
 
 | Alan | Değer |
 |---|---|
 | Name | `kamuilan-1` |
-| Image | Canonical **Ubuntu 24.04** (aarch64 sürümü kendiliğinden gelir) |
-| Shape | Change shape → **Ampere** → `VM.Standard.A1.Flex`, **2 OCPU / 12 GB** ("Always Free-eligible" etiketi görünmeli) |
-| Networking | Yeni VCN + **public subnet**, "Assign a public IPv4 address" açık |
-| SSH keys | "Paste public keys" → `~/.ssh/kamuilan_oracle.pub` içeriği |
-| Boot volume | Varsayılan (≈47 GB, ücretsiz 200 GB içinde) |
-| Advanced → Management | "Paste cloud-init script" → `infra/oracle/cloud-init.yaml` içeriği |
+| Image | Canonical **Ubuntu 24.04** (varsayılan 20.04 gelebilir; değiştir) |
+| Shape | **Ampere** → `VM.Standard.A1.Flex`, **1 OCPU / 6 GB** ("Always Free-eligible"). Küçük şekil kasıtlı: Always Free'de 7 gün boyunca kullanımı çok düşük makine geri alınabilir. |
+| Networking | **Select existing** → `kamuilan-vcn` → `public subnet-kamuilan-vcn`, **Automatically assign public IPv4 address** açık |
+| SSH keys | **Upload public key file (.pub)** → `~/.ssh/kamuilan_oracle.pub` (yapıştırırken iki kez eklenip bozulabiliyor) |
+| Boot volume | Varsayılan (≈47 GB) |
+| Management / cloud-init | Boş bırakılabilir; betik SSH ile de çalıştırılır (aşağıda) |
 
-"Out of host capacity" hatası: başka bir Availability Domain seç ya da birkaç saat sonra dene.
-Oluşunca **Public IP**'yi not et. Kurulum ilk açılışta ~5–10 dk sürer;
-bitti mi: `ssh -i ~/.ssh/kamuilan_oracle ubuntu@<IP> test -f /var/lib/cloud/instance/kamuilan-hazir && echo hazir`.
+"Out of host capacity": başka Availability Domain ya da sonra dene. Oluşunca **Public IP**'yi not et.
 
-## 3. Cloudflare Tunnel (kullanıcı, ücretsiz)
+**cloud-init konsolda verilmediyse** (gerçek kurulum böyle yapıldı): `infra/oracle/cloud-init.yaml`
+içindeki `write_files` + `runcmd` adımları kabuk betiğine çevrilip `sudo bash` ile çalıştırılır.
+İlk açılışta `unattended-upgrades` apt kilidini tutar → apt komutlarına `-o DPkg::Lock::Timeout=900`.
+Bitti işareti: `/var/lib/kamuilan-hazir` (konsol cloud-init'inde `/var/lib/cloud/instance/kamuilan-hazir`).
 
-Zero Trust → Networks → Tunnels → Create tunnel → Cloudflared → ad `kamuilan-api`.
-Public hostname: `api.kamuilan.halilkaraduman.com.tr` → Service `HTTP` → `127.0.0.1:3000`.
-Gösterilen jetonu **sohbete yazmadan** Windows'ta kullanıcı ortam değişkenine koy:
+## 4. Cloudflare Tunnel (kullanıcı, ücretsiz)
+
+Cloudflare → **Networking → Tunnels** (eski adı Zero Trust → Networks → Tunnels) → Create → Cloudflared →
+ad `kamuilan-api`. Ortam: **Debian + arm64** (Windows seçiliyken verilen komut bu PC'ye bağlayıcı kurar).
+Rota: tünel → **Routes → Add route → Published application** → `api.kamuilan.halilkaraduman.com.tr` →
+`http://127.0.0.1:3000` (CNAME'i Cloudflare oluşturur).
+Jetonu **sohbete yazmadan** kullanıcı ortam değişkenine koy:
 `[Environment]::SetEnvironmentVariable('CLOUDFLARE_TUNNEL_TOKEN', '<jeton>', 'User')`.
+Jeton bir yere sızdıysa tünelde yenile; eski jeton "Invalid tunnel secret" ile reddedilir.
 
-## 4. Ortam dosyası + tünel servisi
+## 5. Ortam dosyası + tünel servisi
 
 ```powershell
 powershell -File infra\oracle\ortam-gonder.ps1 -Sunucu <IP>
 ```
 
-Kullanıcı ortam değişkenlerinden `/etc/kamuilan/kamuilan.env` (0640) üretir, Supabase CA'yı
-koyar, `CLOUDFLARE_TUNNEL_TOKEN` varsa tünel servisini kurar. Hiçbir değeri ekrana yazmaz;
-uygulama sırları sunucuda varsa korunur. API `HOST=127.0.0.1` dinler, `TRUST_PROXY=loopback`.
+Kullanıcı ortam değişkenlerinden `/etc/kamuilan/kamuilan.env` (0640, değerler tek tırnaklı) üretir,
+Supabase CA'yı koyar, `CLOUDFLARE_TUNNEL_TOKEN` varsa `/etc/cloudflared/token` (0600) yazıp tünel
+servisini başlatır. Hiçbir değeri ekrana yazmaz; uygulama sırları sunucuda varsa korunur.
+API `HOST=127.0.0.1` dinler, `TRUST_PROXY=loopback`.
 
-## 5. İlk çalıştırma (onaylı adımlar)
+## 6. İlk çalıştırma (onaylı adımlar)
+
+`/opt/kamuilan` yalnız `kamuilan` kullanıcısına açık; komutlar onun adına çalışır:
 
 ```bash
 ssh -i ~/.ssh/kamuilan_oracle ubuntu@<IP>
-cd /opt/kamuilan/app
-sudo -u kamuilan sh -c 'set -a; . /etc/kamuilan/kamuilan.env; set +a; npm run env:check && npm run db:tls-doctor'
+K='cd /opt/kamuilan/app && set -a && . /etc/kamuilan/kamuilan.env && set +a'
+sudo -u kamuilan bash -c "$K && npm run -s env:check && npm run -s db:tls-doctor"
 sudo systemctl start kamuilan-api kamuilan-worker
 curl -s http://127.0.0.1:3000/api/health
-# İlk yönetici (parola yalnız sunucuda girilir):
-sudo -u kamuilan sh -c 'set -a; . /etc/kamuilan/kamuilan.env; set +a; read -r -p "E-posta: " ADMIN_EMAIL; stty -echo; read -r -p "Parola: " ADMIN_PASSWORD; stty echo; echo; export ADMIN_EMAIL ADMIN_PASSWORD; npm run seed:admin'
+# İlk yönetici (parola yalnız sunucuda girilir, ekranda görünmez):
+sudo -u kamuilan bash -c "$K"' && read -rp "E-posta: " ADMIN_EMAIL && read -rsp "Parola: " ADMIN_PASSWORD && echo && export ADMIN_EMAIL ADMIN_PASSWORD && npm run -s seed:admin'
+sudo -u kamuilan bash -c "$K && npm run -s telegram:webhook -- set"
 ```
 
 Veritabanı şeması Frankfurt'ta zaten kurulu (`db:indexes` + `db:migrate`, 22.10.2026).
 
-## 6. Cloudflare arayüzü
+## 7. Cloudflare arayüzü
 
-`npx wrangler secret put API_ORIGIN` → `https://api.kamuilan.halilkaraduman.com.tr`
-(ya da panelde Worker → Settings → Variables). Ardından `npm run telegram:webhook -- set`.
+Workers Builds (`main` → `npm run build` + `npx wrangler deploy`). `API_ORIGIN` varsayılanı
+`wrangler.jsonc` içinde `https://api.kamuilan.halilkaraduman.com.tr`; farklıysa
+`npx wrangler secret put API_ORIGIN`. PR dallarında derleme 0 sn'de düşüyorsa: Settings → Build →
+Branch control → non-production branch builds kapalı.
 
 ## Bakım
 
