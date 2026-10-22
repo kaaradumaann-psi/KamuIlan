@@ -83,3 +83,26 @@ describe('serveStatic (üretimde aynı süreçten arayüz)', () => {
     expect(page.headers['content-type']).toContain('application/json');
   });
 });
+
+describe('hız sınırı yalnız API isteklerini sayar', () => {
+  it('sınırı aşan sayıda statik/SPA isteği 429 almaz; API sınırı yine işler', async () => {
+    const { resetEnvCache } = await import('../src/config/env');
+    const previous = process.env.RATE_LIMIT_MAX_REQUESTS;
+    process.env.RATE_LIMIT_MAX_REQUESTS = '10';
+    resetEnvCache();
+    try {
+      const server = await build(true);
+      for (let i = 0; i < 25; i += 1) {
+        const response = await server.inject({ method: 'GET', url: i % 2 ? '/assets/app-abc123.js' : '/ilanlar' });
+        expect(response.statusCode, `istek ${i}`).toBe(200);
+      }
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i += 1) statuses.push((await server.inject({ method: 'GET', url: '/api/health' })).statusCode);
+      expect(statuses).toContain(429);
+    } finally {
+      if (previous === undefined) delete process.env.RATE_LIMIT_MAX_REQUESTS;
+      else process.env.RATE_LIMIT_MAX_REQUESTS = previous;
+      resetEnvCache();
+    }
+  });
+});

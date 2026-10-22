@@ -187,6 +187,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.addHook('preHandler', async (request, reply) => {
     if (options.disableRateLimit) return;
     const pathname = requestPathname(request);
+    // Yalnız API sayılır. Aynı süreçten sunulan derlenmiş arayüz (HTML/JS/CSS/ikon) ve SPA
+    // sayfa yolları sayılırsa tek sayfa yüklemesi kotanın onda birini yiyor ve sınır aşılınca
+    // tarayıcıya sayfa yerine ham JSON gösteriliyordu (22.10.2026 üretim provası).
+    if (!pathname.startsWith('/api/')) return;
     // Telegram sunucuları tek IP'den çok sayıda güncelleme yollar; kimlik sırla doğrulanır.
     if (pathname === TELEGRAM_WEBHOOK_PATH) return;
     const isStrictAuth = request.method === 'POST' && STRICT_AUTH_PATHS.has(pathname);
