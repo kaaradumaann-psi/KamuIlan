@@ -23,3 +23,7 @@ probe-resmigazete-*.json
 certs/
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+
+# Görsel regresyon referansları yalnız Linux (CI) içindir
+e2e/**/*-snapshots/*-win32.png
+e2e/**/*-snapshots/*-darwin.png
