@@ -1,5 +1,8 @@
 # Dağıtım (üretim)
 
+> **Sırayla uygulanacak tek sayfalık yol:** [uretime-cikis.md](./uretime-cikis.md) (kararlar, hesaplar,
+> `.env`, komutlar, canlı öncesi doğrulama, geri alma). Bu belge topoloji ve örnek yapılandırmaları içerir.
+
 ## Özet kontrol listesi
 
 - [ ] `NODE_ENV=production`, `APP_SECRET` en az 32 karakter rastgele değer (sır yöneticisi)
@@ -19,6 +22,10 @@
 - [ ] Kaynak envanteri + zamanlanmış görevler yazıldı (`npm run db:migrate`)
 - [ ] Yedekleme/geri yükleme denendi ([operations.md](./operations.md))
 - [ ] Sağlık kontrolü izleniyor (`GET /api/health`)
+- [ ] `POSTGRES_MAX_CONNECTIONS`: API + worker toplamı Supabase havuz sınırının altında (ücretsiz planda süreç başına 5)
+- [ ] `SOURCE_TERMS_POLICY` kararı (`warn`/`enforce`) ve `config/source-terms.json` incelemeleri
+- [ ] HSTS: uygulama üretim + https'te `max-age=31536000` gönderir; Cloudflare'de de "Always Use HTTPS" + HSTS
+- [ ] Postgres aynı makinedeyse (127.0.0.1/::1/Unix soketi) `POSTGRES_SSL_MODE=disable` kabul edilir (uyarı); uzak hostta `verify` zorunlu
 
 Başlangıç doğrulaması: uygulama `src/config/env.ts` ile ortam değişkenlerini
 doğrular; üretimde `RESEND_API_KEY` **ve** `SMTP_HOST` yoksa ya da dosya deposu

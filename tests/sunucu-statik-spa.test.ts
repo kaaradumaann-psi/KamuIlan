@@ -106,3 +106,12 @@ describe('hız sınırı yalnız API isteklerini sayar', () => {
     }
   });
 });
+
+describe('HSTS', () => {
+  it('yalnız üretimde ve HTTPS taban adreste; alt alan adlarını bağlamaz', async () => {
+    const { hstsHeaderFor } = await import('../src/server/app');
+    expect(hstsHeaderFor({ NODE_ENV: 'production', APP_BASE_URL: 'https://kamuilan.ornek.tr' })).toBe('max-age=31536000');
+    expect(hstsHeaderFor({ NODE_ENV: 'production', APP_BASE_URL: 'http://localhost:4173' })).toBeNull();
+    expect(hstsHeaderFor({ NODE_ENV: 'development', APP_BASE_URL: 'https://kamuilan.ornek.tr' })).toBeNull();
+  });
+});
