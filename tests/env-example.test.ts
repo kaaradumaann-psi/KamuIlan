@@ -70,3 +70,24 @@ describe('boş değer = tanımsız (withoutBlankValues)', () => {
     resetEnvCache();
   });
 });
+
+describe('.env.example olduğu gibi süreç ortamına yüklenince', () => {
+  it('logger açılışta çökmez (boş LOG_LEVEL= satırı varsayılana düşer)', async () => {
+    const values = parseEnvFile(file);
+    const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, values, { NODE_ENV: 'test' });
+    resetEnvCache();
+    try {
+      const { createLogger } = await import('../src/lib/logger');
+      const logger = createLogger('env-example-test');
+      expect(logger.level).toBe('info');
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      resetEnvCache();
+    }
+  });
+});
+
