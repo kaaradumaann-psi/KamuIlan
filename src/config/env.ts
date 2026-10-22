@@ -369,6 +369,7 @@ const envSchema = z.object({
   LLM_CLASSIFIER_MODEL: z.string().default(''),
   // Virgülle ayrılmış yedek modeller (aynı sağlayıcı/uç nokta); sıra = deneme sırası.
   LLM_CLASSIFIER_FALLBACK_MODELS: z.string().default(''),
+  LLM_REASONING_EFFORT: z.enum(['', 'low', 'medium', 'high']).default(''),
   /** Sağlayıcıya gönderilecek azami ilan metni uzunluğu (karakter). Fazlası kırpılır. */
   LLM_MAX_INPUT_CHARS: z.coerce.number().int().min(1_000).max(40_000).default(12_000),
   /** Tek kaynak taramasında yapılacak azami LLM çağrısı (maliyet freni). 0 = kapı bu koşuda çalışmaz. */

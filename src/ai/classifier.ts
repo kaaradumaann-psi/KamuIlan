@@ -54,6 +54,8 @@ import {
   computeRetryDelayMs,
   isDailyQuotaExhausted,
   isModelUnavailable,
+  isProviderOutputValidationFailure,
+  reasoningEffortFor,
   redactSecret,
   type LlmConfig,
   type LlmFetch,
@@ -68,28 +70,47 @@ import { createLlmBudgetFromEnv, type LlmBudgetBlockReason } from './budget';
  * kontrollü biçimde yeniden değerlendirilmesini sağlar (eski önbellek kayıtları
  * geçerliliğini yitirir ama silinmez; telemetri olarak kalır).
  */
-export const LLM_PROMPT_VERSION = 'kamuilan-sinif-v1';
+export const LLM_PROMPT_VERSION = 'kamuilan-sinif-v2';
+
+/**
+ * İsteğe bağlı alanlardaki `null` ve boş dize → alan yok. gpt-oss-20b kullanmadığı kanıt alanlarını
+ * kimi koşuda `null`, kimi koşuda `""` yazıyor (Groq canlı ölçüm, 22.10.2026); anlamca alanın
+ * yokluğuyla aynıdır. Zorunlu alanlar (`karar`, `icerikTuru`, `ozet`) için yine geçersizdir; karar
+ * için gereken kanıt boşsa kanıt doğrulaması reddeder.
+ */
+function dropEmptyFields(value: unknown, keys?: readonly string[]): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const isEmpty = (entry: unknown): boolean => entry === null || (typeof entry === 'string' && entry.trim() === '');
+  return Object.fromEntries(
+    Object.entries(value).filter(([key, entry]) => !isEmpty(entry) || (keys !== undefined && !keys.includes(key))),
+  );
+}
 
 /** Model çıktısı bu şemayla doğrulanır; uymayan yanıt 'invalid' sayılır. */
-export const llmClassifierOutputSchema = z
-  .object({
+export const llmClassifierOutputSchema = z.preprocess(
+  (value) => dropEmptyFields(value, ['istihdamTuru', 'guven', 'kanitlar']),
+  z.object({
     karar: z.enum(LLM_VERDICTS),
     icerikTuru: z.enum(CONTENT_TYPES),
     istihdamTuru: z.enum(EMPLOYMENT_TYPES).default('belirsiz'),
     guven: z.number().min(0).max(1).default(0.5),
     ozet: z.string().trim().min(5).max(400),
-    kanitlar: z
-      .object({
-        alimIfadesi: z.string().trim().min(8).max(300).optional(),
-        surecIfadesi: z.string().trim().min(8).max(300).optional(),
-        olumsuzKanit: z.string().trim().min(8).max(300).optional(),
-        basvuruTarihi: z.string().trim().min(8).max(300).optional(),
-        unvan: z.string().trim().min(3).max(200).optional(),
-        kontenjan: z.string().trim().min(1).max(100).optional(),
-        gorevYeri: z.string().trim().min(3).max(200).optional(),
-      })
-      .default({}),
-  });
+    kanitlar: z.preprocess(
+      (value) => dropEmptyFields(value),
+      z
+        .object({
+          alimIfadesi: z.string().trim().min(8).max(300).optional(),
+          surecIfadesi: z.string().trim().min(8).max(300).optional(),
+          olumsuzKanit: z.string().trim().min(8).max(300).optional(),
+          basvuruTarihi: z.string().trim().min(8).max(300).optional(),
+          unvan: z.string().trim().min(3).max(200).optional(),
+          kontenjan: z.string().trim().min(1).max(100).optional(),
+          gorevYeri: z.string().trim().min(3).max(200).optional(),
+        })
+        .default({}),
+    ),
+  }),
+);
 export type LlmClassifierOutput = z.infer<typeof llmClassifierOutputSchema>;
 
 /** `ilan-degil` kararının dönüştürebileceği içerik türleri (personel türleri hariç). */
@@ -839,6 +860,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       failureCategory?: LlmFailureCategory;
     } = { reason: 'Sağlayıcı çağrısı yapılmadı', status: 'error' };
     const chain = [config_.model, ...config_.fallbackModels];
+    // Model geçişi başarılı sonuçta da görünür olsun (yalnız model/kategori/durum; içerik yok).
+    const fellBack = (model: string, why: string, status: number | null): void => {
+      notes.push(`${model}: ${why}`);
+      logger.warn({ model, reason: why, status }, 'LLM modeli başarısız; zincirde sıradaki modele geçiliyor');
+    };
     // Biçimi bozuk son yanıt: zincir/bütçe biterse bu döner ve çağıran `invalid` olarak kaydeder.
     let lastUnusable: { content: string; usage: { promptTokens: number | null; completionTokens: number | null }; model: string } | null =
       null;
@@ -893,6 +919,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
             temperature: 0.1,
             maxTokens: maxOutputTokens,
             jsonMode: true,
+            reasoningEffort: reasoningEffortFor(model, env.LLM_REASONING_EFFORT),
           });
         } finally {
           semaphore.release();
@@ -923,10 +950,15 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         if (!response.retryable || isDailyQuotaExhausted(response)) break;
       }
       if (!result) {
-        if (lastUnusable?.model === model) notes.push(`${model}: geçersiz JSON/şema`);
+        if (lastUnusable?.model === model) fellBack(model, 'geçersiz JSON/şema', 200);
         continue;
       }
       const category = result.failureCategory;
+      if (isProviderOutputValidationFailure(result)) {
+        // Groq JSON modu: geçersiz model çıktısı 400 olarak gelir; istek geçerlidir → sıradaki model.
+        fellBack(model, 'geçersiz JSON (sağlayıcı doğrulaması)', result.status);
+        continue;
+      }
       if (category === 'auth' || (category === 'bad-request' && !isModelUnavailable(result)) || category === 'config') {
         // Aynı anahtar/istem başka modelde de reddedilir: hata gizlenmez, zincir durur.
         break;
@@ -938,7 +970,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         const waitMs = rate?.retryAfterMs ?? rate?.resetRequestsMs ?? DAILY_QUOTA_DEFAULT_SKIP_MS;
         unavailableModels.set(skipKey, { untilMs: Date.now() + Math.max(60_000, waitMs), reason: 'günlük kota tükendi' });
       }
-      notes.push(`${model}: ${category ?? 'hata'}`);
+      fellBack(model, category ?? 'hata', result.status);
     }
     if (lastUnusable) return unusableResult(lastUnusable);
     const tried = modelsTried.length > 0 ? modelsTried : chain;
