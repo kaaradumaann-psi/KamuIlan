@@ -105,7 +105,7 @@ export function buildForwardHeaders(request: Request): Headers {
   return headers;
 }
 
-async function proxy(context: { request: Request; env: ApiProxyEnv }): Promise<Response> {
+export async function proxy(context: { request: Request; env: ApiProxyEnv }): Promise<Response> {
   const origin = normalizeOrigin(context.env.API_ORIGIN ?? DEFAULT_API_ORIGIN);
   const incoming = new URL(context.request.url);
   const target = new URL(`${incoming.pathname}${incoming.search}`, origin);

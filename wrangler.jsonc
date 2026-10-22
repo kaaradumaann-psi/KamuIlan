@@ -16,6 +16,9 @@
   //    proxy'lenir; tarayıcı yalnızca göreli /api yollarını çağırır.
   "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
   "name": "kamuilan",
+  // /api/* → API vekili (functions/worker.ts); diğer yollar statik varlıklar. functions/api tek başına
+  // yalnız Cloudflare Pages'te çalışırdı — Workers'ta giriş betiği zorunlu.
+  "main": "functions/worker.ts",
   "compatibility_date": "2026-10-12",
   "workers_dev": false,
   "preview_urls": false,
@@ -24,6 +27,8 @@
   },
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
     "not_found_handling": "single-page-application",
     "html_handling": "auto-trailing-slash",
   },
