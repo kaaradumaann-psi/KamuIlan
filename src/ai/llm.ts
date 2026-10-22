@@ -1092,7 +1092,11 @@ export async function callChatCompletion(
 
     const envelope = parsed as {
       choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
-      usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+      usage?: {
+        prompt_tokens?: unknown;
+        completion_tokens?: unknown;
+        completion_tokens_details?: { reasoning_tokens?: unknown };
+      };
     };
     const choice = envelope?.choices?.[0];
     const content = choice?.message?.content;
@@ -1129,6 +1133,12 @@ export async function callChatCompletion(
     }
     const toCount = (value: unknown): number | null =>
       typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+    // `length` = çıktı token sınırında kesildi (gpt-oss akıl yürütme tokenları bütçeyi yiyebilir);
+    // içerik bozuk JSON olabileceği için tanı araçları bunu raporlar.
+    const finishReason =
+      typeof choice?.finish_reason === 'string' && choice.finish_reason.trim().length > 0
+        ? choice.finish_reason.trim()
+        : null;
     return {
       ok: true,
       content,
@@ -1137,6 +1147,8 @@ export async function callChatCompletion(
         promptTokens: toCount(envelope?.usage?.prompt_tokens),
         completionTokens: toCount(envelope?.usage?.completion_tokens),
       },
+      finishReason,
+      thoughtsTokens: toCount(envelope?.usage?.completion_tokens_details?.reasoning_tokens),
       rateLimit: readRateLimitInfo(response.headers),
     };
   } catch (error) {
