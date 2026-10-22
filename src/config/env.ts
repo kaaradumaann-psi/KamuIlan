@@ -446,6 +446,30 @@ export type Env = z.infer<typeof envSchema>;
 
 let cachedEnv: Env | null = null;
 
+/**
+ * Hiçbir değişken verilmediğinde şemanın ürettiği değerler (yalnız şema; süreç ortamı ve `.env`
+ * OKUNMAZ). `.env.example` üreteci "varsayılan" sütununu buradan alır; kopya değer bayatlamaz.
+ */
+export function envSchemaDefaults(): Env {
+  return envSchema.parse({});
+}
+
+/**
+ * Boş ya da yalnız boşluktan oluşan değer → TANIMSIZ (şema varsayılanı uygulanır).
+ *
+ * Neden: `.env`'de `KEY=` satırı süreç ortamına boş metin olarak girer. Doğrudan şemaya verildiğinde
+ * `SCHEDULER_ENABLED=` ve `SOURCE_LIVE_FETCH=` `true` (boş metin '0' değil), `PORT=` gibi sayılar 0
+ * (başlangıç hatası), `SOURCE_ALLOWED_HOSTS=` boş izin listesi oluyordu (22.10.2026). Belgelenen
+ * sözleşme (env-spec: "boş bırakılan isteğe bağlı alan şemanın varsayılanını alır") budur.
+ */
+export function withoutBlankValues(values: Record<string, string | undefined>): Record<string, string | undefined> {
+  const result: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(values)) {
+    result[key] = typeof value === 'string' && value.trim() === '' ? undefined : value;
+  }
+  return result;
+}
+
 export interface GetEnvOptions {
   /** Göreli CA dosya yolu bu köke göre çözülsün (bkz. EnvironmentInspectionOptions). */
   caFileRoot?: string;
@@ -462,7 +486,7 @@ export function getEnv(
   const base: Record<string, string | undefined> = options?.envFile
     ? parseEnvFileScoped(options.envFile)
     : { ...process.env };
-  const parsed = envSchema.safeParse({ ...base, ...overrides });
+  const parsed = envSchema.safeParse(withoutBlankValues({ ...base, ...overrides }));
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
@@ -507,7 +531,7 @@ export function parseEnvWithoutValidation(
     ? { ...(loadEnvFile({ envFile: options.envFile }) ? parseEnvFileScoped(options.envFile) : {}) }
     : { ...process.env };
   const merged = { ...base, ...overrides } as Record<string, string | undefined>;
-  const parsed = envSchema.safeParse(merged);
+  const parsed = envSchema.safeParse(withoutBlankValues(merged));
   if (parsed.success) return { ok: true, env: parsed.data };
   const issues = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
   const partial: Record<string, string | undefined> = {};
