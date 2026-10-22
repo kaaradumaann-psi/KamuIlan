@@ -295,6 +295,26 @@
     gap: 6px;
   }
 
+  /* Rota değişiminde ve atlama bağlantısında odak <main>'e taşınır (ekran okuyucu yeni sayfayı
+     baştan okur); <main> etkileşimli değildir, tarayıcının çizdiği odak çerçevesi tüm içeriği
+     siyah bir kutu içine alıyordu. */
+  .app-main:focus,
+  .app-main:focus-visible {
+    outline: none;
+  }
+
+  /* Tıklanabilir etiket (ör. "2 filtre etkin" → filtre panelini açar). */
+  .tag-button {
+    cursor: pointer;
+    font-family: inherit;
+    line-height: inherit;
+  }
+
+  .tag-button:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   /* İlan türü ve son tarih etiketleri: nötr zemin + tek vurgu rengi. */
   .tag {
     display: inline-flex;
@@ -770,6 +790,9 @@
   }
 
   .desk-now-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     color: rgba(255, 255, 255, 0.82);
     font-size: 12px;
     font-weight: 600;
@@ -1188,11 +1211,16 @@
     color: var(--danger-ink);
   }
 
+  /* Arama kutusu kendi satırında: yan durum kartıyla daralan sütunda yer tutucu kesilmesin. */
   .hero-search {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
     margin: 16px 0 14px;
+  }
+
+  .hero-search > :first-child {
+    grid-column: 1 / -1;
   }
 
   /* 15 · İlan kartı -------------------------------------------------------- */

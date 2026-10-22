@@ -120,7 +120,8 @@ function SystemStrip() {
           <Icon name="arrowRight" size={14} />
         </Link>
         <Link className="desk-now-secondary" to="/panel">
-          E-posta bildirimi
+          <Icon name="bell" size={13} />
+          <span>E-posta bildirimi kur</span>
         </Link>
       </div>
     </aside>
@@ -181,7 +182,7 @@ export function HomePage() {
                 type="search"
                 value={term}
                 onChange={(event) => setTerm(event.target.value)}
-                placeholder="Unvan, kurum veya anahtar kelime (örn. hemşire, zabıta, DSİ)"
+                placeholder="Unvan, kurum ya da kelime (örn. hemşire)"
                 aria-label="Arama terimi"
               />
             </div>

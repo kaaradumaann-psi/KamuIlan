@@ -41,7 +41,7 @@ function activePreset(filters: JobFilters): JobsPreset | null {
 import { toIstanbulDateOnly } from '../domain/dates';
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
-import { EmptyState, ErrorNotice, LoadingCard, Pagination, Tag } from '../components/ui';
+import { EmptyState, ErrorNotice, LoadingCard, Pagination } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
 import { usePageMeta } from '../lib/page-meta';
 import { formatNumber } from '../lib/format';
@@ -223,8 +223,27 @@ export function JobsPage() {
         {jobs.data ? (
           <>
             <strong>{formatNumber(jobs.data.total)}</strong> ilan bulundu
+            {urlFilters.q && (
+              <>
+                <span className="inline-sep" />
+                <span className="text-muted-sm">
+                  Aranan: <strong>“{urlFilters.q}”</strong>
+                </span>
+              </>
+            )}
             {activeCount > 0 && <span className="inline-sep" />}
-            {activeCount > 0 && <Tag tone="accent">{`${activeCount} filtre etkin`}</Tag>}
+            {activeCount > 0 && (
+              // Filtre paneli kapalıyken etkin filtreler görünmüyordu; rozet paneli açar.
+              <button
+                type="button"
+                className="tag tag-accent tag-button"
+                aria-controls="filtre-paneli"
+                aria-expanded={panelOpen}
+                onClick={() => setPanelOpen(true)}
+              >
+                <span>{`${activeCount} filtre etkin`}</span>
+              </button>
+            )}
             <span className="inline-sep" />
             <span className="text-muted-sm">
               Sayfa {jobs.data.page}/{Math.max(1, jobs.data.pages)}
@@ -250,6 +269,22 @@ export function JobsPage() {
           icon="search"
           title="Bu filtrelerle ilan bulunamadı"
           description="Seçimlerinizi azaltıp yeniden deneyin; belki aradığınız ilan henüz burada değildir."
+          action={
+            activeCount > 0 ? (
+              <div className="action-row">
+                <button type="button" className="btn-primary btn-sm" onClick={reset}>
+                  <Icon name="close" size={14} />
+                  <span>Filtreleri temizle</span>
+                </button>
+                {!panelOpen && (
+                  <button type="button" className="btn-secondary btn-sm" onClick={() => setPanelOpen(true)}>
+                    <Icon name="filter" size={14} />
+                    <span>Filtreleri düzenle</span>
+                  </button>
+                )}
+              </div>
+            ) : undefined
+          }
         />
       )}
 
