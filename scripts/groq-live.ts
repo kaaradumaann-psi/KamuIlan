@@ -52,7 +52,9 @@ const EVAL_ARGS = [
   '--max-calls',
   '10',
   '--max-output-tokens',
-  '512',
+  // Üretim kapısının varsayılanı (900): 512'de gpt-oss akıl yürütme tokenları JSON'u kesip Groq
+  // "json_validate_failed" (400) döndürdü (22.10.2026 ölçümü).
+  '900',
   '--max-cost-usd',
   '0.1',
 ] as const;
@@ -406,7 +408,7 @@ export async function runScrapeIntegration(
       env: getEnv({ ...gateEnvOverrides(key, models), LLM_MAX_CALLS_PER_RUN: '12' }),
       logger,
       maxCallsPerRun: 12,
-      maxOutputTokens: 512,
+      // maxOutputTokens verilmez: üretim kapısının varsayılanı (900) ölçülür.
       runCostLimitUsd: Number(RUN_COST_LIMIT_USD),
       ...(fetchImpl ? { fetchImpl } : {}),
     });

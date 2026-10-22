@@ -54,6 +54,7 @@ import {
   computeRetryDelayMs,
   isDailyQuotaExhausted,
   isModelUnavailable,
+  isProviderOutputValidationFailure,
   redactSecret,
   type LlmConfig,
   type LlmFetch,
@@ -927,6 +928,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         continue;
       }
       const category = result.failureCategory;
+      if (isProviderOutputValidationFailure(result)) {
+        // Groq JSON modu: geçersiz model çıktısı 400 olarak gelir; istek geçerlidir → sıradaki model.
+        notes.push(`${model}: geçersiz JSON (sağlayıcı doğrulaması)`);
+        continue;
+      }
       if (category === 'auth' || (category === 'bad-request' && !isModelUnavailable(result)) || category === 'config') {
         // Aynı anahtar/istem başka modelde de reddedilir: hata gizlenmez, zincir durur.
         break;

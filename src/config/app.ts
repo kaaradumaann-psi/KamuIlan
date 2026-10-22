@@ -47,7 +47,10 @@ export const APP_VERSION = '2026.10.1';
 // "burs" sayılmaz (#31). Eski sürümle verilmiş RET kararları tarama belleğinden düşer
 // (src/ingest/pipeline.ts `loadKnownItemIds`): kaynakta hâlâ listelenen kayıt bir kez
 // yeniden indirilip güncel kuralla değerlendirilir.
-export const CLASSIFICATION_VERSION = '2026.10.5';
+// 2026.10.6: "… Türkiye İş Kurumu aracılığıyla alınacaktır" ve "4857 sayılı İş Kanunu kapsamında
+// çalıştırılmak üzere" olumlu kanıt (22.10.2026 Groq ölçümünde İŞKUR aracılı işçi alımı kurallarca
+// reddedilmişti; artık incelemeye/LLM kapısına gider).
+export const CLASSIFICATION_VERSION = '2026.10.6';
 // 2026.10.2: gövde metni artık sayfa iskeletinden (menü, çerez/KVKK modali,
 // erişilebilirlik araç çubuğu) arındırılarak çıkarılıyor.
 // 2026.10.3: iskelet temizliği metin katmanında da genişletildi —

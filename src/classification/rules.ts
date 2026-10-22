@@ -242,6 +242,21 @@ export const POSITIVE_RULES: readonly KeywordRule[] = [
     weight: 3,
   },
   {
+    id: 'pozitif.iskur-araciligiyla-alim',
+    reason: 'Türkiye İş Kurumu (İŞKUR) aracılığıyla alım yapılıyor',
+    // "3 (üç) temizlik görevlisi Türkiye İş Kurumu aracılığıyla alınacaktır",
+    // "İŞKUR üzerinden ... işçi alınacak" (her iki sıra; 22.10.2026 canlı ölçümünde kurallarca reddedildi).
+    pattern:
+      /\b(?:turkiye\s+is\s+kurumu|iskur)\w*\s+(?:araciligiyla|uzerinden)[\s\S]{0,80}?\bal(?:i?m|inacak)\w*|\bal(?:inacak|inacaktir)\w*[\s\S]{0,60}?\b(?:turkiye\s+is\s+kurumu|iskur)\w*\s+(?:araciligiyla|uzerinden)/,
+    weight: 3,
+  },
+  {
+    id: 'pozitif.is-kanunu-calistirma',
+    reason: '4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere alım',
+    pattern: /\b4857\s+sayili\s+is\s+kanunu[\s\S]{0,80}?\bcalistirilmak\s+uzere/,
+    weight: 2.5,
+  },
+  {
     id: 'pozitif.basvuru-sarti',
     reason: 'Başvuru şartları/koşulları belirtiliyor',
     // "başvuru şartları", "aranan nitelikler", "adaylarda aranacak şartlar"

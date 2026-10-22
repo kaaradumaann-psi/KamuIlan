@@ -224,6 +224,35 @@ describe('model zinciri (mock)', () => {
     expect(outcome.classification.decision).toBe('review');
   });
 
+  // Gerçek Groq ölçümü (22.10.2026, gpt-oss-20b): JSON modunda geçersiz çıktı 400 olarak döner.
+  const JSON_VALIDATE_400: Reply = {
+    status: 400,
+    body: JSON.stringify({
+      error: {
+        message: "Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+        type: 'invalid_request_error',
+        code: 'json_validate_failed',
+        failed_generation: '{"karar":"ilan","kanitlar":{"alimIfadesi":"söz',
+      },
+    }),
+  };
+
+  it('Groq 400 json_validate_failed (model çıktısı hatası) → zincir durmaz, yedek model karar verir', async () => {
+    const { outcome, calls } = await run({ [M1]: JSON_VALIDATE_400, [M2]: ok() });
+    expect(calls[M1]).toBe(1);
+    expect(calls[M2]).toBe(1);
+    expect(outcome.classification.decision).toBe('accept');
+    expect(outcome.classification.llm?.model).toBe(M2);
+  });
+
+  it('üç model de json_validate_failed → incelemede kalır, onay YOK, hata gizlenmez', async () => {
+    const { outcome, calls } = await run({ [M1]: JSON_VALIDATE_400, [M2]: JSON_VALIDATE_400, [M3]: JSON_VALIDATE_400 });
+    expect([calls[M1], calls[M2], calls[M3]]).toEqual([1, 1, 1]);
+    expect(outcome.classification.decision).toBe('review');
+    expect(outcome.opinion?.verdict).toBe('hata');
+    expect(outcome.opinion?.reasons.join(' ')).toContain('geçersiz JSON (sağlayıcı doğrulaması)');
+  });
+
   it('HTTP 200 + bozuk JSON → aynı model yeniden denenmez, yedek model kararı uygular', async () => {
     const { outcome, calls, rows } = await run({ [M1]: ok('{"karar": "ilan", kanitlar'), [M2]: ok() });
     expect(calls[M1]).toBe(1);

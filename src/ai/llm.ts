@@ -157,6 +157,17 @@ export function isDailyQuotaExhausted(result: Extract<LlmResult, { ok: false }>)
   return DAILY_QUOTA_PATTERN.test(message) || result.diagnostics?.rateLimit?.remainingRequests === 0;
 }
 
+/**
+ * Sağlayıcı, modelin ürettiği çıktıyı JSON modunda doğrulayamadı mı? Groq bunu 200 yerine
+ * HTTP 400 ile bildirir (`code: json_validate_failed`, "Failed to validate JSON …"; gerçek ölçüm
+ * 22.10.2026, gpt-oss-20b). İstek değil MODEL ÇIKTISI hatalıdır: sıradaki model denenebilir.
+ */
+export function isProviderOutputValidationFailure(result: Extract<LlmResult, { ok: false }>): boolean {
+  if (result.status !== 400) return false;
+  const code = String(result.diagnostics?.errorCode ?? '');
+  return code === 'json_validate_failed' || /failed to validate json/i.test(result.diagnostics?.errorMessage ?? '');
+}
+
 /** Model kullanılamıyor mu (bulunamadı/kaldırıldı)? Bu durumda sıradaki modele geçilir. */
 export function isModelUnavailable(result: Extract<LlmResult, { ok: false }>): boolean {
   if (result.failureCategory === 'not-found') return true;
