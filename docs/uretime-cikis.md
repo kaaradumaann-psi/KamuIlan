@@ -100,7 +100,7 @@ Kontrol: `npm run env:check` → "✔ Ortam yapılandırması kullanılabilir." 
 ## 3. Kurulum komutları (sırayla)
 
 ```bash
-git clone https://github.com/kaaradumaann-psi/kamuradar.git && cd kamuradar
+git clone https://github.com/kaaradumaann-psi/KamuIlan.git && cd KamuIlan
 npm ci
 npm run env:check
 npm run db:indexes        # tablolar + indeksler (idempotent)
