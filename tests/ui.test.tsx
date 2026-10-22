@@ -10,7 +10,7 @@
  * Ağ erişimi yoktur: `src/lib/api` modülü sahte yanıtlarla değiştirilir.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -134,7 +134,7 @@ function loginAsTestUser(): void {
 }
 
 describe('arayüz kabuğu', () => {
-  it('ana sayfayı giriş yapmış kullanıcıda kabuk içinde çizer', async () => {
+  it('ana sayfayı giriş yapmış kullanıcıda kabuk içinde çizer; teknik ayrıntı ve tekrar eden uyarı yok', async () => {
     loginAsTestUser();
     renderApp('/');
 
@@ -143,29 +143,37 @@ describe('arayüz kabuğu', () => {
       await screen.findByRole('heading', { level: 1, name: /Kamu personel alım ilanları/ }),
     ).toBeTruthy();
     expect(screen.getByLabelText('Arama terimi')).toBeTruthy();
-    // Dürüstlük notu kabukta ve ana sayfada görünür.
-    expect(screen.getAllByText(/Her ilanı bulamayabiliriz/).length).toBeGreaterThan(0);
-    await waitFor(() =>
-      expect(screen.getByText(/Tarama worker’ı çalışmıyor|Sistem kısmen sorunlu|Sistem normal/)).toBeTruthy(),
-    );
-    expect(await screen.findByText(/Tarama worker’ı şu an çalışmıyor/)).toBeTruthy();
+    // Güncellik kartı sade dille yazılır: son güncelleme + takip edilen kaynak sayısı.
+    expect(await screen.findByText('Henüz güncelleme yok')).toBeTruthy();
+    expect(screen.getByText(/resmî kaynak takip ediliyor/)).toBeTruthy();
+    // Kapsam feragati kabukta (yan menü/alt bilgi) tekrar edilmez; tarama süreci terimleri görünmez.
+    expect(screen.queryByText(/Her ilanı bulamayabiliriz/)).toBeNull();
+    expect(screen.queryByText(/worker/i)).toBeNull();
+    // Normal durumda üst durum bandı hiç çizilmez.
+    expect(document.querySelector('.cloud-sync-banner')).toBeNull();
     const healthRequests = vi.mocked(api.get).mock.calls.filter(([path]) => path === '/api/health');
     expect(healthRequests).toHaveLength(1);
   });
 
-  it('worker heartbeat hazırlık durumunu kapalı worker gibi göstermeden yeniler', async () => {
+  it('durum bandı yalnızca liste bir günden eskiyse kısa ve teknik olmayan bir uyarı gösterir', async () => {
     loginAsTestUser();
-    responses.set('/api/health/worker', {
-      checkedAt: new Date().toISOString(),
-      workers: { total: 1, running: 0, starting: 1, stale: 0 },
+    const health = responses.get('/api/health') as { scans: Record<string, unknown> };
+    responses.set('/api/health', {
+      ...health,
+      scans: {
+        ...health.scans,
+        lastSuccessAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        minutesSinceSuccess: 2 * 24 * 60,
+      },
     });
     renderApp('/');
 
-    expect(await screen.findAllByText(/başlatılıyor/)).not.toHaveLength(0);
-    expect(screen.queryByText(/Tarama worker’ı şu an çalışmıyor/)).toBeNull();
+    expect(await screen.findByText(/yeni ilanlar gecikebilir/)).toBeTruthy();
+    expect(screen.getByText('Güncelleme gecikti')).toBeTruthy();
+    expect(screen.queryByText(/worker/i)).toBeNull();
   });
 
-  it('ilan listesi filtre formunu ve paylaşılabilir adres notunu gösterir', async () => {
+  it('ilan listesi filtre formunu gösterir', async () => {
     loginAsTestUser();
     renderApp('/ilanlar');
 
@@ -194,53 +202,88 @@ describe('arayüz kabuğu', () => {
     expect(screen.getByText(/Halka açık kayıt yoktur/)).toBeTruthy();
   });
 
-  it('kaynaklar sayfası doğrulanmış yöntemi canlı tarama gibi sunmaz', async () => {
+  it('kaynaklar sayfası sade liste gösterir; kapalı kaynağı hata gibi sunmaz', async () => {
     loginAsTestUser();
+    const health = {
+      lastRunAt: null,
+      lastSuccessAt: null,
+      consecutiveFailures: 0,
+      totalRuns: 0,
+      successRuns: 0,
+      failureRuns: 0,
+      avgDurationMs: null,
+      lastError: null,
+      itemsFound: 0,
+      emptyStreak: 0,
+    };
+    const base = {
+      group: 'kurum',
+      statusNote: 'Test',
+      verified: true,
+      built: true,
+      lastVerifiedAt: '2026-10-14',
+      verificationEvidence: 'Fixture',
+      coverageNote: 'Kapsam testi',
+      intervalMinutes: 60,
+      lastRun: null,
+    };
     responses.set('/api/sources', {
       sources: [
         {
-          key: 'verified-kaynak',
-          name: 'Doğrulanmış Test Kaynağı',
+          ...base,
+          key: 'taranan',
+          name: 'Taranan Kaynak (JSON API)',
           institution: 'Test kurumu',
-          group: 'test',
           status: 'verified',
-          statusNote: 'Test',
           enabled: true,
-          verified: true,
-          built: true,
-          lastVerifiedAt: '2026-10-14',
-          verificationEvidence: 'Fixture',
-          coverageNote: 'Kapsam testi',
-          intervalMinutes: 60,
-          health: {
-            lastRunAt: null,
-            lastSuccessAt: null,
-            consecutiveFailures: 0,
-            totalRuns: 0,
-            successRuns: 0,
-            failureRuns: 0,
-            avgDurationMs: null,
-            lastError: null,
-            itemsFound: 0,
-            emptyStreak: 0,
-          },
-          lastRun: null,
+          termsGated: false,
+          health: { ...health, lastSuccessAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
+        },
+        {
+          ...base,
+          key: 'sartli',
+          name: 'Şart Onayı Bekleyen Kaynak',
+          institution: 'Başka kurum',
+          status: 'verified',
+          enabled: true,
+          termsGated: true,
+          health: { ...health, consecutiveFailures: 3 },
+        },
+        {
+          ...base,
+          key: 'elle',
+          name: 'Elle Takip Kaynağı',
+          institution: 'Üçüncü kurum',
+          status: 'needs-manual-method',
+          enabled: true,
+          health,
         },
       ],
       planned: [],
-      summary: { total: 1, enabled: 1, verified: 1, built: 0, failing: 0, stale: 1, planned: 0 },
+      summary: { total: 3, enabled: 3, verified: 3, built: 0, failing: 1, stale: 2, planned: 0 },
       disclaimer: 'Kapsam eksiktir.',
       generatedAt: new Date().toISOString(),
     });
     renderApp('/kaynaklar');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'İlanları nereden alıyoruz?' })).toBeTruthy();
-    expect(await screen.findByText('tarihsel doğrulama')).toBeTruthy();
-    expect(screen.queryByText('ilanları düzenli okunuyor')).toBeNull();
-    expect(screen.getByText('Gerçek veriyle doğrulanan')).toBeTruthy();
-    const preparedLabel = screen.getByText('Hazırlanan');
-    expect(preparedLabel.parentElement?.querySelector('.stat-val')?.textContent).toBe('0');
-    expect(screen.getByText('Henüz tarama yapılmadı')).toBeTruthy();
-    expect(screen.getAllByText(/Kapsam eksiktir/).length).toBeGreaterThan(0);
+    const list = await screen.findByRole('list', { name: 'Kaynak listesi' });
+    const rows = within(list).getAllByRole('listitem');
+    // Sıra: taranan → elle takip → şimdilik kapalı.
+    expect(rows.map((row) => row.querySelector('.source-item-name')?.textContent)).toEqual([
+      'Taranan Kaynak',
+      'Elle Takip Kaynağı',
+      'Şart Onayı Bekleyen Kaynak',
+    ]);
+    expect(within(rows[0]!).getByText('Taranıyor')).toBeTruthy();
+    expect(within(rows[0]!).getByText(/Son güncelleme:/)).toBeTruthy();
+    expect(within(rows[1]!).getByText('Elle takip')).toBeTruthy();
+    expect(within(rows[2]!).getByText('Şimdilik kapalı')).toBeTruthy();
+    // Kullanım şartı kapısı ve geçmiş hata sayacı kullanıcıya hata olarak yansımaz.
+    expect(screen.queryByText(/ulaşılamadı|sorunlu|hata/i)).toBeNull();
+    // Teknik ayrıntı ve tekrar eden feragat kutusu yok.
+    expect(screen.queryByText(/ortalama süre|Sayfa kapsamı|denemenin|uyarlayıcı|adaptör|worker/i)).toBeNull();
+    expect(screen.queryByText('Durumlar ne demek?')).toBeNull();
+    expect(screen.queryByText(/Kapsam eksiktir/)).toBeNull();
   });
 });

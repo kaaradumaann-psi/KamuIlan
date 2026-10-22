@@ -2,12 +2,13 @@
  * İlan kartı — liste ve ana sayfada ortak.
  *
  * Kart yalnızca kayıttaki alanları gösterir; hiçbir değer tahmin edilmez.
- * Belirsiz alanlar ("—") olarak kalır ve kayıt demo verisiyse bu açıkça yazılır.
+ * Sade tutulur: kurum, başlık, birkaç temel etiket ve son başvuru tarihi.
+ * Kaynak sayısı, son kontrol zamanı gibi ayrıntılar ilan detayındadır.
+ * Örnek (demo) kayıt açıkça "Örnek veri" olarak işaretlenir.
  */
 import { Link } from 'react-router-dom';
-import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatRelative } from '../lib/format';
+import { deadlineLabel, employmentTypeLabel, formatDateOnly } from '../lib/format';
 import type { PublicJobSummary } from '../types';
-import { Icon } from './Icon';
 import { SaveJobButton } from './SaveJobButton';
 import { Tag } from './ui';
 
@@ -20,17 +21,17 @@ function deadlineTone(job: PublicJobSummary): 'success' | 'warning' | 'info' | '
 
 export function JobCard({ job }: { job: PublicJobSummary }) {
   const city = [job.city, job.district].filter((part): part is string => Boolean(part)).join(' / ');
+  const endDate = job.applicationEndAt ?? job.applicationEndDate;
+  const titles =
+    job.titles.length > 0
+      ? `${job.titles.slice(0, 3).join(', ')}${job.titles.length > 3 ? ` +${job.titles.length - 3}` : ''}`
+      : null;
 
   return (
     <article className="job-card">
       <header className="job-card-head">
-        <span className="job-card-institution">
-          <Icon name="building" size={14} />
-          {job.institution}
-        </span>
-        <span className="job-card-dates">
-          {job.publishedAt ? `Yayım: ${formatDateOnly(job.publishedAt)}` : 'Yayım tarihi belirtilmemiş'}
-        </span>
+        <span className="job-card-institution">{job.institution}</span>
+        {job.publishedAt && <span className="job-card-dates">{formatDateOnly(job.publishedAt)}</span>}
       </header>
 
       <h3 className="job-card-title">
@@ -45,61 +46,26 @@ export function JobCard({ job }: { job: PublicJobSummary }) {
         )}
         {city && <Tag icon="mapPin">{city}</Tag>}
         {job.quota !== null && <Tag icon="user">{`${job.quota} kişi`}</Tag>}
-        {job.kind !== 'process' && (
-          <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
-        )}
         {job.provenance === 'sample' && <Tag tone="warning">Örnek veri</Tag>}
-        {job.criticalMissingFields && job.criticalMissingFields.length > 0 && (
-          <Tag tone="warning">Bazı bilgiler eksik</Tag>
-        )}
       </div>
 
       {job.kind === 'process' && (
-        <p className="job-card-note">
-          Yeni alım ilanı değil; devam eden bir personel alımının kura, sınav veya sonuç aşamasını bildirir.
-        </p>
+        <p className="job-card-note">Yeni alım değil; süren bir alımın sınav, kura ya da sonuç duyurusu.</p>
       )}
 
-      {(job.unit || job.titles.length > 0 || job.attachmentCount > 0) && (
-        <ul className="job-card-meta">
-          {job.unit && (
-            <li>
-              <Icon name="layers" size={13} /> {job.unit}
-            </li>
-          )}
-          {job.titles.length > 0 && (
-            <li>
-              <Icon name="tag" size={13} /> {job.titles.slice(0, 3).join(', ')}
-              {job.titles.length > 3 ? ` +${job.titles.length - 3}` : ''}
-            </li>
-          )}
-          {job.attachmentCount > 0 && (
-            <li>
-              <Icon name="file" size={13} /> {job.attachmentCount} belge
-            </li>
-          )}
-          <li>
-            <Icon name="list" size={13} />{' '}
-            {job.sourceKeys.length > 1 ? `${job.sourceKeys.length} sitede yayımlandı` : '1 sitede yayımlandı'}
-          </li>
-        </ul>
+      {(job.unit || titles) && (
+        <p className="job-card-meta">{[job.unit, titles].filter(Boolean).join(' · ')}</p>
       )}
 
       <footer className="job-card-foot">
-        <span>
-          {job.hasApplicationUrl ? (
-            <>
-              <Icon name="link" size={13} /> Başvuru bağlantısı var
-            </>
-          ) : (
-            <>
-              <Icon name="info" size={13} /> Başvuru bağlantısı ilanda belirtilmemiş
-            </>
-          )}
-        </span>
-        <span>
-          Son kontrol: {job.lastVerifiedAt ? formatRelative(job.lastVerifiedAt) : 'henüz yapılmadı'}
-        </span>
+        {job.kind !== 'process' ? (
+          <span className="job-card-deadline">
+            {endDate && <span>Son başvuru: {formatDateOnly(endDate)}</span>}
+            <Tag tone={deadlineTone(job)}>{deadlineLabel(job.deadline.daysLeft, job.deadline.state)}</Tag>
+          </span>
+        ) : (
+          <span />
+        )}
         <SaveJobButton jobId={job.id} compact />
       </footer>
     </article>

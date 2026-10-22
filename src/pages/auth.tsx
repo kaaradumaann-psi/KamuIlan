@@ -196,9 +196,6 @@ export function LoginPage({ reason }: { reason?: string } = {}): ReactNode {
             </p>
 
             <div className="auth-site-links">
-              <a className="auth-site-return" href={`https://${APP_DOMAIN}`}>
-                {APP_DOMAIN}
-              </a>
               <a className="auth-site-return" href={SITE_URL}>
                 {SITE_URL.replace('https://', '')}
               </a>
@@ -450,17 +447,17 @@ export function NotFoundPage(): ReactNode {
     <InfoPageShell kicker="404" title="Sayfa bulunamadı" backTo="/">
       <Card>
         <p>
-          Aradığınız sayfa yok ya da taşınmış olabilir. İlanlara göz atabilir veya kaynak kapsamını
-          inceleyebilirsiniz.
+          Aradığınız sayfa yok ya da taşınmış olabilir. İlanlara göz atabilir veya ana sayfaya
+          dönebilirsiniz.
         </p>
         <div className="filter-actions">
           <Link className="btn-primary" to="/ilanlar">
             <Icon name="search" size={15} />
             <span>İlanlarda ara</span>
           </Link>
-          <Link className="btn-secondary" to="/kaynaklar">
-            <Icon name="list" size={15} />
-            <span>Kaynaklar ve kapsam</span>
+          <Link className="btn-secondary" to="/">
+            <Icon name="layers" size={15} />
+            <span>Ana sayfa</span>
           </Link>
         </div>
       </Card>
@@ -473,10 +470,7 @@ const FAQ: { question: string; answer: ReactNode }[] = [
     question: 'Kamuİlan tüm kamu ilanlarını topluyor mu?',
     answer: (
       <>
-        Hayır ve bunu iddia etmiyoruz. Bazı kurumlar ilanlarını yalnızca kendi sayfalarında yayımlar; bir
-        kısmı da yalnızca haftalık yayımlanan resmî bültenlerde çıkar. Kaynaklar sayfasında hangi kaynağın
-        canlı doğrulandığı, hangisinin planlandığı ve son başarılı taramanın ne zaman olduğu yazılıdır.{' '}
-        {HONESTY_NOTE}
+        Hayır. {HONESTY_NOTE} Hangi kaynaklara baktığımızı İlan kaynakları sayfasında görebilirsiniz.
       </>
     ),
   },
@@ -582,9 +576,9 @@ export function FaqPage(): ReactNode {
           </section>
         ))}
       </div>
-      <InfoNote tone="info" title="Kapsam">
-        {HONESTY_NOTE} Sorunuz listede yoksa {CONTACT_EMAIL} adresine yazabilirsiniz.
-      </InfoNote>
+      <p className="text-muted-sm">
+        Sorunuz listede yoksa <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> adresine yazabilirsiniz.
+      </p>
     </InfoPageShell>
   );
 }

@@ -356,6 +356,8 @@ export function toCoverageEntry(entry: SourceCoverageEntry) {
     status: entry.status,
     statusNote: entry.statusNote,
     enabled: entry.enabled,
+    /** Kullanım şartları kapısı taramayı durduruyor; arayüz "Şimdilik kapalı" der. */
+    termsGated: entry.termsGated,
     verified: entry.verified,
     /** Adaptörü yazıldı mı? Doğrulama değildir; arayüz ikisini ayrı gösterir. */
     built: entry.built,

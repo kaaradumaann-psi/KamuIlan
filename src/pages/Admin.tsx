@@ -153,7 +153,6 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
   });
   return (
     <div className="page-stack">
-      {data.workerWarning && <InfoNote tone="warning">{data.workerWarning}</InfoNote>}
       <div className="metric-grid">
         <Metric label="İlan (kabul)" value={formatNumber(data.jobs.total)} />
         <Metric label="Başvuruya açık" value={formatNumber(data.jobs.active)} />
@@ -907,7 +906,6 @@ function CoverageTab(): ReactNode {
     );
   return (
     <div className="page-stack">
-      <InfoNote tone="warning">{query.data.disclaimer}</InfoNote>
       <div className="metric-grid">
         <Metric label="Toplam kaynak" value={formatNumber(query.data.total)} />
         <Metric label="Etkin" value={formatNumber(query.data.enabled)} />

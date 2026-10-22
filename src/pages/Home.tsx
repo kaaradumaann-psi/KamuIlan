@@ -1,9 +1,10 @@
 /**
- * Ana sayfa — herkese açık özet.
+ * Ana sayfa — özet.
  *
- * Buradaki her sayı sunucudan gelir (`/api/jobs/stats`, `/api/health`). Sistem
- * "tüm ilanlar" iddiasında bulunmaz: kapsam, son başarılı tarama ve doğrulanmış
- * kaynak sayısı açıkça yazılır.
+ * Buradaki her sayı sunucudan gelir (`/api/jobs/stats`, `/api/health`).
+ * Kullanıcıya teknik ayrıntı (tarama süreci, doğrulama sayıları) gösterilmez;
+ * yalnızca "liste en son ne zaman güncellendi" ve kaç kurumun takip edildiği
+ * yazılır. Ayrıntılı sağlık bilgisi yönetim panelindedir.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
@@ -11,117 +12,71 @@ import { Link, useNavigate } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
-import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
+import { Card, ErrorNotice, LoadingCard, StatCard, Tag } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
 import { usePageMeta } from '../lib/page-meta';
-import { HEALTH_QUERY_KEY, WORKER_HEALTH_QUERY_KEY } from '../lib/query-keys';
+import { HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
-import { APP_TAGLINE, HONESTY_NOTE } from '../site';
-import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary, WorkerHealthResponse } from '../types';
+import { APP_TAGLINE } from '../site';
+import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary } from '../types';
 
 const STATS_KEY = ['home', 'stats'] as const;
 const LATEST_KEY = ['home', 'latest'] as const;
 const CLOSING_KEY = ['home', 'closing'] as const;
 
-/** Sistem durumu şeridi: gerçek sağlık yanıtından türetilir. */
-function statusLabel(status: HealthResponse['status'] | undefined): {
-  label: string;
-  tone: 'success' | 'warning' | 'danger' | 'neutral';
-} {
-  if (status === 'ok') return { label: 'Sistem normal', tone: 'success' };
-  if (status === 'degraded') return { label: 'Sistem kısmen sorunlu', tone: 'warning' };
-  if (status === 'down') return { label: 'Sistem erişilemez', tone: 'danger' };
-  return { label: 'Durum bilinmiyor', tone: 'neutral' };
-}
+/** Bir günden eski güncelleme "gecikti" sayılır (durum bandıyla aynı eşik). */
+const STALE_MINUTES = 24 * 60;
 
+/** "Liste ne kadar güncel?" kartı: sade dil, teknik terim yok. */
 function SystemStrip() {
   const health = useQuery({
     queryKey: HEALTH_QUERY_KEY,
     queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
   });
-  const worker = useQuery({
-    queryKey: WORKER_HEALTH_QUERY_KEY,
-    queryFn: ({ signal }) => api.get<WorkerHealthResponse>('/api/health/worker', undefined, signal),
-    refetchInterval: 10_000,
-  });
-
-  if (health.isLoading)
-    return (
-      <aside className="desk-now" aria-busy="true">
-        <div className="desk-now-top">
-          <span className="desk-now-tag">
-            <span className="desk-now-pulse" aria-hidden="true" />
-            Canlı sistem durumu
-          </span>
-        </div>
-        <div className="status-strip">Durum okunuyor…</div>
-      </aside>
-    );
-  if (health.isError || !health.data) {
-    return (
-      <aside className="desk-now" role="status">
-        <div className="desk-now-top">
-          <span className="desk-now-tag">
-            <span className="desk-now-pulse" aria-hidden="true" />
-            Canlı sistem durumu
-          </span>
-        </div>
-        <div className="status-strip is-warning">
-          <Icon name="alert" size={15} />
-          <span>Durum şu anda okunamıyor. Sayfayı yenilediğinizde yeniden denenecek.</span>
-        </div>
-      </aside>
-    );
-  }
 
   const data = health.data;
-  const workerRunning = worker.data?.workers.running ?? data.workers.running;
-  const workerStarting = worker.data?.workers.starting ?? 0;
-  const workerPending = worker.isLoading && !worker.data && workerRunning === 0;
-  const workerActive = workerRunning > 0;
-  const workerStartingNow = !workerActive && (workerStarting > 0 || workerPending);
-  const state =
-    data.status === 'down'
-      ? statusLabel(data.status)
-      : workerStartingNow
-        ? { label: 'Tarama worker’ı başlatılıyor', tone: 'warning' as const }
-        : !workerActive
-          ? { label: 'Tarama worker’ı çalışmıyor', tone: 'warning' as const }
-          : statusLabel(data.status);
+  const lastSuccessAt = data?.scans.lastSuccessAt ?? null;
+  const minutes = data?.scans.minutesSinceSuccess ?? null;
+  const late = data?.status === 'down' || (minutes !== null && minutes > STALE_MINUTES);
+
   return (
-    <aside className="desk-now" role="status">
+    <aside className="desk-now" role="status" aria-busy={health.isLoading}>
       <div className="desk-now-top">
         <span className="desk-now-tag">
           <span className="desk-now-pulse" aria-hidden="true" />
-          Canlı sistem durumu
+          İlan listesi
         </span>
-        <Tag tone={state.tone}>{state.label}</Tag>
+        {data && (late || lastSuccessAt) && (
+          <Tag tone={late ? 'warning' : 'success'}>{late ? 'Güncelleme gecikti' : 'Güncel'}</Tag>
+        )}
       </div>
       <div className="desk-now-body">
-        <span className="desk-now-symbol" aria-hidden="true">
-          <Icon name="layers" size={18} />
-        </span>
         <div className="desk-now-main">
-          <span className="desk-now-when">Otomatik tarama özeti</span>
+          <span className="desk-now-when">Son güncelleme</span>
           <span className="desk-now-name">
-            İlanlar en son:{' '}
-            <strong>{data.scans.lastSuccessAt ? formatRelative(data.scans.lastSuccessAt) : 'henüz başarılı tarama yok'}</strong>
+            {health.isLoading
+              ? 'Okunuyor…'
+              : !data
+                ? 'Şu anda okunamadı'
+                : lastSuccessAt
+                  ? formatRelative(lastSuccessAt)
+                  : 'Henüz güncelleme yok'}
           </span>
-          <span className="desk-now-detail">
-            Etkin kaynak: <strong>{data.sources.enabled}</strong> · Worker:{' '}
-            <strong>{workerActive ? 'çalışıyor' : workerStartingNow ? 'başlatılıyor' : 'çalışmıyor'}</strong> · Gerçek veriyle doğrulanan:{' '}
-            <strong>{data.sources.verified}</strong>
-          </span>
+          {data && (
+            <span className="desk-now-detail">
+              <strong>{formatNumber(data.sources.enabled)}</strong> resmî kaynak takip ediliyor.
+            </span>
+          )}
         </div>
       </div>
       <div className="desk-now-foot">
-        <Link className="desk-now-go" to="/kaynaklar">
-          <span>Kaynak durumunu incele</span>
-          <Icon name="arrowRight" size={14} />
-        </Link>
-        <Link className="desk-now-secondary" to="/panel">
-          <Icon name="bell" size={13} />
+        <Link className="desk-now-go" to="/panel">
+          <Icon name="bell" size={14} />
           <span>E-posta bildirimi kur</span>
+        </Link>
+        <Link className="desk-now-secondary" to="/kaynaklar">
+          <span>İlan kaynakları</span>
+          <Icon name="arrowRight" size={13} />
         </Link>
       </div>
     </aside>
@@ -182,7 +137,7 @@ export function HomePage() {
                 type="search"
                 value={term}
                 onChange={(event) => setTerm(event.target.value)}
-                placeholder="Unvan, kurum ya da kelime (örn. hemşire)"
+                placeholder="Unvan, kurum ya da kelime"
                 aria-label="Arama terimi"
               />
             </div>
@@ -206,13 +161,11 @@ export function HomePage() {
             <Link className="btn-secondary btn-sm" to="/ilanlar?status=active">
               Başvurusu açık ilanlar
             </Link>
-            <Link className="btn-secondary btn-sm" to="/kaynaklar">
-              <Icon name="list" size={16} />
-              <span>Kaynaklar ve kapsam</span>
+            <Link className="btn-secondary btn-sm" to="/ilanlar?status=active&sort=deadline">
+              Son günü yaklaşanlar
             </Link>
-            <Link className="btn-secondary btn-sm" to="/panel">
-              <Icon name="bell" size={16} />
-              <span>Bildirim kur</span>
+            <Link className="btn-secondary btn-sm" to="/ilanlar?sort=newest">
+              Yeni eklenenler
             </Link>
           </div>
         </div>
@@ -250,7 +203,6 @@ export function HomePage() {
       <div className="dashboard-grid">
         <Card
           title="Son eklenen ilanlar"
-          description="En son bulunan ilanlar."
           actions={
             <Link className="board-text-link" to="/ilanlar?sort=newest">
               Tümünü gör <Icon name="right" size={13} />
@@ -308,7 +260,7 @@ export function HomePage() {
       </div>
 
       {typeCounts.length > 0 && (
-        <Card title="Türlerine göre ilan sayısı" description="Hangi türde kaç ilan olduğunu gösterir.">
+        <Card title="Türlerine göre ilan sayısı">
           <ul className="distribution-list">
             {typeCounts.map((item) => (
               <li key={item.key}>
@@ -331,33 +283,21 @@ export function HomePage() {
         </Card>
       )}
 
-      <Card title="Bu site nasıl çalışıyor?" description="İlanların size ulaşana kadar geçtiği yol, kısaca.">
-        <ol className="checklist">
+      <Card title="Nasıl kullanılır?">
+        <ol className="how-steps">
           <li>
-            <strong>Kontrol:</strong> Kurumların ilan sayfalarını düzenli aralıklarla yoklarız. Bir sayfaya
-            ulaşamazsak elimizdeki ilanları silmeyiz; bir süre sonra yeniden deneriz.
+            <strong>Arayın</strong>
+            <span>Unvan, kurum ya da il yazın; açık ilanları hemen görün.</span>
           </li>
           <li>
-            <strong>Ayıklama:</strong> İş alımı olmayan duyuruları (ihale, sonuç listesi, tebliğ gibi)
-            ayıklarız. Emin olamadıklarımızı silmez, bir insanın gözden geçirmesine bırakırız.
+            <strong>Kaydedin</strong>
+            <span>İlgilendiğiniz ilanı kaydedin, son başvuru gününü kaçırmayın.</span>
           </li>
           <li>
-            <strong>Okuma:</strong> İlanın içinden tarih, kontenjan, şehir ve koşulları okuruz. Okuyamadığımız
-            yerde "belirtilmemiş" yazarız; hiçbir bilgiyi tahmin etmeyiz.
-          </li>
-          <li>
-            <strong>Tek gösterme:</strong> Aynı ilan birden çok yerde çıkarsa size bir kez gösteririz; çıktığı
-            bütün adresleri ilanın altında sıralarız. Benzer başlıklı farklı ilanları birleştirmeyiz.
-          </li>
-          <li>
-            <strong>Haber verme:</strong> Tercihlerinize uyan yeni bir ilan bulursak ya da takip ettiğiniz
-            ilanda değişiklik olursa e-posta göndeririz. Gönderimin ulaşıp ulaşmadığını da geçmiş ekranından
-            görebilirsiniz.
+            <strong>Haber alın</strong>
+            <span>Tercihlerinize uyan yeni ilan çıkınca e-posta ile bildirelim.</span>
           </li>
         </ol>
-        <InfoNote title="Bilmeniz gereken" tone="info">
-          {HONESTY_NOTE}
-        </InfoNote>
       </Card>
 
       <datalist id="il-listesi">

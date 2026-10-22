@@ -453,11 +453,8 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
             <fieldset className="form-col-span-2 profile-matching-settings">
               <legend className="label">Akıllı profil eşleşmesi (isteğe bağlı)</legend>
               <p className="text-muted-sm">
-                Mesleğinizi ve temel niteliklerinizi girerek her ilanda size özel ilgi/koşul ipuçları görün.
-                Bu ilk sürüm, profilinizle ilan metnindeki açık alanları karşılaştırır; resmî uygunluk kararı
-                vermez ve profilinizi dışarıdaki bir AI hizmetine göndermez. Kaydettiğiniz bilgiler
-                hesabınızda kalır; eşleştirme kapalıysa ilan açıklamalarında kullanılmaz. İstediğiniz zaman
-                kapatabilir veya profilinizi silebilirsiniz.
+                Mesleğinizi ve eğitiminizi girerseniz her ilanda size uyan koşulları gösteririz. Bilgileriniz
+                yalnızca hesabınızda kalır; istediğiniz zaman kapatabilir ya da silebilirsiniz.
               </p>
               <label className="switch-row profile-consent-row">
                 <input
@@ -575,7 +572,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       {view === 'preferences' && <AiSuggestionsCard />}
 
       {view === 'history' && (
-        <Card title="Bildirim geçmişi" description="Gönderilen e-postalar ve eşleşme nedenleri.">
+        <Card title="Bildirim geçmişi" description="Size gönderdiğimiz e-postalar.">
           {history.isLoading && <Spinner />}
           {history.isError && (
             <ErrorNotice message={errorMessage(history.error)} onRetry={() => void history.refetch()} />
@@ -583,7 +580,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
           {history.data && (
             <>
               {history.data.events.length === 0 ? (
-                <p className="text-muted-sm">Henüz bildirim üretilmedi.</p>
+                <p className="text-muted-sm">Henüz size bildirim gönderilmedi.</p>
               ) : (
                 <ul className="event-list">
                   {history.data.events.map((event) => (
@@ -626,7 +623,6 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                       </li>
                     ))}
                   </ul>
-                  <p className="text-muted-sm push">{history.data.notice}</p>
                 </div>
               )}
             </>

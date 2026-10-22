@@ -43,10 +43,11 @@ test.describe('ilan akışı (örnek tohum)', () => {
     await expect(page.getByText('örnek veri (gerçek ilan değil)')).toBeVisible();
     expect(await definition(page, 'Kontenjan')).toMatch(/^12\b/);
     expect(await definition(page, 'İl / İlçe')).toMatch(/^İzmir/);
-    // Tohum: başlangıç bugün −1 gün 09:00, bitiş bugün +14 gün 23:59 (İstanbul); kanıt ilan metninden.
+    // Tohum: başlangıç bugün −1 gün 09:00, bitiş bugün +14 gün 23:59 (İstanbul).
+    // Alan kanıtı ("Kaynak: ilan metni") kullanıcıya gösterilmez; yönetim ekranındadır.
     const start = await definition(page, 'Başvuru başlangıcı');
     expect(start).toContain(`${trDay(-1)} 09:00`);
-    expect(start).toContain('Kaynak: ilan metni');
+    expect(start).not.toContain('Kaynak:');
     expect(await definition(page, 'Son başvuru')).toContain(trDay(14));
     expect(errors).toEqual([]);
   });
