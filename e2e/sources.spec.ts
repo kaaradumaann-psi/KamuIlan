@@ -1,9 +1,10 @@
 /**
- * Kaynak kapsamı testleri.
+ * Kaynak sayfası testleri (kullanıcı tarafı).
  *
- * Canlı doğrulama geçmişi ile en son tarama sonucu birbirinden ayrıdır:
- * doğrulanmış bir yöntem, worker'ın şu anda çalıştığı anlamına gelmez.
- * Hazırlanan ama doğrulanmamış kaynaklar da doğrulanmış sayısına eklenemez.
+ * Sayfa sade bir listedir: kaynak adı, ne tür ilanlar, durum rozeti
+ * ("Taranıyor" / "Elle takip" / "Şimdilik kapalı") ve son güncelleme.
+ * Teknik ayrıntılar (doğrulama sayıları, tarama süreleri) yalnız yönetim
+ * panelindedir; kullanım şartı onayı bekleyen kaynak hata gibi gösterilmez.
  */
 import { expect, test } from '@playwright/test';
 import { loginAsAdmin } from './support/api';
@@ -12,75 +13,41 @@ test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page);
 });
 
-test('doğrulama özeti ile en son başarılı tarama etiketleri birbirinden ayrıdır', async ({
-  page,
-  request,
-}) => {
+type ApiSource = {
+  name: string;
+  status: string;
+  enabled: boolean;
+  termsGated?: boolean;
+  health: { lastSuccessAt: string | null };
+};
+
+function expectedLabel(source: ApiSource): string {
+  if (source.status === 'needs-manual-method') return 'Elle takip';
+  if (!source.enabled || source.termsGated || source.status === 'disabled') return 'Şimdilik kapalı';
+  return 'Taranıyor';
+}
+
+test('her API kaynağı listede tek satır ve doğru durum rozetiyle görünür', async ({ page, request }) => {
   const response = await request.get('/api/sources');
   expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as {
-    summary: { verified: number };
-    sources: {
-      name: string;
-      verified: boolean;
-      health: { lastSuccessAt: string | null };
-      lastRun: { status: string } | null;
-    }[];
-  };
+  const body = (await response.json()) as { sources: ApiSource[] };
 
   await page.goto('/kaynaklar');
-  const statCard = page.locator('.stat-item', { hasText: 'Gerçek veriyle doğrulanan' }).first();
-  await expect(statCard).toBeVisible();
-  const summaryValue = await statCard.locator('.stat-val').innerText();
-  const summaryCount = Number(/(\d+)/.exec(summaryValue)?.[1] ?? 'NaN');
-  expect(summaryCount).toBe(body.summary.verified);
+  const list = page.getByRole('list', { name: 'Kaynak listesi' });
+  await expect(list).toBeVisible();
+  await expect(list.locator('.source-item')).toHaveCount(body.sources.length);
 
-  const successfulRuns = body.sources.filter((source) => source.lastRun?.status === 'success').length;
-  const successfulRunBadges = await page.getByText('son tarama başarılı', { exact: true }).count();
-  expect(successfulRunBadges).toBe(successfulRuns);
-
-  // Geçmiş doğrulama, gerçek tarama/başarı gibi sunulmamalı. Hiç deneme yoksa
-  // bunu, başarısız denemeyi "henüz başarı yok" olarak ayrı ayrı göster.
-  const neverSucceeded = body.sources.find((source) => source.health.lastSuccessAt === null);
-  if (neverSucceeded) {
-    const table = page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ });
-    const row = table.getByRole('row').filter({ hasText: neverSucceeded.name }).first();
-    const expectedLabel = neverSucceeded.lastRun ? 'Henüz başarılı tarama yok' : 'Henüz tarama yapılmadı';
-    await expect(row.getByText(expectedLabel, { exact: true })).toBeVisible();
+  for (const label of ['Taranıyor', 'Elle takip', 'Şimdilik kapalı']) {
+    const expected = body.sources.filter((source) => expectedLabel(source) === label).length;
+    await expect(list.locator('.tag', { hasText: label })).toHaveCount(expected);
   }
-
-  await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: /Henüz başlamadığımız kurumlar/ })).toBeVisible();
 });
 
-test('her kaynak satırı planlanan aralığı ve son tarama bilgisini taşır', async ({ page }) => {
+test('kaynak sayfasında teknik ayrıntı ve hata dili yoktur', async ({ page }) => {
   await page.goto('/kaynaklar');
-
-  const table = page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ });
-  await expect(table).toBeVisible();
-
-  const rows = table.locator('tbody tr');
-  await expect(rows.first()).toBeVisible();
-  expect(await rows.count()).toBeGreaterThan(0);
-
-  await expect(rows.first().getByText(/\d+ dakikada bir/)).toBeVisible();
-  await expect(rows.first().locator('.tag').first()).toBeVisible();
-});
-
-test('API kapsam özeti ile arayüz özeti aynı kaynaktan gelir', async ({ page, request }) => {
-  const response = await request.get('/api/sources');
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as {
-    summary: { verified: number; built: number; total: number; enabled: number; planned: number };
-    sources: { key: string; verified: boolean; built: boolean }[];
-  };
-
-  expect(body.sources.filter((source) => source.verified)).toHaveLength(body.summary.verified);
-  expect(body.sources.filter((source) => source.built && !source.verified)).toHaveLength(body.summary.built);
-
-  await page.goto('/kaynaklar');
-  const statCard = page.locator('.stat-item', { hasText: 'Toplam kaynak' }).first();
-  await expect(statCard).toBeVisible();
-  const total = await statCard.locator('.stat-val').innerText();
-  expect(Number(/(\d+)/.exec(total)?.[1] ?? 'NaN')).toBe(body.summary.total);
+  await expect(page.getByRole('list', { name: 'Kaynak listesi' })).toBeVisible();
+  await expect(
+    page.getByText(/ortalama süre|Sayfa kapsamı|denemenin|uyarlayıcı|adaptör|worker|ulaşılamadı/i),
+  ).toHaveCount(0);
+  await expect(page.getByText('Durumlar ne demek?')).toHaveCount(0);
 });

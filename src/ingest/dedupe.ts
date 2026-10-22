@@ -202,6 +202,25 @@ export function decideDedupe(raw: DedupeRawItem, candidates: DedupeCandidateJob[
     };
   }
 
+  // Farklı kurumların kalıp başlıkları ("X Rektörlüğünden: ÖĞRETİM ÜYESİ ALIM İLANI") yüksek
+  // benzerlik verir; kurumlar açıkça farklı ve metin de benzemiyorsa ayrı ilandır (üretim
+  // 22.10.2026: gerçek akademik ilanlar "aynı ilan olabilir" incelemesinde kalıyordu).
+  const rawPrefix = titleInstitutionPrefix(raw.title);
+  const candidatePrefix = titleInstitutionPrefix(job.title);
+  const institutionsDiffer =
+    (rawInstitution.length > 0 && job.institutionNormalized.length > 0 && !institutionMatch) ||
+    (rawPrefix.length > 0 && candidatePrefix.length > 0 && rawPrefix !== candidatePrefix);
+  if (institutionsDiffer && textScore < DEDUPE_THRESHOLDS.sameAnnouncementTextSimilarity) {
+    return {
+      action: 'create',
+      jobId: null,
+      matchedBy: [],
+      reason: `Başlıklar benzer (${(titleScore * 100).toFixed(0)}%) ancak kurumlar farklı; ayrı ilan olarak kaydedildi.`,
+      score: titleScore,
+      candidateJobIds: [],
+    };
+  }
+
   if (titleScore >= DEDUPE_THRESHOLDS.reviewTitleSimilarity) {
     return {
       action: 'review',
@@ -226,4 +245,10 @@ export function decideDedupe(raw: DedupeRawItem, candidates: DedupeCandidateJob[
 /** İlan metni içerik hash'i (değişiklik tespiti). */
 export function contentHashOf(parts: (string | null | undefined)[]): string {
   return sha256Hex(parts.map((part) => (part ?? '').trim()).join('\u0001'));
+}
+
+/** Resmî Gazete kalıbı "Kurum Adından: BAŞLIK" → normalize edilmiş "Kurum Adından" (yoksa boş). */
+function titleInstitutionPrefix(title: string): string {
+  const index = title.indexOf(':');
+  return index >= 8 ? normalizeTr(title.slice(0, index)) : '';
 }

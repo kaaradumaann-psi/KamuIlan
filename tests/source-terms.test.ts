@@ -27,26 +27,71 @@ const validEntry: SourceTermsEntry = {
 };
 
 describe('kaynak erişim şartları kapısı', () => {
-  it('depodaki kararlar: yalnız incelenmiş kaynaklar allowed ve kapıdan eksiksiz geçer; diğerleri unknown', () => {
-    // 22.10.2026 kullanıcı kararı: yalnız izni incelenmiş kaynaklar (Resmî Gazete + İŞKUR) taranır.
+  it('depodaki kararlar: 22.10.2026 incelemesi (docs/kaynak-sartlari-inceleme-2026-10-22.md) ile birebir', () => {
+    // Yalnız robots.txt + kullanım şartları incelenip izin verilen kaynaklar taranır (K8).
     const loaded = loadSourceTerms(process.cwd());
     expect(loaded.status).toBe('available');
-    const allowed = ['resmigazete-cestili-ilanlar', 'iskur-kamu-memur-alim', 'iskur-kurumdisi-kamu-isci'];
-    for (const key of STAGING_SOURCE_ALLOWLIST) {
-      const entry = loaded.entries.get(key);
-      expect(entry, key).toBeTruthy();
-      if (allowed.includes(key)) expect(assessSourceTerms(entry ?? null, new Date('2026-10-22')).allowed, key).toBe(true);
-      else expect(entry?.decision, key).toBe('unknown');
+    const expected: Record<string, 'allowed' | 'blocked' | 'unknown'> = {
+      'resmigazete-cestili-ilanlar': 'allowed',
+      'osym-duyurular': 'allowed',
+      'iskur-kamu-memur-alim': 'allowed',
+      'iskur-kurumdisi-kamu-isci': 'allowed',
+      'ilan-gov-tr-personel': 'blocked',
+      'ilan-gov-tr-api-personel': 'blocked',
+      'kariyerkapisi-isealim': 'allowed',
+      'meb-personel-duyurular': 'allowed',
+      'kamuilan-sbb': 'unknown',
+      'saglik-bakanligi-personel': 'allowed',
+      'adalet-bakanligi-duyurular': 'allowed',
+      'icisleri-bakanligi-duyurular': 'blocked',
+      'goc-idaresi-duyurular': 'blocked',
+      'afad-duyurular': 'allowed',
+      'sgk-duyurular': 'blocked',
+      'dsi-duyurular': 'allowed',
+      'kgm-duyurular': 'blocked',
+      'tkgm-duyurular': 'allowed',
+      'tubitak-duyurular': 'allowed',
+      'yok-duyurular': 'allowed',
+      'bddk-duyurular': 'allowed',
+      'spk-duyurular': 'allowed',
+      'epdk-duyurular': 'allowed',
+      'tmsf-duyurular': 'allowed',
+    };
+    expect([...loaded.entries.keys()].sort()).toEqual(Object.keys(expected).sort());
+    for (const [key, decision] of Object.entries(expected)) {
+      const entry = loaded.entries.get(key) ?? null;
+      expect(entry?.decision, key).toBe(decision);
+      // allowed kayıtlar kapıdan eksiksiz geçer; diğerleri hiçbir koşulda geçmez.
+      expect(assessSourceTerms(entry, new Date('2026-10-22')).allowed, key).toBe(decision === 'allowed');
     }
   });
 
-  it('allowlist ile şablon kayıtları birbirinden kopmaz', () => {
+  it('kayıtlar envanterle tutarlı: her anahtar envanterde, otomatik taranan her kaynağın kaydı var', () => {
     const loaded = loadSourceTerms(process.cwd());
-    expect([...loaded.entries.keys()].sort()).toEqual([...STAGING_SOURCE_ALLOWLIST].sort());
+    expect(loaded.status).toBe('available');
+    for (const key of loaded.entries.keys()) {
+      expect(SOURCE_DEFINITIONS.find((item) => item.key === key), key).toBeTruthy();
+    }
+    for (const definition of SOURCE_DEFINITIONS.filter((item) => item.enabled && item.method !== 'manual-entry')) {
+      expect(loaded.entries.has(definition.key), definition.key).toBe(true);
+    }
     for (const key of STAGING_SOURCE_ALLOWLIST) {
-      const definition = SOURCE_DEFINITIONS.find((item) => item.key === key);
-      expect(definition, key).toBeTruthy();
-      expect(definition?.enabled, key).toBe(true);
+      expect(SOURCE_DEFINITIONS.find((item) => item.key === key)?.enabled, key).toBe(true);
+      expect(loaded.entries.has(key), key).toBe(true);
+    }
+  });
+
+  it('incelenmiş kayıtların URL\'leri ilgili kaynağın izinli hostlarında; blocked/unknown saklamaya izin vermez', () => {
+    const loaded = loadSourceTerms(process.cwd());
+    for (const entry of loaded.entries.values()) {
+      if (entry.decision === 'unknown' && !entry.reviewedAt) continue;
+      const hosts = SOURCE_DEFINITIONS.find((item) => item.key === entry.sourceKey)?.allowedHosts ?? [];
+      for (const url of [entry.robotsUrl, entry.termsUrl]) {
+        expect(url, entry.sourceKey).toMatch(/^https:\/\//);
+        expect(hosts, `${entry.sourceKey} ${url}`).toContain(new URL(url ?? '').hostname);
+      }
+      if (entry.decision !== 'allowed') expect(entry.allowsStorage, entry.sourceKey).not.toBe(true);
+      expect(entry.notes.length, entry.sourceKey).toBeGreaterThan(0);
     }
   });
 

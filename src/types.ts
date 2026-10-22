@@ -197,6 +197,11 @@ export interface SourceCoverageEntry {
   status: string;
   statusNote: string;
   enabled: boolean;
+  /**
+   * Kullanım şartları onayı beklendiği için taranmıyor. Kullanıcıya "Şimdilik
+   * kapalı" olarak gösterilir, hata gibi sunulmaz. Eski API yanıtlarında yoktur.
+   */
+  termsGated?: boolean;
   /** Geçmiş canlı doğrulama kaydı var; güncel erişim/worker durumunu tek başına kanıtlamaz. */
   verified: boolean;
   /** Adaptör yazıldı; canlı doğrulama kanıtı olmayabilir. */

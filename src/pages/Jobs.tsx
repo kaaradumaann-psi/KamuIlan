@@ -45,7 +45,6 @@ import { EmptyState, ErrorNotice, LoadingCard, Pagination } from '../components/
 import { api, errorMessage } from '../lib/api';
 import { usePageMeta } from '../lib/page-meta';
 import { formatNumber } from '../lib/format';
-import { HONESTY_NOTE } from '../site';
 import type { JobListResponse } from '../types';
 
 const PAGE_SIZE = 20;
@@ -174,8 +173,7 @@ export function JobsPage() {
           <span className="kicker">İlan arama</span>
           <h1 className="page-title">Kamu personel alım ilanları</h1>
           <p className="info-lede">
-            Ne aradığınızı yazın, isterseniz il ve tür seçip <strong>Ara</strong>'ya basın. Daha fazla seçenek
-            isterseniz gelişmiş filtreler bir tık altta.
+            Ne aradığınızı yazın; isterseniz il ve türe göre daraltın.
           </p>
         </div>
         <div className="page-head-actions">
@@ -300,7 +298,6 @@ export function JobsPage() {
         <Pagination page={jobs.data.page} pages={jobs.data.pages} onPage={goToPage} label="İlan sayfaları" />
       )}
 
-      <p className="text-muted-sm">{HONESTY_NOTE}</p>
     </div>
   );
 }

@@ -11,17 +11,19 @@ import { expect, test } from '@playwright/test';
 import { collectPageErrors, expectHeading, loginAsAdmin } from './support/api';
 
 test.describe('temel sayfalar', () => {
-  test('ana sayfa açılır, sistem durumunu ve dürüst kapsam notunu gösterir', async ({ page }) => {
+  test('ana sayfa açılır, liste güncelliğini sade dille gösterir', async ({ page }) => {
     const errors = collectPageErrors(page);
     await loginAsAdmin(page);
     await page.goto('/');
 
     await expectHeading(page, 'Kamu personel alım ilanları');
     // Veri olmasa bile durum şeridi görünür olmalı (dürüst boş durum).
-    await expect(page.getByText(/İlanlar en son|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
+    await expect(page.locator('.desk-now').getByText('Son güncelleme')).toBeVisible();
     await expect(page.getByRole('button', { name: 'İlanlarda ara', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Bu site nasıl çalışıyor?', exact: true })).toBeVisible();
-    await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Nasıl kullanılır?', exact: true })).toBeVisible();
+    // Tekrar eden feragat ve teknik terimler kullanıcı sayfasında yok.
+    await expect(page.getByText(/Her ilanı bulamayabiliriz/)).toHaveCount(0);
+    await expect(page.getByText(/worker/i)).toHaveCount(0);
 
     expect(errors).toEqual([]);
   });
@@ -107,18 +109,14 @@ test.describe('temel sayfalar', () => {
     expect(errors).toEqual([]);
   });
 
-  test('kaynaklar sayfası kapsamı ve doğrulama durumunu açıkça yazar', async ({ page }) => {
+  test('kaynaklar sayfası sade listeyi teknik ayrıntısız gösterir', async ({ page }) => {
     const errors = collectPageErrors(page);
     await loginAsAdmin(page);
     await page.goto('/kaynaklar');
 
     await expectHeading(page, 'İlanları nereden alıyoruz?');
-    await expect(page.getByRole('table', { name: /Kaynak listesi ve son tarama durumu/ })).toBeVisible();
-    // Kapsamın eksik olduğu açıkça yazılır (abartılı iddia yok).
-    await expect(page.getByText(/Her ilanı bulamayabiliriz/).first()).toBeVisible();
-    // "Gerçek veriyle doğrulanan" ile "hazırlanan" ayrımı korunur.
-    await expect(page.getByText('Gerçek veriyle doğrulanan').first()).toBeVisible();
-    await expect(page.getByText('Hazırlanan').first()).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Kaynak listesi' })).toBeVisible();
+    await expect(page.getByText(/ortalama süre|Sayfa kapsamı|uyarlayıcı|worker/i)).toHaveCount(0);
 
     expect(errors).toEqual([]);
   });
@@ -170,6 +168,6 @@ test.describe('temel sayfalar', () => {
     await loginAsAdmin(page);
     await page.goto('/');
     // Arayüz de aynı proxy üzerinden veri çekebiliyor (konsol hatası yok).
-    await expect(page.getByText(/İlanlar en son|Henüz başarılı tarama kaydı yok/).first()).toBeVisible();
+    await expect(page.locator('.desk-now').getByText('Son güncelleme')).toBeVisible();
   });
 });

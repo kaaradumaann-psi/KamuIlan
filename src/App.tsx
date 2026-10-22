@@ -26,7 +26,7 @@ import { SiteFooter, INFO_ROUTES } from './components/SiteFooter';
 import { APP_VERSION } from './config/app';
 import { errorMessage } from './lib/api';
 import { useAuth } from './lib/session';
-import { APP_NAME, HONESTY_NOTE, SITE_LABEL, SITE_URL } from './site';
+import { APP_NAME, SITE_LABEL, SITE_URL } from './site';
 import { AdminPage } from './pages/Admin';
 import { HomePage } from './pages/Home';
 import { JobDetailPage } from './pages/JobDetail';
@@ -168,19 +168,13 @@ function AppShell({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        <div className="sidebar-bottom">
-          <div className="sidebar-privacy">
-            <span className="sidebar-privacy-icon" aria-hidden="true">
-              <Icon name="info" size={18} />
-            </span>
-            <strong>Bilmeniz gereken</strong>
-            <p>{HONESTY_NOTE}</p>
-            <Link to={INFO_ROUTES.kaynaklar}>
-              Hangi kaynaklara bakıyoruz? <Icon name="arrowRight" size={14} />
-            </Link>
+        {/* Yan menüde tekrar eden bilgi kutusu yok; kapsam notu yalnızca SSS'de durur.
+            Sürüm etiketi yalnızca yöneticiye gösterilir (destek/hata bildirimi için). */}
+        {isAdmin && (
+          <div className="sidebar-bottom">
+            <span className="sidebar-version">{`${APP_NAME} · v${APP_VERSION}`}</span>
           </div>
-          <span className="sidebar-version">{`${APP_NAME} · v${APP_VERSION}`}</span>
-        </div>
+        )}
       </aside>
 
       <div className="workspace-content">

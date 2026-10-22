@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 const TSX_CLI = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const SCRIPT = join(process.cwd(), 'scripts', 'staging-capture.ts');
 
-function runStaging(args: string[], extraEnv: Record<string, string> = {}) {
+function runStaging(args: string[], extraEnv: Record<string, string> = {}, cwd = process.cwd()) {
   const root = mkdtempSync(join(tmpdir(), 'kamuradar-staging-'));
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
@@ -29,6 +29,7 @@ function runStaging(args: string[], extraEnv: Record<string, string> = {}) {
   Object.assign(env, extraEnv);
   const result = spawnSync(process.execPath, [TSX_CLI, SCRIPT, ...args, `--data-root=${root}`], {
     env,
+    cwd,
     encoding: 'utf8',
     timeout: 30_000,
   });
@@ -62,8 +63,13 @@ describe('staging-capture komut kapıları', () => {
   });
 
   it('insan incelemesi olmadan canlı koşum engellenir', () => {
-    // Resmî Gazete 22.10.2026'da onaylandı; kural incelenmemiş bir kaynakla sınanır.
-    const result = runStaging(['--source=osym-duyurular', '--live', '--max-requests=1', '--max-pages=1', '--max-details=0']);
+    // Staging allowlist'teki kaynakların hepsi 22.10.2026'da incelendi; kural, kaydı olmayan
+    // bir şartlar dosyasıyla (geçici çalışma dizini) sınanır.
+    const result = runStaging(
+      ['--source=osym-duyurular', '--live', '--max-requests=1', '--max-pages=1', '--max-details=0'],
+      {},
+      emptyTermsRoot(),
+    );
     expect(result.status).toBe(5);
     expect(result.stderr).toContain('robots/ToS');
   });
@@ -94,6 +100,13 @@ describe('staging-capture komut kapıları', () => {
     expect(result.stderr).toContain('TLS');
   });
 });
+
+function emptyTermsRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'kamuradar-terms-bos-'));
+  mkdirSync(join(root, 'config'), { recursive: true });
+  writeFileSync(join(root, 'config', 'source-terms.json'), JSON.stringify({ version: 1, sources: [] }));
+  return root;
+}
 
 function onlyRunDir(root: string): string {
   const dirs = readdirSync(root);
