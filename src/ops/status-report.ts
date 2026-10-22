@@ -129,7 +129,12 @@ export async function buildStatusReport(
   const lastBeat = heartbeats.map((beat) => beat.lastHeartbeatAt).sort().pop() ?? null;
   checks.push(
     running.length > 0
-      ? { area: 'Arka plan işçisi (worker)', level: 'healthy', summary: `${running.length} worker çalışıyor.` }
+      ? {
+          area: 'Arka plan işçisi (worker)',
+          level: 'healthy',
+          // Kalp atışı 3 dk'da bayatlar: yaşı yazılır ki yeni çöken worker "çalışıyor" diye yanıltmasın.
+          summary: `${running.length} worker çalışıyor (son kalp atışı ${Math.round((now.getTime() - Date.parse(lastBeat ?? now.toISOString())) / 1000)} sn önce; 3 dk'yı aşarsa durmuş sayılır).`,
+        }
       : {
           area: 'Arka plan işçisi (worker)',
           level: 'critical',

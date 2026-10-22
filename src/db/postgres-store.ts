@@ -682,10 +682,25 @@ export class PostgresStore implements StoragePort {
     const plan = exactPlan(collection, filter, options?.sort, params);
     if (!plan) return null;
 
-    const deviantRows = await this.deviantRows(collection, plan.deviant);
-    const uncertain = deviantRows.filter((doc) => matchesQuery(doc, filter));
     const table = this.table(collection);
     const order = plan.orderBy ? ` ORDER BY ${plan.orderBy}` : '';
+    // İyimser paralellik: sapmalı satır normalde YOKTUR; sapma kontrolü ile sade sorgu aynı anda
+    // gider (uzak veritabanında bir gidiş-dönüş kazancı). Sapma çıkarsa aşağıdaki kesin yol çalışır.
+    if (limit !== undefined) {
+      const fastParams = [...params, limit, skip];
+      const [deviantFirst, fast] = await Promise.all([
+        this.deviantRows(collection, plan.deviant),
+        this.pool.query<{ data: unknown }>(
+          `SELECT data FROM ${table} WHERE ${plan.where}${order} LIMIT $${fastParams.length - 1} OFFSET $${fastParams.length}`,
+          fastParams,
+        ),
+      ]);
+      if (deviantFirst.length === 0) {
+        return fast.rows.map((row) => row.data as DocumentOf<K>).filter((doc) => matchesQuery(doc, filter));
+      }
+    }
+    const deviantRows = await this.deviantRows(collection, plan.deviant);
+    const uncertain = deviantRows.filter((doc) => matchesQuery(doc, filter));
     // Sapmalı satır yoksa (normal durum) koşul sade kalır: sıralama indeksi kullanılabilir.
     const where = deviantRows.length > 0 ? `${plan.where} AND NOT ${plan.deviant}` : plan.where;
     // Limitsiz istekte bellek sınırı korunur: sessiz kırpma yerine açık hata.
@@ -771,8 +786,16 @@ export class PostgresStore implements StoragePort {
     const params: unknown[] = [];
     const plan = exactPlan(collection, filter, undefined, params);
     if (plan) {
-      const deviantRows = await this.deviantRows(collection, plan.deviant);
-      const where = deviantRows.length > 0 ? `${plan.where} AND NOT ${plan.deviant}` : plan.where;
+      // İyimser paralellik (bkz. exactFind): sapma yoksa sade sayım doğrudan sonuçtur.
+      const [deviantRows, plain] = await Promise.all([
+        this.deviantRows(collection, plan.deviant),
+        this.pool.query<{ count: string | number }>(
+          `SELECT count(*) AS count FROM ${this.table(collection)} WHERE ${plan.where}`,
+          params,
+        ),
+      ]);
+      if (deviantRows.length === 0) return Number(plain.rows[0]?.count ?? 0);
+      const where = `${plan.where} AND NOT ${plan.deviant}`;
       const result = await this.pool.query<{ count: string | number }>(
         `SELECT count(*) AS count FROM ${this.table(collection)} WHERE ${where}`,
         params,
