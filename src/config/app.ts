@@ -73,7 +73,9 @@ export const CLASSIFICATION_VERSION = '2026.10.5';
 // 2026.10.8: resmî toplam birden çok kalemi toplar ("6 (altı) Uzman ve 1 (bir) Destek Personeli
 // … alımı yapılacaktır"); rakam yazıyla doğrulanır, OCR'ın okuyamadığı rakamda yazı esas alınır
 // (gerçek RG OCR: Orta Anadolu Kalkınma Ajansı 19.10-4-7, 2 → 7).
-export const EXTRACTION_VERSION = '2026.10.8';
+// 2026.10.9: pozisyon başlığı ve "(K (yazıyla) Kişi" aynı satırda (OCR biçimi) okunur; rakam yazıyla
+// doğrulanır (gerçek RG OCR: İŞKUR 18.10-4-4, "(| (Bir) Kişi").
+export const EXTRACTION_VERSION = '2026.10.9';
 export const DEDUPE_VERSION = '2026.10.1';
 
 /** Sayfalama sınırları. */

@@ -55,7 +55,9 @@ describe('extractPositionOpenings — kural sınırları (sentetik)', () => {
     ].join('\n');
     const result = run(body);
     expect(result.openings).toHaveLength(2);
-    expect(result.uncertainties.join(' ')).toContain('Kontenjan tutarsız: metinde 3');
+    // Yazıyla doğrulanmış resmî toplam, eksik okunmuş olabilecek kırılımdan güçlüdür.
+    expect(result.quota).toBe(3);
+    expect(result.uncertainties.join(' ')).toContain('Kontenjan tutarsız: resmî toplam 3 (yazıyla doğrulandı)');
   });
 
   it('başlık iki satıra bölünmüşse birleştirilir; büyük harf "KİŞİ" okunur', () => {
@@ -78,5 +80,65 @@ describe('extractPositionOpenings — kural sınırları (sentetik)', () => {
 
   it('sınır dışı kişi sayısı (0) pozisyonları geçersiz kılar', () => {
     expect(extractPositionOpenings(['1. Uzman', '(0 Kişi)'].join('\n'))).toEqual([]);
+  });
+});
+
+/**
+ * Taranmış belge (OCR) biçimi: başlık ve kişi sayısı aynı satırda; rakam yazıyla da verilir.
+ * Alıntı İŞKUR RG 18.10.2026-4-4 OCR çıktısından (kurumsal metin, kişi verisi yok); OCR ilk
+ * pozisyonda "1"i "|" okudu.
+ */
+const ISKUR_OCR = [
+  'B- ÖZEL ŞARTLAR (NİTELİKLER)',
+  'Başvuru genel şartlarına ilave olarak, niteliklerine göre aşağıdaki özel şartlar aranacaktır.',
+  '1. KIDEMLİ SİSTEM UZMANI (| (Bir) Kişi — Tam Zamanlı- A Grubu —Aylık Brüt',
+  '',
+  'Sözleşme Ücret Tavanının 4 (Dört) Katına kadar)',
+  '1. Büyük ölçekli bilgi işlem birimine sahip kamu kurum ve kuruluşlarında ya da en az',
+  '2. UNIX/Linux sunucu işletim > sistemlerinin kurulumu, bakımı, izlenmesi,',
+  '2. KIDEMLİ SİBER GÜVENLİK UZMANI (1 (Bir) Kişi — Tam Zamanlı- A Grubu —Aylık',
+  '',
+  'Brüt Sözleşme Ücret Tavanının 4 (Dört) Katına kadar)',
+  '1. Siber güvenlik alanında en az 7 (yedi) yıl tecrübeye sahip olmak,',
+].join('\n');
+
+describe('extractPositionOpenings — OCR satır içi biçim', () => {
+  it('gerçek İŞKUR OCR: iki pozisyon, OCR "|" yazıyla (Bir) 1 okunur', () => {
+    const rows = extractOpenings(ISKUR_OCR);
+    expect(rows.map((row) => [row.title, row.quota])).toEqual([
+      ['KIDEMLİ SİSTEM UZMANI', 1],
+      ['KIDEMLİ SİBER GÜVENLİK UZMANI', 1],
+    ]);
+    expect(rows[0]?.evidence).toBe('1. KIDEMLİ SİSTEM UZMANI (| (Bir) Kişi — Tam Zamanlı- A Grubu —Aylık Brüt');
+  });
+
+  it('OCR kırılımı eksikse (sayfa sınırı) yazıyla doğrulanmış resmî toplam 11 korunur, fark not edilir', () => {
+    const body = [
+      'uygulamalı sınavı başarı sırasına göre yapılacak yerleştirme ile 11 (Onbir) Sözleşmeli Bilişim',
+      'Personeli alınacaktır.',
+      ISKUR_OCR,
+    ].join('\n');
+    const result = run(body);
+    expect(result.quota).toBe(11);
+    expect(result.openings).toHaveLength(2);
+    expect(result.uncertainties.join(' ')).toContain('okunabilen kadro/pozisyon toplamı 2');
+  });
+
+  it('alt satırdaki "(2 (İki) Kişi" biçimi de okunur', () => {
+    expect(extractPositionOpenings(['1. Ağ Uzmanı', '(2 (İki) Kişi – Tam Zamanlı)'].join('\n')).map((row) => row.quota)).toEqual([2]);
+  });
+
+  it('rakam yazıyla çelişirse hiç pozisyon üretilmez', () => {
+    expect(extractPositionOpenings('1. Ağ Uzmanı (2 (Bir) Kişi — Tam Zamanlı)')).toEqual([]);
+  });
+
+  it('okunamayan rakam yazısız ise kişi sayısı uydurulmaz', () => {
+    expect(extractPositionOpenings('1. Ağ Uzmanı (| Kişi — Tam Zamanlı)')).toEqual([]);
+  });
+
+  it('başlık parantezi kişi parantezinden önce gelirse başlıkta kalır', () => {
+    expect(extractPositionOpenings('1. Yazılım Uzmanı (.Net) (B Grubu) (1 Kişi – Tam Zamanlı)').map((row) => row.title)).toEqual([
+      'Yazılım Uzmanı (.Net) (B Grubu)',
+    ]);
   });
 });
