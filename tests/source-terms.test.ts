@@ -27,13 +27,16 @@ const validEntry: SourceTermsEntry = {
 };
 
 describe('kaynak erişim şartları kapısı', () => {
-  it('depodaki şablon geçerlidir ve tüm kaynaklar başlangıçta unknown', () => {
+  it('depodaki kararlar: yalnız incelenmiş kaynaklar allowed ve kapıdan eksiksiz geçer; diğerleri unknown', () => {
+    // 22.10.2026 kullanıcı kararı: yalnız izni incelenmiş kaynaklar (Resmî Gazete + İŞKUR) taranır.
     const loaded = loadSourceTerms(process.cwd());
     expect(loaded.status).toBe('available');
+    const allowed = ['resmigazete-cestili-ilanlar', 'iskur-kamu-memur-alim', 'iskur-kurumdisi-kamu-isci'];
     for (const key of STAGING_SOURCE_ALLOWLIST) {
       const entry = loaded.entries.get(key);
       expect(entry, key).toBeTruthy();
-      expect(entry?.decision).toBe('unknown');
+      if (allowed.includes(key)) expect(assessSourceTerms(entry ?? null, new Date('2026-10-22')).allowed, key).toBe(true);
+      else expect(entry?.decision, key).toBe('unknown');
     }
   });
 

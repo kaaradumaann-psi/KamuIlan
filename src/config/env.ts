@@ -256,10 +256,10 @@ const envSchema = z.object({
     .transform(csv),
   /**
    * Kaynak kullanım şartları kapısı (`config/source-terms.json`). `blocked` kararlı kaynak HER ZAMAN
-   * atlanır. `warn` (varsayılan): incelenmemiş kaynak taranır, tarama notunda görünür. `enforce`:
-   * yalnız incelenmiş + `allowed` + saklama izni doğrulanmış kaynak taranır.
+   * atlanır. `enforce` (varsayılan; 22.10.2026 kullanıcı kararı): yalnız incelenmiş + `allowed` + saklama
+   * izni doğrulanmış kaynak taranır. `warn`: incelenmemiş kaynak da taranır, tarama notunda görünür.
    */
-  SOURCE_TERMS_POLICY: z.enum(['warn', 'enforce']).default('warn'),
+  SOURCE_TERMS_POLICY: z.enum(['warn', 'enforce']).default('enforce'),
   /** Canlı kaynak erişimi kapalıysa adaptörler yalnızca doğrulama yapar (test/lint). */
   SOURCE_LIVE_FETCH: z
     .string()

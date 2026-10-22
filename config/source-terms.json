@@ -4,13 +4,13 @@
   "sources": [
     {
       "sourceKey": "resmigazete-cestili-ilanlar",
-      "decision": "unknown",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "robotsUrl": null,
-      "termsUrl": null,
-      "allowsStorage": null,
-      "notes": "Bu depo tarafından incelenmedi; canlı koşum öncesi operatör doldurmalıdır."
+      "decision": "allowed",
+      "reviewedAt": "2026-10-21",
+      "reviewedBy": "kaaradumaann-psi (depo sahibi; Claude Code oturumunda açık onay); 22.10.2026 üretim kararı olarak yeniden teyit edildi (yalnız izni incelenmiş kaynaklar taranır)",
+      "robotsUrl": "https://www.resmigazete.gov.tr/robots.txt",
+      "termsUrl": "https://www.resmigazete.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (21.10.2026): yalnızca Googlebot için Noindex satırları, Disallow yok; /ilanlar yasaklanmamış. Yayımlanmış kullanım şartları sayfası bulunamadı (termsUrl = incelenen anasayfa). Saklama kararı depo sahibinin oturumdaki açık onayına dayanır; hukuki inceleme değildir. Yalnızca bütçeli staging koşumu için."
     },
     {
       "sourceKey": "osym-duyurular",
@@ -24,23 +24,23 @@
     },
     {
       "sourceKey": "iskur-kamu-memur-alim",
-      "decision": "unknown",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "robotsUrl": null,
-      "termsUrl": null,
-      "allowsStorage": null,
-      "notes": "Bu depo tarafından incelenmedi; canlı koşum öncesi operatör doldurmalıdır."
+      "decision": "allowed",
+      "reviewedAt": "2026-10-21",
+      "reviewedBy": "kaaradumaann-psi (depo sahibi; Claude Code oturumunda açık onay); 22.10.2026 üretim kararı olarak yeniden teyit edildi (yalnız izni incelenmiş kaynaklar taranır)",
+      "robotsUrl": "https://www.iskur.gov.tr/robots.txt",
+      "termsUrl": "https://www.iskur.gov.tr/kurumsal-bilgi/kvkk/",
+      "allowsStorage": true,
+      "notes": "robots.txt (21.10.2026): User-agent * için /api/ ve sorgu dizeli adresler (/*?*) yasak; /ilanlar/ yolları serbest. Sayfalama (?page=) robots gereği izlenmemeli: --max-pages=1. Yayımlanmış kullanım şartları sayfası bulunamadı (termsUrl = KVKK sayfası). Saklama kararı depo sahibinin oturumdaki açık onayına dayanır; hukuki inceleme değildir."
     },
     {
       "sourceKey": "iskur-kurumdisi-kamu-isci",
-      "decision": "unknown",
-      "reviewedAt": null,
-      "reviewedBy": null,
-      "robotsUrl": null,
-      "termsUrl": null,
-      "allowsStorage": null,
-      "notes": "Bu depo tarafından incelenmedi; canlı koşum öncesi operatör doldurmalıdır."
+      "decision": "allowed",
+      "reviewedAt": "2026-10-21",
+      "reviewedBy": "kaaradumaann-psi (depo sahibi; Claude Code oturumunda açık onay); 22.10.2026 üretim kararı olarak yeniden teyit edildi (yalnız izni incelenmiş kaynaklar taranır)",
+      "robotsUrl": "https://www.iskur.gov.tr/robots.txt",
+      "termsUrl": "https://www.iskur.gov.tr/kurumsal-bilgi/kvkk/",
+      "allowsStorage": true,
+      "notes": "robots.txt (21.10.2026): User-agent * için /api/ ve sorgu dizeli adresler (/*?*) yasak; /ilanlar/ yolları serbest. Sayfalama (?page=) robots gereği izlenmemeli: --max-pages=1. Yayımlanmış kullanım şartları sayfası bulunamadı (termsUrl = KVKK sayfası). Saklama kararı depo sahibinin oturumdaki açık onayına dayanır; hukuki inceleme değildir."
     }
   ]
 }

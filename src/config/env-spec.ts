@@ -660,11 +660,12 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     group: 'tarama',
     label: 'Kaynak kullanım şartları kapısı',
     help:
-      'warn (varsayılan): şartları incelenmemiş kaynak taranır, tarama notunda görünür. enforce: yalnız ' +
-      'config/source-terms.json içinde incelenmiş ve "allowed" kaynak taranır. "blocked" kaynak her iki modda da atlanır.',
+      'enforce (varsayılan, 22.10.2026 kullanıcı kararı): yalnız config/source-terms.json içinde incelenmiş ve ' +
+      '"allowed" kaynak taranır (şu an Resmî Gazete + İŞKUR). warn: incelenmemiş kaynak da taranır, tarama notunda ' +
+      'görünür. "blocked" kaynak her iki modda da atlanır.',
     type: 'enum',
     options: ['warn', 'enforce'],
-    defaultValue: 'warn',
+    defaultValue: 'enforce',
     optional: true,
   },
   {
