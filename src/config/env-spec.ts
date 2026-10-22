@@ -726,8 +726,10 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
   {
     key: 'SCRAPE_USER_AGENT',
     group: 'tarama',
-    label: 'Bot kimliği (User-Agent)',
-    help: 'Uygulama kendini gizlemez; açık bot kimliği kullanır. Değiştirmeniz gerekmez.',
+    label: 'Tarayıcı kimliği (User-Agent)',
+    help:
+      'Uygulama kendini gizlemez: adı, sürümü ve iletişim adresi yazılır; tarayıcı taklidi yapılmaz. "Bot" kelimesi ' +
+      'kullanılmaz (Resmî Gazete bu istemcileri askıda bırakıyor; K2 kararı 22.10.2026). Değiştirmeniz gerekmez.',
     type: 'string',
     optional: true,
   },

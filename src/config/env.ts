@@ -222,13 +222,13 @@ const envSchema = z.object({
    */
   SCRAPE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(120_000),
   SCRAPE_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(3),
-  // Standart bot biçimi (Googlebot/Bingbot düzeni): kimlik gizlenmez, ad ve
-  // iletişim adresi açıkça yazılır. Bazı resmî sunucular "Mozilla" ile
-  // başlamayan istekleri yavaşlattığı (tarpit) için bu düzen kullanılır;
-  // HTTP başlıkları ASCII ister, Türkçe karakter çevrilir.
+  // Açık kimlik: uygulama adı + sürüm + iletişim adresi (tarayıcı taklidi YOK). "Bot" kelimesi
+  // kullanılmaz: Resmî Gazete adında "bot" geçen istemciyi askıda bırakıyor (22.10.2026 kanıtı: aynı
+  // anda "KamuIlanBot" → 25 sn yanıtsız, "KamuIlan" → 200/0,16 sn; robots.txt yasaklamıyor). Karar:
+  // kullanıcı (K2, 22.10.2026); istek hızı sınırları aynen korunur. HTTP başlıkları ASCII ister.
   SCRAPE_USER_AGENT: z
     .string()
-    .default('Mozilla/5.0 (compatible; KamuIlanBot/0.2; +https://kamuilan.halilkaraduman.com.tr)')
+    .default('Mozilla/5.0 (compatible; KamuIlan/0.3; +https://kamuilan.halilkaraduman.com.tr)')
     .transform(toHeaderSafeAscii),
   SOURCE_MIN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   /** Kaynak alan adı beyaz listesi dışına çıkan yönlendirmeler engellenir (SSRF). */
