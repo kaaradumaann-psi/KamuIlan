@@ -54,6 +54,7 @@
     "user:create": "tsx scripts/create-user.ts",
     "eval:classification": "tsx scripts/eval-classification.ts",
     "eval:build-set": "tsx scripts/eval-build-set.ts",
+    "eval:label-page": "tsx scripts/eval-label-page.ts",
     "eval:extraction": "tsx scripts/eval-extraction.ts",
     "tani:ilan": "tsx scripts/tani-ilan-kalitesi.ts"
   },
