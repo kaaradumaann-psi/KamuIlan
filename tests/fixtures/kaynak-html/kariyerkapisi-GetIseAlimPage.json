@@ -1,0 +1,58 @@
+{
+ "ilanCountForKurum": [],
+ "ilanTuru": [],
+ "sehirList": [],
+ "searchIlan": [
+  {
+   "guid": "292b13a1-7511-4f89-896d-b19f526fcab1",
+   "kurumAdi": "MİLLİ SARAYLAR İDARESİ BAŞKANLIĞI",
+   "birimAdi": "PERSONEL DAİRESİ BAŞKANLIĞI",
+   "ilanBaslik": "MİLLİ SARAYLAR İDARESİ BAŞKANLIĞI - 158 Sözleşmeli Personel Alımı İlanı",
+   "ilanTipi": 1,
+   "ilanTuru": "Sözleşmeli Personel İlanları",
+   "sonDurumu": "Aktif",
+   "basTarih": "2026-10-12T14:00:00",
+   "bitTarih": "2026-10-22T23:59:00",
+   "onay": 1,
+   "onayAciklama": "",
+   "onayDate": "2026-10-20T09:55:47.45",
+   "logo_Path": "851d0960-ba6e-40ed-99cc-2dc6e9867ec2.png",
+   "basvuruLinki": "",
+   "closestIlanStartDate": "2026-10-23T09:00:00"
+  },
+  {
+   "guid": "2fcec3f5-8c49-41d2-9ab4-9aead6433459",
+   "kurumAdi": "TÜRK PATENT VE MARKA KURUMU",
+   "birimAdi": "PERSONEL DAİRESİ BAŞKANLIĞI",
+   "ilanBaslik": "TÜRK PATENT VE MARKA KURUMU - SÖZLEŞMELİ BİLİŞİM PERSONELİ SINAV DUYURUSU (2026)",
+   "ilanTipi": 1,
+   "ilanTuru": "Sözleşmeli Personel İlanları",
+   "sonDurumu": "Aktif",
+   "basTarih": "2026-10-07T00:00:00",
+   "bitTarih": "2026-10-22T23:59:00",
+   "onay": 1,
+   "onayAciklama": null,
+   "onayDate": "2026-10-05T15:15:09.953",
+   "logo_Path": "223e6ac3-a227-4b37-bd1b-e94589d3fb73.png",
+   "basvuruLinki": "",
+   "closestIlanStartDate": "2026-10-23T09:00:00"
+  },
+  {
+   "guid": "e53c369b-3913-48dc-8e41-be3a6392c249",
+   "kurumAdi": "KIYI EMNİYETİ GENEL MÜDÜRLÜĞÜ",
+   "birimAdi": "PERSONEL VE EĞİTİM DAİRESİ BAŞKANLIĞI",
+   "ilanBaslik": "KIYI EMNİYETİ GENEL MÜDÜRLÜĞÜ - PERSONEL ALIM İLANI (9 KİŞİLİK)",
+   "ilanTipi": 2,
+   "ilanTuru": "İşçi İlanları",
+   "sonDurumu": "Aktif",
+   "basTarih": "2026-10-19T00:01:00",
+   "bitTarih": "2026-10-23T23:59:00",
+   "onay": 1,
+   "onayAciklama": null,
+   "onayDate": "2026-10-19T09:51:31.793",
+   "logo_Path": "57942f57-5004-4956-ad48-d5c30ed6d453.png",
+   "basvuruLinki": "https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx",
+   "closestIlanStartDate": "2026-10-23T09:00:00"
+  }
+ ]
+}

@@ -114,14 +114,59 @@ const CHROME_SELECTORS = PAGE_CHROME_SELECTORS.join(',');
 
 /** Remove recurring page chrome from a selected root before extracting text or links. */
 export function stripPageChrome(root: Cheerio<AnyNode>): void {
-  root.find(CHROME_SELECTORS).remove();
+  // Betikler silinmeden önce: sayfanın kendi betiğinin görünür yaptığı kimlikler.
+  const revealed = scriptRevealedIds(root.find('script').text());
+  root
+    .find(CHROME_SELECTORS)
+    .filter((_index, element) => !isPageWrapper(element, root))
+    .remove();
   root
     .find('[style]')
     .filter((_index, element) => {
-      const style = isTag(element) ? (element.attribs.style ?? '') : '';
-      return /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(style);
+      if (!isTag(element)) return false;
+      const style = element.attribs.style ?? '';
+      if (!/(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(style)) return false;
+      const id = element.attribs.id;
+      return !(id && revealed.has(id));
     })
     .remove();
+}
+
+/**
+ * Sayfanın tamamını saran öğe iskelet sayılmaz (22.10.2026 canlı bulgular):
+ *  - YÖK `<body id="a11y-body-root">` → `[id*="a11y"]` gövdenin tamamını siliyordu.
+ *  - ASP.NET WebForms/SharePoint (KGM, Sağlık YHGM) tüm sayfayı `<form id="aspnetForm">`
+ *    içine koyar → `form` seçicisi listeyi de siliyordu.
+ * `html`/`body` ve React akış sınırı (`div[hidden][id=S:n]`) hiçbir zaman, `form` ise
+ * 3+ bağlantı içeriyorsa silinmez (gerçek arama/iletişim formları birkaç bağlantı taşır).
+ */
+function isPageWrapper(element: AnyNode, root: Cheerio<AnyNode>): boolean {
+  if (!isTag(element)) return false;
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'html' || tag === 'body') return true;
+  // React/Next akışlı çizim: içerik `<div hidden id="S:5">` ile gelir, betik yerine taşır (TKGM).
+  if (tag === 'div' && /^S:\d+$/.test(element.attribs.id ?? '')) return true;
+  if (tag !== 'form') return false;
+  // Gerçek arama/giriş formları bağlantı taşımaz ya da 1-2 taşır; 3+ bağlantılı form, listeyi saran
+  // WebForms kapsayıcısıdır (TMSF basın tablosu, DSİ duyuru listesi).
+  return root.find(element).find('a[href]').length >= 3;
+}
+
+/**
+ * Satır içi betikte `$('#id').css({display:'block'})`, `.show()` ya da `.fadeIn()` ile
+ * açılan öğe kimlikleri. 22.10.2026: İçişleri/Göç/AFAD'ın ortak CMS'i tüm sayfayı
+ * (`#DesignContainer`) ve duyuru listesini `style="display:none"` ile gönderip
+ * `document.ready` içinde açıyor; bu öğeler gizli iskelet sayılırsa liste tümden
+ * siliniyor ve "liste yapısı tanınmadı" hatası oluşuyordu.
+ */
+function scriptRevealedIds(scriptText: string): Set<string> {
+  const ids = new Set<string>();
+  const pattern =
+    /\$\(\s*['"]#([\w-]+)['"]\s*\)\s*\.\s*(?:css\(\s*\{\s*['"]?display['"]?\s*:\s*['"](?:block|flex|inline|inline-block)['"]|css\(\s*['"]display['"]\s*,\s*['"](?:block|flex)['"]|show\(|fadeIn\()/g;
+  for (const match of scriptText.matchAll(pattern)) {
+    if (match[1]) ids.add(match[1]);
+  }
+  return ids;
 }
 
 /**

@@ -169,6 +169,18 @@ function isClearlyEmptyListingPage(html: string): boolean {
   );
 }
 
+/**
+ * Kaynak kaydından gelen, kaynağa özgü ayrıştırma ayarları (`SourceDefinition.listing`).
+ * Ortak kurum adaptörü tek bir desenle 18 farklı CMS'i okuyamıyor; canlı sayfada
+ * doğrulanan liste kapsayıcısı ve bağlantı deseni kaynağın yanında tutulur.
+ */
+export interface ListingOverrides {
+  /** Liste kapsayıcısı (CSS seçici). Sayfada varsa yalnız bunun içi taranır. */
+  listContainer?: string;
+  /** Detay bağlantısı deseni (RegExp kaynağı, büyük/küçük harf duyarsız; yol + sorgu üzerinde). */
+  pathPattern?: string;
+}
+
 /** Ayrıştırma teşhisi: "neden 0 satır" sorusunun cevabı hata mesajına yazılır. */
 export interface AnchorListDiagnostics {
   /** İskelet temizlendikten sonra belgede kalan bağlantı sayısı. */
@@ -189,6 +201,7 @@ function parseAnchorListPage(
   listingUrl: string,
   config: AnchorListConfig,
   allowedHosts: readonly string[],
+  overrides: ListingOverrides = {},
 ): {
   entries: ListEntry[];
   nextPageUrl: string | null;
@@ -202,6 +215,17 @@ function parseAnchorListPage(
   let paginationEndConfirmed = detectedNavigation.endConfirmed;
   if (nextPageUrl) {
     try {
+      // Sayfalama tespiti `www.` önekini atabilir; istek kaynağın gerçek host'una gitmeli.
+      const next = new URL(nextPageUrl);
+      const base = new URL(pageUrl);
+      if (next.hostname === base.hostname.replace(/^www\./, '')) next.hostname = base.hostname;
+      nextPageUrl = next.toString();
+    } catch {
+      nextPageUrl = null;
+    }
+  }
+  if (nextPageUrl) {
+    try {
       nextPageUrl = assertSafeUrl(nextPageUrl, allowedHosts).toString();
     } catch {
       // An off-host next link is not followed or counted as a confirmed end.
@@ -211,6 +235,8 @@ function parseAnchorListPage(
   }
   stripPageChrome($.root());
   const scopeSelector = [
+    // Kaynağa özgü liste kapsayıcısı (canlı sayfadan doğrulanmış) önce denenir.
+    ...(overrides.listContainer ? [overrides.listContainer] : []),
     'main',
     '[role="main"]',
     '#contentBox',
@@ -219,7 +245,8 @@ function parseAnchorListPage(
     '.main-content',
   ].find((selector) => $(selector).length > 0);
   const listingIdentity = listingDocumentIdentity(listingUrl);
-  const pattern = new RegExp(config.pathPattern.source, config.pathPattern.flags.replace('g', ''));
+  const basePattern = overrides.pathPattern ? new RegExp(overrides.pathPattern, 'i') : config.pathPattern;
+  const pattern = new RegExp(basePattern.source, basePattern.flags.replace('g', ''));
 
   // `null` → tüm belge; aksi halde bulunan kapsayıcı seçici.
   const collectCandidates = (containerSelector: string | null): Candidate[] =>
@@ -228,7 +255,7 @@ function parseAnchorListPage(
       .toArray()
       .map((element) => ({
         element: element as AnyNode,
-        url: normalizeUrl($(element).attr('href') ?? '', pageUrl),
+        url: fetchableUrl($(element).attr('href') ?? '', pageUrl),
       }))
       .filter((candidate): candidate is Candidate => candidate.url !== null)
       .filter((candidate) => {
@@ -238,7 +265,7 @@ function parseAnchorListPage(
           const { pathname } = new URL(candidate.url);
           // Kurum menüleri/kategori sayfaları ilan satırı değildir.
           if (isCategoryIndexPath(pathname)) return false;
-          return pattern.test(pathname);
+          return pattern.test(overrides.pathPattern ? `${pathname}${new URL(candidate.url).search}` : pathname);
         } catch {
           return false;
         }
@@ -372,7 +399,15 @@ export class AnchorListAdapter implements SourceAdapter {
     // Ön-kontrol ayrıştırması döngünün 1. sayfasında yeniden kullanılır; aynı HTML iki
     // kez ayrıştırılmaz. Ayrıştırma her zaman çalışır: 0 satır durumunda hata mesajına
     // yazılacak teşhis (kaç bağlantı desenle eşleşti, hangi kapsayıcı denendi) buradan gelir.
-    const firstPass = parseAnchorListPage(html, source.listingUrl, source.listingUrl, this.config, source.allowedHosts);
+    const overrides: ListingOverrides = source.listing ?? {};
+    const firstPass = parseAnchorListPage(
+      html,
+      source.listingUrl,
+      source.listingUrl,
+      this.config,
+      source.allowedHosts,
+      overrides,
+    );
     let firstPageParse: ReturnType<typeof parseAnchorListPage> | null = firstPass;
     let firstPageDiagnostics = firstPass.diagnostics;
     /**
@@ -402,6 +437,7 @@ export class AnchorListAdapter implements SourceAdapter {
             source.listingUrl,
             this.config,
             source.allowedHosts,
+            overrides,
           );
           if (renderedPass.entries.length > firstPass.entries.length) {
             html = rendered;
@@ -459,7 +495,7 @@ export class AnchorListAdapter implements SourceAdapter {
       const parsedPage =
         page === 1 && firstPageParse
           ? firstPageParse
-          : parseAnchorListPage(currentHtml, currentUrl, source.listingUrl, this.config, source.allowedHosts);
+          : parseAnchorListPage(currentHtml, currentUrl, source.listingUrl, this.config, source.allowedHosts, overrides);
       if (page === 1) firstPageParse = null;
       paginationDetected ||= parsedPage.paginationDetected;
       const repeatedEntry =
@@ -542,7 +578,7 @@ export class AnchorListAdapter implements SourceAdapter {
             : 'pathPattern/listContainers seçicileri bu yollara göre güncellenmeli.';
       throw new AdapterStructureError(
         source.key,
-        `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${String(this.config.pathPattern)} bulunamadı. ` +
+        `Liste yapısı tanınmadı (${source.key}): beklenen bağlantı kalıbı ${overrides.pathPattern ? `/${overrides.pathPattern}/i` : String(this.config.pathPattern)} bulunamadı. ` +
           `Sayfa yapısı: ${structure.anchors} bağlantı (${structure.sameHostAnchors} aynı alan adı), ` +
           `${structure.scripts} script, ${structure.iframes} iframe, ${structure.forms} form, ` +
           `görünür metin ${structure.bodyTextLength} karakter` +
@@ -598,7 +634,7 @@ export class AnchorListAdapter implements SourceAdapter {
       const node = $(element);
       const link = collapseWhitespace(node.find('link').first().text());
       const title = cleanTitle(collapseWhitespace(node.find('title').first().text()));
-      const normalizedUrl = link ? normalizeUrl(link, source.listingUrl) : null;
+      const normalizedUrl = link ? fetchableUrl(link, source.listingUrl) : null;
       if (!normalizedUrl || title.length === 0) return;
       let url: string;
       try {
@@ -942,4 +978,21 @@ export function createMebAdapter(): AnchorListAdapter {
     sourceCategory: 'personel duyurusu',
     maxItems: 30,
   });
+}
+
+/**
+ * Tekilleştirme biçimi (`normalizeUrl`) `www.` önekini atar; kimlik için doğru, istek
+ * adresi olarak yanlış: www.bddk.org.tr çalışır, bddk.org.tr çözümlenmez (22.10.2026
+ * canlı: ENOTFOUND). İstek için kaynağın gerçek host adı korunur.
+ */
+function fetchableUrl(href: string, baseUrl: string): string | null {
+  const normalized = normalizeUrl(href, baseUrl);
+  if (!normalized) return null;
+  try {
+    const url = new URL(normalized);
+    url.hostname = new URL(href, baseUrl).hostname.toLowerCase();
+    return url.toString();
+  } catch {
+    return normalized;
+  }
 }
