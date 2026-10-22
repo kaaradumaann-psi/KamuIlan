@@ -126,6 +126,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2000,
     maxConcurrency: 1,
     allowedHosts: ['ilan.gov.tr', 'www.ilan.gov.tr', 'medya.ilan.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/*tebligat'],
     tags: ['cekirdek', 'toplayici', 'html'],
   },
   {
@@ -159,6 +161,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['ilan.gov.tr', 'www.ilan.gov.tr', 'medya.ilan.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/*tebligat'],
     tags: ['toplayici', 'json-api'],
   },
   {
@@ -400,6 +404,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['www.adalet.gov.tr', 'adalet.gov.tr', 'pgm.adalet.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/yonetim/'],
     conditionalRequests: true,
     tags: ['kurum', 'bakanlik', 'html'],
   },
@@ -425,6 +431,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['www.icisleri.gov.tr', 'icisleri.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/kullanicilar', '/ortak_icerik', '/kurumlar', '/Kurumlar', '/Kullanicilar'],
     conditionalRequests: true,
     tags: ['kurum', 'bakanlik', 'html'],
   },
@@ -450,6 +458,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['www.goc.gov.tr', 'goc.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/kullanicilar', '/ortak_icerik', '/kurumlar', '/Kurumlar', '/Kullanicilar'],
     conditionalRequests: true,
     tags: ['kurum', 'baskanlik', 'html'],
   },
@@ -475,6 +485,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['www.afad.gov.tr', 'afad.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/kullanicilar', '/ortak_icerik', '/kurumlar', '/Kurumlar', '/Kullanicilar'],
     conditionalRequests: true,
     tags: ['kurum', 'baskanlik', 'html'],
   },
@@ -625,6 +637,8 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['www.tkgm.gov.tr', 'tkgm.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: ['/intranet/', '/api/', '/login/', '/preview/'],
     conditionalRequests: true,
     tags: ['kurum', 'gm', 'html'],
   },
@@ -650,6 +664,20 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
     allowedHosts: ['www.tubitak.gov.tr', 'tubitak.gov.tr'],
+    // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
+    robotsDisallow: [
+      '/core/',
+      '/profiles/',
+      '/admin/',
+      '/comment/reply/',
+      '/filter/tips',
+      '/node/add/',
+      '/search/',
+      '/user/',
+      '/media/oembed',
+      '/*/media/oembed',
+      '/index.php/',
+    ],
     conditionalRequests: true,
     tags: ['kurum', 'arastirma', 'html'],
   },
