@@ -131,7 +131,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     const [stats, coverage, runSummary, reviewCounts, outboxStats, queueStats, heartbeats, auditCount, llm] =
       await Promise.all([
         repos.jobs.dashboardStats(repos.clock.now()),
-        repos.sources.coverage(),
+        repos.sources.coverage({ termsPolicy: getEnv().SOURCE_TERMS_POLICY }),
         repos.runs.summary(),
         repos.review.countOpen(),
         repos.outbox.stats(),
@@ -190,7 +190,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['admin'], summary: 'Kaynakları listele (sağlık dahil)' } },
     async (request) => {
       requireAdmin(request);
-      const coverage = await repos.sources.coverage();
+      const coverage = await repos.sources.coverage({ termsPolicy: getEnv().SOURCE_TERMS_POLICY });
       return {
         sources: coverage.sources.map(toCoverageEntry),
         summary: coverage.summary,
@@ -244,7 +244,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         actorRole: admin.role,
         meta: { adapterKey: body.adapterKey },
       });
-      const coverage = await repos.sources.coverage();
+      const coverage = await repos.sources.coverage({ termsPolicy: getEnv().SOURCE_TERMS_POLICY });
       const entry = coverage.sources.find((candidate) => candidate.key === body.key);
       reply.status(201);
       return {
@@ -635,13 +635,17 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['admin'], summary: 'Kuyruk durumu, ölü işler ve kilitler' } },
     async (request) => {
       requireAdmin(request);
-      const [stats, dead, locks, tasks] = await Promise.all([
+      const [stats, dead, locks, tasks, sources] = await Promise.all([
         repos.queue.stats(),
         repos.queue.listDead(50),
         repos.locks.list(),
         repos.scheduledTasks.listAll(),
+        repos.sources.list(),
       ]);
       const now = repos.clock.now().toISOString();
+      // Kapatılmış kaynağın görevi bilinçli olarak ilerletilmez; "gecikti" sayılmaz.
+      const disabledSources = new Set(sources.filter((source) => !source.enabled).map((source) => source.key));
+      const isIdle = (task: { enabled: boolean; sourceKey: string }) => !task.enabled || disabledSources.has(task.sourceKey);
       return {
         stats,
         dead: dead.map((job) => ({
@@ -668,9 +672,9 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
           lastRunAt: task.lastRunAt,
           lastEnqueuedRunId: task.lastEnqueuedRunId,
           misses: task.misses,
-          overdueMinutes: Math.max(0, Math.round((Date.parse(now) - Date.parse(task.nextRunAt)) / 60_000)),
+          overdueMinutes: isIdle(task) ? 0 : Math.max(0, Math.round((Date.parse(now) - Date.parse(task.nextRunAt)) / 60_000)),
         })),
-        scheduleLagWarning: tasks.some((task) => Date.parse(now) - Date.parse(task.nextRunAt) > 10 * 60_000)
+        scheduleLagWarning: tasks.some((task) => !isIdle(task) && Date.parse(now) - Date.parse(task.nextRunAt) > 10 * 60_000)
           ? 'Bazı görevlerin planlanan zamanı geçmiş: worker çalışmıyor ya da yoğun olabilir.'
           : null,
       };
@@ -871,7 +875,7 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['admin'], summary: 'Kapsam raporu (doğrulanan / planlanan kaynaklar)' } },
     async (request) => {
       requireAdmin(request);
-      const coverage = await repos.sources.coverage();
+      const coverage = await repos.sources.coverage({ termsPolicy: getEnv().SOURCE_TERMS_POLICY });
       const byGroup = new Map<string, number>();
       for (const entry of coverage.sources) byGroup.set(entry.group, (byGroup.get(entry.group) ?? 0) + 1);
       const registryKeys = new Set(SOURCE_DEFINITIONS.map((definition) => definition.key));

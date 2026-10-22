@@ -245,6 +245,31 @@ export class SourceRepo {
     return updated;
   }
 
+  /**
+   * Şartlar kapısının taramadığı kaynakta eski hata durumunu temizler (politika atlaması arıza
+   * değildir; #84 öncesi "Bilinmeyen hata" ile yazılmış sayaçlar bir sonraki koşuda kendiliğinden
+   * sıfırlanır). Temizlenecek bir şey yoksa yazmaz.
+   */
+  async clearFailureState(key: string): Promise<void> {
+    const current = await this.getByKey(key);
+    if (!current) return;
+    const { health } = current;
+    if (health.consecutiveFailures === 0 && health.lastErrorMessage === null && health.consecutiveSkips === 0) return;
+    const updated = await this.store.updateOne(
+      'sources',
+      { key },
+      {
+        'health.consecutiveFailures': 0,
+        'health.consecutiveSkips': 0,
+        'health.lastErrorAt': null,
+        'health.lastErrorMessage': null,
+        'health.lastErrorType': null,
+        updatedAt: this.clock.now().toISOString(),
+      },
+    );
+    if (updated) validateDocument('sources', updated);
+  }
+
   async recordHealth(key: string, update: SourceHealthUpdate): Promise<SourceDoc | null> {
     const current = await this.getByKey(key);
     if (!current) return null;
@@ -350,7 +375,8 @@ export class SourceRepo {
         !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
       const termsGated =
         terms !== null && options.termsPolicy !== undefined && sourceTermsGate(source.key, options.termsPolicy, terms).skip;
-      if (!termsGated && source.health.consecutiveFailures > 0) failing += 1;
+      // Kapatılmış kaynak (ör. İŞKUR, 22.10.2026) eski sayacıyla "başarısız" görünmez.
+      if (!termsGated && source.enabled && source.health.consecutiveFailures > 0) failing += 1;
       if (!termsGated && source.enabled && isStale) stale += 1;
       entries.push({
         termsGated,

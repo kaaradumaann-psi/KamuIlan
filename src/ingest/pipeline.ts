@@ -519,6 +519,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   // Şartlar kapısı atlaması bir toplama denemesi değil, politika kararıdır: sağlık
   // sayaçlarına "başarısızlık" yazılmaz (yazılırsa durum raporu sahte KRİTİK verir ve
   // 3 atlamadan sonra yöneticiye "kaynak başarısız" uyarısı gider). Koşu kaydı kalır.
+  if (termsGate?.skip) await repos.sources.clearFailureState(source.key);
   if (!liveScanDisabled && !termsGate?.skip) {
     const lastHttpStatus =
       totals.httpStatuses.length > 0

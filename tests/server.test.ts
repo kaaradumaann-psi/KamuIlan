@@ -784,6 +784,23 @@ describe('yetkilendirme ve izolasyon', () => {
     expect(Array.isArray(body.workers)).toBe(true);
     expect(body.workerWarning).toMatch(/worker/i);
   });
+
+  it('kapatılmış kaynağın görevi "gecikti" uyarısı üretmez (üretim 22.10.2026: gib/rtuk/tuik 300 dk)', async () => {
+    await world.repos.sources.update('gib-duyurular', { enabled: false });
+    await world.repos.scheduledTasks.ensure({
+      kind: 'source-scrape',
+      sourceKey: 'gib-duyurular',
+      intervalMinutes: 360,
+      nextRunAt: new Date(NOW.getTime() - 300 * 60_000).toISOString(),
+    });
+    await createUser(world.repos, { email: 'kuyruk@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    const admin = await login(world.app, 'kuyruk@ornek.test', 'Guclu-Parola-2026');
+    const response = await world.app.inject({ method: 'GET', url: '/api/admin/queue', cookies: { kamuilan_session: admin.session } });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { tasks: { sourceKey: string; overdueMinutes: number }[]; scheduleLagWarning: string | null };
+    expect(body.tasks.find((task) => task.sourceKey === 'gib-duyurular')?.overdueMinutes).toBe(0);
+    expect(body.scheduleLagWarning).toBeNull();
+  });
 });
 
 describe('inceleme kuyruğu kararı', () => {

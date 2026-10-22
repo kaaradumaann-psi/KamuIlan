@@ -101,6 +101,12 @@ describe('kaynak kapsam özeti', () => {
       const coverage = await repos.sources.coverage();
       expect(coverage.summary.failing).toBe(1);
       expect(coverage.summary.stale).toBe(1);
+
+      // Üretim (22.10.2026): kapatılan İŞKUR kaynakları eski sayaçla /api/health'i "degraded" tutuyordu.
+      await repos.sources.update('basarisiz-kaynak', { enabled: false });
+      const afterDisable = await repos.sources.coverage();
+      expect(afterDisable.summary.failing).toBe(0);
+      expect(afterDisable.summary.stale).toBe(0);
     } finally {
       await store.close();
     }
