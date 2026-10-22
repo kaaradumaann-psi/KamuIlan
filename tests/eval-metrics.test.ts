@@ -9,6 +9,8 @@ import { classify } from '../src/classification/engine';
 import {
   computeEvalReport,
   computeHumanRealReport,
+  effectiveProvenance,
+  isHumanReal,
   MIN_HUMAN_PER_CLASS,
   type EvalRecord,
 } from '../src/classification/eval';
@@ -162,5 +164,14 @@ describe('etiketli küme kritik kapısı', () => {
   it('süreç duyurusu iş ilanı olarak sınıflanmaz', () => {
     const process = evalRecords.find((record) => record.id === 'proc-meb-bilisim-sinav');
     expect(process?.predicted).toBe('personnel_process_announcement');
+  });
+});
+
+describe('etiket provenansı varsayılanı', () => {
+  it('provenansı boş gerçek kayıt insan etiketi SAYILMAZ (machine); yalnız açık "human" sayılır', () => {
+    expect(effectiveProvenance({ origin: 'real' })).toBe('machine');
+    expect(isHumanReal({ id: 'x', expected: JOB, predicted: JOB, origin: 'real' })).toBe(false);
+    expect(isHumanReal({ id: 'y', expected: JOB, predicted: JOB, origin: 'real', labelProvenance: 'human' })).toBe(true);
+    expect(effectiveProvenance({ origin: 'spec-title' })).toBe('spec');
   });
 });

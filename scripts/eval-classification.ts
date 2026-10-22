@@ -37,6 +37,7 @@ import {
   assessGateScenario,
   computeEvalReport,
   computeHumanRealReport,
+  effectiveProvenance,
   formatRate,
   type EvalOrigin,
   type EvalRecord,
@@ -345,7 +346,7 @@ async function main(): Promise<void> {
       expected: record.expectedContentType,
       predicted,
       origin: record.origin,
-      labelProvenance: record.labelProvenance ?? (record.origin === 'real' ? 'human' : 'spec'),
+      labelProvenance: effectiveProvenance(record),
       sourceKey: record.sourceKey ?? null,
     });
   }
