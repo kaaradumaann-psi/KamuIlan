@@ -14,8 +14,13 @@ göstermek. Bu belge hazırlanırken **hiçbir kaynağa canlı istek gönderilme
 
 ## 2. İzin ve canlı kanıt
 
-İzin kaynağı: depo dışı `D:\coding\claude\source-terms.approved.local.json` (commit edilmez;
-depodaki `config/source-terms.json` şablon olarak `unknown` kalır — `tests/source-terms.test.ts`).
+**22.10.2026 güncel:** kullanıcı kararıyla `SOURCE_TERMS_POLICY=enforce` varsayılan ve izin kaynağı artık
+depodaki `config/source-terms.json` (Resmî Gazete + iki İŞKUR `allowed`; diğerleri `unknown` → ağa
+çıkmadan atlanır). **Fiilî kapsam:** iki İŞKUR adaptörü `parse-failure` verdiği için başlangıçta ilan
+üreten tek kaynak **Resmî Gazete**'dir. Kapsam, kaynak şartları incelenip dosyaya `allowed` eklendikçe
+ve İŞKUR için resmî veri kanalı bulundukça genişler.
+
+(Tarihsel) İzin kaynağı: depo dışı `D:\coding\claude\source-terms.approved.local.json`.
 
 | sourceKey | İzin (yerel onay dosyası) | robots / şart notu | Son canlı kanıt | Sonuç | Sonraki işlem |
 | --- | --- | --- | --- | --- | --- |
