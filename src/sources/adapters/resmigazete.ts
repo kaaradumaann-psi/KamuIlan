@@ -771,6 +771,11 @@ function deriveTitle(pdfText: string, rowText: string, institution: string | nul
         .filter((line) => line.length > 0),
     );
     if (issued) return issued;
+    // Başlık satırı yoksa (taranmış/OCR belgede sık) gövdedeki açık alım cümlesinden başlık kur:
+    // "…öğretim üyesi alınacaktır" → "Kurumdan: ÖĞRETİM ÜYESİ ALIM İLANI". Aksi hâlde "Kurum — tarih"
+    // başlığı gerçek ilanı incelemeye düşürüyordu (üretim 22.10.2026, Pamukkale Ü. 20261021-4-12).
+    const role = recruitmentRoleFromBody(pdfText);
+    if (role && normalizedRow.length >= 8) return `${normalizedRow}: ${role} ALIM İLANI`.slice(0, 300);
     const lines = pdfText
       .split('\n')
       .map((line) => collapseWhitespace(line))
@@ -794,3 +799,12 @@ function deriveTitle(pdfText: string, rowText: string, institution: string | nul
 }
 
 export { deriveTitle, firstDateOnlyIn };
+
+const RECRUITMENT_SENTENCE =
+  /(?<!\p{L})(öğretim üyesi|öğretim elemanı|öğretim görevlisi|araştırma görevlisi|sözleşmeli bilişim personeli|sözleşmeli personel|sürekli işçi|geçici işçi|memur)(?!\p{L})[^.]{0,120}?(?<!\p{L})(alınacaktır|alımı yapılacaktır|alım yapılacaktır|istihdam edilecektir|istihdam edilmek üzere)/iu;
+
+/** Gövdede açık bir alım cümlesi varsa unvanı büyük harfle döndürür ("ÖĞRETİM ÜYESİ"). */
+export function recruitmentRoleFromBody(text: string): string | null {
+  const match = RECRUITMENT_SENTENCE.exec(collapseWhitespace(text).slice(0, 4_000));
+  return match?.[1] ? match[1].toLocaleUpperCase('tr-TR') : null;
+}

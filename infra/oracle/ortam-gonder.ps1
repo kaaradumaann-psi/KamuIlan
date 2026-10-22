@@ -61,7 +61,8 @@ $ayar = [ordered]@{
   SOURCE_LIVE_FETCH         = '1'
   SOURCE_TERMS_POLICY       = 'enforce'
   SOURCE_BROWSER_FALLBACK   = '0'
-  OCR_ENABLED               = '0'
+  # Taranmış RG ilanları (ör. üniversite öğretim üyesi ilanları) yalnız OCR ile okunur (22.10.2026).
+  OCR_ENABLED               = '1'
   LLM_CLASSIFIER_ENABLED    = '0'
 }
 # Değerler tek tırnakta: hem systemd EnvironmentFile hem `set -a; . dosya` aynı şekilde okur
