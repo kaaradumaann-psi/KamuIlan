@@ -224,8 +224,45 @@ describe('model zinciri (mock)', () => {
     expect(outcome.classification.decision).toBe('review');
   });
 
-  it('bozuk JSON yanıtı karara dönüşmez (incelemede kalır)', async () => {
-    const { outcome } = await run({ [M1]: ok('{"karar": "ilan", kanitlar') });
+  it('HTTP 200 + bozuk JSON → aynı model yeniden denenmez, yedek model kararı uygular', async () => {
+    const { outcome, calls, rows } = await run({ [M1]: ok('{"karar": "ilan", kanitlar'), [M2]: ok() });
+    expect(calls[M1]).toBe(1);
+    expect(calls[M2]).toBe(1);
+    expect(outcome.classification.decision).toBe('accept');
+    expect(outcome.classification.llm?.model).toBe(M2);
+    expect(rows.map((row) => row.status)).toEqual(['ok']);
+  });
+
+  it('HTTP 200 + şemaya uymayan JSON da yedek modele geçer', async () => {
+    const { outcome, calls } = await run({ [M1]: ok('{"karar":"evet","guven":2}'), [M2]: ok() });
+    expect(calls[M1]).toBe(1);
+    expect(outcome.classification.llm?.model).toBe(M2);
+  });
+
+  it('üç model de bozuk JSON → incelemede kalır, son model "invalid" kaydedilir, onay YOK', async () => {
+    const bad = ok('düz metin, JSON yok');
+    const { outcome, calls, rows } = await run({ [M1]: bad, [M2]: bad, [M3]: bad });
+    expect([calls[M1], calls[M2], calls[M3]]).toEqual([1, 1, 1]);
+    expect(outcome.classification.decision).toBe('review');
+    expect(outcome.opinion?.verdict).toBe('dogrulanamadi');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe('invalid');
+    expect(rows[0]?.model).toBe(M3);
+  });
+
+  it('bozuk JSON sonrası bütçe biterse yedek modele gidilmez; kayıt "invalid" olarak incelemede kalır', async () => {
+    const { outcome, calls, rows } = await run({ [M1]: ok('{bozuk'), [M2]: ok() }, { LLM_MAX_CALLS_PER_RUN: '1' });
+    expect(calls[M1]).toBe(1);
+    expect(calls[M2]).toBeUndefined();
+    expect(outcome.classification.decision).toBe('review');
+    expect(rows[0]?.status).toBe('invalid');
+  });
+
+  it('geçerli JSON ama kanıtı metinde yok (model yargısı) → yedek modele GEÇİLMEZ', async () => {
+    const unbacked = JSON.stringify({ ...JSON.parse(ILAN), kanitlar: { alimIfadesi: 'metinde geçmeyen uydurma ifade' } });
+    const { outcome, calls } = await run({ [M1]: ok(unbacked), [M2]: ok() });
+    expect(calls[M1]).toBe(1);
+    expect(calls[M2]).toBeUndefined();
     expect(outcome.classification.decision).toBe('review');
     expect(outcome.opinion?.verdict).toBe('dogrulanamadi');
   });

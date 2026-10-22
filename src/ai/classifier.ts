@@ -795,12 +795,14 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
    * Model zinciri: ana model, sonra `LLM_CLASSIFIER_FALLBACK_MODELS` sırası. Her modelde sınırlı
    * yeniden deneme (429/5xx/zaman aşımı/ağ). Sıradaki modele geçilen durumlar: kota (429; günlük
    * kanıtı varsa model süreç boyunca atlanır), geçici hata, erişilemeyen model (404 /
-   * model_decommissioned), boş/bozuk çıktı. Geçilmeyen durumlar: 401/403 (aynı anahtar her modelde
+   * model_decommissioned), boş çıktı ve HTTP 200 ile gelen geçersiz JSON/şema (`isUsable` false; aynı
+   * modelde yeniden denenmez). Geçilmeyen durumlar: 401/403 (aynı anahtar her modelde
    * reddedilir; hata gizlenmez), diğer 400'ler ve bütçe engeli. Hepsi başarısızsa kayıt incelemede kalır.
    */
   async function callProvider(
     config_: ClassifierLlmConfig,
     messages: { role: string; content: string }[],
+    isUsable: (content: string) => boolean = () => true,
   ): Promise<
     | {
         ok: true;
@@ -837,6 +839,15 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       failureCategory?: LlmFailureCategory;
     } = { reason: 'Sağlayıcı çağrısı yapılmadı', status: 'error' };
     const chain = [config_.model, ...config_.fallbackModels];
+    // Biçimi bozuk son yanıt: zincir/bütçe biterse bu döner ve çağıran `invalid` olarak kaydeder.
+    let lastUnusable: { content: string; usage: { promptTokens: number | null; completionTokens: number | null }; model: string } | null =
+      null;
+    const unusableResult = (unusable: NonNullable<typeof lastUnusable>) => ({
+      ok: true as const,
+      ...unusable,
+      latencyMs: Date.now() - overallStartedAt,
+      modelsTried,
+    });
 
     for (const model of chain) {
       const skipKey = `${config_.baseUrl}|${model}`;
@@ -855,6 +866,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         }
         const reservation = await budget.reserve(messages, maxOutputTokens);
         if (!reservation.allowed) {
+          if (lastUnusable) return unusableResult(lastUnusable);
           return {
             ok: false,
             reason:
@@ -886,6 +898,11 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           semaphore.release();
         }
         if (response.ok) {
+          if (!isUsable(response.content)) {
+            lastUnusable = { content: response.content, usage: response.usage, model };
+            result = null;
+            break;
+          }
           return {
             ok: true,
             content: response.content,
@@ -905,7 +922,10 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         // Günlük kota tükendiyse aynı modelde yeniden deneme kotayı boşa harcar.
         if (!response.retryable || isDailyQuotaExhausted(response)) break;
       }
-      if (!result) continue;
+      if (!result) {
+        if (lastUnusable?.model === model) notes.push(`${model}: geçersiz JSON/şema`);
+        continue;
+      }
       const category = result.failureCategory;
       if (category === 'auth' || (category === 'bad-request' && !isModelUnavailable(result)) || category === 'config') {
         // Aynı anahtar/istem başka modelde de reddedilir: hata gizlenmez, zincir durur.
@@ -920,6 +940,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       }
       notes.push(`${model}: ${category ?? 'hata'}`);
     }
+    if (lastUnusable) return unusableResult(lastUnusable);
     const tried = modelsTried.length > 0 ? modelsTried : chain;
     return {
       ok: false,
@@ -1067,7 +1088,13 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
         },
       ];
 
-      const call = await callProvider(config, messages);
+      const call = await callProvider(config, messages, (content) => {
+        try {
+          return llmClassifierOutputSchema.safeParse(JSON.parse(extractJsonPayload(content))).success;
+        } catch {
+          return false;
+        }
+      });
       if (!call.ok) {
         if (call.attempts === 0) {
           totals.blocked += 1;
