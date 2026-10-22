@@ -62,7 +62,8 @@ describe('staging-capture komut kapıları', () => {
   });
 
   it('insan incelemesi olmadan canlı koşum engellenir', () => {
-    const result = runStaging(['--source=resmigazete-cestili-ilanlar', '--live', '--max-requests=1', '--max-pages=1', '--max-details=0']);
+    // Resmî Gazete 22.10.2026'da onaylandı; kural incelenmemiş bir kaynakla sınanır.
+    const result = runStaging(['--source=osym-duyurular', '--live', '--max-requests=1', '--max-pages=1', '--max-details=0']);
     expect(result.status).toBe(5);
     expect(result.stderr).toContain('robots/ToS');
   });

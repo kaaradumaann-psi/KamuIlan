@@ -95,3 +95,11 @@ describe('runSourceScrape + SOURCE_TERMS_POLICY=enforce', () => {
     }
   });
 });
+
+describe('varsayılan politika (22.10.2026 kullanıcı kararı)', () => {
+  it('SOURCE_TERMS_POLICY tanımsız/boşsa enforce', async () => {
+    const { getEnv } = await import('../src/config/env');
+    expect(getEnv({ NODE_ENV: 'test', SOURCE_TERMS_POLICY: undefined }).SOURCE_TERMS_POLICY).toBe('enforce');
+    expect(getEnv({ NODE_ENV: 'test', SOURCE_TERMS_POLICY: '' }).SOURCE_TERMS_POLICY).toBe('enforce');
+  });
+});

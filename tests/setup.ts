@@ -44,6 +44,10 @@ process.env.SOURCE_LIVE_FETCH = '0';
 // anahtarı kendi içinde geçici olarak açar.
 process.env.SOURCE_BROWSER_FALLBACK = '0';
 process.env.SOURCE_TLS_AIA_COMPLETION = '0';
+// Üretim varsayılanı `enforce`: incelenmemiş kaynak hiç taranmaz. Gerçek adaptörleri sahte HTTP ile
+// çalıştıran hat testleri kaynak şartlarından bağımsız davranışı ölçer; kapının kendisi
+// tests/kaynak-sartlari-kapisi.test.ts içinde açıkça `enforce` ile sınanır.
+process.env.SOURCE_TERMS_POLICY = 'warn';
 
 const testDataDir = mkdtempSync(join(tmpdir(), 'kamuilan-test-'));
 process.env.DATA_DIR = testDataDir;

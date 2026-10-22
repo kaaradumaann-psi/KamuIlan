@@ -38,8 +38,8 @@ satırı değiştirmeyin. `.env.example`'daki boş satırlar artık güvenle var
 
 | # | Karar | Seçenekler | Önerim |
 | --- | --- | --- | --- |
-| K1 | Kim görebilir? | Giriş kapılı (`ALLOW_PUBLIC_REGISTRATION=0`, davetle) · herkese açık liste (`PUBLIC_LISTINGS_ENABLED=1`) | İlk hafta giriş kapılı |
-| K8 | Kaynak kullanım şartları | `SOURCE_TERMS_POLICY=warn` (incelenmemişler de taranır, notla) · `enforce` (yalnız incelenip `allowed` olanlar) | Hukuki emin olunana kadar `enforce` + `config/source-terms.json`'u doldurmak; kapsam o zaman 2 kaynakla (RG, İŞKUR) başlar |
+| K1 | Kim görebilir? | **KARAR (22.10.2026): yalnız giriş yapanlar.** `ALLOW_PUBLIC_REGISTRATION=0`, `PUBLIC_LISTINGS_ENABLED=0` (ikisi de varsayılan); hesaplar davetle | — |
+| K8 | Kaynak kullanım şartları | **KARAR (22.10.2026): yalnız izni incelenmiş kaynaklar.** `SOURCE_TERMS_POLICY=enforce` (varsayılan); `config/source-terms.json`: Resmî Gazete + İŞKUR (2) `allowed`, diğerleri incelenene kadar taranmaz | Yeni kaynak: robots/şartları inceleyip dosyaya `allowed` kaydı eklemek |
 | LLM | Belirsiz ilanlarda yapay zekâ kapısı | Kapalı · Groq (ücretsiz; verinin ürün geliştirmede kullanımı sağlayıcı şartlarına tabi — KVKK) | Önce kapalı; açılırsa `docs/llm-karari.md` §2.1 ayarlarıyla |
 | OCR | Taranmış PDF okuma | `OCR_ENABLED=0/1` (CPU yükü; ilk çalıştırmada dil verisi iner ya da `OCR_LANG_PATH`) | Worker sunucusu ≥2 vCPU ise 1 |
 | Bölge | Supabase projesi Mumbai'de | API/worker'ı aynı bölgeye yakın barındırmak · ya da projeyi Frankfurt'ta (eu-central-1) yeniden kurup veriyi taşımak | Kullanıcılar Türkiye'de: yeni proje Frankfurt'ta; eski veri 67 ilan, taşıma küçük |
