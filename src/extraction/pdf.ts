@@ -31,7 +31,16 @@ export interface PdfExtractOptions {
   /** Sayfa başına en az bu kadar karakter varsa metin katmanı var sayılır. */
   minCharsForTextLayer?: number;
   /** Taranmış belge için OCR (varsayılan: yok). */
-  ocr?: { engine: OcrEngine; minConfidence: number; maxPages: number };
+  ocr?: {
+    engine: OcrEngine;
+    minConfidence: number;
+    maxPages: number;
+    /**
+     * Metin katmanı (kısa da olsa) okunduktan sonra OCR'ın gerçekten gerekip gerekmediğine çağıran
+     * karar verir. `false` → OCR yapılmaz (koşu başı OCR bütçesi harcanmaz). Verilmezse her zaman denenir.
+     */
+    when?: (textLayer: string) => boolean;
+  };
 }
 
 /**
@@ -251,6 +260,7 @@ export async function extractPdfText(
     };
 
     if (!options.ocr || text.replace(/\s/g, '').length >= OCR_TRIGGER_CHARS || !pdfjs.OPS) return base;
+    if (options.ocr.when && !options.ocr.when(text)) return base;
     const images: OcrPageImage[] = [];
     for (let pageNumber = 1; pageNumber <= Math.min(doc.numPages, options.ocr.maxPages); pageNumber += 1) {
       const page = await doc.getPage(pageNumber);

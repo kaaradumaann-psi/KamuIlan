@@ -24,7 +24,7 @@ import {
 } from '../../lib/html';
 import { browserFallbackEnabled, describeBrowserFailure, withChromiumPage } from '../browser-session';
 import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from '../../domain/text';
-import { cleanTitle, parseListingDate } from '../listing-utils';
+import { cleanTitle, parseListingDate, prioritizeByListingTitle } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
 import { budgetedTimeoutMs, hasBudgetFor } from '../scan-budget';
@@ -708,7 +708,10 @@ export class AnchorListAdapter implements SourceAdapter {
       .filter(
         (candidate) => !seen.has(candidate.itemId) || (fetchDetail && !knownWithDetail.has(candidate.itemId)),
       );
-    const fresh = eligible.filter((candidate) => !seen.has(candidate.itemId));
+    const fresh = prioritizeByListingTitle(
+      eligible.filter((candidate) => !seen.has(candidate.itemId)),
+      (candidate) => candidate.entry.title,
+    );
     const pendingDetail = eligible.filter((candidate) => seen.has(candidate.itemId));
     // Drain new listing records first, then retry old records whose detail text
     // was unavailable. A failing detail must not starve later pages forever.

@@ -201,8 +201,9 @@ describe('çok koşumlu tarama drenajı (gerçek adaptör + gerçek hatt)', () =
     const source = await seed(repos, definition);
     const { http } = fakeHttp(routes);
 
-    // Koşum 1: 1. sayfadaki 8 ihale duyurusu bütçenin tamamını kullanır ve
-    // reddedilir. Karar belleği bunları "görüldü" olarak yazmalıdır.
+    // Koşum 1: liste başlığı alım olası kayıtlar (2. sayfadaki 3 ilan) detay bütçesinde
+    // ÖNCE gelir (prioritizeByListingTitle); kalan bütçe (5) 1. sayfadaki ihale duyurularına
+    // gider ve onlar reddedilip karar belleğine yazılır.
     const run1 = await runSourceScrape({
       repos,
       source,
@@ -213,17 +214,18 @@ describe('çok koşumlu tarama drenajı (gerçek adaptör + gerçek hatt)', () =
       queueNotifications: false,
       liveFetch: true,
     });
+    // ("Hemşire ve ebe kadrosu … başvuru duyurusu" başlığında alım kelimesi yok: öne alınmaz,
+    // liste sırasıyla sonraki koşuda işlenir.)
     expect(run1.itemsFound).toBe(8);
-    expect(run1.itemsRejected).toBe(8);
-    expect(run1.jobsCreated).toBe(0);
+    expect(run1.jobsCreated).toBe(2);
+    expect(run1.itemsRejected).toBe(6);
 
     const knownAfterRun1 = await loadKnownItemIds(repos, definition.key);
-    for (let id = 1001; id <= 1008; id += 1) {
+    for (let id = 1001; id <= 1006; id += 1) {
       expect(knownAfterRun1.has(String(id))).toBe(true);
     }
 
-    // Koşum 2: aynı liste gezilir; retler artık "yeni" DEĞİLDİR, bütçe 2.
-    // sayfadaki 3 personel alımı ilanına gider.
+    // Koşum 2: kalan 2 ret + 1 ilan işlenir; işlenmiş kayıtlar yeniden indirilmez.
     const run2 = await runSourceScrape({
       repos,
       source,
@@ -235,7 +237,8 @@ describe('çok koşumlu tarama drenajı (gerçek adaptör + gerçek hatt)', () =
       liveFetch: true,
     });
     expect(run2.itemsFound).toBe(3);
-    expect(run2.jobsCreated).toBe(3);
+    expect(run2.itemsRejected).toBe(2);
+    expect(run2.jobsCreated).toBe(1);
 
     const links = await repos.store.find('jobSources', { sourceKey: definition.key }, {});
     const capturedIds = links.map((link) => link.sourceItemId).sort();

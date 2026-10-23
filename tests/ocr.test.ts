@@ -142,6 +142,25 @@ describe('extractPdfText + OCR (sahte motor)', () => {
     expect(engine.calls).toEqual([{ width: 400, height: 400 }]);
   });
 
+  it('çağıran metin katmanına bakıp OCR istemezse motor çağrılmaz (bütçe korunur)', async () => {
+    const engine = fakeEngine({ text: OCR_TEXT, confidence: 91 });
+    const seen: string[] = [];
+    const result = await extractPdfText(new Uint8Array(scannedPdfWithImage({ header: 'Ornek Kurum: IHALELERE KATILMAKTAN YASAKLAMA KARARI' })), {
+      ocr: {
+        engine,
+        minConfidence: 70,
+        maxPages: 4,
+        when: (textLayer) => {
+          seen.push(textLayer);
+          return false;
+        },
+      },
+    });
+    expect(seen[0]).toContain('YASAKLAMA');
+    expect(engine.calls).toHaveLength(0);
+    expect(result.ocr).toBeUndefined();
+  });
+
   it('güveni eşiğin altındaki OCR metni kullanılmaz (tahmin yok, inceleme)', async () => {
     const engine = fakeEngine({ text: OCR_TEXT, confidence: 41 });
     const result = await extractPdfText(new Uint8Array(scannedPdfWithImage()), {

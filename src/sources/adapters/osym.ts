@@ -12,7 +12,7 @@
  * indirmez veya OCR/PDF metin çıkarımı yapmaz.
  */
 import { elementText, loadHtml, readableAnnouncementText } from '../../lib/html';
-import { cleanTitle, ownCardText, parseListingDate } from '../listing-utils';
+import { cleanTitle, ownCardText, parseListingDate, prioritizeByListingTitle } from '../listing-utils';
 import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
 import { detectNextPage } from '../pagination';
 import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
@@ -203,7 +203,10 @@ export class OsymAdapter implements SourceAdapter {
     const discovered = [...candidatesById.values()];
     const known = new Set<string>(ctx.knownItemIds ?? []);
     const knownWithDetail = new Set<string>(ctx.knownItemIdsWithDetail ?? []);
-    const fresh = discovered.filter((candidate) => !known.has(candidate.itemId));
+    const fresh = prioritizeByListingTitle(
+      discovered.filter((candidate) => !known.has(candidate.itemId)),
+      (candidate) => candidate.title,
+    );
     const pendingDetail = discovered.filter(
       (candidate) => known.has(candidate.itemId) && !knownWithDetail.has(candidate.itemId),
     );
