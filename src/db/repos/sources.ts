@@ -9,7 +9,7 @@ import type { StoragePort } from '../ports';
 import type { SourceDoc } from '../schemas';
 import { validateDocument } from '../validate';
 import type { SourceDefinition } from '../../config/sources';
-import { PLANNED_SOURCES, SOURCE_DEFINITIONS } from '../../config/sources';
+import { PLANNED_SOURCES, SOURCE_DEFINITIONS, findSourceDefinition } from '../../config/sources';
 import { loadSourceTerms, sourceTermsGate } from '../../sources/terms';
 
 export interface SourceHealthUpdate {
@@ -44,6 +44,7 @@ export interface SourceHealthUpdate {
 export interface SourceCoverageEntry {
   /** Kullanım şartları kapısı bu kaynağı taramıyor (yalnız `coverage({ termsPolicy })` ile). */
   termsGated: boolean;
+  accessBlocked: boolean;
   key: string;
   name: string;
   institution: string;
@@ -387,11 +388,16 @@ export class SourceRepo {
         !source.health.lastSuccessAt || Date.parse(source.health.lastSuccessAt) < staleThreshold;
       const termsGated =
         terms !== null && options.termsPolicy !== undefined && sourceTermsGate(source.key, options.termsPolicy, terms).skip;
+      // Bölge engelli kaynak (sunucu IP'si engelli) resmî erişim beklediğinden,
+      // şartları bekleyen kaynak gibi "başarısız/eskimiş" sayılmaz (sağlık yanıltmasın).
+      const accessBlocked = findSourceDefinition(source.key)?.accessState === 'region-blocked';
+      const gated = termsGated || accessBlocked;
       // Kapatılmış kaynak (ör. İŞKUR, 22.10.2026) eski sayacıyla "başarısız" görünmez.
-      if (!termsGated && source.enabled && source.health.consecutiveFailures > 0) failing += 1;
-      if (!termsGated && source.enabled && isStale) stale += 1;
+      if (!gated && source.enabled && source.health.consecutiveFailures > 0) failing += 1;
+      if (!gated && source.enabled && isStale) stale += 1;
       entries.push({
         termsGated,
+        accessBlocked,
         key: source.key,
         name: source.name,
         institution: source.institution,

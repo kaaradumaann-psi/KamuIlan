@@ -308,6 +308,13 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   // Kullanım şartları kapısı yalnız gerçek ağ taramasında (sahte adaptör ağa çıkmaz).
   const termsGate =
     !liveScanDisabled && options.adapter === undefined ? sourceTermsGate(source.key, env.SOURCE_TERMS_POLICY) : null;
+  // Bölge engelli kaynak (sunucu IP'si ağ düzeyinde engelli): gerçek taramada
+  // denemeye bile girmeden atlanır — aksi hâlde her koşumda zaman aşımıyla
+  // başarısız olup ölü mektup kuyruğunu şişirir. Sahte adaptörlü test etkilenmez.
+  const accessBlocked =
+    !liveScanDisabled &&
+    options.adapter === undefined &&
+    findSourceDefinition(source.key)?.accessState === 'region-blocked';
   const ownedHttp = options.http === undefined;
   const requestAbort = new AbortController();
   const http =
@@ -340,6 +347,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
       status = 'skipped';
       coverageNote = 'Kaynak kullanım şartları kapısı nedeniyle bu çalışmada tarama yapılmadı.';
       resultMessage = termsGate.note ?? 'Kaynak kullanım şartları kapısı taramayı durdurdu.';
+      adapterNotes = [resultMessage];
+    } else if (accessBlocked) {
+      status = 'skipped';
+      coverageNote = 'Kaynak sunucumuzun bulunduğu bölgeyi engellediği için bu çalışmada tarama yapılmadı.';
+      resultMessage =
+        'Kaynak sunucumuzun yurt dışı IP adresini engelliyor (bölge kısıtı); resmî erişim izni beklenir, tarama yapılmadı.';
       adapterNotes = [resultMessage];
     } else {
       const adapter = options.adapter ?? requireAdapter(source.adapterKey);
@@ -539,8 +552,8 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   // Şartlar kapısı atlaması bir toplama denemesi değil, politika kararıdır: sağlık
   // sayaçlarına "başarısızlık" yazılmaz (yazılırsa durum raporu sahte KRİTİK verir ve
   // 3 atlamadan sonra yöneticiye "kaynak başarısız" uyarısı gider). Koşu kaydı kalır.
-  if (termsGate?.skip) await repos.sources.clearFailureState(source.key);
-  if (!liveScanDisabled && !termsGate?.skip) {
+  if (termsGate?.skip || accessBlocked) await repos.sources.clearFailureState(source.key);
+  if (!liveScanDisabled && !termsGate?.skip && !accessBlocked) {
     const lastHttpStatus =
       totals.httpStatuses.length > 0
         ? (totals.httpStatuses[totals.httpStatuses.length - 1] ?? null)
