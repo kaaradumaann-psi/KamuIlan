@@ -75,7 +75,7 @@ describe('ilan sayfası filtre bağlantısı', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    panelToggle().click();
+    // Panel filtresi URL'den geliyorsa panel açık başlar.
     expect(await screen.findByLabelText('Eğitim düzeyi')).toBeTruthy();
     first.unmount();
 
@@ -86,10 +86,11 @@ describe('ilan sayfası filtre bağlantısı', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    panelToggle().click();
+    // İl arama satırındadır (her zaman görünür); panel kapalı başlar.
     expect(await screen.findByLabelText('İl')).toBeTruthy();
     expect(screen.queryByLabelText('Eğitim düzeyi')).toBeNull();
-    expect(screen.getByText(/Gelişmiş filtreler/)).toBeTruthy();
+    panelToggle().click();
+    expect(await screen.findByLabelText('Eğitim düzeyi')).toBeTruthy();
     second.unmount();
   });
 });
@@ -106,9 +107,8 @@ describe('eğitim düzeyi filtresi', () => {
       </QueryClientProvider>,
     );
 
-    // Gelişmiş filtreler varsayılan kapalıdır; düğmeye basıp aç.
-    const advanced = screen.getByRole('button', { name: /Gelişmiş filtreler/ });
-    advanced.click();
+    // Filtre paneli varsayılan kapalıdır; düğmeye basıp aç.
+    panelToggle().click();
     const select = (await waitFor(() => {
       const found = document.getElementById('filter-education');
       expect(found).toBeTruthy();

@@ -152,9 +152,10 @@ test.describe('mobil görünüm (390px)', () => {
     await expectHeading(page, 'Kamu personel alım ilanları');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
-    // Filtresiz girişte panel açık başlar (JobsPage: panelOpen = aktif filtre yoksa true);
-    // düğme bu yüzden "Filtreleri gizle" adını taşır. Etiket doğrudan görünür olmalı.
-    await expect(page.getByRole('button', { name: 'Filtreleri gizle', exact: true })).toBeVisible();
+    // Arama satırı (metin + il) her zaman görünür; ek filtreler "Filtreler" panelindedir.
+    await expect(page.getByLabel('Ne arıyorsunuz?', { exact: true })).toBeVisible();
     await expect(page.getByLabel('İl', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Filtreler', exact: true })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Durum', exact: true })).toBeVisible();
   });
 });

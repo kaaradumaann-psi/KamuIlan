@@ -3,6 +3,11 @@
  *
  * Filtre durumu URL'de yaşar (paylaşılabilir bağlantı şartı). Sayfa yalnızca
  * sunucudan gelen kayıtları gösterir; toplam sayı da sunucudan gelir.
+ *
+ * Düzen: arama satırı (metin + il) her zaman görünür; başvuru durumu yalnızca
+ * "Durum" düğmelerinden seçilir; diğer filtreler gruplanmış panelde durur.
+ * Etkin filtreler sonuç satırında kaldırılabilir etiketlerdir, sıralama da
+ * sonuçların hemen üstündedir.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -11,33 +16,12 @@ import {
   ARCHIVE_STATUS,
   EMPTY_FILTERS,
   FilterForm,
-  activeFilterCount,
+  PANEL_FILTER_KEYS,
+  activeFilterChips,
   filtersFromParams,
   filtersToParams,
   type JobFilters,
 } from '../components/Filters';
-
-const EMPTY_PRESET: JobFilters = EMPTY_FILTERS;
-
-type JobsPreset = 'all' | 'open' | 'closing7' | 'newest' | 'upcoming' | 'archive';
-
-const PRESETS: readonly { id: JobsPreset; label: string }[] = [
-  { id: 'all', label: 'Tümü' },
-  { id: 'open', label: 'Başvurusu açık' },
-  { id: 'closing7', label: 'Son günü yaklaşanlar' },
-  { id: 'upcoming', label: 'Yakında başlayacak' },
-  { id: 'newest', label: 'Yeni eklenenler' },
-  { id: 'archive', label: 'Arşiv' },
-];
-
-/** URL filtrelerinin hangi hazır görünüme karşılık geldiği (aria-pressed için). */
-function activePreset(filters: JobFilters): JobsPreset | null {
-  if (filters.status === ARCHIVE_STATUS) return 'archive';
-  if (filters.status === 'upcoming') return 'upcoming';
-  if (filters.status === 'active') return filters.deadlineTo ? 'closing7' : 'open';
-  if (activeFilterCount(filters) === 0) return filters.sort === 'newest' ? 'all' : null;
-  return null;
-}
 import { toIstanbulDateOnly } from '../domain/dates';
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
@@ -47,6 +31,40 @@ import { usePageMeta } from '../lib/page-meta';
 import { formatNumber } from '../lib/format';
 import type { JobListResponse } from '../types';
 
+type JobsPreset = 'all' | 'open' | 'closing7' | 'upcoming' | 'archive';
+
+const PRESETS: readonly { id: JobsPreset; label: string }[] = [
+  { id: 'all', label: 'Tümü' },
+  { id: 'open', label: 'Başvurusu açık' },
+  { id: 'closing7', label: 'Son günü yaklaşanlar' },
+  { id: 'upcoming', label: 'Yakında başlayacak' },
+  { id: 'archive', label: 'Arşiv' },
+];
+
+const SORT_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'newest', label: 'Önce yeni eklenenler' },
+  { value: 'deadline', label: 'Önce son günü yakın olanlar' },
+  { value: 'published', label: 'Önce yeni yayımlananlar' },
+  { value: 'institution', label: 'Kurum adı (A → Z)' },
+  { value: 'title', label: 'İlan başlığı (A → Z)' },
+];
+
+/** URL filtrelerinin hangi durum düğmesine karşılık geldiği (aria-pressed için). */
+function activePreset(filters: JobFilters): JobsPreset | null {
+  if (!filters.status) return 'all';
+  if (filters.status === ARCHIVE_STATUS) return 'archive';
+  if (filters.status === 'upcoming') return 'upcoming';
+  if (filters.status === 'active') return filters.deadlineTo ? 'closing7' : 'open';
+  return null;
+}
+
+/** Durum düğmesinin zaten gösterdiği alanlar etiket olarak tekrarlanmaz. */
+function presetCoveredKeys(preset: JobsPreset | null): ReadonlySet<keyof JobFilters> {
+  if (preset === 'closing7') return new Set<keyof JobFilters>(['status', 'deadlineFrom', 'deadlineTo']);
+  if (preset && preset !== 'all') return new Set<keyof JobFilters>(['status']);
+  return new Set();
+}
+
 const PAGE_SIZE = 20;
 
 export function JobsPage() {
@@ -54,9 +72,15 @@ export function JobsPage() {
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
   const urlFilters = filtersFromParams(params);
+  const currentPreset = activePreset(urlFilters);
+  const covered = presetCoveredKeys(currentPreset);
+  const chips = activeFilterChips(urlFilters).filter((chip) => !covered.has(chip.key));
+  const panelCount = chips.filter((chip) => PANEL_FILTER_KEYS.has(chip.key)).length;
 
   const [draft, setDraft] = useState<JobFilters>(urlFilters);
-  const [panelOpen, setPanelOpen] = useState(activeFilterCount(urlFilters) === 0);
+  // Panel yalnızca paylaşılan bağlantıda panel filtresi varsa açık başlar;
+  // ilk bakışta arama satırı ve durum düğmeleri yeterlidir.
+  const [panelOpen, setPanelOpen] = useState(panelCount > 0);
 
   // Adres çubuğu değiştiğinde (geri/ileri, paylaşılan bağlantı) taslağı eşitle.
   // React'in önerdiği "prop değişince durumu ayarla" deseni: efekt yerine
@@ -107,56 +131,35 @@ export function JobsPage() {
     setParams(next, { replace: true });
   }
 
+  /** Tüm filtreleri kaldırır; seçili sıralama korunur. */
   function reset(): void {
-    setParams(
-      filtersToParams(
-        {
-          ...draft,
-          q: '',
-          city: '',
-          institution: '',
-          employmentType: '',
-          kind: '',
-          status: '',
-          deadlineFrom: '',
-          deadlineTo: '',
-          minQuota: '',
-          education: '',
-          department: '',
-          kpssType: '',
-          kpssScore: '',
-          hasApplicationUrl: false,
-          sort: 'newest',
-        },
-        1,
-        PAGE_SIZE,
-      ),
-      { replace: true },
-    );
+    apply({ ...EMPTY_FILTERS, sort: urlFilters.sort });
   }
 
-  /** Hazır görünümler: adayın en sık kullandığı bakışlar (URL filtrelerine çevrilir). */
+  /**
+   * Durum düğmeleri: yalnızca durum (ve "son günü yaklaşanlar" için tarih
+   * penceresi) değişir; arama, il ve panel filtreleri korunur.
+   */
   function applyPreset(preset: JobsPreset): void {
     // Tarih Türkiye gününe göre hesaplanır: `toISOString()` UTC verir ve gece
     // 00:00-03:00 arasında pencereyi bir gün kaydırıyordu.
     const now = Date.now();
     const today = toIstanbulDateOnly(new Date(now));
     const in7 = toIstanbulDateOnly(new Date(now + 7 * 86_400_000));
-    const base: JobFilters = { ...EMPTY_PRESET, ...urlFilters };
-    if (preset === 'all') apply({ ...EMPTY_PRESET });
-    else if (preset === 'open')
-      apply({ ...base, status: 'active', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
+    // Süreç duyurularının başvuru durumu yoktur: durum seçilince tür filtresi kalkar.
+    const kind = urlFilters.kind === 'process' ? '' : urlFilters.kind;
+    const base: JobFilters = { ...urlFilters, kind };
+    // Önceki "son günü yaklaşanlar" penceresi başka bir duruma taşınmasın.
+    const withoutWindow: JobFilters =
+      currentPreset === 'closing7' ? { ...base, deadlineFrom: '', deadlineTo: '' } : base;
+    if (preset === 'all') apply({ ...withoutWindow, kind: urlFilters.kind, status: '' });
+    else if (preset === 'open') apply({ ...withoutWindow, status: 'active', sort: 'deadline' });
     else if (preset === 'closing7')
       apply({ ...base, status: 'active', deadlineFrom: today, deadlineTo: in7, sort: 'deadline' });
-    else if (preset === 'upcoming')
-      apply({ ...base, status: 'upcoming', deadlineFrom: '', deadlineTo: '', sort: 'deadline' });
+    else if (preset === 'upcoming') apply({ ...withoutWindow, status: 'upcoming', sort: 'deadline' });
     // Arşiv: süresi dolan ve iptal edilen ilanlar silinmez, burada bulunur.
-    else if (preset === 'archive')
-      apply({ ...base, kind: '', status: ARCHIVE_STATUS, deadlineFrom: '', deadlineTo: '', sort: 'newest' });
-    else apply({ ...base, sort: 'newest' });
+    else apply({ ...withoutWindow, status: ARCHIVE_STATUS, sort: 'newest' });
   }
-
-  const currentPreset = activePreset(urlFilters);
 
   function goToPage(next: number): void {
     const nextParams = filtersToParams(urlFilters, next, PAGE_SIZE);
@@ -164,39 +167,32 @@ export function JobsPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  const activeCount = activeFilterCount(urlFilters);
-
   return (
     <div className="page-stack">
       <header className="page-head">
         <div className="page-head-text">
           <span className="kicker">İlan arama</span>
           <h1 className="page-title">Kamu personel alım ilanları</h1>
-          <p className="info-lede">
-            Ne aradığınızı yazın; isterseniz il ve türe göre daraltın.
-          </p>
-        </div>
-        <div className="page-head-actions">
-          <button
-            type="button"
-            className="btn-secondary btn-sm"
-            aria-expanded={panelOpen}
-            aria-controls="filtre-paneli"
-            onClick={() => setPanelOpen((open) => !open)}
-          >
-            <Icon name="filter" size={15} />
-            <span>{panelOpen ? 'Filtreleri gizle' : 'Filtreler'}</span>
-            {activeCount > 0 && <span className="subnav-count">{activeCount}</span>}
-          </button>
         </div>
       </header>
 
-      <div className="preset-row" role="group" aria-label="Hazır görünümler">
+      <FilterForm
+        filters={draft}
+        onChange={setDraft}
+        onSubmit={() => apply(draft)}
+        onReset={reset}
+        panelOpen={panelOpen}
+        onTogglePanel={() => setPanelOpen((open) => !open)}
+        panelCount={panelCount}
+        busy={jobs.isFetching}
+      />
+
+      <div className="status-row" role="group" aria-label="Durum">
         {PRESETS.map((preset) => (
           <button
             key={preset.id}
             type="button"
-            className={currentPreset === preset.id ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
+            className="status-tab"
             aria-pressed={currentPreset === preset.id}
             onClick={() => applyPreset(preset.id)}
           >
@@ -205,52 +201,63 @@ export function JobsPage() {
         ))}
       </div>
 
-      {panelOpen && (
-        <div id="filtre-paneli">
-          <FilterForm
-            filters={draft}
-            onChange={setDraft}
-            onSubmit={() => apply(draft)}
-            onReset={reset}
-            busy={jobs.isFetching}
-          />
-        </div>
-      )}
-
-      <div className="filter-summary" role="status" aria-live="polite">
-        {jobs.data ? (
-          <>
-            <strong>{formatNumber(jobs.data.total)}</strong> ilan bulundu
-            {urlFilters.q && (
-              <>
-                <span className="inline-sep" />
-                <span className="text-muted-sm">
-                  Aranan: <strong>“{urlFilters.q}”</strong>
+      <div className="results-bar">
+        <div className="filter-summary" role="status" aria-live="polite">
+          {jobs.data ? (
+            <>
+              <strong>{formatNumber(jobs.data.total)}</strong> ilan bulundu
+              {jobs.data.pages > 1 && (
+                <span className="text-muted-sm filter-summary-page">
+                  {' '}
+                  · Sayfa {jobs.data.page}/{jobs.data.pages}
                 </span>
-              </>
-            )}
-            {activeCount > 0 && <span className="inline-sep" />}
-            {activeCount > 0 && (
-              // Filtre paneli kapalıyken etkin filtreler görünmüyordu; rozet paneli açar.
+              )}
+            </>
+          ) : (
+            <span className="text-muted-sm">Sonuçlar yükleniyor…</span>
+          )}
+        </div>
+        <label className="sort-control" htmlFor="filter-sort">
+          <span>Sıralama</span>
+          <select
+            id="filter-sort"
+            className="filter-select"
+            value={urlFilters.sort}
+            onChange={(event) => apply({ ...urlFilters, sort: event.target.value })}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {chips.length > 0 && (
+        <ul className="active-filters" aria-label="Etkin filtreler">
+          {chips.map((chip) => (
+            <li key={chip.key}>
               <button
                 type="button"
-                className="tag tag-accent tag-button"
-                aria-controls="filtre-paneli"
-                aria-expanded={panelOpen}
-                onClick={() => setPanelOpen(true)}
+                className="filter-chip"
+                aria-label={`${chip.label} filtresini kaldır`}
+                onClick={() => apply({ ...urlFilters, ...chip.clear })}
               >
-                <span>{`${activeCount} filtre etkin`}</span>
+                <span>{chip.label}</span>
+                <Icon name="close" size={12} />
               </button>
-            )}
-            <span className="inline-sep" />
-            <span className="text-muted-sm filter-summary-page">
-              Sayfa {jobs.data.page}/{Math.max(1, jobs.data.pages)}
-            </span>
-          </>
-        ) : (
-          <span className="text-muted-sm">Sonuçlar yükleniyor…</span>
-        )}
-      </div>
+            </li>
+          ))}
+          {chips.length > 1 && (
+            <li>
+              <button type="button" className="btn-ghost btn-sm" onClick={reset}>
+                Tümünü temizle
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
 
       {jobs.isError && (
         <ErrorNotice
@@ -268,7 +275,7 @@ export function JobsPage() {
           title="Bu filtrelerle ilan bulunamadı"
           description="Seçimlerinizi azaltıp yeniden deneyin; belki aradığınız ilan henüz burada değildir."
           action={
-            activeCount > 0 ? (
+            chips.length > 0 || currentPreset !== 'all' ? (
               <div className="action-row">
                 <button type="button" className="btn-primary btn-sm" onClick={reset}>
                   <Icon name="close" size={14} />
