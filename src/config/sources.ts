@@ -235,7 +235,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       '22.10.2026 canlı inceleme: liste HTML’inde .clickable-row satırı yok (0); il seçimi `?idId=..&il=..` adresine gider; robots.txt (User-agent: *) `Disallow: /*?*`, `/api/`. JSON ucu robots ile yasak. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 3 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Memur ve sözleşmeli personel duyurularının İŞKUR tarafındaki yayını.',
-    enabled: true,
+    // 22.10.2026: ilan satırları yalnız robots.txt ile yasaklı `?idId=&il=` sorgu
+    // sayfalarında kaldığı için DB'de devre dışı bırakıldı (enabled=false) ve envanter
+    // bununla eşitlendi. `seed()` mevcut satırların `enabled` alanını güncellemez
+    // (src/db/repos/sources.ts), bu yüzden değer canlı DB'yi değiştirmez; yalnızca
+    // sıfırdan kurulan kurulumlarda kaynak devre dışı oluşturulur ve ölü-mektup
+    // temizliği (purgeDeadForSources) bu kaynağı kapsar.
+    enabled: false,
     intervalMinutes: 120,
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
@@ -263,7 +269,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       '22.10.2026 canlı inceleme: liste HTML’inde .clickable-row satırı yok (0); il seçimi `?idId=..&il=..` adresine gider; robots.txt (User-agent: *) `Disallow: /*?*`, `/api/`. JSON ucu robots ile yasak. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 3 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'Kamu işçisi (sürekli/geçici işçi) alımlarının İŞKUR yayını.',
-    enabled: true,
+    // 22.10.2026: ilan satırları yalnız robots.txt ile yasaklı `?idId=&il=` sorgu
+    // sayfalarında kaldığı için DB'de devre dışı bırakıldı (enabled=false) ve envanter
+    // bununla eşitlendi. `seed()` mevcut satırların `enabled` alanını güncellemez
+    // (src/db/repos/sources.ts), bu yüzden değer canlı DB'yi değiştirmez; yalnızca
+    // sıfırdan kurulan kurulumlarda kaynak devre dışı oluşturulur ve ölü-mektup
+    // temizliği (purgeDeadForSources) bu kaynağı kapsar.
+    enabled: false,
     intervalMinutes: 180,
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,

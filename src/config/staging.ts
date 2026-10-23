@@ -12,8 +12,10 @@
 export const STAGING_SOURCE_ALLOWLIST = [
   'resmigazete-cestili-ilanlar',
   'osym-duyurular',
-  'iskur-kamu-memur-alim',
-  'iskur-kurumdisi-kamu-isci',
+  // iskur-kamu-memur-alim / iskur-kurumdisi-kamu-isci 22.10.2026'da robots kısıtı
+  // nedeniyle devre dışı (access-restricted, terms=blocked); artık `verified`
+  // değiller ve terms kapısı canlı staging koşumunu zaten durduruyordu → listeden
+  // çıkarıldı (bu liste yalnız verified + izin incelenebilir kaynakları taşır).
 ] as const;
 
 export type StagingSourceKey = (typeof STAGING_SOURCE_ALLOWLIST)[number];

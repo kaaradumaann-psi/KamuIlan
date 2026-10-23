@@ -521,6 +521,31 @@ export class BuiltinQueueRepo {
   }
 
   /**
+   * Ölü `source-scrape` işlerini kısa bir yaştan sonra siler.
+   *
+   * Zamanlayıcı her kaynak için taramayı aralıkla YENİDEN oluşturur; başarısız olup
+   * ölü-mektuba düşen bir tarama işini uzun süre saklamak anlamsızdır (yeni koşum
+   * zaten gelir, eskisi yalnız sağlığı "degraded" tutar). Bu yüzden ölü tarama işleri
+   * genel 2 günlük saklamaya değil, kısa bir eşiğe (ör. 30 dk) tabidir. Tarama
+   * dışındaki ölü işler (ör. e-posta/bildirim) bu süpürmeden etkilenmez.
+   *
+   * `payload.kind` iç içe sorgu tüm depolarda güvenilir olmadığından (bkz.
+   * purgeDeadForSources) satırlar bellekte süzülür. Silinen sayısını döndürür.
+   */
+  async purgeDeadScrapesOlderThan(iso: string): Promise<number> {
+    const stale = await this.store.find(
+      'queueJobs',
+      { status: 'dead', updatedAt: { $lt: iso } },
+      { limit: 500 },
+    );
+    const ids = stale
+      .filter((job) => (job as QueueJobDoc).payload?.['kind'] === 'source-scrape')
+      .map((job) => (job as QueueJobDoc).id);
+    if (ids.length === 0) return 0;
+    return this.store.deleteMany('queueJobs', { id: { $in: ids } });
+  }
+
+  /**
    * Artık taranmayan kaynakların (bölge engelli/kapalı) ölü mektup işlerini siler:
    * yeniden kuyruğa alınsa da tekrar başarısız olacakları için saklamak anlamsız.
    */

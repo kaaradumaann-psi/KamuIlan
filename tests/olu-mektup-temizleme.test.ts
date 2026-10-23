@@ -38,6 +38,26 @@ async function deadJob(sourceKey: string, updatedAt: string): Promise<void> {
   });
 }
 
+async function deadNonScrapeJob(kind: string, updatedAt: string): Promise<void> {
+  await store.insertOne('queueJobs', {
+    id: createId('qjb'),
+    queue: 'notify',
+    name: kind,
+    dedupeKey: `${kind}:${updatedAt}`,
+    payload: { kind },
+    status: 'dead',
+    attempts: 3,
+    maxAttempts: 3,
+    runAt: updatedAt,
+    lockedBy: null,
+    lockedUntil: null,
+    lastError: 'SMTP 550',
+    createdAt: updatedAt,
+    updatedAt,
+    completedAt: null,
+  });
+}
+
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'kamuilan-oluq-'));
   store = new FileStore(dir);
@@ -75,5 +95,27 @@ describe('ölü mektup temizliği', () => {
     await deadJob('kariyerkapisi-isealim', '2026-10-23T09:00:00Z');
     expect(await repos.queue.purgeDeadForSources([])).toBe(0);
     expect((await repos.queue.listDead(50)).length).toBe(1);
+  });
+
+  describe('ölü source-scrape işleri kısa yaşta süpürülür', () => {
+    const cutoff = new Date(NOW.getTime() - 30 * 60 * 1_000).toISOString(); // 30 dk
+
+    it('30 dk’dan eski ölü taramayı siler, yenisini korur', async () => {
+      await deadJob('afad-duyurular', '2026-10-23T11:00:00Z'); // 60 dk önce → silinir
+      await deadJob('afad-duyurular', '2026-10-23T11:45:00Z'); // 15 dk önce → korunur
+      const deleted = await repos.queue.purgeDeadScrapesOlderThan(cutoff);
+      expect(deleted).toBe(1);
+      const remaining = await repos.queue.listDead(50);
+      expect(remaining.map((job) => job.updatedAt)).toEqual(['2026-10-23T11:45:00Z']);
+    });
+
+    it('tarama dışı ölü işi (eski olsa bile) kısa süpürme etkilemez', async () => {
+      await deadNonScrapeJob('notification-delivery', '2026-10-23T09:00:00Z'); // 3 saat önce
+      await deadJob('tmsf-duyurular', '2026-10-23T09:00:00Z'); // 3 saat önce → silinir
+      const deleted = await repos.queue.purgeDeadScrapesOlderThan(cutoff);
+      expect(deleted).toBe(1);
+      const remaining = await repos.queue.listDead(50);
+      expect(remaining.map((job) => job.payload['kind'])).toEqual(['notification-delivery']);
+    });
   });
 });
