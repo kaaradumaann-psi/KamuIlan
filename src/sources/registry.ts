@@ -15,6 +15,7 @@ import { IlanGovTrApiAdapter } from './adapters/ilan-gov-tr-api';
 import { OsymAdapter } from './adapters/osym';
 import { SbbKamuIlanAdapter } from './adapters/sbb-kamuilan';
 import { KariyerKapisiAdapter } from './adapters/kariyerkapisi';
+import { KariyerKapisiRssAdapter } from './adapters/kariyerkapisi-rss';
 import { ManualEntryAdapter } from './adapters/manual-entry';
 import { IskurEsubeAdapter } from './adapters/iskur-esube';
 import { createIskurAdapter, createKurumAdapter, createMebAdapter } from './adapters/anchor-list';
@@ -26,6 +27,7 @@ const ADAPTERS: readonly SourceAdapter[] = [
   new OsymAdapter(),
   new SbbKamuIlanAdapter(),
   new KariyerKapisiAdapter(),
+  new KariyerKapisiRssAdapter(),
   new IskurEsubeAdapter(),
   createIskurAdapter(),
   createMebAdapter(),

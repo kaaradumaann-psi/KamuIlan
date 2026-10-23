@@ -16,7 +16,7 @@ import { runSourceScrape } from '../src/ingest/pipeline';
 import { SOURCE_DEFINITIONS, findSourceDefinition } from '../src/config/sources';
 
 const NOW = new Date('2026-10-23T12:00:00Z');
-const BLOCKED_KEY = 'kariyerkapisi-isealim';
+const BLOCKED_KEY = 'kamuilan-sbb';
 
 let dir: string;
 let store: FileStore;
@@ -36,13 +36,14 @@ afterEach(async () => {
 });
 
 describe('bölge engeli kapısı', () => {
-  it('Kariyer Kapısı tanımı region-blocked işaretli', () => {
+  it('SBB tanımı region-blocked işaretli', () => {
     expect(findSourceDefinition(BLOCKED_KEY)?.accessState).toBe('region-blocked');
   });
 
   it('yalnızca bilinçli işaretlenen kaynaklar region-blocked', () => {
     const blocked = SOURCE_DEFINITIONS.filter((s) => s.accessState === 'region-blocked').map((s) => s.key);
-    expect(blocked).toEqual([BLOCKED_KEY]);
+    expect(blocked).toContain('kamuilan-sbb');
+    expect(blocked).not.toContain('kariyerkapisi-isealim');
   });
 
   it('gerçek taramada denemeye girmeden atlanır ve eski hata sayacı temizlenir', async () => {

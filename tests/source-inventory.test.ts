@@ -53,7 +53,7 @@ describe('statik kaynak envanteri ve fixture manifest sözleşmesi', () => {
       missingAdapters: [],
       listingHostNotAllowlisted: [],
       sourceCount: 28,
-      adapterCount: 11,
+      adapterCount: 12,
     });
     expect(report.runtimeEvidence).toEqual({
       liveFetch: 'NOT RUN',
