@@ -39,6 +39,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:tls-doctor": "tsx scripts/db-tls-doctor.ts",
     "sources:report": "tsx scripts/coverage-report.ts",
+    "sources:measure": "tsx scripts/coverage-measure.ts",
     "llm:doctor": "tsx scripts/llm-doctor.ts",
     "llm:groq": "tsx scripts/groq-live.ts",
     "llm:review-assist": "tsx scripts/llm-review-assist.ts",
