@@ -515,6 +515,27 @@ export class BuiltinQueueRepo {
     return this.store.find('queueJobs', { status: 'dead' }, { limit, sort: [['updatedAt', -1]] });
   }
 
+  /** Belirtilen tarihten eski ölü mektup işlerini siler (retention). Silinen sayısını döndürür. */
+  async purgeDeadOlderThan(iso: string): Promise<number> {
+    return this.store.deleteMany('queueJobs', { status: 'dead', updatedAt: { $lt: iso } });
+  }
+
+  /**
+   * Artık taranmayan kaynakların (bölge engelli/kapalı) ölü mektup işlerini siler:
+   * yeniden kuyruğa alınsa da tekrar başarısız olacakları için saklamak anlamsız.
+   */
+  async purgeDeadForSources(sourceKeys: readonly string[]): Promise<number> {
+    if (sourceKeys.length === 0) return 0;
+    let deleted = 0;
+    for (const dead of await this.store.find('queueJobs', { status: 'dead' }, { limit: 500 })) {
+      const key = (dead as QueueJobDoc).payload?.['sourceKey'];
+      if (typeof key === 'string' && sourceKeys.includes(key)) {
+        deleted += await this.store.deleteMany('queueJobs', { id: (dead as QueueJobDoc).id });
+      }
+    }
+    return deleted;
+  }
+
   async requeue(id: string): Promise<QueueJobDoc | null> {
     const now = this.clock.now().toISOString();
     return this.store.updateOne(
