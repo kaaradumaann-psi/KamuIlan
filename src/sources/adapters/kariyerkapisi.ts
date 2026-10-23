@@ -27,7 +27,13 @@ import { sha256Hex } from '../../domain/ids';
 import { absoluteUrl, anchors, blockElementText, loadHtml, readableAnnouncementText } from '../../lib/html';
 import { cleanInstitution, cleanTitle } from '../listing-utils';
 import { AdapterUnavailableError } from '../errors';
-import { assertSafeUrl, FetchError, isTransientTransportFailure } from '../fetcher';
+import {
+  assertSafeUrl,
+  classifyTransportFailure,
+  FetchError,
+  isTransientTransportFailure,
+  withTransportHint,
+} from '../fetcher';
 import { describeBrowserFailure, withChromiumPage } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
@@ -606,6 +612,8 @@ export class KariyerKapisiAdapter implements SourceAdapter {
 
     // 0) Sayfanın kendi kullandığı anonim JSON ucu (22.10.2026: HTML artık boş kabuk).
     let apiListed = false;
+    /** JSON ucuna bağlantı hiç kurulamadıysa (ör. TCP zaman aşımı) nedeni; aşağıda kök neden olarak raporlanır. */
+    let apiUnreachable: FetchError | null = null;
     try {
       const response = await ctx.http.fetchText(KARIYER_API_LIST_URL, {
         allowedHosts: source.allowedHosts,
@@ -640,6 +648,12 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       }
     } catch (error) {
       if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+      if (
+        isTransientTransportFailure(error) &&
+        classifyTransportFailure(error.message) === 'connect-timeout'
+      ) {
+        apiUnreachable = error;
+      }
       notes.push(
         `Resmî JSON ucu okunamadı (${error instanceof Error ? error.message : String(error)}); HTML sayfası denenecek.`,
       );
@@ -679,6 +693,18 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       const pages = await this.renderPages([source.listingUrl], source.allowedHosts, ctx.signal).catch(
         (error: unknown) => {
           if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
+          // Kök neden JSON ucuna ulaşılamaması ise "tarayıcıyı aç" demek yanıltıcıdır:
+          // sayfa da listeyi aynı uçtan çeker, tarayıcı aynı IP'den aynı engele takılır.
+          if (apiUnreachable) {
+            throw new FetchError(
+              KARIYER_API_LIST_URL,
+              `Resmî JSON ucuna (${new URL(KARIYER_API_LIST_URL).host}) bu sunucudan bağlanılamadı: ` +
+                `${withTransportHint(apiUnreachable).message} HTML sayfası boş kabuk; tarayıcı yolu listeyi aynı ` +
+                `uçtan çektiği için çözüm değildir (tarayıcı: ${describeBrowserFailure(error)}).`,
+              null,
+              true,
+            );
+          }
           throw new AdapterUnavailableError(
             source.key,
             describeBrowserFailure(error),
