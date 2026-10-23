@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+ <meta charset="utf-8" />
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+ <meta name="description" content="Adalet Bakanlığı İcra İşleri Dairesi Başkanlığı">
+ <title>2026 Yılı A&#231;ıktan İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılığı Sınav İlanı</title>
+ <meta name="author" content="Adalet Bakanlığı">
+ <title>2026 Yılı A&#231;ıktan İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılığı Sınav İlanı</title>
+ <link href="/Assets/erisilebilirlik/accessibility.min.css" rel="stylesheet" />
+ <link href="/Assets/front/css/bootstrap.min.css" rel="stylesheet" />
+ <link href="/Assets/front/css/style.css" rel="stylesheet" />
+ <link rel="stylesheet" href="/Assets/front/css/all.css" />
+ <link rel="stylesheet" href="/Assets/front/css/lightgallery.css">
+ <link href="/Assets/front/css/responsive.dataTables.min.css" rel="stylesheet" />
+ <link href="/Assets/front/css/jquery.dataTables.min.css" rel="stylesheet" />
+ <link rel="shortcut icon" href="/Assets/front/images/favicon.png" type="image/x-icon" />
+</head>
+<body>
+ <!--start:: ERİŞİLEBİLİRLİK MENÜSÜ-->
+ <button class="accessibility-toggle-button" id="accessibilityToggle" aria-label="Erişilebilirlik Menüsünü Aç">
+ <svg></svg>
+ </button>
+ <div id="accessibilityPanel" class="ac-panel">
+ <div class="ac-panel--header">
+ <h5 class="ac-panel--header__title" id="acPanel">Eri&#x15F;ilebilirlik Men&#xFC;s&#xFC;</h5>
+ <button id="accessibilityCloseButton" type="button" class="ac-panel--close-button" aria-label="Kapat"></button>
+ </div>
+ <div class="ac-panel--body d-flex flex-column">
+ <div class="ac-panel--wrapper">
+ <div class="ac-box-wrapper">
+ <div class="ac-box" id="speakButton" data-acc-option="screen-reader">
+ <svg></svg>
+ <p class="m-0">Ekran Okuyucu</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" id="selectSpeakButton" data-acc-option="select-reader">
+ <svg></svg>
+ <p class="m-0">Se&#xE7;ili Alan Okuyucu</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="highlight-links">
+ <svg></svg>
+ <p class="m-0">Ba&#x11F;lant&#x131; Vurgula</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="bigger-text">
+ <svg></svg>
+ <p class="m-0">B&#xFC;y&#xFC;k Metin</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="align-text-left">
+ <svg></svg>
+ <p class="m-0">Metni Sola Hizala</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper hide-on-sm">
+ <div class="ac-box" data-acc-option="bigger-cursor">
+ <svg></svg>
+ <p class="m-0">&#x130;mle&#xE7;</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper hide-on-sm">
+ <div class="ac-box" data-acc-option="reading-guide">
+ <svg></svg>
+ <p class="m-0">Okuma K&#x131;lavuzu</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper hide-on-sm">
+ <div class="ac-box" data-acc-option="reading-mask">
+ <svg></svg>
+ <p class="m-0">Okuma Maskesi</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="dyslexic-friendly">
+ <svg></svg>
+ <p class="m-0">Disleksi Dostu</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="contrast">
+ <svg></svg>
+ <p class="m-0">Kontrast</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="desaturate">
+ <svg></svg>
+ <p class="m-0">Solgunla&#x15F;t&#x131;rma</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="low-saturation">
+ <svg></svg>
+ <p class="m-0">D&#xFC;&#x15F;&#xFC;k Doygunluk</p>
+ </div>
+ </div>
+ <div class="ac-box-wrapper">
+ <div class="ac-box" data-acc-option="high-saturation">
+ <svg></svg>
+ <p class="m-0">Y&#xFC;ksek Doygunluk</p>
+ </div>
+ </div>
+ </div>
+ <button id="clearSettings" class="ac-clear-button">
+ <svg></svg>
+ Eri&#x15F;ilebilirlik Ayarlar&#x131;n&#x131; Temizle
+ </button>
+ </div>
+ </div>
+ <div id="readingFocusTop" class="reading-focus-overlay-top"></div>
+ <div id="readingFocusBottom" class="reading-focus-overlay-bottom"></div>
+ <div id="readingGuideLine" class="reading-guide-line"></div>
+ <!--end:: ERİŞİLEBİLİRLİK MENÜSÜ-->
+ <div class="context">
+ <div class="header">
+ <div class="container">
+ <div class="header-kapsa align-items-center">
+ <div class="logo"> <a href="/Home/Index" class="w-100 mr-2 mr-lg-0"><img src="https://cdn.uyap.gov.tr/portal/img/adalet-bakanligi-logo-2-kirmizi.svg" alt="Bakanlık Logosu" /></a></div>
+ <h1 class="site-baslik mb-0">
+ İCRA İŞLERİ DAİRESİ BAŞKANLIĞI 
+ <span class="baslik2">
+ </span>
+ </h1>
+ <div class="sag">
+ <div class="sag-ust">
+ <div class="sag-ust-elemanlar">
+ <a href="https://www.adalet.gov.tr/" target="_blank">
+ <div class="sag-ust-eleman"> <p> ADALET BAKANLIĞI </p> <i class="far fa-hand-point-up" aria-hidden="true"></i> </div>
+ </a>
+ <!-- EnSosyal -->
+ <a href="https://nsosyal.com/iidb_adalet " target="_blank" aria-label="nsosyal hesabımız">
+ <div>
+ <img src="/Assets/front/images/nsosyal.png" style="width:29px; height:29px;" aria-hidden="true" alt=""/>
+ </div>
+ </a>
+ <!-- X -->
+ <a href="https://x.com/iidb_adalet"
+ target="_blank" aria-label="x (twitter) hesabımız">
+ <div>
+ <img src="/Assets/front/images/x.png" style="width:29px; height:29px;" aria-hidden="true" alt=""/>
+ </div>
+ </a>
+ <!-- INSTAGRAM -->
+ <a href="https://www.instagram.com/iidb_adalet" target="_blank" aria-label="instagram hesabımız">
+ <div>
+ <img src="/Assets/front/images/instagram.png" style="width:29px; height:29px;" aria-hidden="true" alt=""/>
+ </div>
+ </a>
+ <!-- YouTube -->
+ <a href="https://www.youtube.com/@iidb_adalet"
+ target="_blank" aria-label="youtube hesabımız">
+ <div>
+ <img src="/Assets/front/images/youtube.png" style="width:29px; height:29px;" aria-hidden="true" alt=""/>
+ </div>
+ </a>
+ </div>
+ <div class="mobil-ara">
+ <ul>
+ <li>
+ <button id="bul" class="ara" aria-label="arama yap"><i class="fas fa-search" aria-hidden="true"></i></button>
+ </li>
+ </ul>
+ </div>
+ </div>
+ <div class="sag-alt d-flex align-items-center gap-2">
+ <img src="/Assets/front/images/bayrak.png" class="d-none d-lg-block" alt="Atatürk Resmi">
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ <header class="red">
+ <nav role="navigation">
+ <div class="container p-0">
+ <a href="javascript:void(0);" class="ic close" aria-label="menüyü aç"></a>
+ <div class="container p-0">
+ <div class="row">
+ <div class="col-md-12">
+ <div class="navbar">
+ <nav class="menu">
+ <div class="nav-layer"></div>
+ <div id="MainMenu">
+ <div class="list-group panel">
+ <a href='/Home/' class="list-group-item-success"> &nbsp;&nbsp; Ana Sayfa </a>
+ <a href='#menuana2' class="list-group-item-success" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> Başkanlık </a>
+ <div class="collapse" id='menuana2'>
+ <a href='#menu1' class="list-group-item" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> Merkez Teşkilat </a>
+ <div class="list-group-submenu collapse" id='menu1'>
+ <a href='/Home/PersonelDetay/27' class="list-group-item " data-parent="#MainMenu">Başkan </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu1'>
+ <a href='/Home/PersonelListe/Daire Başkanı' class="list-group-item " data-parent="#MainMenu">Daire Başkanları </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu1'>
+ <a href='/Home/SayfaDetay/onceki-baskanlarimiz23122021085051' class="list-group-item " data-parent="#MainMenu">&#214;nceki Başkanlarımız </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu1'>
+ <a href='/Home/PersonelListe/Tetkik H&#226;kimi' class="list-group-item " data-parent="#MainMenu">Tetkik H&#226;kimleri </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu1'>
+ <a href='/Home/SayfaDetay/gorev-ve-yetkileri' class="list-group-item " data-parent="#MainMenu">G&#246;revlerimiz </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu1'>
+ <a href='/Home/SayfaDetay/teskilat-semasi' class="list-group-item " data-parent="#MainMenu">Teşkilat Şeması </a>
+ </div>
+ <a href='#menu2' class="list-group-item" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> Taşra Teşkilatı </a>
+ <div class="list-group-submenu collapse" id='menu2'>
+ <a href='/Home/SayfaDetay/icra-daireleri-baskanliklari' class="list-group-item " data-parent="#MainMenu">İcra Daireleri Başkanlıkları </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu2'>
+ <a href='/Home/SayfaDetay/icra-daireleri-baskanliklari-telefon-rehberi28042023092232' class="list-group-item " data-parent="#MainMenu">İcra Daireleri Başkanlıkları Telefon Rehberi </a>
+ </div>
+ </div>
+ <a href='#menuana3' class="list-group-item-success" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> B&#252;rolarımız </a>
+ <div class="collapse" id='menuana3'>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/21' class="list-group-item " data-parent="#MainMenu">Ar-Ge B&#252;rosu (Projeler, Tanıtım ve Medya) </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/birimdetay/16' class="list-group-item " data-parent="#MainMenu">Atama B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/29' class="list-group-item " data-parent="#MainMenu">Bilgi Edinme B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/30' class="list-group-item " data-parent="#MainMenu">Dava Takip B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/22' class="list-group-item " data-parent="#MainMenu">Disiplin B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/31' class="list-group-item " data-parent="#MainMenu">İdari İşler B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/34' class="list-group-item " data-parent="#MainMenu">İnsan Kaynakları Geliştirme B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/28' class="list-group-item " data-parent="#MainMenu">İzin B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/24' class="list-group-item " data-parent="#MainMenu">Mevzuat ve G&#246;r&#252;ş B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/23' class="list-group-item " data-parent="#MainMenu">Sicil ve Emeklilik B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/25' class="list-group-item " data-parent="#MainMenu">Terfi ve Kadro B&#252;rosu </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/BirimDetay/17' class="list-group-item " data-parent="#MainMenu">Yedieminlik B&#252;rosu </a>
+ </div>
+ </div>
+ <a href='#menuana4' class="list-group-item-success" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> Bilgi Bankası </a>
+ <div class="collapse" id='menuana4'>
+ <a href='#menu15' class="list-group-item" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> Mevzuat </a>
+ <div class="list-group-submenu collapse" id='menu15'>
+ <a href='/Home/SayfaDetay/kanun-ve-yonetmelikler' class="list-group-item " data-parent="#MainMenu">Kanun </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu15'>
+ <a href='/Home/SayfaDetay/yonetmelik' class="list-group-item " data-parent="#MainMenu">Y&#246;netmelik </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu15'>
+ <a href='/Home/SayfaDetay/genelge-ve-yazilar' class="list-group-item " data-parent="#MainMenu">Genelge </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu15'>
+ <a href='/Home/SayfaDetay/ucret-tarifesi' class="list-group-item " data-parent="#MainMenu">Tarifeler </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu15'>
+ <a href='/Home/SayfaDetay/teblig' class="list-group-item " data-parent="#MainMenu">Tebliğ </a>
+ </div>
+ <a href='#menu16' class="list-group-item" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> G&#246;r&#252;şler </a>
+ <div class="list-group-submenu collapse" id='menu16'>
+ <a href='/Home/SayfaDetay/genel-nitelikli-gorus-ve-genel-yazilar15022023124400' class="list-group-item " data-parent="#MainMenu">Genel Nitelikli G&#246;r&#252;ş ve Genel Yazılar </a>
+ </div>
+ <a href='#menu17' class="list-group-item" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> İhtiya&#231; Duyulan Bilgiler </a>
+ <div class="list-group-submenu collapse" id='menu17'>
+ <a href='/Home/SayfaDetay/disiplin-sorusturmasi-yapilirken-dikkat-edilmesi-gereken-hususlar' class="list-group-item " data-parent="#MainMenu">Disiplin Soruşturması Yapılırken Dikkat Edilmesi Gereken Hususlar </a>
+ </div>
+ <div class="list-group-submenu collapse" id='menu17'>
+ <a href='/Home/SayfaDetay/icra-daire-baskanliklarinin-kuruldugu-mahaller' class="list-group-item " data-parent="#MainMenu">İcra Daireleri Başkanlıklarının Kurulduğu Mahaller </a>
+ </div>
+ </div>
+ <a href='#menuana5' class="list-group-item-success" data-toggle="collapse" data-parent="#MainMenu"> <i class="fa fa-caret-down"></i> İletişim </a>
+ <div class="collapse" id='menuana5'>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/TelefonRehberi' class="list-group-item " data-parent="#MainMenu">Telefon Rehberi </a>
+ </div>
+ <div class="list-group-item birimmenu" data-toggle="collapse" data-parent="#MainMenu">
+ <a href='/Home/SayfaDetay/adres-bilgileri' class="list-group-item " data-parent="#MainMenu">Adres ve İletişim Bilgileri </a>
+ </div>
+ </div>
+ </div>
+ </div>
+ </nav>
+ <div class="navbar">
+ <a class="nav-toggle">
+ <span></span>
+ <span></span>
+ <span></span>
+ </a>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ <ul class="main-nav">
+ <li class="top-level-link">
+ <a href='/Home/'><span>Ana Sayfa</span></a>
+ </li>
+ <li class="top-level-link">
+ <a href="#" class="mega-menu"><span>Başkanlık</span></a>
+ <div class="sub-menu-block">
+ <div class="row">
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <h2 class="sub-menu-head">Merkez Teşkilat</h2>
+ <ul class="sub-menu-lists">
+ <li>
+ <a href='/Home/PersonelDetay/27'><span>Başkan </span></a>
+ </li>
+ <li>
+ <a href='/Home/PersonelListe/Daire Başkanı'><span>Daire Başkanları </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/onceki-baskanlarimiz23122021085051'><span>&#214;nceki Başkanlarımız </span></a>
+ </li>
+ <li>
+ <a href='/Home/PersonelListe/Tetkik H&#226;kimi'><span>Tetkik H&#226;kimleri </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/gorev-ve-yetkileri'><span>G&#246;revlerimiz </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/teskilat-semasi'><span>Teşkilat Şeması </span></a>
+ </li>
+ </ul>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <h2 class="sub-menu-head">Taşra Teşkilatı</h2>
+ <ul class="sub-menu-lists">
+ <li>
+ <a href='/Home/SayfaDetay/icra-daireleri-baskanliklari'><span>İcra Daireleri Başkanlıkları </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/icra-daireleri-baskanliklari-telefon-rehberi28042023092232'><span>İcra Daireleri Başkanlıkları Telefon Rehberi </span></a>
+ </li>
+ </ul>
+ </div>
+ </div>
+ </div>
+ </li>
+ <li class="top-level-link">
+ <a href="#" class="mega-menu"><span>B&#252;rolarımız</span></a>
+ <div class="sub-menu-block">
+ <div class="row">
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/21'> Ar-Ge B&#252;rosu (Projeler, Tanıtım ve Medya)</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/birimdetay/16'> Atama B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/29'> Bilgi Edinme B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/30'> Dava Takip B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/22'> Disiplin B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/31'> İdari İşler B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/34'> İnsan Kaynakları Geliştirme B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/28'> İzin B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/24'> Mevzuat ve G&#246;r&#252;ş B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/23'> Sicil ve Emeklilik B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/25'> Terfi ve Kadro B&#252;rosu</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/BirimDetay/17'> Yedieminlik B&#252;rosu</a>
+ </div>
+ </div>
+ </div>
+ </div>
+ </li>
+ <li class="top-level-link">
+ <a href="#" class="mega-menu"><span>Bilgi Bankası</span></a>
+ <div class="sub-menu-block">
+ <div class="row">
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <h2 class="sub-menu-head">Mevzuat</h2>
+ <ul class="sub-menu-lists">
+ <li>
+ <a href='/Home/SayfaDetay/kanun-ve-yonetmelikler'><span>Kanun </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/yonetmelik'><span>Y&#246;netmelik </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/genelge-ve-yazilar'><span>Genelge </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/ucret-tarifesi'><span>Tarifeler </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/teblig'><span>Tebliğ </span></a>
+ </li>
+ </ul>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <h2 class="sub-menu-head">G&#246;r&#252;şler</h2>
+ <ul class="sub-menu-lists">
+ <li>
+ <a href='/Home/SayfaDetay/genel-nitelikli-gorus-ve-genel-yazilar15022023124400'><span>Genel Nitelikli G&#246;r&#252;ş ve Genel Yazılar </span></a>
+ </li>
+ </ul>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <h2 class="sub-menu-head">İhtiya&#231; Duyulan Bilgiler</h2>
+ <ul class="sub-menu-lists">
+ <li>
+ <a href='/Home/SayfaDetay/disiplin-sorusturmasi-yapilirken-dikkat-edilmesi-gereken-hususlar'><span>Disiplin Soruşturması Yapılırken Dikkat Edilmesi Gereken Hususlar </span></a>
+ </li>
+ <li>
+ <a href='/Home/SayfaDetay/icra-daire-baskanliklarinin-kuruldugu-mahaller'><span>İcra Daireleri Başkanlıklarının Kurulduğu Mahaller </span></a>
+ </li>
+ </ul>
+ </div>
+ </div>
+ </div>
+ </li>
+ <li class="top-level-link">
+ <a href="#" class="mega-menu"><span>İletişim</span></a>
+ <div class="sub-menu-block">
+ <div class="row">
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/TelefonRehberi'> Telefon Rehberi</a>
+ </div>
+ </div>
+ <div class="col-md-4 col-lg-4 col-sm-4">
+ <div class="birimmenu">
+ <a href='/Home/SayfaDetay/adres-bilgileri'> Adres ve İletişim Bilgileri</a>
+ </div>
+ </div>
+ </div>
+ </div>
+ </li>
+ <li class="top-level-link">
+ <button class="ara" aria-label="ara"> <i class="fas fa-search" aria-hidden="true"></i> </button>
+ </li>
+ </ul>
+ </div>
+ </nav>
+ </header>
+ <div id="arama-kutu2">
+ <div class="arama">
+<form action="/Home/Arama" id="arama" method="post"><input name="__RequestVerificationToken" type="hidden" value="lrHGsFF5Lrd90lGmAmwJwzZFs5EE8414nE-BX6rrVQqk5vfP2gROEPD7TWyH5Ehd7tFhvh0IIFAPKhUqhrGLJ-glbgZIXzwbcUh8a79_MSI1" /> <div class="ara-kapsa">
+ <div> <input type="search" name="aramakelime" class="ara form-control" id="ara" placeholder="Aranan Kelimeler..." autocomplete="off" aria-label="aranan kelimeler"></div>
+ <div> <button class="bul" aria-label="bul"> <i class="fas fa-search" aria-hidden="true"></i> </button> </div>
+ </div>
+</form> </div>
+ </div>
+ <main role="main">
+<link href="/Assets/front/css/sinav.css" rel="stylesheet" />
+<div class="container p-0 speak-area">
+ <div class="ortaalan-dis">
+ <div class="ortaalan">
+ <div class="sayfa-bilgisi">
+ <div class="sayfa-link">
+ <a href="/Home/Index"> <i class="fas fa-home"></i> Anasayfa </a>/
+ <a href="/Home/TumHaberler/1">Duyurular </a>
+ </div>
+ <div class="sayfa-baslik">
+ 2026 Yılı A&#231;ıktan İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılığı Sınav İlanı
+ </div>
+ </div>
+ <div class="icerik-dis">
+ <div class="resim">
+ <img src="/Resimler/Galeri/20261002150658813site ilan resmi.jpg" alt="" class="img-fluid" />
+ </div>
+ <div class="icerik-dis">
+ <div class="haber-galeri">
+ <div class="document">
+ <div class="document-baslik">
+ <a href="/"><i class="far fa-file-archive"></i></a> <a href="/Resimler/SayfaDokuman/202610021655235582026 Yılı A&#231;ıktan İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılığı Sınav İlanı.pdf"> 2026 Yılı A&#231;ıktan İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılığı Sınav İlanı</a>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ <div class="orta-sag">
+ <ul>
+ <li class="anamenu"> Son Haberler</li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/kamuoyuna-aciklama16102026042451'>
+ Kamuoyuna A&#231;ıklama
+ </a>
+ </li>
+ <li class="altmenu aktif">
+ <a href='/Home/SayfaDetay/2026-yili-aciktan-icra-mudur-ve-icra-mudur-yardimciligi-sinav-ilani02102026113030'>
+ 2026 Yılı A&#231;ıktan İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılığı Sınav İlanı
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/kamuoyuna-aciklama14082026101842'>
+ Kamuoyuna A&#231;ıklama
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/bassagligi29072026014125'>
+ Başsağlığı
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/sozlesmeli-icra-k-tipligi-uygulamali-sinav-metinleri-ve-degerlendirme-kriterleri14072026104802'>
+ S&#246;zleşmeli İcra K&#226;tipliği Uygulamalı Sınav Metinleri ve Değerlendirme Kriterleri
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/icra-mudur-ve-icra-mudur-yardimcilarinin-2026-yili-kararnamesi22062026092248'>
+ İcra M&#252;d&#252;r ve İcra M&#252;d&#252;r Yardımcılarının 2026 Yılı Kararnamesi
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/bassagligi11062026042929'>
+ Başsağlığı
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/sozlesmeli-icra-k-tibi-personel-istihdami-sinav-ilani05062026110033'>
+ S&#246;zleşmeli İcra K&#226;tibi Personel İstihdamı Sınav İlanı
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/adalet-bakanligi-icra-personelinin-sinav-atama-nakil-gorevde-yukselme-ve-unvan-degisikl16052026123036'>
+ Adalet Bakanlığı İcra Personelinin Sınav, Atama, Nakil, G&#246;revde Y&#252;kselme ve Unvan Değişikliği Y&#246;netmeliğinde Değişiklik Yapılmasına Dair Y&#246;netmelik Resm&#238; Gazete&#39;de Yayımlandı.
+ </a>
+ </li>
+ <li class="altmenu">
+ <a href='/Home/SayfaDetay/devir-teslim-toreni-gerceklestirildi23032026112320'>
+ Devir Teslim T&#246;reni Ger&#231;ekleştirildi.
+ </a>
+ </li>
+ <li class="altmenu arsiv"> <a href="/Home/TumHaberler/1"> <i class="fas fa-folder-open"></i> Duyuru Arşivi</a></li>
+ </ul>
+ </div>
+ </div>
+</div>
+ </main>
+ <footer>
+ <div class="footer-dis container">
+ <div class="footer-sol">
+ <div class="alt-logo"><img src="https://cdn.uyap.gov.tr/portal/img/adalet-bakanligi-logo-2-kirmizi.svg" alt="Adalet Bakanlığı logosu" /></div>
+ </div>
+ <div class="footer-kutularkapsa">
+ <div class="footer-kutu1">
+ <a href="#" class="scroll_To_Top" aria-label="sayfanın başına dön"> <span><i class="fas fa-chevron-circle-up fa-3x" aria-hidden="true"></i></span></a>
+ <a href="#"> <div class="footer-baslik"> Sosyal Medya </div></a>
+ <div class="footer-linkler">
+ <ul>
+ <li>
+ <img src="/Assets/front/images/20260206143411635x.png" style="width:29px; height:29px;" alt="X (Twitter)" aria-hidden="true" />
+ <a href='https://x.com/iidb_adalet' target="_blank"> X (Twitter)</a>
+ </li>
+ <li>
+ <img src="/Assets/front/images/20260206140737108instagram.png" style="width:29px; height:29px;" alt="İnstagram" aria-hidden="true" />
+ <a href='https://www.instagram.com/iidb_adalet' target="_blank"> İnstagram</a>
+ </li>
+ <li>
+ <img src="/Assets/front/images/20260206140956957youtube.png" style="width:29px; height:29px;" alt="Youtube" aria-hidden="true" />
+ <a href='https://www.youtube.com/@iidb_adalet' target="_blank"> Youtube</a>
+ </li>
+ <li>
+ <img src="/Assets/front/images/20260206140346055nsosyal.png" style="width:29px; height:29px;" alt="NSosyal" aria-hidden="true" />
+ <a href='https://nsosyal.com/iidb_adalet' target="_blank"> NSosyal</a>
+ </li>
+ </ul>
+ </div>
+ </div>
+ <div class="footer-kutu1">
+ <a href="#" class="scroll_To_Top" aria-label="sayfanın başına dön"> <span><i class="fas fa-chevron-circle-up fa-3x" aria-hidden="true"></i></span></a>
+ <a href="#"> <div class="footer-baslik"> Yararlı Linkler </div></a>
+ <div class="footer-linkler">
+ <ul>
+ <li>
+ <a href='https://mevzuat.adalet.gov.tr/' target="_blank"> Uyap Mevzuat Programı</a>
+ </li>
+ <li>
+ <a href='http://www.uyap.gov.tr/' target="_blank"> UYAP Bilişim Sistemi</a>
+ </li>
+ </ul>
+ </div>
+ </div>
+ </div>
+ <div class="adresalan">
+ <div class="adres-kutu"> <span> <i class="fas fa-phone-volume"></i> </span> <span> 0312 549 45 45/44 </span> </div>
+ <div class="adres-kutu"> <span> <i class="far fa-envelope-open"></i> </span> <span> iidb@adalet.gov.tr </span> </div>
+ <div class="adres-kutu"> <span> <i class="fas fa-map-marker-alt"></i> </span> <span> Devlet Mah. Vekaletler Cad. No:6 A Blok Kat:2 Çankaya / ANKARA </span> </div>
+ <div class="adres-kutu"><span><i class="fas fa-users"></i> </span> <span>Bugün: 4.313 Toplam:15.306.605 kişi ziyaret etti. </span> </div>
+ </div>
+ </div>
+ <div class="alt-bilgi container">
+ <div class="telif-yazi"> T.C. Adalet Bakanlığı İcra İşleri Dairesi Başkanlığı © Tüm Hakları Saklıdır.</div>
+ <div class="sayac">
+ Tasarım ve Kodlaması <b> Bilgi İşlem Genel Müdürlüğü</b> tarafından yapılmıştır. 2026
+ </div>
+ </div>
+ </footer>
+ <div class="overlay"></div>
+ </div>
+ <link href="/Assets/front/css/PagedList.css" rel="stylesheet" />
+</body>
+</html>

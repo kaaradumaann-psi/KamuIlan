@@ -67,7 +67,16 @@ export interface SourceDefinition {
    * `listContainer` liste kapsayıcısının CSS seçicisi, `pathPattern` detay bağlantısı deseni
    * (RegExp kaynağı; yol + sorgu üzerinde, büyük/küçük harf duyarsız).
    */
-  listing?: { listContainer?: string; pathPattern?: string };
+  listing?: {
+    listContainer?: string;
+    pathPattern?: string;
+    /**
+     * Liste yıl alt sayfalarına bölünmüşse (SPK `/duyurular/basin-duyurulari/2026`)
+     * `listingUrl` yıl dizinidir; adaptör İstanbul saatine göre içinde bulunulan
+     * yılın sayfasını (`<listingUrl>/<yyyy>`) okur, Ocak'ın ilk 15 gününde önceki yılı da.
+     */
+    yearSubpath?: boolean;
+  };
   tags: string[];
 }
 
@@ -431,7 +440,10 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     intervalMinutes: 360,
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
-    allowedHosts: ['www.adalet.gov.tr', 'adalet.gov.tr', 'pgm.adalet.gov.tr'],
+    // iidb.adalet.gov.tr: İcra İflas Dairesi Başkanlığı (aynı bakanlık). Kariyer Kapısı dış
+    // ilanı "2026 Yılı Açıktan İcra Müdür ve İcra Müdür Yardımcılığı Sınav İlanı" bu host'taki
+    // `SayfaDetay` sayfasına + ekli PDF'e gider; robots.txt 404 (23.10.2026, kısıt yok).
+    allowedHosts: ['www.adalet.gov.tr', 'adalet.gov.tr', 'pgm.adalet.gov.tr', 'iidb.adalet.gov.tr'],
     // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
     robotsDisallow: ['/yonetim/'],
     conditionalRequests: true,
@@ -662,8 +674,9 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
-    lastVerifiedAt: '2026-10-22',
+    lastVerifiedAt: '2026-10-23',
     verificationEvidence:
+      '23.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, TLS doğrulaması açık): "Sözleşmeli Bilişim Personel Alım İlanı" detay sayfası metni 120 karakterden kısa bir yönlendirme (eskiden gövde 0); ekli cms-api.tkgm.gov.tr/media/101807/view (application/pdf, 215 KB) metin katmanıyla okundu → ilan metni alındı. ' +
       '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Next.js akışlı çizim (<div hidden id="S:n">) içeriği artık silinmiyor; 6 duyuru bağlantısı, detayla 2 kayıt. ' +
       '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'Tapu ve kadastro personel alımları.',
@@ -671,7 +684,11 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     intervalMinutes: 360,
     minRequestIntervalMs: 2500,
     maxConcurrency: 1,
-    allowedHosts: ['www.tkgm.gov.tr', 'tkgm.gov.tr'],
+    // cms-api.tkgm.gov.tr: ilan metninin bulunduğu ekli belge (`/media/<n>/view`, PDF).
+    // Detay sayfaları çoğu zaman yalnız "… bağlantıyı tıklayınız … İLAN" der (23.10.2026,
+    // "Sözleşmeli Bilişim Personel Alım İlanı"); bu host izinli değilken metin 0 karakterdi.
+    // cms-api robots.txt 404 (kısıt yok); yalnız detay okuyucusu tek belge indirir.
+    allowedHosts: ['www.tkgm.gov.tr', 'tkgm.gov.tr', 'cms-api.tkgm.gov.tr'],
     // robots.txt incelemesi 22.10.2026 (config/source-terms.json notu).
     robotsDisallow: ['/intranet/', '/api/', '/login/', '/preview/'],
     conditionalRequests: true,
@@ -777,15 +794,20 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     group: 'kurum',
     sourceType: 'institution-page',
     institution: 'Sermaye Piyasası Kurulu',
-    listingUrl: 'https://www.spk.gov.tr/duyurular',
+    // /duyurular yalnız iki alt bölüme (Başkan'ın Konuşmaları, Basın Duyuruları) bağlanan bir
+    // dizindir; 23.10.2026 ölçümünde okuyucu bu sayfadan 31 MENÜ bağlantısı topluyordu
+    // (Hakkımızda, Yatırımcılar …). İlanlar "Basın Duyuruları"nın yıl sayfasındadır
+    // (`/duyurular/basin-duyurulari/2026`; personel alım ilanları doğrudan PDF bağlantısı).
+    listingUrl: 'https://www.spk.gov.tr/duyurular/basin-duyurulari',
     homepageUrl: 'https://www.spk.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
     status: 'verified',
     statusNote:
       'Adres ve sayfa yapısı doğrulandı; 13.10.2026 canlı koşumda çalıştı. Yapı değişirse tarama boş dönmez, hata kaydeder.',
-    lastVerifiedAt: '2026-10-22',
+    lastVerifiedAt: '2026-10-23',
     verificationEvidence:
+      '23.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, TLS doğrulaması açık): /duyurular/basin-duyurulari/2026 → 18 duyuru bağlantısı (17 detay + 1 ilan PDF), 0 menü bağlantısı; ?s=2 sayfalaması izlenir (eski /duyurular dizininden 31 menü bağlantısı). ' +
       '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): 32 duyuru bağlantısı; detayla 2 kayıt işlendi. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 2 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote: 'SPK uzman yardımcısı alımları.',
@@ -795,6 +817,13 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['www.spk.gov.tr', 'spk.gov.tr'],
     conditionalRequests: true,
+    listing: {
+      listContainer: 'main',
+      // Yalnız yıl sayfasındaki duyuru satırları (`a.link`): duyuru detayı ya da
+      // `/data/<24 hane>/….pdf` ilan belgesi. Menü/üst gezinme yolları eşleşmez.
+      pathPattern: '^/(?:duyurular/basin-duyurulari/\\d{4}/[^/]+|data/[0-9a-f]{24}/[^/]+\\.pdf)$',
+      yearSubpath: true,
+    },
     tags: ['kurum', 'duzenleyici', 'html'],
   },
   {
@@ -803,15 +832,21 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     group: 'kurum',
     sourceType: 'institution-page',
     institution: 'Enerji Piyasası Düzenleme Kurumu',
-    listingUrl: 'https://www.epdk.gov.tr/',
+    // Anasayfa kaydırıcısı (#duyuru-kaydir) yalnız son 12 duyuruyu gösterir. Tam etkin
+    // duyuru listesi sunucu tarafında çizilen `#AnnouncementList` tablosundadır
+    // (23.10.2026: 16 tarihli satır). Arama formu reCAPTCHA'lı → kullanılmaz; yalnız
+    // varsayılan "Aktif" liste okunur. Sayfanın geri kalanı menüdür (Kurumumuz, Bilgi
+    // Edinme …); eski genel desen bu sayfadan 12 menü bağlantısı topluyordu.
+    listingUrl: 'https://www.epdk.gov.tr/Detay/Icerik/4-0-1/duyurular',
     homepageUrl: 'https://www.epdk.gov.tr/',
     adapterKey: 'kurum-duyuru-listesi',
     method: 'html-list',
     status: 'verified',
     statusNote:
       'Canlı doğrulama (14.10.2026) başarısız: liste yapısı tanınmadı. Sayfa örneği (HTML) alınmadan seçici düzeltilemez; doğrulanmış sayılmaz.',
-    lastVerifiedAt: '2026-10-22',
+    lastVerifiedAt: '2026-10-23',
     verificationEvidence:
+      '23.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, TLS doğrulaması açık): duyuru listesi sayfası #AnnouncementList → 16 duyuru bağlantısı, 0 menü bağlantısı (eski desenle aynı sayfadan 26 bağlantı, 12 tanesi menü). ' +
       '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Anasayfa duyuru kaydırıcısı (#duyuru-kaydir) ile menü gürültüsü ayıklandı: 12 bağlantı, detayla 2 kayıt. ' +
       '14.10.2026 canlı koşumu: sayfa alındı ancak ilan listesi ayrıştırılamadı. Doğrulanmış sayılmaz.',
     coverageNote: 'EPDK uzman yardımcısı alımları.',
@@ -821,7 +856,12 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     maxConcurrency: 1,
     allowedHosts: ['www.epdk.gov.tr', 'epdk.gov.tr'],
     conditionalRequests: true,
-    listing: { listContainer: '#duyuru-kaydir', pathPattern: '/Detay/Icerik/\\d+-\\d+/' },
+    listing: {
+      listContainer: '#AnnouncementList',
+      // Yalnız duyuru (4-<kimlik>) detayları; `4-0-1/duyurular` liste sayfası, menü
+      // (1-…, 3-…) ve lisans.epdk.gov.tr dış bağlantıları eşleşmez.
+      pathPattern: '^/Detay/Icerik/4-[1-9]\\d*/',
+    },
     tags: ['kurum', 'duzenleyici', 'html'],
   },
   {

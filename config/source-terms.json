@@ -120,7 +120,7 @@
       "robotsUrl": "https://www.adalet.gov.tr/robots.txt",
       "termsUrl": "https://www.adalet.gov.tr/",
       "allowsStorage": true,
-      "notes": "robots.txt (22.10.2026, 200): \"User-agent: * / Disallow: /yonetim/\" → /arsiv liste yolu serbest; /yonetim/ robotsDisallow olarak eklendi. pgm.adalet.gov.tr/robots.txt 404. Şartlar sayfası bulunamadı (altbilgide yalnız \"© 2026\"). Açık yasak görülmedi."
+      "notes": "robots.txt (22.10.2026, 200): \"User-agent: * / Disallow: /yonetim/\" → /arsiv liste yolu serbest; /yonetim/ robotsDisallow olarak eklendi. pgm.adalet.gov.tr/robots.txt 404. iidb.adalet.gov.tr/robots.txt 404 (23.10.2026; İcra İflas Dairesi Başkanlığı, aynı bakanlık — Kariyer Kapısı dış ilan gövdesi için). Şartlar sayfası bulunamadı (altbilgide yalnız \"© 2026\"). Açık yasak görülmedi."
     },
     {
       "sourceKey": "icisleri-bakanligi-duyurular",
@@ -190,7 +190,7 @@
       "robotsUrl": "https://www.tkgm.gov.tr/robots.txt",
       "termsUrl": "https://www.tkgm.gov.tr/",
       "allowsStorage": true,
-      "notes": "robots.txt (22.10.2026, 200): \"User-Agent: * / Allow: / / Disallow: /intranet/, /api/, /login/, /preview/\" → /duyurular serbest; dört kural robotsDisallow olarak eklendi. Şartlar sayfası bulunamadı (altbilgide \"© 2026 Tapu ve Kadastro Genel Müdürlüğü — Tüm Hakları Saklıdır.\"). Açık yasak görülmedi."
+      "notes": "robots.txt (22.10.2026, 200): \"User-Agent: * / Allow: / / Disallow: /intranet/, /api/, /login/, /preview/\" → /duyurular serbest; dört kural robotsDisallow olarak eklendi. cms-api.tkgm.gov.tr/robots.txt 404 (23.10.2026; ilan PDF ekleri `/media/<n>/view`). Şartlar sayfası bulunamadı (altbilgide \"© 2026 Tapu ve Kadastro Genel Müdürlüğü — Tüm Hakları Saklıdır.\"). Açık yasak görülmedi."
     },
     {
       "sourceKey": "tubitak-duyurular",

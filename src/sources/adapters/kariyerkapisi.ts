@@ -32,6 +32,11 @@ import { describeBrowserFailure, withChromiumPage } from '../browser-session';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
 import { detectNextPage } from '../pagination';
+import { SOURCE_DEFINITIONS, type SourceDefinition } from '../../config/sources';
+import { assessSourceTerms, loadSourceTerms, type SourceTermsLoadResult } from '../terms';
+import { readAnnouncementDetail, type DetailReadResult } from '../detail-reader';
+import { hasBudgetFor } from '../scan-budget';
+import { normalizeUrl } from '../../domain/urls';
 
 export interface KariyerRow {
   sourceItemId: string;
@@ -237,6 +242,51 @@ export function parseKariyerApiRows(
   return { rows, total: list.length, expired };
 }
 const MAX_ITEMS = 40;
+/** Dış ilan gövdesi için yeni bir istek başlatmak üzere gereken asgari kalan bütçe. */
+const MIN_EXTERNAL_BODY_BUDGET_MS = 8_000;
+
+/**
+ * Dış bağlantılı ilanın gövdesi hangi KAYITLI kaynağın kurallarıyla okunabilir?
+ *
+ * Kariyer Kapısı dış ilanı (ilanTipi≠1) kurumun kendi sayfasına/PDF'ine gider; bu
+ * kayıtların Kariyer Kapısı'nda gövdesi yoktur ve sınıflandırma "inceleme"de kalır.
+ * Gövde YALNIZ şu koşullarla okunur (yeni host'a kendiliğinden gidilmez):
+ *  - bağlantının host'u, envanterde etkin ve kullanım şartları `allowed` + taze
+ *    incelenmiş (assessSourceTerms) bir kaynağın `allowedHosts` listesinde;
+ *  - adres o kaynağın liste/ana sayfası ya da site kökü değil (ör. İŞKUR e-Şube arama
+ *    sayfası ilan metni değildir);
+ *  - istek o kaynağın hız sınırı (minRequestIntervalMs), izinli host listesi ve
+ *    robots.txt Disallow kurallarıyla yapılır.
+ * Eşleşme yoksa null: kayıt eskisi gibi gövdesiz (inceleme) kalır.
+ */
+export function externalBodySourceFor(
+  url: string,
+  selfKey: string,
+  terms: SourceTermsLoadResult,
+  definitions: readonly SourceDefinition[] = SOURCE_DEFINITIONS,
+  now: Date = new Date(),
+): SourceDefinition | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:') return null;
+  if (parsed.pathname === '/' || parsed.pathname === '') return null;
+  const host = parsed.hostname.toLowerCase();
+  const normalized = normalizeUrl(url) ?? url;
+  for (const definition of definitions) {
+    if (definition.key === selfKey || !definition.enabled) continue;
+    if (!definition.allowedHosts.some((allowed) => allowed.toLowerCase() === host)) continue;
+    if (!assessSourceTerms(terms.entries.get(definition.key) ?? null, now).allowed) continue;
+    const listing = normalizeUrl(definition.listingUrl) ?? definition.listingUrl;
+    const homepage = normalizeUrl(definition.homepageUrl) ?? definition.homepageUrl;
+    if (normalized === listing || normalized === homepage) return null;
+    return definition;
+  }
+  return null;
+}
 
 function findKariyerNextPage(
   html: string,
@@ -518,6 +568,8 @@ export class KariyerKapisiAdapter implements SourceAdapter {
   /** Test dikişi: sayfaları oluşturan işlev (varsayılan: gerçek Chromium). */
   constructor(
     private readonly renderPagesFn?: (urls: string[], signal?: AbortSignal) => Promise<Map<string, string>>,
+    /** Test dikişi: kullanım şartları (varsayılan: config/source-terms.json). */
+    private readonly sourceTerms?: SourceTermsLoadResult,
   ) {}
 
   readonly key = 'kariyer-kapisi-isealim';
@@ -787,7 +839,31 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     const externalFreshRows = rows.filter(
       (row) => !/IlanDetay\?i=/i.test(row.url) && !knownItemIds.has(row.sourceItemId),
     );
-    const selectedExternalRows = externalFreshRows.slice(
+    // Şartlar dosyası yalnız dış satır varsa okunur.
+    const externalRows = rows.filter((row) => !/IlanDetay\?i=/i.test(row.url) && row.applicationUrl);
+    const terms = externalRows.length > 0 ? (this.sourceTerms ?? loadSourceTerms()) : null;
+    const bodySourceByItemId = new Map<string, SourceDefinition>();
+    if (terms) {
+      for (const row of externalRows) {
+        const definition = externalBodySourceFor(
+          row.applicationUrl ?? '',
+          source.key,
+          terms,
+          SOURCE_DEFINITIONS,
+          ctx.fetchedAt,
+        );
+        if (definition) bodySourceByItemId.set(row.sourceItemId, definition);
+      }
+    }
+    // Daha önce gövdesiz kaydedilmiş, artık gövdesi okunabilen dış ilanlar da yeniden denenir.
+    const externalPendingRows = rows.filter(
+      (row) =>
+        !/IlanDetay\?i=/i.test(row.url) &&
+        knownItemIds.has(row.sourceItemId) &&
+        !knownItemIdsWithDetail.has(row.sourceItemId) &&
+        bodySourceByItemId.has(row.sourceItemId),
+    );
+    const selectedExternalRows = [...externalFreshRows, ...externalPendingRows].slice(
       0,
       Math.max(0, MAX_ITEMS - selectedDetailRows.length),
     );
@@ -815,6 +891,57 @@ export class KariyerKapisiAdapter implements SourceAdapter {
     }
     if (detailByItemId.size > 0) {
       notes.push(`${detailByItemId.size} ilanın detay sayfası da okundu (ilan no/tarihler/metin).`);
+    }
+
+    // 4) Dış bağlantılı ilanların gövdesi: aynı detay bütçesinden (maxDetailFetches),
+    // yalnız kayıtlı ve şartları uygun kurum kaynaklarının kurallarıyla.
+    const externalBodyByItemId = new Map<string, DetailReadResult>();
+    let externalBudget = Math.max(0, ctx.maxDetailFetches - selectedDetailRows.length);
+    let externalSkippedNoSource = 0;
+    let externalDeferred = 0;
+    for (const row of selectedExternalRows) {
+      const definition = bodySourceByItemId.get(row.sourceItemId);
+      if (!definition || !row.applicationUrl) {
+        if (row.applicationUrl) externalSkippedNoSource += 1;
+        continue;
+      }
+      if (externalBudget <= 0 || !hasBudgetFor(ctx, MIN_EXTERNAL_BODY_BUDGET_MS)) {
+        externalDeferred += 1;
+        continue;
+      }
+      externalBudget -= 1;
+      const read = await readAnnouncementDetail(ctx, row.applicationUrl, {
+        allowedHosts: definition.allowedHosts,
+        minIntervalMs: definition.minRequestIntervalMs,
+        ...(definition.robotsDisallow ? { robotsDisallow: definition.robotsDisallow } : {}),
+        titleHint: row.title,
+      });
+      requestCount += read.requests;
+      httpStatuses.push(...read.statuses);
+      notes.push(...read.notes);
+      if (read.failure) {
+        failedDetailFetches += 1;
+        notes.push(
+          `Dış ilan gövdesi okunamadı (${row.applicationUrl}, ${definition.key} kuralları): ${read.failure}`,
+        );
+        continue;
+      }
+      if (!read.bodyText) detailsWithoutUsableText += 1;
+      externalBodyByItemId.set(row.sourceItemId, read);
+    }
+    if (externalBodyByItemId.size > 0) {
+      notes.push(
+        `${externalBodyByItemId.size} dış bağlantılı ilanın gövdesi kurumun kendi sayfasından/belgesinden okundu.`,
+      );
+    }
+    if (externalSkippedNoSource > 0) {
+      notes.push(
+        `${externalSkippedNoSource} dış bağlantılı ilanın adresi şartları incelenmiş kayıtlı bir kaynağa ait değil ` +
+          '(ya da o kaynağın liste/ana sayfası); gövde okunmadı, kayıt incelemede kalır.',
+      );
+    }
+    if (externalDeferred > 0) {
+      notes.push(`${externalDeferred} dış ilan gövdesi detay/zaman bütçesi nedeniyle sonraki taramaya bırakıldı.`);
     }
 
     const items: RawAnnouncement[] = [];
@@ -857,6 +984,21 @@ export class KariyerKapisiAdapter implements SourceAdapter {
         const detailLinks = detailLinksByItemId.get(row.sourceItemId);
         if (detailLinks) item.links = detailLinks;
       }
+      const external = externalBodyByItemId.get(row.sourceItemId);
+      if (external) {
+        if (external.attachments.length > 0) item.attachments = external.attachments;
+        if (external.bodyText) {
+          item.bodyText = external.bodyText;
+          item.bodyTextSource = 'detail';
+          if (external.bodyTextTruncated) item.bodyTextTruncated = true;
+          item.rawExcerpt = external.bodyText.slice(0, 1_200);
+          item.extractionConfidence = 0.7;
+          item.notes = [
+            ...(item.notes ?? []),
+            `Gövde kurumun kendi sayfasından okundu (${bodySourceByItemId.get(row.sourceItemId)?.key ?? 'kurum'} kaynağının kurallarıyla).`,
+          ];
+        }
+      }
       items.push(item);
     }
 
@@ -886,6 +1028,8 @@ export class KariyerKapisiAdapter implements SourceAdapter {
       detailCoverageNotes.push(`${deferredDetails} iç ilan detayı bütçe nedeniyle sonraki taramaya ertelendi.`);
     if (deferredExternalRows > 0)
       detailCoverageNotes.push(`${deferredExternalRows} dış bağlantılı ilan kayıt sınırı nedeniyle sonraki taramaya ertelendi.`);
+    if (externalDeferred > 0)
+      detailCoverageNotes.push(`${externalDeferred} dış ilan gövdesi bütçe nedeniyle sonraki taramaya ertelendi.`);
 
     const finalCoverageStatus = detailCoverageNotes.length > 0 ? 'partial' : coverageStatus;
     const finalCoverageNote = [

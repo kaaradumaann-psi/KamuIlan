@@ -185,8 +185,14 @@ export class JobRepo {
     title: string;
     url: string;
     classificationVersion: string;
+    /** Kararın gerekçesi (açıklamalar); verilmezse kayıt gerekçesiz kalır. */
+    reasons?: readonly string[];
+    /** Karara katılan kural kimlikleri. */
+    rules?: readonly string[];
+    confidence?: number | null;
   }): Promise<SourceItemDecisionDoc> {
     const now = this.clock.now().toISOString();
+    const explanation = decisionExplanation(input);
     const existing = await this.store.findOne('sourceItemDecisions', {
       sourceKey: input.sourceKey,
       sourceItemId: input.sourceItemId,
@@ -200,6 +206,9 @@ export class JobRepo {
           capturedTextStatus: input.capturedTextStatus,
           title: input.title.slice(0, 300),
           classificationVersion: input.classificationVersion,
+          // Gerekçe her kararda güncel kararın gerekçesiyle değiştirilir (eskisi
+          // başka bir kurala ait olabilir); verilmediyse alan kaldırılmaz.
+          ...explanation,
           lastSeenAt: now,
         },
       );
@@ -214,6 +223,7 @@ export class JobRepo {
       title: input.title.slice(0, 300),
       url: input.url,
       classificationVersion: input.classificationVersion,
+      ...explanation,
       firstSeenAt: now,
       lastSeenAt: now,
     };
@@ -469,4 +479,28 @@ export class JobRepo {
   static normalizedTitle(value: string): string {
     return normalizeTr(value);
   }
+}
+
+const MAX_DECISION_REASONS = 20;
+const MAX_DECISION_RULES = 40;
+
+/** Karar gerekçesini şema sınırlarına göre kırpar; boş alanları yazmaz. */
+function decisionExplanation(input: {
+  reasons?: readonly string[];
+  rules?: readonly string[];
+  confidence?: number | null;
+}): Pick<SourceItemDecisionDoc, 'reasons' | 'rules' | 'confidence'> {
+  const out: Pick<SourceItemDecisionDoc, 'reasons' | 'rules' | 'confidence'> = {};
+  const reasons = [...new Set((input.reasons ?? []).map((r) => r.trim()).filter(Boolean))]
+    .slice(0, MAX_DECISION_REASONS)
+    .map((r) => r.slice(0, 500));
+  if (reasons.length > 0) out.reasons = reasons;
+  const rules = [...new Set((input.rules ?? []).map((r) => r.trim()).filter(Boolean))]
+    .slice(0, MAX_DECISION_RULES)
+    .map((r) => r.slice(0, 120));
+  if (rules.length > 0) out.rules = rules;
+  if (typeof input.confidence === 'number' && Number.isFinite(input.confidence)) {
+    out.confidence = Math.min(1, Math.max(0, input.confidence));
+  }
+  return out;
 }

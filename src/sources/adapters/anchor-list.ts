@@ -18,25 +18,25 @@ import {
   loadXml,
   chromeFreeText,
   describePageStructure,
-  readableAnnouncementText,
   readableText,
   stripPageChrome,
 } from '../../lib/html';
 import { browserFallbackEnabled, describeBrowserFailure, withChromiumPage } from '../browser-session';
 import { collapseWhitespace, isSiteChromeTitle, makeExcerpt, normalizeTr } from '../../domain/text';
 import { cleanTitle, parseListingDate, prioritizeByListingTitle } from '../listing-utils';
-import { isOfficialApplicationUrl, normalizeUrl } from '../../domain/urls';
-import { assertSafeUrl, describeFetchFailure, FetchError } from '../fetcher';
-import { budgetedTimeoutMs, hasBudgetFor } from '../scan-budget';
+import { normalizeUrl } from '../../domain/urls';
+import { assertSafeUrl } from '../fetcher';
+import { hasBudgetFor } from '../scan-budget';
 import { detectNextPage } from '../pagination';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 import type { RawAnnouncement } from '../../domain';
+import { readAnnouncementDetail, type DetailReadResult } from '../detail-reader';
+import { toIstanbulDateOnly } from '../../domain/dates';
+import { sha256Hex } from '../../domain/ids';
 
 /** Tarayıcı yedeği zaman sınırları (kariyer-kapısı adaptörüyle aynı mertebede). */
 const BROWSER_PAGE_TIMEOUT_MS = 45_000;
 const BROWSER_SETTLE_MS = 2_500;
-/** Tek detay sayfası için üst sınır (varsayılan SCRAPE_TIMEOUT_MS'ten bilinçli olarak kısa). */
-const DETAIL_TIMEOUT_MS = 20_000;
 /** Yeni bir detay indirmesine başlamak için gereken asgari kalan bütçe. */
 const MIN_DETAIL_BUDGET_MS = 6_000;
 
@@ -157,6 +157,16 @@ function listingDocumentIdentity(value: string): string | null {
   }
 }
 
+/** Doğrulanmış kapsayıcıdaki uzun başlıklar bu uzunlukta kırpılır (tarama belleği sınırı 300). */
+const MAX_TRUSTED_TITLE_CHARS = 280;
+
+function truncateTitle(value: string, max: number): string {
+  if (value.length <= max) return value;
+  const cut = value.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
 function isChromeLikeTitle(value: string): boolean {
   if (normalizeTr(value).length > 180) return true;
   return isSiteChromeTitle(value);
@@ -179,6 +189,26 @@ export interface ListingOverrides {
   listContainer?: string;
   /** Detay bağlantısı deseni (RegExp kaynağı, büyük/küçük harf duyarsız; yol + sorgu üzerinde). */
   pathPattern?: string;
+  /** Liste yıl alt sayfalarına bölünmüş (bkz. `SourceDefinition.listing.yearSubpath`). */
+  yearSubpath?: boolean;
+}
+
+/** Ocak'ın bu gününe kadar önceki yılın sayfası da okunur (yıl dönümünde kayıp olmasın). */
+const YEAR_SUBPATH_GRACE_DAYS = 15;
+
+/**
+ * Yıl alt sayfalı listede okunacak sayfalar: içinde bulunulan yıl, Ocak başında önceki yıl.
+ * Yıl İstanbul saatine göre belirlenir (31 Aralık 23:30 UTC = 1 Ocak İstanbul).
+ */
+export function yearSubpathListingUrls(listingUrl: string, fetchedAt: Date): string[] {
+  const today = toIstanbulDateOnly(fetchedAt);
+  const year = Number(today.slice(0, 4));
+  const base = listingUrl.replace(/\/+$/, '');
+  const urls = [`${base}/${year}`];
+  if (today.slice(5, 7) === '01' && Number(today.slice(8, 10)) <= YEAR_SUBPATH_GRACE_DAYS) {
+    urls.push(`${base}/${year - 1}`);
+  }
+  return urls;
 }
 
 /** Ayrıştırma teşhisi: "neden 0 satır" sorusunun cevabı hata mesajına yazılır. */
@@ -291,6 +321,17 @@ function parseAnchorListPage(
   };
 
   const entries: ListEntry[] = [];
+  /**
+   * Kaynağa özgü, canlı sayfada doğrulanmış kapsayıcı + desen içindeki satırlar menü
+   * değildir: uzun başlık (>180) bu durumda gürültü sayılıp ATILMAZ, kırpılır.
+   * 23.10.2026 EPDK `#AnnouncementList`: 14 duyurudan 2'si yalnız başlık uzunluğu
+   * yüzünden düşüyordu (ör. "Akaryakıt ve LPG Piyasalarında Tüketicilere Yönelik …").
+   */
+  const trustedScope =
+    overrides.listContainer !== undefined &&
+    overrides.pathPattern !== undefined &&
+    scopeSelector === overrides.listContainer &&
+    !rootFallbackUsed;
   const candidateElements = new Set<AnyNode>(candidates.map((candidate) => candidate.element));
   for (const candidate of candidates) {
     const anchorText = elementText($(candidate.element), 400);
@@ -305,8 +346,10 @@ function parseAnchorListPage(
         .toArray()
         .filter((anchor) => candidateElements.has(anchor as AnyNode)).length > 1;
     const rowText = sharedRow ? anchorText : elementText(row, 900) || anchorText;
-    const title = cleanTitle(anchorText.length >= config.minTitleLength ? anchorText : rowText);
-    if (title.length < config.minTitleLength || isChromeLikeTitle(title)) continue;
+    const fullTitle = cleanTitle(anchorText.length >= config.minTitleLength ? anchorText : rowText);
+    const title = trustedScope ? truncateTitle(fullTitle, MAX_TRUSTED_TITLE_CHARS) : fullTitle;
+    if (title.length < config.minTitleLength) continue;
+    if (trustedScope ? isSiteChromeTitle(title) : isChromeLikeTitle(title)) continue;
     entries.push({
       url: candidate.url,
       title,
@@ -335,7 +378,18 @@ export class AnchorListAdapter implements SourceAdapter {
     this.notes = config.notes;
   }
 
-  async run(ctx: AdapterContext): Promise<AdapterRunResult> {
+  async run(adapterCtx: AdapterContext): Promise<AdapterRunResult> {
+    // Yıl alt sayfalı liste: okunan sayfa `<listingUrl>/<yyyy>`; kaynak kaydının
+    // listingUrl'i (yıl dizini) değişmez, yalnız bu koşumun okuma adresi değişir.
+    const yearPages =
+      adapterCtx.source.listing?.yearSubpath === true
+        ? yearSubpathListingUrls(adapterCtx.source.listingUrl, adapterCtx.fetchedAt)
+        : [];
+    const ctx: AdapterContext =
+      yearPages.length > 0
+        ? { ...adapterCtx, source: { ...adapterCtx.source, listingUrl: yearPages[0]! } }
+        : adapterCtx;
+    const extraListingPages = yearPages.slice(1);
     const { source, http, liveFetch } = ctx;
     if (!liveFetch) {
       return {
@@ -511,7 +565,9 @@ export class AnchorListAdapter implements SourceAdapter {
         break;
       }
 
-      if (!parsedPage.nextPageUrl) {
+      // Yıl alt sayfalı listede sayfalama bitince (Ocak başında) önceki yılın sayfası okunur.
+      const nextPageUrl = parsedPage.nextPageUrl ?? extraListingPages.shift() ?? null;
+      if (!nextPageUrl) {
         coverageStatus = parsedPage.paginationEndConfirmed ? 'complete' : 'unknown';
         coverageNote = parsedPage.paginationEndConfirmed
           ? `${visitedPages.size} sayfa gezildi ve kaynak sayfalama denetimi son sayfayı doğruladı.`
@@ -521,7 +577,7 @@ export class AnchorListAdapter implements SourceAdapter {
         break;
       }
 
-      const normalizedNext = normalizeUrl(parsedPage.nextPageUrl) ?? parsedPage.nextPageUrl;
+      const normalizedNext = normalizeUrl(nextPageUrl) ?? nextPageUrl;
       if (visitedPages.has(normalizedNext)) {
         coverageStatus = 'unknown';
         coverageNote = 'Kaynağın sonraki sayfa bağlantısı önceki sayfaya döndü; tam kapsam bilinmiyor.';
@@ -534,7 +590,7 @@ export class AnchorListAdapter implements SourceAdapter {
       }
 
       try {
-        const nextPage = await http.fetchText(parsedPage.nextPageUrl, {
+        const nextPage = await http.fetchText(nextPageUrl, {
           allowedHosts: source.allowedHosts,
           minIntervalMs: source.minRequestIntervalMs,
         });
@@ -545,7 +601,7 @@ export class AnchorListAdapter implements SourceAdapter {
           coverageNote = 'Sonraki sayfa için 304 alındı; o sayfanın satırları bu çalışmada doğrulanamadı.';
           break;
         }
-        currentUrl = parsedPage.nextPageUrl;
+        currentUrl = nextPageUrl;
         currentHtml = nextPage.decoded?.text ?? nextPage.body.toString('utf8');
       } catch (error) {
         if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
@@ -752,6 +808,7 @@ export class AnchorListAdapter implements SourceAdapter {
           detailPagesWithoutText += 1;
           notes.push(`Detay sayfası kullanılabilir ilan metni vermedi (${candidate.url}).`);
         }
+        notes.push(...detail.notes);
       }
       const bodyText = detail?.bodyText ?? (rowText.length > 140 ? rowText.slice(0, 2_000) : null);
       const bodyTextSource = detail?.bodyText ? 'detail' : bodyText ? 'listing' : undefined;
@@ -813,90 +870,29 @@ export class AnchorListAdapter implements SourceAdapter {
     };
   }
 
-  private async readDetail(
-    ctx: AdapterContext,
-    url: string,
-  ): Promise<{
-    bodyText: string | null;
-    bodyTextTruncated: boolean;
-    attachments: RawAnnouncement['attachments'];
-    applicationUrl: string | null;
-    requests: number;
-    statuses: number[];
-    failure: string | null;
-  }> {
-    try {
-      const response = await ctx.http.fetchText(url, {
-        allowedHosts: ctx.source.allowedHosts,
-        minIntervalMs: ctx.source.minRequestIntervalMs,
-        maxBytes: 3_000_000,
-        // Kalan bütçeye sığan bir zaman aşımı: tek yavaş detay sayfası tüm
-        // taramayı düşürmesin (SCRAPE_TIMEOUT_MS varsayılanı tek istek için çok uzun).
-        timeoutMs: budgetedTimeoutMs(ctx, DETAIL_TIMEOUT_MS),
-      });
-      const html = response.decoded?.text ?? response.body.toString('utf8');
-      const $ = loadHtml(html);
-      const text = readableAnnouncementText(
-        $,
-        [
-          'article',
-          'main',
-          '.icerik',
-          '.content',
-          '#content',
-          '#contentBox',
-          '#DeltaPlaceHolderMain',
-          'body',
-        ],
-        100_001,
-      );
-      const truncated = text.length > 100_000;
-      const capturedText = text.slice(0, 100_000);
-      const links = $('a[href]')
-        .toArray()
-        .map((element) => ({
-          text: elementText($(element), 200),
-          url: normalizeUrl($(element).attr('href') ?? '', url),
-        }))
-        .filter((link): link is { text: string; url: string } => link.url !== null);
-
-      const attachments = links
-        .filter((link) => /\.(pdf|docx?)(\?|$)/i.test(link.url))
-        .slice(0, 6)
-        .map((link) => ({
-          url: link.url,
-          label: link.text.slice(0, 160) || 'Belge',
-          kind: (/\.pdf(\?|$)/i.test(link.url) ? 'pdf' : 'doc') as 'pdf' | 'doc',
-        }));
-      const application = links.find((link) => isOfficialApplicationUrl(link.url));
-
-      return {
-        bodyText: capturedText.length > 120 ? capturedText : null,
-        bodyTextTruncated: truncated,
-        attachments,
-        applicationUrl: application?.url ?? null,
-        requests: 1,
-        statuses: [response.status],
-        failure: null,
-      };
-    } catch (error) {
-      if (ctx.signal?.aborted) throw ctx.signal.reason ?? error;
-      return {
-        bodyText: null,
-        bodyTextTruncated: false,
-        attachments: [],
-        applicationUrl: null,
-        requests: 1,
-        statuses: error instanceof FetchError && error.status !== null ? [error.status] : [],
-        failure: describeFetchFailure(error),
-      };
-    }
+  private async readDetail(ctx: AdapterContext, url: string): Promise<DetailReadResult> {
+    return readAnnouncementDetail(ctx, url, {
+      allowedHosts: ctx.source.allowedHosts,
+      minIntervalMs: ctx.source.minRequestIntervalMs,
+    });
   }
 }
 
 function itemIdOf(url: string): string | null {
   try {
     const parsed = new URL(url);
+    // Doğrudan belge bağlantısı (SPK `/data/<24 hane>/SPK … İlan Metni 2026.pdf`): yol sonu
+    // ".pdf" ile bittiği için aşağıdaki kalıp kimlik bulamıyor ve satır SESSİZCE düşüyordu
+    // (23.10.2026: SPK Meslek Personel Yardımcılığı ilan PDF'i). Kimlik, çözülmüş yolun özeti.
+    if (/\.(pdf|docx?)$/i.test(parsed.pathname)) {
+      let decoded = parsed.pathname;
+      try {
+        decoded = decodeURIComponent(parsed.pathname);
+      } catch {
+        // bozuk yüzde kodlaması: ham yol kullanılır
+      }
+      return `belge-${sha256Hex(decoded.normalize('NFC').toLowerCase()).slice(0, 20)}`;
+    }
     const pathname = parsed.pathname.replace(/\/$/, '').replace(/\.(html?|aspx)$/i, '');
     const match = /([a-z0-9-]{6,}|\d{3,})$/i.exec(pathname);
     const tail = match?.[1] ?? null;
