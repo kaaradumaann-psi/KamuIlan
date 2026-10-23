@@ -402,10 +402,17 @@ export class WorkerRuntime {
         const purgedRuns = await this.repos.runs.purgeFinishedOlderThan(
           new Date(now.getTime() - 90 * 24 * 3_600_000).toISOString(),
         );
-        // Ölü mektup kuyruğu: 2 günden eski işler + artık taranmayan (bölge engelli/kapalı)
-        // kaynakların işleri silinir; aksi hâlde sağlık sürekli "degraded" kalırdı.
+        // Ölü mektup kuyruğu: tarama dışı ölü işler 2 gün saklanır + artık taranmayan
+        // (bölge engelli/kapalı) kaynakların işleri silinir; aksi hâlde sağlık sürekli
+        // "degraded" kalırdı.
         const purgedDeadOld = await this.repos.queue.purgeDeadOlderThan(
           new Date(now.getTime() - 2 * 24 * 3_600_000).toISOString(),
+        );
+        // Ölü `source-scrape` işleri ayrıca kısa yaşta (30 dk) süpürülür: zamanlayıcı
+        // taramayı aralıkla yeniden oluşturur, bu yüzden ölü taramayı 2 gün saklamak
+        // sağlığı gereksiz yere "degraded" tutar (bkz. purgeDeadScrapesOlderThan).
+        const purgedDeadScrapes = await this.repos.queue.purgeDeadScrapesOlderThan(
+          new Date(now.getTime() - 30 * 60 * 1_000).toISOString(),
         );
         const gatedKeys = SOURCE_DEFINITIONS.filter(
           (source) => source.accessState === 'region-blocked' || !source.enabled,
@@ -423,6 +430,7 @@ export class WorkerRuntime {
             purgedLlm +
             purgedRuns.deleted +
             purgedDeadOld +
+            purgedDeadScrapes +
             purgedDeadGated,
         };
       }
