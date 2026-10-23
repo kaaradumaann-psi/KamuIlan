@@ -123,6 +123,9 @@ const ISKUR_RECRUITMENT_PATTERN =
 /** "4857 sayılı İş Kanunu kapsamında çalıştırılmak üzere" (işçi statüsünde istihdam). */
 const LABOUR_LAW_EMPLOYMENT_PATTERN = /\b4857\s+sayili\s+is\s+kanunu[\s\S]{0,80}?\bcalistirilmak\s+uzere/;
 
+/** "Açıktan atama/alım … sınav ilanı": kurum dışından yeni personel (olumlu kural VE kanıt kapısı). */
+const ACIKTAN_RECRUITMENT_PATTERN = /\baciktan\b[\s\S]{0,80}?\b(?:atama\w*|atan\w*|alim\w*|alin\w*|sinav\w*)/;
+
 /** Personel alımı ilanı olduğunu gösteren olumlu kanıtlar. */
 export const POSITIVE_RULES: readonly KeywordRule[] = [
   {
@@ -179,7 +182,22 @@ export const POSITIVE_RULES: readonly KeywordRule[] = [
     id: 'pozitif.kariyer-meslek',
     reason: 'Kariyer meslek / uzman yardımcılığı sınav ilanı',
     // "uzman yardımcılığı", "müfettiş yardımcılığı", "denetçi yardımcılığı", "fon uzman yardımcılığı"
-    pattern: /\b(?:uzman|mufettis|denetci|kontrolor|aktor|avukat|stajyer\s+uzman)\s+yardimciligi/,
+    // "SPK Meslek Personel Yardımcılığı Giriş Sınavı" (23.10.2026 canlı: başlık kanıtı sayılmadığı için incelemeye düşüyordu).
+    pattern: /\b(?:uzman|mufettis|denetci|kontrolor|aktor|avukat|stajyer\s+uzman|(?:meslek\s+)?personel)\s+yardimciligi/,
+    weight: 3,
+  },
+  {
+    id: 'pozitif.aciktan-atama',
+    reason: 'Açıktan atama/alım (kurum dışından yeni personel) ifadesi var',
+    // "2026 Yılı Açıktan İcra Müdür ve İcra Müdür Yardımcılığı Sınav İlanı", "açıktan atama yapılacaktır"
+    pattern: ACIKTAN_RECRUITMENT_PATTERN,
+    weight: 3,
+  },
+  {
+    id: 'pozitif.isci-personel-istihdami',
+    reason: 'İşçi/personel istihdamı ifadesi var',
+    // "166 Sürekli İşçi İstihdamı", "sözleşmeli personel istihdam edilecektir"
+    pattern: /\b(?:(?:surekli|gecici|mevsimlik|kamu)\s+)?(?:isci|personel)\w*\s+istihdam\w*/,
     weight: 3,
   },
   {
@@ -312,7 +330,11 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
   {
     id: 'ret-baslik.yargi',
     reason: 'Başlık yargı/icra/tebligat ilanı — personel alımı değil',
-    pattern: /\b(?:iflas\w*|icra\w*|tebligat\w*|ilam\w*|haciz\w*|dava\s+dilekcesi|yargi\s+ilani)/,
+    // `icra` istisnası: "Açıktan İcra Müdür ve İcra Müdür Yardımcılığı Sınav İlanı" /
+    // "İcra Müdür Yardımcılarını Seçme Sınavı" bir kadro alımıdır (23.10.2026 canlı ölçümü:
+    // Kariyer Kapısı + ÖSYM'de reddediliyordu). "İcra Müdürlüğünden: … artırma ilanı" yine düşer.
+    pattern:
+      /\b(?:iflas\w*|icra(?!\s+mudur(?:u|leri)?\s+(?:ve\s+icra\s+mudur(?:u|leri)?\s+)?(?:yardimci\w*|secme\s+sinav\w*|sinav\w*|alim\w*))\w*|tebligat\w*|ilam\w*|haciz\w*|dava\s+dilekcesi|yargi\s+ilani)/,
     weight: 0,
   },
   {
@@ -582,7 +604,7 @@ const RECRUITMENT_EVIDENCE_BASE =
  */
 export const RECRUITMENT_EVIDENCE_PATTERN = new RegExp(
   `${RECRUITMENT_EVIDENCE_BASE.source}|${POSITION_RECRUITMENT_PATTERN.source}` +
-    `|${ISKUR_RECRUITMENT_PATTERN.source}|${LABOUR_LAW_EMPLOYMENT_PATTERN.source}`,
+    `|${ISKUR_RECRUITMENT_PATTERN.source}|${LABOUR_LAW_EMPLOYMENT_PATTERN.source}|${ACIKTAN_RECRUITMENT_PATTERN.source}`,
 );
 
 /**
@@ -641,7 +663,19 @@ export const INTERNAL_PROMOTION_EXCLUDE_PATTERN =
  * "Başvuru Sonuçları" ve sonuç listesine işaret eden "sınava katılma" ifadesi birlikte
  * geçmeli. Genel bir "sonuç" kelimesi süreç sayılmaz.
  */
-export const RESULTS_HEADING_PATTERN = /\bbasvuru\s+sonuclari\b/;
+/**
+ * Resmî ilan metninin GİRİŞ cümlesindeki alım hükmü: "... çalıştırılmak üzere öğretim üyesi
+ * alınacaktır", "... kadrolarına sözleşmeli personel alınacaktır". Resmî Gazete ilanlarında başlık
+ * satırı yoksa başlık bu cümleden türetilir (23.10.2026: Adıyaman/Çankırı Karatekin öğretim üyesi
+ * alımları "başlıkta alım ifadesi yok" diye incelemeye düşüyordu). Yalnızca gövdenin ilk
+ * {@link OFFICIAL_LEAD_WINDOW} karakterine bakılır; "alınacak" (haber dili) değil "alınacaktır"
+ * (resmî hüküm kipi) aranır.
+ */
+export const OFFICIAL_LEAD_RECRUITMENT_PATTERN =
+  /\b(?:ogretim\s+uye\w*|ogretim\s+eleman\w*|ogretim\s+gorevli\w*|arastirma\s+gorevli\w*|personel\w*|memur\w*|isci\w*|uzman\s+yardimci\w*)\s+(?:alinacaktir|istihdam\s+edilecektir)/;
+export const OFFICIAL_LEAD_WINDOW = 500;
+
+export const RESULTS_HEADING_PATTERN =/\bbasvuru\s+sonuclari\b/;
 export const RESULTS_LIST_CUE_PATTERN = /\bsinava\s+katilma\w*/;
 export const RESULTS_HEADING_WINDOW = 500;
 

@@ -29,6 +29,8 @@ import {
   CONCRETE_APPLICATION_EVIDENCE_PATTERN,
   NEWS_GATE_AD_TITLE_PATTERN,
   NEWS_TITLE_MARKERS,
+  OFFICIAL_LEAD_RECRUITMENT_PATTERN,
+  OFFICIAL_LEAD_WINDOW,
   REPORTED_SPEECH_PATTERN,
   PROCESS_BYPASS_RULE_IDS,
   PROCESS_TITLE_CONTEXT_PATTERN,
@@ -346,7 +348,23 @@ function classifyCore(input: ClassificationInput): ClassificationResult {
   const negativeScore = negatives.reduce((total, rule) => total + rule.weight, 0);
   const rawScore = titleScore + bodyScore + categoryScore - negativeScore;
 
-  const matchedRules = [...titlePositives, ...bodyPositives, ...categoryPositive];
+  // Resmî ilanın giriş cümlesindeki alım hükmü, başlık o cümleden TÜRETİLMİŞSE (RG: başlık satırı
+  // yok, başlık = gövdenin ilk cümlesi) başlık kanıtı yerine geçer. Başlık gövdeden bağımsızsa
+  // ("2026 Yılı Ekim Dönemi İşlemleri") kural uygulanmaz; o kayıt incelemede/LLM kapısında kalır.
+  const titleCore = titleText.replace(/[….\s]+$/u, '').slice(0, 60).trim();
+  const titleDerivedFromBody =
+    titleCore.length >= 30 && bodyText.slice(0, OFFICIAL_LEAD_WINDOW).includes(titleCore);
+  const leadRecruitment =
+    titleDerivedFromBody && OFFICIAL_LEAD_RECRUITMENT_PATTERN.test(bodyText.slice(0, OFFICIAL_LEAD_WINDOW))
+    ? [
+        {
+          id: 'pozitif.resmi-giris-cumlesi',
+          reason: 'İlan metninin giriş cümlesi alım hükmü içeriyor ("… alınacaktır")',
+          weight: 0,
+        },
+      ]
+    : [];
+  const matchedRules = [...titlePositives, ...bodyPositives, ...categoryPositive, ...leadRecruitment];
   const { type: employmentType, reason: employmentReason } = detectEmploymentType(titleText, bodyText);
 
   const reasons: string[] = [];
@@ -365,7 +383,12 @@ function classifyCore(input: ClassificationInput): ClassificationResult {
     decision = 'reject';
     confidence = 0.8;
     reasons.push('İlanda personel alım/istihdam ifadesi bulunamadı — iş ilanı değil');
-  } else if (rawScore >= ACCEPT_THRESHOLD && titlePositives.length === 0 && categoryPositive.length === 0) {
+  } else if (
+    rawScore >= ACCEPT_THRESHOLD &&
+    titlePositives.length === 0 &&
+    categoryPositive.length === 0 &&
+    leadRecruitment.length === 0
+  ) {
     // Başlıkta (ve kaynak kategorisinde) personel alımı kanıtı yok: puan yalnızca gövde ifadelerinden
     // geliyor. Haber, duyuru veya kurum sayfası gövdesindeki "başvuru/kontenjan" dili tek başına kabul
     // sebebi değildir; normal ilan listesine girmesin, inceleme kuyruğuna düşsün.

@@ -20,6 +20,7 @@ import { AdapterStructureError } from '../errors';
 import { cleanInstitution, ownCardText } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
 import { extractPdfText } from '../../extraction/pdf';
+import { classify } from '../../classification/engine';
 import { sharedOcrEngine } from '../../extraction/ocr';
 import { getEnv } from '../../config/env';
 import { join } from 'node:path';
@@ -198,6 +199,20 @@ class PlaywrightSectionBrowser implements SectionBrowser {
       close: () => session.close(),
     };
   }
+}
+
+/**
+ * Metin katmanının başı ("Kurum …ndan: İHALELERE KATILMAKTAN YASAKLAMA KARARI") başlık düzeyinde
+ * kesin ret mi? Öyleyse belge OCR'a sokulmaz: sonuç değişmez, koşu başı OCR bütçesi
+ * (OCR_MAX_DOCS_PER_RUN) gerçek ilanlara kalır. 23.10.2026 canlı ölçümü: 25 belgenin 9'u kısa metinli
+ * ihale yasağı kararıydı; bütçe (3) bunlarla dolduğu için taranmış "SÖZLEŞMELİ PERSONEL ALIM İLANI"
+ * OCR'sız kalıp incelemeye düşüyordu (aynı belge yerelde OCR ile güven 92'yle okunuyor).
+ */
+export function textLayerTitleRejected(textLayer: string): boolean {
+  const head = collapseWhitespace(textLayer).slice(0, 250);
+  if (!head) return false;
+  const result = classify({ title: head, body: '' });
+  return result.decision === 'reject' && result.rules.some((rule) => rule.startsWith('ret-baslik.'));
 }
 
 /** Günün "Çeşitli İlânlar" bölüm sayfasının adresi (adaptörün ve probe'un ortak kaynağı). */
@@ -549,7 +564,14 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               maxPages: 16,
               maxChars: 60_000,
               ...(ocrAllowed && ocrEngine
-                ? { ocr: { engine: await ocrEngine, minConfidence: env.OCR_MIN_CONFIDENCE, maxPages: env.OCR_MAX_PAGES } }
+                ? {
+                    ocr: {
+                      engine: await ocrEngine,
+                      minConfidence: env.OCR_MIN_CONFIDENCE,
+                      maxPages: env.OCR_MAX_PAGES,
+                      when: (textLayer: string) => !textLayerTitleRejected(textLayer),
+                    },
+                  }
                 : {}),
             });
             if (pdf.ocr) ocrDocs += 1;
