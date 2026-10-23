@@ -290,42 +290,34 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     group: 'ulusal',
     sourceType: 'official-portal',
     institution: 'T.C. Cumhurbaşkanlığı (Kariyer Kapısı)',
-    listingUrl: 'https://kariyerkapisi.gov.tr/isealim',
+    listingUrl: 'https://kariyerkapisi.gov.tr/RSS',
     homepageUrl: 'https://kariyerkapisi.gov.tr/',
-    adapterKey: 'kariyer-kapisi-isealim',
+    adapterKey: 'kariyer-kapisi-rss',
     method: 'html-list',
     status: 'verified',
     statusNote:
-      'Liste (#pnlIlanlar) sunucu tarafında üretilir: önce düz HTTP denenir; canlıda HTTP 200 dönmesine ' +
-      'rağmen satır gelmedi (alınan sayfanın başlığı tanı için notlara yazılıyor), tarayıcı yolu (Playwright + ' +
-      'Chromium) listenin tamamını okur — 5. koşumda 27 satırın tümü, dış "İlana Git" başvuruları dahil. ' +
-      'Detayda kararlı öğe kimliklerinden ilan numarası (ILN...), tür, başvuru tarihleri, kontenjan ve ' +
-      "e-Devlet başvuru adresi okunur (13.10.2026, gerçek sayfa HTML'i ile doğrulandı). Detay bütçesi " +
-      'önce daha önce görülmemiş ilanlara harcanır.',
-    lastVerifiedAt: '2026-10-22',
+      'İlan API\'si (api.kariyerkapisi.gov.tr) sunucumuzun yurt dışı IP\'sini bölge düzeyinde engelliyor; ' +
+      'bu yüzden kurumun RESMÎ RSS akışı (/RSS) okunur — taklit/başlık hilesi gerektirmez, sunucudan 200 döner. ' +
+      'Akış başlık, kategori (İşçi/Memur/Akademik), kurum, yayım tarihi ve başvuru bağlantısını verir; ' +
+      'detay sayfası istemci tarafı (SPA) olduğundan son başvuru/kontenjan alınamaz (boş kalır). ' +
+      'Akış son ~30 ilanı taşır; API erişimi/izni gelirse adaptör API yoluna dönebilir.',
+    lastVerifiedAt: '2026-10-23',
     verificationEvidence:
-      '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): Liste resmî anonim JSON ucundan (api.kariyerkapisi.gov.tr/api/ilan/GetIseAlimPage) okundu: 32 aktif ilan; detay GetIlanPreviewPublic ile ILN no/tarih/metin alındı. Chromium gerekmez. ' +
-      "13.10.2026: liste ve detay sayfalarının gerçek HTML'i kullanıcıdan alındı; satır/detay yapısı " +
-      'birim testlerine fikstür olarak işlendi (tests/sources.test.ts). Canlı koşumda henüz kayıt üretilmedi ' +
-      '(3. koşum: ok, 0 kayıt — eski tablo varsayımı); yeniden yazım sonrası koşum bekleniyor. ' +
-      '4. koşum (13.10.2026, yeniden yazım öncesi kod): tarayıcı ile 23 kayıt üretildi; gönderilen sayfa ' +
-      'HTML\'iyle karşılaştırınca 4 dış "İlana Git" satırının eksik olduğu görüldü — eksik, yeniden yazımla ' +
-      'kapatıldı. 5. koşum (13.10.2026, yeni kod): 27 kaydın tamamı üretildi (23 iç detay bağlantısı + 4 dış ' +
-      'başvuru); liste tarayıcı ile okundu, detaylardan ilan numarası/tarihler/metin alındı.',
+      '23.10.2026 canlı deneme (kimlikli UA KamuIlan/0.1, ≥3 sn aralık, TLS doğrulaması açık): ' +
+      'Oracle Frankfurt sunucusundan https://kariyerkapisi.gov.tr/RSS → HTTP 200, 30 gerçek ilan öğesi ' +
+      '(guid/link = IlanDetay?i=<guid>, category, title, pubDate). api.kariyerkapisi.gov.tr aynı ortamdan ' +
+      'TCP düzeyinde düşürülüyor (bölge engeli) — bu yüzden API yerine resmî RSS akışı kullanıldı. ' +
+      'Detay sayfası (IlanDetay) 200 döner ama SPA olduğundan son başvuru/kontenjan içermez.',
     coverageNote:
-      'Kurumların merkezî başvuru ekranı. Dış "İlana Git" satırları kurumun kendi başvuru sayfasına gider; ' +
-      'iç detaylarda resmî başvuru adresi e-Devlet bağlantısıdır.',
+      'Kurumların merkezî başvuru ekranı (RSS akışı). Başlık + kategori + kurum + yayım tarihi + başvuru ' +
+      'bağlantısı alınır; son başvuru/kontenjan akışta yoktur. Akış son ~30 ilanla sınırlıdır.',
     enabled: true,
-    // api.kariyerkapisi.gov.tr sunucumuzun yurt dışı IP'sini (Oracle Frankfurt) TCP
-    // düzeyinde düşürüyor; PC'den (TR) 200. Bilinçli bölge engeli → resmî erişim izni
-    // beklenir (BİK/CBİDDO başvurusu). İzin/IP beyazlistesi gelince bu alan kaldırılır.
-    // (23.10.2026: Cloudflare Worker yolu da denendi; yürütme TR'ye sabitlenemedi.)
-    accessState: 'region-blocked',
     intervalMinutes: 60,
     minRequestIntervalMs: 3000,
     maxConcurrency: 1,
-    allowedHosts: ['kariyerkapisi.gov.tr', 'www.kariyerkapisi.gov.tr', 'api.kariyerkapisi.gov.tr'],
-    tags: ['cekirdek', 'tarayici', 'playwright'],
+    conditionalRequests: true,
+    allowedHosts: ['kariyerkapisi.gov.tr', 'www.kariyerkapisi.gov.tr'],
+    tags: ['cekirdek', 'rss'],
   },
   {
     key: 'meb-personel-duyurular',
@@ -372,8 +364,14 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       '22.10.2026 canlı deneme (kimlikli UA, ≥2 sn aralık, robots uyumlu, TLS doğrulaması açık): ul#nav2 zaman çizelgesinden 101 ilan okundu; sayfanın "101 ilan" sayacıyla eşleşti (kapsam tam). Önceki kod ?kod= sorgusunu atıp 101 ilanı 1\'e indiriyordu. ' +
       '13.10.2026 canlı doğrulama koşumunda (kullanıcı ağı, npm run test:live) gerçek tarama çalıştı: 4 ham kayıt döndü (iş ilanı olmayanlar sınıflandırma hattında elenir).',
     coverageNote:
-      'Memur, sözleşmeli, işçi ve akademik ilanları kurum ayrımı olmadan listeleyen en geniş merkezî kaynak.',
+      'Memur, sözleşmeli, işçi ve akademik ilanları kurum ayrımı olmadan listeleyen en geniş merkezî kaynak. ' +
+      'Kapsamı büyük ölçüde Kariyer Kapısı (RSS) + Resmî Gazete ile örtüşür (SBB kendisi bir toplayıcı).',
     enabled: true,
+    // kamuilan.sbb.gov.tr sunucumuzun yurt dışı IP'sine açık "Geographic Restriction"
+    // 403 döndürüyor (bilinçli bölge engeli; PC'den TR 200). RSS/sitemap ya da
+    // erişilebilir alternatif host yok. Kapsam KK RSS + RG ile karşılandığından
+    // ayrı akış önerilmez; erişim/izin gelince bu alan kaldırılır. (Araştırma 23.10.2026)
+    accessState: 'region-blocked',
     intervalMinutes: 120,
     minRequestIntervalMs: 3000,
     maxConcurrency: 1,

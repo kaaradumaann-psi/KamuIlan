@@ -1380,8 +1380,32 @@ describe('Kariyer Kapısı tarama akışı (run)', () => {
     <a id="href_BasvuruLinki" href="https://www.turkiye.gov.tr/ornek-kariyer-kapisi-kamu-ise-alim">BAŞVUR</a>
   </body></html>`;
 
-  const kariyerSource = () =>
-    SOURCE_DEFINITIONS.find((entry) => entry.adapterKey === 'kariyer-kapisi-isealim');
+  // Kaynak artık resmî RSS akışını kullanıyor (API bölge engelli). Eski HTTP/API
+  // adaptörü (KariyerKapisiAdapter), API erişimi/izni gelirse diye kayıtlı kalıyor;
+  // bu akış testleri onu sentetik bir kaynak tanımıyla çalıştırır.
+  const kariyerSource = (): SourceDefinition =>
+    ({
+      key: 'kariyerkapisi-isealim',
+      name: 'Kariyer Kapısı — Kamu İşe Alım (eski API yolu)',
+      group: 'ulusal',
+      sourceType: 'official-portal',
+      institution: 'T.C. Cumhurbaşkanlığı (Kariyer Kapısı)',
+      listingUrl: 'https://kariyerkapisi.gov.tr/isealim',
+      homepageUrl: 'https://kariyerkapisi.gov.tr/',
+      adapterKey: 'kariyer-kapisi-isealim',
+      method: 'html-list',
+      status: 'verified',
+      statusNote: '',
+      lastVerifiedAt: '2026-10-13',
+      verificationEvidence: '',
+      coverageNote: '',
+      enabled: true,
+      intervalMinutes: 60,
+      minRequestIntervalMs: 1,
+      maxConcurrency: 1,
+      allowedHosts: ['kariyerkapisi.gov.tr', 'www.kariyerkapisi.gov.tr', 'api.kariyerkapisi.gov.tr'],
+      tags: ['cekirdek'],
+    }) as SourceDefinition;
 
   it('HTTP listesi doluysa detayları birleştirir; dış satır detay beklemez', async () => {
     const { KariyerKapisiAdapter } = await import('../src/sources/adapters/kariyerkapisi');
