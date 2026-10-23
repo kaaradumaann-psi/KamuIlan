@@ -15,6 +15,8 @@ import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { request, Agent, MockAgent, type Dispatcher } from 'undici';
 import { request as nodeHttpRequest, type IncomingMessage } from 'node:http';
 import { request as nodeHttpsRequest } from 'node:https';
+import { execFile } from 'node:child_process';
+import { Readable } from 'node:stream';
 import {
   loadCaStore as tlsLoadCaStore,
   systemCaStoreAvailable as tlsTrustStoreAvailable,
@@ -26,7 +28,7 @@ import { isIP } from 'node:net';
 import { decodeBody, type DecodedBody } from '../lib/encoding';
 import { getEnv } from '../config/env';
 import { createLogger, type Logger } from '../lib/logger';
-import { createPublicOnlyLookup } from './network-safety';
+import { createPublicOnlyLookup, resolvePublicAddresses } from './network-safety';
 import { shouldBlockExternalHttpInTest } from '../lib/offline-network';
 import {
   completeCertificateChain,
@@ -295,6 +297,89 @@ export function lenientHttpDispatch(rawUrl: string, init: LenientDispatchInit): 
   });
 }
 
+/**
+ * SON ÇARE aktarım: bozuk yanıt başlığı (geçersiz başlık ADI gibi) Node'un
+ * hoşgörülü ayrıştırıcısının bile reddettiği türdense, sistem `curl`'ü çalıştırır.
+ * curl standart dışı HTTP yanıtlarını (özellikle eski ASP.NET/IIS kamu sunucuları)
+ * tolere eder. Yalnızca `malformed-response` sınıfında, undici ve node:https
+ * başarısız olduktan sonra çağrılır.
+ *
+ * Güvenlik: TLS doğrulaması AÇIK (curl varsayılanı; `-k` KULLANILMAZ). SSRF'e karşı
+ * host önce `resolvePublicAddresses` ile yalnız genel yönlendirilebilir bir IP'ye
+ * çözülür ve `--resolve` ile o IP'ye sabitlenir (curl'ün kendi çözümü DNS rebinding'e
+ * açık olmasın); TLS, orijinal ana bilgisayar adıyla doğrulanır. Kimlik (User-Agent)
+ * ve başlıklar aynen taşınır. Yönlendirme TAKİP EDİLMEZ (`-L` yok): 3xx yanıtı üst
+ * katmana döner ve mevcut elle yönlendirme + allowlist mantığı işler.
+ */
+export async function curlHttpDispatch(rawUrl: string, init: LenientDispatchInit): Promise<DispatchResponseLike> {
+  const url = new URL(rawUrl);
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  // Host'u güvenli bir genel IP'ye çöz ve sabitle (SSRF/DNS-rebinding koruması).
+  const addresses = await resolvePublicAddresses(url.hostname);
+  if (addresses.length === 0) {
+    throw new FetchError(rawUrl, 'curl yedeği: ana bilgisayar genel bir adrese çözülemedi.', null, false);
+  }
+  const pinnedIp = addresses[0]!.address;
+  const timeoutSecs = Math.max(1, Math.ceil(init.timeoutMs / 1000));
+  const args = [
+    '-sS',
+    '--http1.1',
+    '--max-time',
+    String(timeoutSecs),
+    '--resolve',
+    `${url.hostname}:${port}:${pinnedIp}`,
+    '-i', // yanıt başlıklarını gövdeyle birlikte stdout'a yaz (elle ayrıştırılır)
+    '-X',
+    init.method,
+  ];
+  for (const [key, value] of Object.entries(init.headers)) {
+    if (value !== undefined) args.push('-H', `${key}: ${value}`);
+  }
+  if (init.body !== undefined) args.push('--data-binary', init.body);
+  args.push('--', rawUrl);
+
+  const raw = await new Promise<Buffer>((resolve, reject) => {
+    const child = execFile(
+      'curl',
+      args,
+      { encoding: 'buffer', maxBuffer: (getEnv().MAX_DOCUMENT_BYTES ?? 10_000_000) + 1_000_000, signal: init.signal },
+      (error, stdout) => {
+        if (error && (stdout === undefined || (stdout as Buffer).length === 0)) {
+          reject(new FetchError(rawUrl, `curl yedeği başarısız: ${error.message}`, null, true));
+          return;
+        }
+        resolve(stdout as Buffer);
+      },
+    );
+    child.on('error', (error) => reject(new FetchError(rawUrl, `curl çalıştırılamadı: ${error.message}`, null, false)));
+  });
+
+  // `-i` çıktısı: durum satırı + başlıklar + boş satır + gövde. İlk başlık bloğunu ayır.
+  const sep = raw.indexOf('\r\n\r\n');
+  const headerBlock = (sep >= 0 ? raw.subarray(0, sep) : raw).toString('latin1');
+  const bodyBuffer = sep >= 0 ? raw.subarray(sep + 4) : Buffer.alloc(0);
+  const lines = headerBlock.split('\r\n');
+  const statusLine = lines.shift() ?? '';
+  const statusCode = Number(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(statusLine)?.[1] ?? 0);
+  if (statusCode === 0) {
+    throw new FetchError(rawUrl, 'curl yedeği: yanıt durum satırı çözümlenemedi.', null, false);
+  }
+  const headers: Record<string, string | string[] | undefined> = {};
+  for (const line of lines) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    const name = line.slice(0, idx).trim().toLowerCase();
+    const value = line.slice(idx + 1).trim();
+    const existing = headers[name];
+    if (existing === undefined) headers[name] = value;
+    else if (Array.isArray(existing)) existing.push(value);
+    else headers[name] = [existing, value];
+  }
+  const body = Readable.from(bodyBuffer) as unknown as DispatchResponseLike['body'];
+  body.dump = async () => undefined;
+  return { statusCode, headers, body };
+}
+
 const PRIVATE_HOST_PATTERNS: readonly RegExp[] = [
   /^localhost$/i,
   /^127\./,
@@ -416,6 +501,8 @@ export interface HttpClientOptions {
    * kullanılır. Testlerde MockAgent gerçek ağa çıkamadığı için enjekte edilir.
    */
   lenientDispatch?: LenientDispatch;
+  /** Son çare curl aktarımı (test enjeksiyonu; üretimde curlHttpDispatch). */
+  curlDispatch?: LenientDispatch;
   /** Tarama istemcileri arasında host hız sınırını paylaşmak için. */
   rateLimiter?: HostRateLimiter;
   /** İsteğe bağlı toplam HTTP attempt sınırı; redirect/retry dahil. */
@@ -574,6 +661,9 @@ export class HttpClient {
   private readonly effectiveCa: readonly string[] | undefined;
   /** RFC dışı yanıt için hoşgörülü yedek aktarım (node:http/https, insecureHTTPParser). */
   private readonly lenientDispatch: LenientDispatch;
+  private readonly curlDispatch: LenientDispatch;
+  private readonly curlDispatchInjected: boolean;
+  private curlFallbackCount = 0;
   /** Yedek aktarım açıkça enjekte edildi mi? (MockAgent testlerinde yanlışlıkla ağa çıkmayı önler.) */
   private readonly lenientDispatchInjected: boolean;
   /** Birleşik güven deposu (Node + sistem + NODE_EXTRA_CA_CERTS) PEM listesi. */
@@ -635,6 +725,8 @@ export class HttpClient {
     this.agent = options.dispatcher ?? this.createAgent(agentCaInput);
     this.lenientDispatch = options.lenientDispatch ?? lenientHttpDispatch;
     this.lenientDispatchInjected = options.lenientDispatch !== undefined;
+    this.curlDispatch = options.curlDispatch ?? curlHttpDispatch;
+    this.curlDispatchInjected = options.curlDispatch !== undefined;
   }
 
   get requestsMade(): number {
@@ -658,6 +750,11 @@ export class HttpClient {
   /** RFC dışı yanıt nedeniyle hoşgörülü yedek aktarıma düşülen istek sayısı (telemetri). */
   get malformedHeaderFallbacks(): number {
     return this.malformedFallbackCount;
+  }
+
+  /** Hoşgörülü ayrıştırıcı da başarısız olunca son çare curl'e düşülen istek sayısı. */
+  get curlFallbacks(): number {
+    return this.curlFallbackCount;
   }
 
   get remainingRequestBudget(): number | null {
@@ -953,14 +1050,33 @@ export class HttpClient {
           { url: currentUrl, error: describeFetchFailure(error) },
           'RFC dışı yanıt başlığı; hoşgörülü ayrıştırıcı (node:https, insecureHTTPParser) ile tek sefer yeniden deneniyor (TLS ve kimlik korunur)',
         );
-        response = await this.lenientDispatch(currentUrl, {
+        const lenientInit = {
           method,
           headers: requestHeaders,
           ...(requestBody !== undefined ? { body: requestBody } : {}),
           timeoutMs: options.timeoutMs,
           ...(this.effectiveCa ? { ca: this.effectiveCa } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
-        });
+        };
+        try {
+          response = await this.lenientDispatch(currentUrl, lenientInit);
+        } catch (lenientError) {
+          // Hoşgörülü ayrıştırıcı da bozuk yanıtı çözemedi (ör. geçersiz başlık ADI):
+          // son çare curl. MockAgent testinde curl enjekte edilmediyse gerçek süreç
+          // başlatmamak için atlanır; başka bir hata sınıfıysa olduğu gibi fırlatılır.
+          if (
+            !isMalformedResponseError(lenientError) ||
+            (this.isMockDispatcher && !this.curlDispatchInjected)
+          ) {
+            throw lenientError;
+          }
+          this.curlFallbackCount += 1;
+          this.logger.warn(
+            { url: currentUrl, error: describeFetchFailure(lenientError) },
+            'hoşgörülü ayrıştırıcı da bozuk yanıtı çözemedi; son çare curl ile (TLS doğrulaması açık, host genel IP\'ye sabitlenir, kimlik korunur)',
+          );
+          response = await this.curlDispatch(currentUrl, lenientInit);
+        }
       }
 
       const status = response.statusCode;

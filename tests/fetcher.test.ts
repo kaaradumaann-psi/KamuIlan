@@ -686,6 +686,108 @@ describe('HttpClient RFC dışı yanıt yedek aktarımı', () => {
     expect((caught as Error).message).toContain('Olası neden:');
     expect((caught as Error).message).toContain('geçersiz başlık belirteci');
   });
+
+  it('undici VE hoşgörülü ayrıştırıcı bozuksa son çare curl ile başarır; kimlik (UA) korunur', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/bddk.htm', method: 'GET' })
+      .replyWithError(malformedHeaderError());
+    const lenient: LenientDispatch = async () => {
+      // Geçersiz başlık ADI gibi: insecureHTTPParser bile çözemez.
+      throw malformedHeaderError();
+    };
+    let curlCaptured: { url: string; init: LenientDispatchInit } | null = null;
+    const curl: LenientDispatch = async (url, init) => {
+      curlCaptured = { url, init };
+      return lenientResponseStub('<html><body>BDDK curl ile</body></html>');
+    };
+    agents.push(mock);
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async () => undefined,
+      dispatcher: mock,
+      rateLimiter: new HostRateLimiter(),
+      userAgent: 'KamuIlanBot/9 (+kimlik)',
+      lenientDispatch: lenient,
+      curlDispatch: curl,
+    });
+    clients.push(client);
+
+    const response = await client.fetchText(`${ORIGIN}/bddk.htm`, { allowedHosts: ALLOWED, retries: 0 });
+    expect(response.status).toBe(200);
+    expect(response.decoded?.text).toContain('BDDK curl ile');
+    expect(client.curlFallbacks).toBe(1);
+    expect(curlCaptured).not.toBeNull();
+    expect(curlCaptured!.init.headers['user-agent']).toBe('KamuIlanBot/9 (+kimlik)');
+    // TLS güveni zayıflatan bir alan curl init'ine de sızmaz.
+    expect(Object.keys(curlCaptured!.init)).not.toContain('rejectUnauthorized');
+  });
+
+  it('hoşgörülü yedek gerçek zaman aşımı atarsa curl SON ÇAREsine düşülmez', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/bddk.htm', method: 'GET' })
+      .replyWithError(malformedHeaderError());
+    const lenient: LenientDispatch = async () => {
+      throw Object.assign(new Error('timeout'), { code: 'UND_ERR_CONNECT_TIMEOUT' });
+    };
+    let curlCalled = false;
+    const curl: LenientDispatch = async () => {
+      curlCalled = true;
+      return lenientResponseStub('<html>olmamalı</html>');
+    };
+    agents.push(mock);
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async () => undefined,
+      dispatcher: mock,
+      rateLimiter: new HostRateLimiter(),
+      lenientDispatch: lenient,
+      curlDispatch: curl,
+    });
+    clients.push(client);
+
+    await expect(client.fetchText(`${ORIGIN}/bddk.htm`, { allowedHosts: ALLOWED, retries: 0 })).rejects.toBeInstanceOf(
+      FetchError,
+    );
+    expect(curlCalled).toBe(false);
+    expect(client.curlFallbacks).toBe(0);
+  });
+
+  it('hoşgörülü yedek başarılıysa curl SON ÇAREsi çağrılmaz', async () => {
+    const mock = new MockAgent();
+    mock.disableNetConnect();
+    mock
+      .get(ORIGIN)
+      .intercept({ path: '/bddk.htm', method: 'GET' })
+      .replyWithError(malformedHeaderError());
+    const lenient: LenientDispatch = async () => lenientResponseStub('<html>lenient ok</html>');
+    let curlCalled = false;
+    const curl: LenientDispatch = async () => {
+      curlCalled = true;
+      return lenientResponseStub('<html>olmamalı</html>');
+    };
+    agents.push(mock);
+    const client = new HttpClient({
+      logger: silentLogger,
+      sleep: async () => undefined,
+      dispatcher: mock,
+      rateLimiter: new HostRateLimiter(),
+      lenientDispatch: lenient,
+      curlDispatch: curl,
+    });
+    clients.push(client);
+
+    const response = await client.fetchText(`${ORIGIN}/bddk.htm`, { allowedHosts: ALLOWED, retries: 0 });
+    expect(response.decoded?.text).toContain('lenient ok');
+    expect(curlCalled).toBe(false);
+    expect(client.malformedHeaderFallbacks).toBe(1);
+    expect(client.curlFallbacks).toBe(0);
+  });
 });
 
 describe('lenientHttpDispatch (gerçek yerel sunucu)', () => {
