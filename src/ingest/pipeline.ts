@@ -357,6 +357,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         fetchedAt: now,
         knownItemIds,
         knownItemIdsWithDetail,
+        adapterState: source.adapterState ?? null,
         maxDetailFetches:
           options.maxDetailFetches === undefined
             ? detailFetchBudget(source.method)
@@ -432,6 +433,12 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
             'ilan işlenemedi',
           );
         }
+      }
+
+      // Adaptör durumu (ör. RG geriye dönük tarama ilerlemesi) yalnız tüm ilanlar hatasız
+      // işlendiyse yazılır: aksi hâlde "işlendi" sayılan gün kaybolan kayıt bırakabilirdi.
+      if (runResult.adapterState !== undefined && totals.errors.length === 0) {
+        await repos.sources.update(source.key, { adapterState: runResult.adapterState });
       }
 
       if (!contentUnchanged) {

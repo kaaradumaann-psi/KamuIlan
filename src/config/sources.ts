@@ -349,28 +349,37 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     key: 'iskur-esube-acik-is',
-    name: 'İŞKUR e-Şube — Açık İş İlanları',
+    name: 'İŞKUR e-Şube — Kamu Açık İş İlanları',
     group: 'ulusal',
     sourceType: 'institution-page',
     institution: 'Türkiye İş Kurumu (İŞKUR)',
     listingUrl: 'https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx',
     homepageUrl: 'https://esube.iskur.gov.tr/',
-    adapterKey: 'manual-entry',
-    method: 'manual-entry',
-    status: 'needs-manual-method',
+    adapterKey: 'iskur-esube-kamu',
+    method: 'html-list',
+    status: 'verified',
     statusNote:
-      'Arama ekranı ASP.NET postback + oturum (viewstate) ile çalışır. Otomatik toplama kaynağın kullanım koşullarını zorlayacağı için KAPALI tutulur ve ilanlar manuel eklenir; sistem bunu kapsam raporunda açıkça gösterir.',
-    lastVerifiedAt: VERIFIED_AT,
+      'Arama ekranı ASP.NET postback + viewstate ile çalışır; form "Kamu" işyeri türüyle gönderilir, sonuçlar ' +
+      '"Sonraki Sayfa" postback ile en fazla 30 sayfa izlenir, ayrıntı girişsiz açılan ilan sayfasından okunur. ' +
+      'CAPTCHA/oturum zorunluluğu çıkarsa tarama durur (atlatma yok). Site sahibi onayı: 23.10.2026.',
+    lastVerifiedAt: '2026-10-23',
     verificationEvidence:
-      'Ekran incelendi: filtreler postback ile gönderiliyor, oturum/viewstate gerekiyor. CAPTCHA/erişim kontrolü aşılmaz.',
+      '23.10.2026 canlı deneme (kimlikli UA, istekler arası ≥5 sn, robots uyumlu): robots.txt yalnız ' +
+      '"Disallow: /Meslek/ViewMeslekDetayPopUp.aspx/". Arama formu kamuRadio ile gönderildi: "Toplam Kayıt: 90", ' +
+      '6 sonuç sayfası (15 satır/sayfa); 1→2→3. sayfa btnNext postback ile farklı ilan numaraları geldi. ' +
+      'Detay (AcikIsIlanDetay.aspx?uiID=…) girişsiz açıldı: genel hususlar, özel şartlar, meslek ve öğrenim ' +
+      'bölümleri okundu. CAPTCHA ya da kullanım şartı metni görülmedi.',
     coverageNote:
-      'Kamu işçisi ilanlarının bir bölümü. Kapsam İŞKUR ilan listeleri ve Resmî Gazete üzerinden dolaylı sağlanır; bu kaynak manuel girişle beslenir.',
-    enabled: false,
-    intervalMinutes: 360,
+      'İŞKUR aracılığıyla kamu kurumlarının açtığı işçi talepleri (çoğu kuralı). Her İŞKUR ilan numarası ' +
+      '(il il açılan talepler dahil) kendi il/kontenjan/son başvurusuyla ayrı ilandır.',
+    enabled: true,
+    intervalMinutes: 150,
     minRequestIntervalMs: 5000,
     maxConcurrency: 1,
     allowedHosts: ['esube.iskur.gov.tr'],
-    tags: ['manuel', 'erisim-kisitli'],
+    // robots.txt (23.10.2026, User-agent *): yalnız meslek açıklaması açılır penceresi yasak.
+    robotsDisallow: ['/Meslek/ViewMeslekDetayPopUp.aspx/'],
+    tags: ['cekirdek', 'isci', 'html', 'postback'],
   },
 
   {

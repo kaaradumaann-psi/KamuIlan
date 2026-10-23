@@ -56,6 +56,11 @@ export interface FetchOptions {
   method?: 'GET' | 'HEAD' | 'POST';
   /** POST gövdesi (JSON API'ler için); content-type otomatik ayarlanır. */
   jsonBody?: unknown;
+  /**
+   * POST gövdesi (application/x-www-form-urlencoded; ASP.NET postback formları için).
+   * `jsonBody` ile birlikte verilemez.
+   */
+  formBody?: string;
 }
 
 export interface FetchResponse {
@@ -689,14 +694,24 @@ export class HttpClient {
     let currentUrl = assertSafeUrl(rawUrl, options.allowedHosts ?? []).toString();
     let method: 'GET' | 'HEAD' | 'POST' = options.method ?? 'GET';
     let requestBody: string | undefined =
-      options.jsonBody !== undefined ? JSON.stringify(options.jsonBody) : undefined;
+      options.jsonBody !== undefined
+        ? JSON.stringify(options.jsonBody)
+        : options.formBody !== undefined
+          ? options.formBody
+          : undefined;
+    const requestContentType =
+      options.jsonBody !== undefined
+        ? 'application/json; charset=utf-8'
+        : options.formBody !== undefined
+          ? 'application/x-www-form-urlencoded; charset=utf-8'
+          : null;
     const requestHeaders: Record<string, string> = {
       'user-agent': this.userAgent,
       accept: options.accept ?? 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'accept-language': 'tr-TR,tr;q=0.9,en;q=0.5',
       ...(options.etag ? { 'if-none-match': options.etag } : {}),
       ...(options.lastModified ? { 'if-modified-since': options.lastModified } : {}),
-      ...(requestBody !== undefined ? { 'content-type': 'application/json; charset=utf-8' } : {}),
+      ...(requestBody !== undefined && requestContentType ? { 'content-type': requestContentType } : {}),
       ...(options.headers ?? {}),
     };
 
@@ -845,7 +860,9 @@ function normalizeHeaders(headers: Record<string, string | string[] | undefined>
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (value === undefined) continue;
-    out[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : value;
+    // Set-Cookie değerleri virgül içerebilir (Expires); satır sonuyla birleştirilir ki ayrıştırılabilsin.
+    const separator = key.toLowerCase() === 'set-cookie' ? '\n' : ', ';
+    out[key.toLowerCase()] = Array.isArray(value) ? value.join(separator) : value;
   }
   return out;
 }

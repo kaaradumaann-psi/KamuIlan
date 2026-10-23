@@ -36,6 +36,8 @@ describe('kaynak erişim şartları kapısı', () => {
       'osym-duyurular': 'allowed',
       'iskur-kamu-memur-alim': 'blocked',
       'iskur-kurumdisi-kamu-isci': 'blocked',
+      // 23.10.2026 eki: e-Şube kamu ilanları (site sahibi onayı).
+      'iskur-esube-acik-is': 'allowed',
       'ilan-gov-tr-personel': 'blocked',
       'ilan-gov-tr-api-personel': 'blocked',
       'kariyerkapisi-isealim': 'allowed',

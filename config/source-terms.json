@@ -23,6 +23,16 @@
       "notes": "robots.txt (22.10.2026): dosya yok — istek /Home/Index ana sayfasına yönleniyor (HTML); dokuman.osym.gov.tr/robots.txt 404. Kısıt yok. Şartlar sayfası bulunamadı (altbilgide yalnız \"© T.C. ÖSYM Başkanlığı\"; yasal uyarı/kullanım koşulu bağlantısı yok). Otomatik erişimi ya da kaynak gösterilerek kısa özeti yasaklayan ifade görülmedi. AİS (giriş gerektirir) kapsam dışı."
     },
     {
+      "sourceKey": "iskur-esube-acik-is",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "Claude (esube.iskur.gov.tr robots.txt + sayfa incelemesi); site sahibi onayı 23.10.2026",
+      "robotsUrl": "https://esube.iskur.gov.tr/robots.txt",
+      "termsUrl": "https://esube.iskur.gov.tr/",
+      "allowsStorage": true,
+      "notes": "robots.txt (23.10.2026, User-agent *): \"Allow: /\" ve yalnız \"Disallow: /Meslek/ViewMeslekDetayPopUp.aspx/\"; arama (Istihdam/AcikIsIlanAra.aspx) ve detay (AcikIsIlanDetay.aspx?uiID=) yasak değil. Yayımlanmış kullanım şartları metni bulunamadı (termsUrl = incelenen anasayfa); CAPTCHA yok, detaylar girişsiz açılıyor. Yalnız \"Kamu\" işyeri türü taranır; istekler arası ≥5 sn, kimlikli UA. CAPTCHA/oturum zorunluluğu çıkarsa tarama durur. Hukuki inceleme değildir."
+    },
+    {
       "sourceKey": "iskur-kamu-memur-alim",
       "decision": "blocked",
       "reviewedAt": "2026-10-22",
