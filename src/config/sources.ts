@@ -139,7 +139,7 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     key: 'ilan-gov-tr-api-personel',
-    name: 'ilan.gov.tr — Personel alımı havuzu (JSON API)',
+    name: 'ilan.gov.tr — Kamu personeli kategorileri (JSON API)',
     group: 'ulusal',
     sourceType: 'official-portal',
     institution: 'Basın İlan Kurumu',
@@ -149,21 +149,27 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'json-api',
     status: 'scraper-built',
     statusNote:
-      '14.10.2026 ekosistem araştırmasıyla API sözleşmesi keşfedildi (github.com/Ruchanbas/rg-ilan-botu ' +
-      'canlı doğrulaması: AdsByFilter + GetAdDetail GitHub Actions runner’larından 200 döner). ' +
-      'Fixture testleriyle doğrulandı; bu ortamdan canlı çalıştırma henüz yapılmadı. İlk canlı taramada ' +
-      'HTTP durum kodları ve tarama notları kontrol edilmeli.',
+      'İzin: CİMER başvurusuna verilen yazılı yanıt (23.10.2026, kullanıcı beyanı). Adaptör kategori ' +
+      '(txv) tabanlı listeye + GetAdDetail tam metnine geçirildi; fixture testleriyle doğrulandı. ' +
+      'CANLI ENGEL (23.10.2026): API bu istemcinin dürüst kimliğine (KamuIlan UA, arayüz başlığı taklidi yok) ' +
+      'HTTP 403 dönüyor; aşılmadı. BİK’ten izinli erişim yöntemi (IP izni / anahtar / başlık izni) istenmeli.',
     lastVerifiedAt: null,
     verificationEvidence:
-      "22.10.2026 canlı deneme: POST /api/api/services/app/Ad/AdsByFilter: eski gövde ({keys:{q:[..]}}) 500, sayfanın gövdesi ({keys:{ats:['5']}}) 403 (erişim kısıtı; aşılmadı). Kullanım şartları incelemesi: BLOCKED. " +
-      'github.com/Ruchanbas/rg-ilan-botu/src/rgbot/ilanapi.py (canlı doğrulanmış API sözleşmesi: ' +
-      'POST /api/api/services/app/Ad/AdsByFilter {"keys":{"q":[terim]}} + GET AdDetail/GetAdDetail); ' +
-      'tests/ilan-gov-tr-api.test.ts sözleşmenin fixture doğrulaması. HTML liste adaptörünün ' +
-      'doğrulaması docs/envanter-dogrulama-2026-10-11.md §3.',
+      '23.10.2026 canlı deneme (≥2,5 sn aralık, 6 istek): POST Ad/AdsByFilter {"keys":{"txv":[8]},…} ve ' +
+      '{"keys":{"ats":[5]},…} → 403 (UA "KamuIlan/0.1 (+…)" ve varsayılan "Mozilla/5.0 (compatible; KamuIlan/0.3; +…)"; ' +
+      'Content-Type application/json ve application/json-patch+json); GET AdDetail/GetAdDetail → 403; robots.txt → 200. ' +
+      'Yanıt gövdesiz 403 (Kong → IIS), yani uygulama düzeyinde reddediliyor. ' +
+      '22.10.2026: {keys:{q:[..]}} 500. Sözleşme kaynakları (yalnız veri olarak okundu): ' +
+      'github.com/cagatayuresin/n8n-ilan-gov-tr-akademik-is-ilani-takip (txv 73/672/693, cty, publish_time desc), ' +
+      'github.com/cemdizdar85-arch/mevzuat-radar (txv sitenin kendi isteğinden, sayfa 20), ' +
+      'github.com/brokyewing/UniSense (sayfa tavanı 20, geçersiz sorting → numFound 0), ' +
+      'github.com/unuvarx/bildiriyo ve github.com/saidsurucu/ihale-mcp (GetAdDetail?id → result.content HTML). ' +
+      'tests/ilan-gov-tr-api.test.ts fixture doğrulaması.',
     coverageNote:
-      'HTML liste adaptörünün tamamlayıcısı: metin aramasıyla geniş havuz (5 terim × offset sayfaları, ' +
-      'skipCount), yapılandırılmış alanlar (kurum, il, resmî ilan no, "Son Başvuru" filtresi). Alakasız ' +
-      'kayıtlar sınıflandırma hattının ret belleğiyle elenir; ihale/sonuç ilanları kapsam dışıdır.',
+      'Kamu personeli kategorileri: txv 8 (Kamu / Akademik Personel) + 73 (akademik; 672/693 alt kırılımları içinde). ' +
+      '20’lik offset sayfalar, kategori başına 25 / çalışma başına 40 sayfa sınırı; başvurusu kapanmış ve ' +
+      '90 günden eski sayfada durur. "İlan Türü" personel olmayan kayıtlar elenir. Memur/işçi/sözleşmeli alt ' +
+      'kategori kimlikleri canlı doğrulanamadı; yanıtın kategori faseti tarama notuna yazılır.',
     enabled: true,
     intervalMinutes: 90,
     minRequestIntervalMs: 2500,

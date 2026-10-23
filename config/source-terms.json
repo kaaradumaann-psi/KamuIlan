@@ -54,23 +54,23 @@
     },
     {
       "sourceKey": "ilan-gov-tr-personel",
-      "decision": "blocked",
-      "reviewedAt": "2026-10-22",
-      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "kaaradumaann-psi (depo sahibi; CİMER yanıtı kullanıcı beyanı, 23.10.2026)",
       "robotsUrl": "https://www.ilan.gov.tr/robots.txt",
       "termsUrl": "https://www.ilan.gov.tr/",
-      "allowsStorage": false,
-      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste (/ilan/tum-ilanlar/...) ve detay yolları yasaklanmamış; temkinle /*tebligat robotsDisallow olarak eklendi. ŞARTLAR: sitenin altbilgisi (main-es2015 paketi, footer-copyright) \"Bu sitede bulunan yazı, görsel ve video gibi hiçbir içerik izinsiz olarak kullanılamaz.\" diyor — açık izin şartı. Basın İlan Kurumu'ndan yazılı izin (bkz. docs/kaynak-izin-yazisi-taslak.md) alınmadan taranmaz."
+      "allowsStorage": true,
+      "notes": "CİMER başvurusuna verilen yazılı yanıtla izin alındı (23.10.2026, kullanıcı beyanı); ayrı belge numarası yok. robots.txt (22.10.2026): yalnız /*tebligat yasak (robotsDisallow olarak uygulanır)."
     },
     {
       "sourceKey": "ilan-gov-tr-api-personel",
-      "decision": "blocked",
-      "reviewedAt": "2026-10-22",
-      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-23",
+      "reviewedBy": "kaaradumaann-psi (depo sahibi; CİMER yanıtı kullanıcı beyanı, 23.10.2026)",
       "robotsUrl": "https://www.ilan.gov.tr/robots.txt",
       "termsUrl": "https://www.ilan.gov.tr/",
-      "allowsStorage": false,
-      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste (/ilan/tum-ilanlar/...) ve /api/api/services/app uç noktaları yasaklanmamış; temkinle /*tebligat robotsDisallow olarak eklendi. ŞARTLAR: sitenin altbilgisi (main-es2015 paketi, footer-copyright) \"Bu sitede bulunan yazı, görsel ve video gibi hiçbir içerik izinsiz olarak kullanılamaz.\" diyor — açık izin şartı. Basın İlan Kurumu'ndan yazılı izin (bkz. docs/kaynak-izin-yazisi-taslak.md) alınmadan taranmaz."
+      "allowsStorage": true,
+      "notes": "CİMER başvurusuna verilen yazılı yanıtla izin alındı (23.10.2026, kullanıcı beyanı); ayrı belge numarası yok. robots.txt (22.10.2026): yalnız /*tebligat yasak (robotsDisallow olarak uygulanır)."
     },
     {
       "sourceKey": "kariyerkapisi-isealim",

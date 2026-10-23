@@ -38,8 +38,9 @@ describe('kaynak erişim şartları kapısı', () => {
       'iskur-kurumdisi-kamu-isci': 'blocked',
       // 23.10.2026 eki: e-Şube kamu ilanları (site sahibi onayı).
       'iskur-esube-acik-is': 'allowed',
-      'ilan-gov-tr-personel': 'blocked',
-      'ilan-gov-tr-api-personel': 'blocked',
+      // 23.10.2026: CİMER başvurusuna verilen yazılı yanıtla izin (kullanıcı beyanı).
+      'ilan-gov-tr-personel': 'allowed',
+      'ilan-gov-tr-api-personel': 'allowed',
       'kariyerkapisi-isealim': 'allowed',
       'meb-personel-duyurular': 'allowed',
       'kamuilan-sbb': 'unknown',

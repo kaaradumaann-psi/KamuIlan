@@ -1,0 +1,68 @@
+{
+  "_fixture": "SENTETİK: alan adları herkese açık projelerde belgelenen AdsByFilter yanıtından (result.numFound/ads/categories/cityCounts). Canlı yanıt alınamadı (23.10.2026, HTTP 403). Kurum ve kişi bilgileri kurgusaldır.",
+  "result": {
+    "numFound": 4,
+    "categories": [
+      { "taxId": 8, "name": "Kamu / Akademik Personel", "slug": "kamu-akademik-personel", "count": 4, "orderNo": 1 },
+      { "taxId": 73, "name": "Akademik Personel Alımları", "slug": "akademik-personel-alimlari", "count": 1, "orderNo": 2 }
+    ],
+    "cityCounts": [{ "id": 10, "key": "ANKARA", "slug": "ANKARA", "count": 2 }],
+    "ads": [
+      {
+        "id": "f1a0c3d2-0001",
+        "adNo": "ILN02400001",
+        "title": "ÖRNEK BELEDİYE BAŞKANLIĞI SÖZLEŞMELİ PERSONEL ALIM İLANI",
+        "advertiserName": "ÖRNEK BELEDİYE BAŞKANLIĞI",
+        "addressCityName": "ANKARA",
+        "addressCountyName": "ÇANKAYA",
+        "publishStartDate": "2026-10-20T10:00:00",
+        "urlStr": "/ilan/1900001/ornek-belediye-baskanligi-sozlesmeli-personel-alim-ilani",
+        "adSourceName": "BİK",
+        "isArchived": false,
+        "adTypeFilters": [
+          { "key": "İlan Türü", "value": "PERSONEL ALIMI" },
+          { "key": "Son Başvuru Tarihi", "value": "05.11.2026" }
+        ]
+      },
+      {
+        "id": "f1a0c3d2-0002",
+        "adNo": "YOK02400002",
+        "title": "ÖRNEK ÜNİVERSİTESİ ÖĞRETİM ÜYESİ ALIM İLANI",
+        "advertiserName": "ÖRNEK ÜNİVERSİTESİ REKTÖRLÜĞÜ",
+        "addressCityName": "İZMİR",
+        "publishStartDate": "2026-10-19T09:00:00",
+        "urlStr": "/ilan/1900002/ornek-universitesi-ogretim-uyesi-alim-ilani",
+        "isArchived": false,
+        "adTypeFilters": [
+          { "key": "İlan Türü", "value": "PERSONEL ALIMI" },
+          { "key": "Son Başvuru Tarihi", "value": "03.11.2026" }
+        ]
+      },
+      {
+        "id": "f1a0c3d2-0003",
+        "adNo": "ILN02400003",
+        "title": "ÖRNEK İL ÖZEL İDARESİ SÜREKLİ İŞÇİ ALIM İLANI",
+        "advertiserName": "ÖRNEK İL ÖZEL İDARESİ",
+        "addressCityName": "SİVAS",
+        "publishStartDate": "2026-09-01T09:00:00",
+        "urlStr": "/ilan/1900003/ornek-il-ozel-idaresi-surekli-isci-alim-ilani",
+        "isArchived": false,
+        "adTypeFilters": [
+          { "key": "İlan Türü", "value": "PERSONEL ALIMI" },
+          { "key": "Son Başvuru Tarihi", "value": "15.09.2026" }
+        ]
+      },
+      {
+        "id": "f1a0c3d2-0004",
+        "adNo": "ILN02400004",
+        "title": "ÖRNEK HASTANESİ TIBBİ MALZEME ALIMI İHALE İLANI",
+        "advertiserName": "ÖRNEK HASTANESİ",
+        "addressCityName": "ANKARA",
+        "publishStartDate": "2026-10-20T08:00:00",
+        "urlStr": "/ilan/1900004/ornek-hastanesi-tibbi-malzeme-alimi",
+        "isArchived": false,
+        "adTypeFilters": [{ "key": "İlan Türü", "value": "İHALE" }]
+      }
+    ]
+  }
+}

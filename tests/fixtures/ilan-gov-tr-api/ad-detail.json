@@ -1,0 +1,16 @@
+{
+  "_fixture": "SENTETİK: GetAdDetail yanıt şekli (success, result.content HTML, adTypeFilters, categories) herkese açık projelerde belgelenen alanlardan. Canlı yanıt alınamadı (23.10.2026, HTTP 403). İçerik kurgusaldır.",
+  "success": true,
+  "result": {
+    "id": "f1a0c3d2-0001",
+    "adNo": "ILN02400001",
+    "title": "ÖRNEK BELEDİYE BAŞKANLIĞI SÖZLEŞMELİ PERSONEL ALIM İLANI",
+    "content": "<div><h3>SÖZLEŞMELİ PERSONEL ALIM İLANI</h3><p>Belediyemizde 5393 sayılı Kanunun 49. maddesi uyarınca 2 adet sözleşmeli mühendis istihdam edilecektir.</p><table><tr><td>Unvan</td><td>Adet</td><td>KPSS Puan Türü</td></tr><tr><td>İnşaat Mühendisi</td><td>2</td><td>KPSSP3</td></tr></table><p>Başvurular 05.11.2026 tarihine kadar şahsen yapılacaktır.</p><p><a href=\"https://medya.ilan.gov.tr/ilan/ekler/1900001/basvuru-formu.pdf\">Başvuru Formu</a> <a href=\"https://www.ornek.bel.tr/duyuru\">Belediye duyurusu</a> <a href=\"mailto:ik@ornek.bel.tr\">e-posta</a></p></div>",
+    "advertiserName": "ÖRNEK BELEDİYE BAŞKANLIĞI",
+    "addressCityName": "ANKARA",
+    "urlStr": "/ilan/1900001/ornek-belediye-baskanligi-sozlesmeli-personel-alim-ilani",
+    "categories": [{ "taxId": 8, "name": "Kamu / Akademik Personel", "slug": "kamu-akademik-personel" }],
+    "adTypeFilters": [{ "key": "Son Başvuru Tarihi", "value": "05.11.2026" }],
+    "isArchived": false
+  }
+}
