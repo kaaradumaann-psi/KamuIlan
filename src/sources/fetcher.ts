@@ -13,6 +13,8 @@
  */
 import { toHeaderSafeAscii } from '../lib/headerSafe';
 import { request, Agent, MockAgent, type Dispatcher } from 'undici';
+import { request as nodeHttpRequest, type IncomingMessage } from 'node:http';
+import { request as nodeHttpsRequest } from 'node:https';
 import {
   loadCaStore as tlsLoadCaStore,
   systemCaStoreAvailable as tlsTrustStoreAvailable,
@@ -102,19 +104,52 @@ export function describeFetchFailure(error: unknown): string {
   return parts.join(' <- ') || 'Bilinmeyen ağ hatası';
 }
 
-/** Aktarım katmanı hata türü: yanıt hiç gelmediğinde (status yok) nedenin kaba sınıfı. */
-export type TransportFailureKind = 'connect-timeout' | 'dns' | 'refused' | 'tls';
+/**
+ * Aktarım katmanı hata türü: yanıt kullanılabilir bir HTTP cevabına dönüşmeden
+ * (status yok) nedenin kaba sınıfı. `malformed-response`, bağlantı kurulduğu
+ * ve sunucunun yanıt gönderdiği ama başlıkların RFC 7230'a uymadığı (undici
+ * llhttp'nin reddettiği geçersiz başlık belirteci gibi) durumu ifade eder.
+ */
+export type TransportFailureKind = 'connect-timeout' | 'dns' | 'refused' | 'tls' | 'malformed-response';
+
+/**
+ * undici'nin katı HTTP/1.1 ayrıştırıcısının (llhttp) RFC dışı bir yanıt başlığı
+ * nedeniyle fırlattığı `HTTPParserError` sınıfını tanır. Türkiye'deki bazı resmî
+ * sunucular (ör. BDDK) aralıklı olarak geçersiz başlık belirteci gönderir; bu hata
+ * türü hoşgörülü ayrıştırıcıya düşülebilecek TEK sınıftır. Zaman aşımı, TLS veya
+ * gerçek HTTP durum hatalarını KAPSAMAZ. Neden `cause` zincirinde olabileceği için
+ * zincir dört düzeye kadar taranır.
+ */
+export function isMalformedResponseError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current !== null && current !== undefined; depth += 1) {
+    if (current instanceof Error) {
+      const code = (current as Error & { code?: unknown }).code;
+      if (current.name === 'HTTPParserError') return true;
+      if (typeof code === 'string' && code.startsWith('HPE_')) return true;
+      if (typeof current.message === 'string' && /does not match the HTTP\/1\.1 protocol/i.test(current.message)) {
+        return true;
+      }
+      current = (current as Error & { cause?: unknown }).cause;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
 
 /**
  * Hata mesajındaki undici/Node kodundan aktarım hatası türünü çıkarır.
- * Yalnızca bağlantı KURULAMADAN biten hataları sınıflar; başlık/gövde zaman
- * aşımı (UND_ERR_HEADERS_TIMEOUT) bağlantı kurulduğu için burada yer almaz.
+ * Bağlantı KURULAMADAN biten hataları ve RFC dışı (ayrıştırılamayan) yanıtları
+ * sınıflar; başlık/gövde zaman aşımı (UND_ERR_HEADERS_TIMEOUT) bağlantı kurulduğu
+ * için burada yer almaz.
  */
 export function classifyTransportFailure(message: string): TransportFailureKind | null {
   if (/UND_ERR_CONNECT_TIMEOUT|\bETIMEDOUT\b|\bEHOSTUNREACH\b|\bENETUNREACH\b/.test(message)) return 'connect-timeout';
   if (/\bENOTFOUND\b|\bEAI_AGAIN\b/.test(message)) return 'dns';
   if (/\bECONNREFUSED\b/.test(message)) return 'refused';
   if (/CERT_|UNABLE_TO_VERIFY|SELF_SIGNED|ERR_TLS|ERR_SSL/.test(message)) return 'tls';
+  if (/\bHPE_[A-Z_]+\b|does not match the HTTP\/1\.1 protocol/i.test(message)) return 'malformed-response';
   return null;
 }
 
@@ -128,6 +163,9 @@ const TRANSPORT_HINTS: Record<TransportFailureKind, string> = {
   dns: `${TRANSPORT_HINT_MARKER} alan adı çözümlenemedi (DNS kaydı yok veya çözümleyici erişilemiyor).`,
   refused: `${TRANSPORT_HINT_MARKER} hedef bağlantıyı reddetti (port kapalı).`,
   tls: `${TRANSPORT_HINT_MARKER} TLS sertifika doğrulaması başarısız; doğrulama kapatılmaz.`,
+  'malformed-response':
+    `${TRANSPORT_HINT_MARKER} sunucu RFC'ye uymayan bir HTTP yanıtı döndürdü (geçersiz başlık belirteci). ` +
+    'Hoşgörülü ayrıştırıcıyla tek seferlik yeniden deneme de başarısız oldu; TLS ve kimlik korunur, sorun kaynaktadır.',
 };
 
 export function transportFailureHint(kind: TransportFailureKind): string {
@@ -181,6 +219,80 @@ export class FetchError extends Error {
  */
 export function isTransientTransportFailure(error: unknown): error is FetchError {
   return error instanceof FetchError && error.status === null && error.retryable;
+}
+
+/**
+ * Hoşgörülü aktarım için tek bir HTTP isteğinin undici `request` ile aynı alanları
+ * sağlayan sadeleştirilmiş yanıtı. Yönlendirme döngüsü yalnızca bu üç alanı okur.
+ */
+export interface DispatchResponseLike {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: AsyncIterable<Uint8Array> & { dump: () => Promise<void>; destroy?: (error?: Error) => void };
+}
+
+export interface LenientDispatchInit {
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+  timeoutMs: number;
+  /** undici ajanıyla eş güven deposu; boşsa Node'un gömülü kökleri kullanılır. */
+  ca?: readonly string[];
+  signal?: AbortSignal;
+  /** Testlerde yerel sunucuya yönlendirmek için SSRF güvenli varsayılan lookup geçersiz kılınır. */
+  lookup?: ReturnType<typeof createPublicOnlyLookup>;
+}
+
+export type LenientDispatch = (url: string, init: LenientDispatchInit) => Promise<DispatchResponseLike>;
+
+/**
+ * Node'un yerleşik `node:http`/`node:https` istemcisiyle TEK bir istek yapar ve
+ * `insecureHTTPParser: true` ile RFC dışı başlık belirteçlerini tolere eder.
+ *
+ * Güvenlik: TLS doğrulaması (`rejectUnauthorized: true`) AÇIK kalır, undici
+ * ajanıyla aynı güven deposu (`ca`) verilir, SSRF için yalnızca genel adrese
+ * çözümleyen `lookup` kullanılır, kimlik (User-Agent) ve diğer başlıklar aynen
+ * taşınır. Yalnızca ayrıştırıcı katılığı gevşetilir; istek kimliği değişmez.
+ */
+export function lenientHttpDispatch(rawUrl: string, init: LenientDispatchInit): Promise<DispatchResponseLike> {
+  const url = new URL(rawUrl);
+  const isHttps = url.protocol === 'https:';
+  const requestFn = isHttps ? nodeHttpsRequest : nodeHttpRequest;
+  return new Promise<DispatchResponseLike>((resolve, reject) => {
+    const requestOptions = {
+      method: init.method,
+      headers: init.headers,
+      insecureHTTPParser: true,
+      // Kırık IPv6 yolu olan ağlarda tek aileye takılıp zaman aşımına düşmemek için;
+      // bu seçenek net katmanına iletilir ve @types/node'da http seçeneklerinde tanımlı değildir.
+      autoSelectFamily: true,
+      lookup: init.lookup ?? createPublicOnlyLookup(),
+      ...(isHttps
+        ? { rejectUnauthorized: true, ...(init.ca && init.ca.length > 0 ? { ca: [...init.ca] } : {}) }
+        : {}),
+      ...(init.signal ? { signal: init.signal } : {}),
+    } as Parameters<typeof requestFn>[1] & { autoSelectFamily?: boolean };
+    const request_ = requestFn(
+      url,
+      requestOptions,
+      (incoming: IncomingMessage) => {
+        const body = incoming as unknown as DispatchResponseLike['body'];
+        body.dump = () =>
+          new Promise<void>((resolveDump) => {
+            incoming.on('end', resolveDump);
+            incoming.on('error', () => resolveDump());
+            incoming.resume();
+          });
+        resolve({ statusCode: incoming.statusCode ?? 0, headers: incoming.headers, body });
+      },
+    );
+    request_.setTimeout(init.timeoutMs, () => {
+      request_.destroy(new Error(`Hoşgörülü HTTP isteği zaman aşımına uğradı (${init.timeoutMs} ms).`));
+    });
+    request_.on('error', reject);
+    if (init.body !== undefined) request_.write(init.body);
+    request_.end();
+  });
 }
 
 const PRIVATE_HOST_PATTERNS: readonly RegExp[] = [
@@ -298,6 +410,12 @@ export interface HttpClientOptions {
   userAgent?: string;
   /** Testlerde MockAgent enjeksiyonu; üretimde verilmez. */
   dispatcher?: Dispatcher;
+  /**
+   * RFC dışı yanıt başlığı (HTTPParserError) için hoşgörülü yedek aktarım.
+   * Üretimde verilmez; `lenientHttpDispatch` (node:http/https, insecureHTTPParser)
+   * kullanılır. Testlerde MockAgent gerçek ağa çıkamadığı için enjekte edilir.
+   */
+  lenientDispatch?: LenientDispatch;
   /** Tarama istemcileri arasında host hız sınırını paylaşmak için. */
   rateLimiter?: HostRateLimiter;
   /** İsteğe bağlı toplam HTTP attempt sınırı; redirect/retry dahil. */
@@ -451,6 +569,13 @@ export class HttpClient {
   private textRequestCount = 0;
   private redirectCount = 0;
   private binaryRequestCount = 0;
+  private malformedFallbackCount = 0;
+  /** undici ajanıyla eş güven deposu; hoşgörülü yedek aktarıma aynen verilir. */
+  private readonly effectiveCa: readonly string[] | undefined;
+  /** RFC dışı yanıt için hoşgörülü yedek aktarım (node:http/https, insecureHTTPParser). */
+  private readonly lenientDispatch: LenientDispatch;
+  /** Yedek aktarım açıkça enjekte edildi mi? (MockAgent testlerinde yanlışlıkla ağa çıkmayı önler.) */
+  private readonly lenientDispatchInjected: boolean;
   /** Birleşik güven deposu (Node + sistem + NODE_EXTRA_CA_CERTS) PEM listesi. */
   private readonly baseCa: readonly string[];
   /** Depodan doğrulanarak yüklenen ara sertifikalar (güven kökü değil, zincir halkası). */
@@ -500,11 +625,16 @@ export class HttpClient {
     // ara sertifikalar Node'un gömülü kökleriyle birlikte verilir.
     this.bundledIntermediates =
       options.dispatcher === undefined ? bundledIntermediatesFor(trustBundle ?? rootCertificates, this.logger) : [];
-    this.agent =
-      options.dispatcher ??
-      this.createAgent(
-        this.bundledIntermediates.length > 0 ? [...(trustBundle ?? rootCertificates)] : trustBundle,
-      );
+    const agentCaInput =
+      this.bundledIntermediates.length > 0 ? [...(trustBundle ?? rootCertificates)] : trustBundle;
+    // Yedek (node:https) aktarıma, undici ajanının kullandığı kök + ara sertifika
+    // birleşiminin AYNISI verilir ki TLS güven kümesi iki yolda da özdeş olsun.
+    const combinedCa =
+      agentCaInput && agentCaInput.length > 0 ? [...agentCaInput, ...this.bundledIntermediates] : undefined;
+    this.effectiveCa = combinedCa;
+    this.agent = options.dispatcher ?? this.createAgent(agentCaInput);
+    this.lenientDispatch = options.lenientDispatch ?? lenientHttpDispatch;
+    this.lenientDispatchInjected = options.lenientDispatch !== undefined;
   }
 
   get requestsMade(): number {
@@ -523,6 +653,11 @@ export class HttpClient {
   /** fetchBinary çağrısı sayısı (PDF/ek denemeleri; retry'lar ayrı istek sayılır). */
   get binaryFetchesMade(): number {
     return this.binaryRequestCount;
+  }
+
+  /** RFC dışı yanıt nedeniyle hoşgörülü yedek aktarıma düşülen istek sayısı (telemetri). */
+  get malformedHeaderFallbacks(): number {
+    return this.malformedFallbackCount;
   }
 
   get remainingRequestBudget(): number | null {
@@ -791,18 +926,42 @@ export class HttpClient {
       );
 
       this.requestCount += 1;
-      const response = await request(currentUrl, {
-        method,
-        headers: requestHeaders,
-        dispatcher: this.dispatcherFor(url),
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(requestBody !== undefined ? { body: requestBody } : {}),
-        // Not: yönlendirmeler burada ELLE izlenir (her adımda SSRF allowlist doğrulaması
-        // yapılır), bu yüzden undici'nin kendi yönlendirme takibi (varsayılan: kapalı)
-        // kullanılmaz.
-        headersTimeout: options.timeoutMs,
-        bodyTimeout: options.timeoutMs,
-      });
+      let response: Pick<DispatchResponseLike, 'statusCode' | 'headers' | 'body'>;
+      try {
+        response = await request(currentUrl, {
+          method,
+          headers: requestHeaders,
+          dispatcher: this.dispatcherFor(url),
+          ...(options.signal ? { signal: options.signal } : {}),
+          ...(requestBody !== undefined ? { body: requestBody } : {}),
+          // Not: yönlendirmeler burada ELLE izlenir (her adımda SSRF allowlist doğrulaması
+          // yapılır), bu yüzden undici'nin kendi yönlendirme takibi (varsayılan: kapalı)
+          // kullanılmaz.
+          headersTimeout: options.timeoutMs,
+          bodyTimeout: options.timeoutMs,
+        });
+      } catch (error) {
+        // SADECE RFC dışı yanıt (HTTPParserError / geçersiz başlık belirteci) için
+        // hoşgörülü yedek aktarıma tek sefer düşülür. Zaman aşımı, TLS, bağlantı veya
+        // gerçek HTTP durum hataları buraya girmez; o yüzden gerçek arızalar maskelenmez.
+        // MockAgent testlerinde yedek enjekte edilmediyse gerçek ağa çıkmamak için atlanır.
+        if (!isMalformedResponseError(error) || (this.isMockDispatcher && !this.lenientDispatchInjected)) {
+          throw error;
+        }
+        this.malformedFallbackCount += 1;
+        this.logger.warn(
+          { url: currentUrl, error: describeFetchFailure(error) },
+          'RFC dışı yanıt başlığı; hoşgörülü ayrıştırıcı (node:https, insecureHTTPParser) ile tek sefer yeniden deneniyor (TLS ve kimlik korunur)',
+        );
+        response = await this.lenientDispatch(currentUrl, {
+          method,
+          headers: requestHeaders,
+          ...(requestBody !== undefined ? { body: requestBody } : {}),
+          timeoutMs: options.timeoutMs,
+          ...(this.effectiveCa ? { ca: this.effectiveCa } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+      }
 
       const status = response.statusCode;
       const headers = normalizeHeaders(response.headers);
