@@ -148,6 +148,7 @@ async function recordIngestDecision(
   raw: RawAnnouncement,
   ctx: ApplyContext,
   decision: SourceItemDecisionDoc['decision'],
+  explanation: DecisionExplanation,
 ): Promise<void> {
   const capture = capturedTextFields(raw);
   await ctx.repos.jobs.recordSourceItemDecision({
@@ -158,8 +159,32 @@ async function recordIngestDecision(
     title: raw.title,
     url: normalizeUrl(raw.url) ?? raw.url,
     classificationVersion: CLASSIFICATION_VERSION,
+    reasons: explanation.reasons,
+    rules: explanation.rules,
+    confidence: explanation.confidence ?? null,
   });
 }
+
+/** Tarama belleğine yazılan karar gerekçesi (neden reddedildi / incelemede). */
+interface DecisionExplanation {
+  reasons: readonly string[];
+  rules: readonly string[];
+  confidence?: number | null;
+}
+
+function classificationExplanation(
+  classification: ClassificationResult,
+  extra: { reasons?: readonly string[]; rules?: readonly string[] } = {},
+): DecisionExplanation {
+  return {
+    reasons: [...(extra.reasons ?? []), ...classification.reasons],
+    rules: [...(extra.rules ?? []), ...classification.rules],
+    confidence: classification.confidence,
+  };
+}
+
+/** Kaynağın kendi liste/dizin sayfası olduğu için verilen ret kararının kural kimliği. */
+export const LISTING_PAGE_REJECTION_RULE = 'kaynak.liste-sayfasi';
 
 /** Başvuru penceresine göre ilan durumu. */
 export function computeStatus(params: {
@@ -611,7 +636,15 @@ export async function applyRawAnnouncement(
         sourceKey: raw.sourceKey,
         documentTextMissing: true,
       });
-    await recordIngestDecision(raw, ctx, 'rejected');
+    await recordIngestDecision(
+      raw,
+      ctx,
+      'rejected',
+      classificationExplanation(listingClassification, {
+        reasons: ['Bağlantı kaynağın kendi liste/dizin sayfası; ilan kaydı olamaz'],
+        rules: [LISTING_PAGE_REJECTION_RULE],
+      }),
+    );
     return {
       action: 'rejected',
       jobId: null,
@@ -658,7 +691,7 @@ export async function applyRawAnnouncement(
   if (classification.decision === 'reject' && !withdrawal) {
     // İlan oluşmuyor; yine de tarama belleğine yaz ki sonraki taramada bu
     // kayıt yeniden "yeni" sayılıp detay bütçesini yemesin.
-    await recordIngestDecision(raw, ctx, 'rejected');
+    await recordIngestDecision(raw, ctx, 'rejected', classificationExplanation(classification));
     return {
       action: 'rejected',
       jobId: existingLink?.jobId ?? null,
@@ -701,7 +734,11 @@ export async function applyRawAnnouncement(
           excerpt: makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 1_500),
         },
       });
-      await recordIngestDecision(raw, ctx, 'review');
+      await recordIngestDecision(raw, ctx, 'review', {
+        reasons: [reason],
+        rules: [`geri-cekme.${withdrawal}.hedef-yok`],
+        confidence: 0.4,
+      });
       return {
         action: 'review',
         jobId: null,
@@ -784,7 +821,7 @@ export async function applyRawAnnouncement(
     });
     // İnceleme bekleyen kayıt için ilan oluşturulmaz; karar verildiğinde
     // yönetici paneli bu kaydı kabul edip ilana dönüştürebilir.
-    await recordIngestDecision(raw, ctx, 'review');
+    await recordIngestDecision(raw, ctx, 'review', classificationExplanation(classification));
     return {
       action: 'review',
       jobId: decision.jobId,
@@ -811,7 +848,14 @@ export async function applyRawAnnouncement(
       },
       candidateJobIds: decision.candidateJobIds,
     });
-    await recordIngestDecision(raw, ctx, 'review');
+    await recordIngestDecision(raw, ctx, 'review', {
+      reasons: [decision.reason],
+      rules:
+        decision.matchedBy.length > 0
+          ? decision.matchedBy.map((by) => `tekillestirme.${by}`)
+          : ['tekillestirme.belirsiz'],
+      confidence: decision.score,
+    });
     return {
       action: 'review',
       jobId: null,

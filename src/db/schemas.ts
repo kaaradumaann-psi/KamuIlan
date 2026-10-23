@@ -288,6 +288,16 @@ export const sourceItemDecisionSchema = z.object({
   title: z.string().min(1).max(300),
   url: z.string().min(8),
   classificationVersion: z.string().min(1),
+  /**
+   * Kararın GEREKÇESİ (insan okunur açıklamalar; sınıflandırıcı `reasons`, liste
+   * sayfası/tekilleştirme gerekçesi). Eski kayıtlarda yoktur. Uzunluk sınırlıdır:
+   * tarama belleği gövde metni tutmaz.
+   */
+  reasons: z.array(z.string().min(1).max(500)).max(20).optional(),
+  /** Karara katılan kural kimlikleri (ör. `ret.ihale`, `kaynak.liste-sayfasi`). Eski kayıtlarda yoktur. */
+  rules: z.array(z.string().min(1).max(120)).max(40).optional(),
+  /** Sınıflandırma güveni (0–1); sınıflandırma dışı kararlarda yoktur. */
+  confidence: z.number().min(0).max(1).optional(),
   firstSeenAt: isoString(),
   lastSeenAt: isoString(),
 });
