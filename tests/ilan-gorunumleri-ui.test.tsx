@@ -4,7 +4,8 @@
  *
  * "Arşiv" süresi dolan + iptal edilen ilanları, "Yakında başlayacak" henüz
  * başvurusu açılmamış ilanları getirmelidir; etkin görünüm `aria-pressed` ile
- * işaretlenir. Durum filtresinde "İptal edildi" seçeneği bulunmalıdır.
+ * işaretlenir. Durum yalnızca bu düğmelerden seçilir; URL'deki tekil durumlar
+ * (ör. iptal edildi) kaldırılabilir etiket olarak görünür.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -67,14 +68,32 @@ describe('hazır görünümler', () => {
     expect((await screen.findByRole('button', { name: 'Tümü' })).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('durum filtresinde İptal edildi ve Arşiv seçenekleri vardır', async () => {
+  it('URL’deki tekil durum (iptal edildi) etiket olarak görünür ve kaldırılabilir', async () => {
     renderJobs('/ilanlar?status=cancelled');
-    fireEvent.click(await screen.findByRole('button', { name: /Filtreler/ }));
-    const select = (await screen.findByLabelText('Durum')) as HTMLSelectElement;
-    const labels = [...select.options].map((option) => option.textContent);
-    expect(labels).toContain('İptal edildi');
-    expect(labels).toContain('Arşiv (kapanan + iptal)');
-    expect(select.value).toBe('cancelled');
     await waitFor(() => expect(lastJobsStatus()).toBe('cancelled'));
+    expect(screen.queryByLabelText('Durum', { selector: 'select' })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Durum: İptal edildi filtresini kaldır' }));
+    await waitFor(() => expect(lastJobsStatus()).toBeUndefined());
+    expect(screen.getByRole('button', { name: 'Tümü' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('durum düğmesi arama ve il seçimini korur; Tümü yalnızca durumu kaldırır', async () => {
+    renderJobs('/ilanlar?q=hemşire&city=Ankara');
+    fireEvent.click(await screen.findByRole('button', { name: 'Başvurusu açık' }));
+    await waitFor(() => expect(lastJobsStatus()).toBe('active'));
+    const last = () => [...calls].reverse().find((call) => call.url === '/api/jobs')?.params;
+    expect(last()?.q).toBe('hemşire');
+    expect(last()?.city).toBe('Ankara');
+    fireEvent.click(screen.getByRole('button', { name: 'Tümü' }));
+    await waitFor(() => expect(lastJobsStatus()).toBeUndefined());
+    expect(last()?.q).toBe('hemşire');
+  });
+
+  it('sıralama sonuç satırından doğrudan uygulanır', async () => {
+    renderJobs();
+    fireEvent.change(await screen.findByLabelText('Sıralama'), { target: { value: 'deadline' } });
+    await waitFor(() =>
+      expect([...calls].reverse().find((call) => call.url === '/api/jobs')?.params?.sort).toBe('deadline'),
+    );
   });
 });

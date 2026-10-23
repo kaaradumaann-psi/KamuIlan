@@ -58,11 +58,10 @@ test.describe('temel sayfalar', () => {
     // Filtre URL'de kalıcı olmalı: bağlantı kopyalanınca aynı sonuç açılır.
     await expect(page).toHaveURL(/city=Ankara/);
     await page.reload();
-    // Filtre etkinken panel kapalı başlar; bağlantı korunmuş olmalı.
+    // Bağlantı korunmuş olmalı; il arama satırında görünür ve etkin filtre etiketi olarak listelenir.
     await expect(page).toHaveURL(/city=Ankara/);
-    // Etkin filtre sayısı düğmenin adına eklenir ("Filtreler 1"); regex ile karşılanır.
-    await page.getByRole('button', { name: /^Filtreler( \d+)?$/ }).click();
     await expect(page.getByLabel('İl', { exact: true })).toHaveValue('Ankara');
+    await expect(page.getByRole('button', { name: 'İl: Ankara filtresini kaldır', exact: true })).toBeVisible();
 
     expect(errors).toEqual([]);
   });

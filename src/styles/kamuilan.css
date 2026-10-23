@@ -2056,6 +2056,191 @@
     gap: 8px;
   }
 
+  /* İlan arama: her zaman görünen arama satırı + gruplanmış filtre paneli. */
+  .filter-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) auto;
+    gap: 12px 14px;
+    align-items: end;
+  }
+
+  .filter-search-submit {
+    min-height: 44px;
+    padding-inline: 22px;
+  }
+
+  .filter-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .filter-toolbar .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: -10px;
+    padding: 6px 10px;
+    font-weight: 600;
+  }
+
+  .filter-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin-top: 14px;
+    padding-top: 16px;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .filter-group-box {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .filter-group-box > legend {
+    padding: 0;
+    margin-bottom: 12px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .filter-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .filter-groups > .filter-actions {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+
+  /* Durum: tek seçim noktası (segment düğmeleri). */
+  .status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .status-tab {
+    padding: 7px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--soft);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .status-tab:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
+
+  .status-tab[aria-pressed='true'] {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+  }
+
+  .results-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+
+  .results-bar .filter-summary {
+    margin: 0;
+  }
+
+  .sort-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+
+  .sort-control .filter-select {
+    width: auto;
+    min-height: 38px;
+  }
+
+  .active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: -4px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 10px;
+    border: 1px solid var(--primary-border);
+    border-radius: 999px;
+    background: var(--primary-tint);
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .filter-chip:hover {
+    text-decoration: line-through;
+  }
+
+  @media (max-width: 720px) {
+    .filter-search-row {
+      grid-template-columns: 1fr;
+    }
+
+    .filter-search-submit {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .sort-control {
+      width: 100%;
+    }
+
+    .sort-control .filter-select {
+      flex: 1;
+    }
+
+    /* Durum düğmeleri tek satırda kalır, yana kaydırılır. */
+    .status-row {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-inline: -16px;
+      padding: 2px 16px;
+      scrollbar-width: none;
+    }
+
+    .status-tab {
+      flex: none;
+    }
+  }
+
   .save-toggle.is-saved {
     border-color: var(--text);
     color: var(--text);
