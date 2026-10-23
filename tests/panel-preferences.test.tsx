@@ -132,7 +132,8 @@ describe('panel eğitim düzeyi tercihleri', () => {
         profilePersonalizationEnabled: boolean;
       },
     ];
-    expect(body.profilePersonalizationEnabled).toBe(false);
+    // Bildirim kaydı profil alanlarına dokunmaz (profil ayrı kartta kaydedilir).
+    expect(body.profilePersonalizationEnabled).toBeUndefined();
     expect(body.filters.educationLevels).toContain('ortaogretim');
     expect(body.filters.educationLevels).toContain('lisans');
     // Sunucunun reddettiği/takma ad değerler gönderilmez.
@@ -152,7 +153,7 @@ describe('panel eğitim düzeyi tercihleri', () => {
     fireEvent.change(screen.getByLabelText(/Beceriler \/ belgeler/), {
       target: { value: 'ilk yardım, triyaj' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /Profil tercihini ayrı kaydet/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Profili kaydet' }));
 
     await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
     const [, body] = putMock.mock.calls[0] as unknown as [
@@ -222,7 +223,7 @@ describe('virgüllü profil alanları ve kayıt geri bildirimi', () => {
     fireEvent.change(skills, { target: { value: 'AutoCAD, ' } });
     expect(skills.value).toBe('AutoCAD, ');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tercihleri kaydet ve bildirimleri aç' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Profili kaydet' }));
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     const body = (putMock.mock.calls.at(-1) as unknown as [string, { candidateProfile: { departments: string[]; skills: string[] } }])[1];
     expect(body.candidateProfile.departments).toEqual(['Psikoloji']);
@@ -234,5 +235,20 @@ describe('virgüllü profil alanları ve kayıt geri bildirimi', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Tercihleri kaydet ve bildirimleri aç' }));
     const notes = await screen.findAllByText(/✓ Tercihler kaydedildi\./);
     expect(notes.length).toBeGreaterThan(0);
+  });
+});
+
+describe('bildirim ayarları tek kaydetme ile gider', () => {
+  it('anahtarlar tıklanınca kaydetmez; Tercihleri kaydet hepsini birlikte gönderir', async () => {
+    putMock.mockClear();
+    renderPanel();
+    fireEvent.click(await screen.findByLabelText(/Takip ettiğim ilanda değişiklik olursa/));
+    fireEvent.click(screen.getByLabelText(/Akademik kadro ilanlarını dahil et/));
+    expect(putMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Tercihleri kaydet ve bildirimleri aç' }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const body = (putMock.mock.calls[0] as unknown as [string, Record<string, unknown>])[1];
+    expect(body).toMatchObject({ enabled: true, notifyOnChanges: false, includeAcademicJobs: false, onlyNewJobs: true });
+    expect(body.candidateProfile).toBeUndefined();
   });
 });

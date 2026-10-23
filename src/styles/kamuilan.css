@@ -2056,6 +2056,96 @@
     gap: 8px;
   }
 
+  /* Panel · bildirim tercihleri: başlıklı bölümler, açılır ek koşullar, tek kaydet çubuğu. */
+  .pref-form {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .pref-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 18px;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .pref-form > .pref-section:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .pref-section-title {
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .pref-section-note {
+    margin: -8px 0 0;
+  }
+
+  .pref-more > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pref-more > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .pref-more > summary::before {
+    content: '▸';
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+
+  .pref-more[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .pref-more-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 14px;
+  }
+
+  .pref-fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  .pref-fieldset > legend {
+    margin-bottom: 8px;
+  }
+
+  .pref-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px 18px;
+  }
+
+  .pref-save-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding-top: 16px;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .pref-save-bar > p {
+    margin: 0;
+  }
+
   /* İlan arama: her zaman görünen arama satırı + gruplanmış filtre paneli. */
   .filter-search-row {
     display: grid;
