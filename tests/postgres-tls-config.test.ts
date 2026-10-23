@@ -17,7 +17,7 @@ import { createServer, type Server as NetServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as tls from 'node:tls';
-import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { sslConfigFor, verifiesServerCertificate, type PostgresSslConfig } from '../src/db/postgres-store';
 import {
@@ -76,7 +76,24 @@ describe('sslConfigFor karar tablosu', () => {
 });
 
 describe('ortam doğrulaması (env:check ve süreç başlangıcı)', () => {
-  afterEach(() => resetEnvCache());
+  // getEnv override'ları process.env üzerine yazar ve boş değerleri atlar; geliştiricinin
+  // kendi ortamındaki TLS ayarları (ör. POSTGRES_SSL_CA_FILE) beklentileri bozmasın.
+  const isolatedTlsKeys = ['POSTGRES_SSL_CA_FILE', 'POSTGRES_SSL_CA_MERGE_SYSTEM', 'POSTGRES_SSL_MODE'] as const;
+  const savedTlsEnv: Partial<Record<(typeof isolatedTlsKeys)[number], string | undefined>> = {};
+  beforeEach(() => {
+    for (const key of isolatedTlsKeys) {
+      savedTlsEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    resetEnvCache();
+  });
+  afterEach(() => {
+    for (const key of isolatedTlsKeys) {
+      if (savedTlsEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedTlsEnv[key];
+    }
+    resetEnvCache();
+  });
 
   const base = {
     DATABASE_DRIVER: 'postgres',
