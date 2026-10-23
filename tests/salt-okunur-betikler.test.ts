@@ -9,7 +9,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const READ_ONLY_SCRIPTS = ['eval-build-set.ts', 'coverage-report.ts', 'runs-retention.ts', 'durum.ts'];
+const READ_ONLY_SCRIPTS = [
+  'eval-build-set.ts',
+  'coverage-report.ts',
+  'coverage-measure.ts',
+  'runs-retention.ts',
+  'durum.ts',
+];
 
 describe('salt okunur betikler', () => {
   it.each(READ_ONLY_SCRIPTS)('%s depoyu ensureIndexes:false ile açar', (name) => {
