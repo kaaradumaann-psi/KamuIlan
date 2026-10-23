@@ -202,6 +202,11 @@ export interface SourceCoverageEntry {
    * kapalı" olarak gösterilir, hata gibi sunulmaz. Eski API yanıtlarında yoktur.
    */
   termsGated?: boolean;
+  /**
+   * Kaynak sunucumuzun bölgesini ağ düzeyinde engelliyor; resmî erişim izni beklenir.
+   * Hata değil "erişim bekleniyor" olarak gösterilir. Eski API yanıtlarında yoktur.
+   */
+  accessBlocked?: boolean;
   /** Geçmiş canlı doğrulama kaydı var; güncel erişim/worker durumunu tek başına kanıtlamaz. */
   verified: boolean;
   /** Adaptör yazıldı; canlı doğrulama kanıtı olmayabilir. */

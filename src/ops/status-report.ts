@@ -143,9 +143,12 @@ export async function buildStatusReport(
         },
   );
 
-  // Şartlar kapısının taramadığı kaynaklar (K8) arıza değildir: ayrı sayılır.
+  // Şartlar kapısının ve bölge engelinin taramadığı kaynaklar arıza değildir: ayrı sayılır.
   const coverage = await repos.sources.coverage({ termsPolicy: env.SOURCE_TERMS_POLICY });
-  const enabled = coverage.sources.filter((source) => source.enabled && !source.termsGated);
+  const enabled = coverage.sources.filter(
+    (source) => source.enabled && !source.termsGated && !source.accessBlocked,
+  );
+  const accessBlocked = coverage.sources.filter((source) => source.enabled && source.accessBlocked);
   const awaitingTerms = coverage.summary.awaitingTerms;
   const failing = enabled.filter((source) => source.health.consecutiveFailures > 0);
   const lastSuccess = enabled.map((source) => source.health.lastSuccessAt).filter(Boolean).sort().pop() ?? null;
@@ -155,7 +158,8 @@ export async function buildStatusReport(
     summary:
       `${enabled.length} taranan kaynak · son başarılı tarama ${ago(lastSuccess, now)} · ` +
       (failing.length ? `başarısız: ${failing.slice(0, 5).map((source) => source.name).join(', ')}${failing.length > 5 ? ` (+${failing.length - 5})` : ''}` : 'başarısız kaynak yok') +
-      (awaitingTerms > 0 ? ` · kullanım şartları onayı bekleyen ${awaitingTerms} kaynak taranmıyor (config/source-terms.json)` : ''),
+      (awaitingTerms > 0 ? ` · kullanım şartları onayı bekleyen ${awaitingTerms} kaynak taranmıyor (config/source-terms.json)` : '') +
+      (accessBlocked.length > 0 ? ` · bölge engeli nedeniyle resmî erişim bekleyen ${accessBlocked.length} kaynak (${accessBlocked.map((source) => source.name).join(', ')})` : ''),
     ...(enabled.length === 0
       ? { action: 'Kaynak envanteri yüklenmemiş: npm run db:migrate' }
       : failing.length

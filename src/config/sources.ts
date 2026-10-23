@@ -51,6 +51,13 @@ export interface SourceDefinition {
   /** Kapsam: bu kaynağın hangi ilanları getirdiği. */
   coverageNote: string;
   enabled: boolean;
+  /**
+   * Erişim durumu. `region-blocked`: kaynak sunucumuzun yurt dışı IP'sini ağ/bölge
+   * düzeyinde engelliyor (resmî erişim izni beklenir). Bu kaynaklar zamanlayıcıda
+   * taranmaya çalışılmaz (ölü mektup kuyruğunu şişirmesin) ve sağlıkta "başarısız"
+   * sayılmaz; erişim açılınca alan kaldırılır. Varsayılan: erişilebilir.
+   */
+  accessState?: 'region-blocked';
   intervalMinutes: number;
   minRequestIntervalMs: number;
   maxConcurrency: number;
@@ -297,6 +304,11 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
       'Kurumların merkezî başvuru ekranı. Dış "İlana Git" satırları kurumun kendi başvuru sayfasına gider; ' +
       'iç detaylarda resmî başvuru adresi e-Devlet bağlantısıdır.',
     enabled: true,
+    // api.kariyerkapisi.gov.tr sunucumuzun yurt dışı IP'sini (Oracle Frankfurt) TCP
+    // düzeyinde düşürüyor; PC'den (TR) 200. Bilinçli bölge engeli → resmî erişim izni
+    // beklenir (BİK/CBİDDO başvurusu). İzin/IP beyazlistesi gelince bu alan kaldırılır.
+    // (23.10.2026: Cloudflare Worker yolu da denendi; yürütme TR'ye sabitlenemedi.)
+    accessState: 'region-blocked',
     intervalMinutes: 60,
     minRequestIntervalMs: 3000,
     maxConcurrency: 1,

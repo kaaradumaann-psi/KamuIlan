@@ -32,3 +32,4 @@ e2e/**/*-snapshots/*-darwin.png
 # Kalıcı log dosyaları (LOG_FILE)
 logs/
 *.log.[0-9]*
+.claude/worktrees/
