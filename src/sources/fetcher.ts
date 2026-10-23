@@ -102,6 +102,56 @@ export function describeFetchFailure(error: unknown): string {
   return parts.join(' <- ') || 'Bilinmeyen ağ hatası';
 }
 
+/** Aktarım katmanı hata türü: yanıt hiç gelmediğinde (status yok) nedenin kaba sınıfı. */
+export type TransportFailureKind = 'connect-timeout' | 'dns' | 'refused' | 'tls';
+
+/**
+ * Hata mesajındaki undici/Node kodundan aktarım hatası türünü çıkarır.
+ * Yalnızca bağlantı KURULAMADAN biten hataları sınıflar; başlık/gövde zaman
+ * aşımı (UND_ERR_HEADERS_TIMEOUT) bağlantı kurulduğu için burada yer almaz.
+ */
+export function classifyTransportFailure(message: string): TransportFailureKind | null {
+  if (/UND_ERR_CONNECT_TIMEOUT|\bETIMEDOUT\b|\bEHOSTUNREACH\b|\bENETUNREACH\b/.test(message)) return 'connect-timeout';
+  if (/\bENOTFOUND\b|\bEAI_AGAIN\b/.test(message)) return 'dns';
+  if (/\bECONNREFUSED\b/.test(message)) return 'refused';
+  if (/CERT_|UNABLE_TO_VERIFY|SELF_SIGNED|ERR_TLS|ERR_SSL/.test(message)) return 'tls';
+  return null;
+}
+
+const TRANSPORT_HINT_MARKER = 'Olası neden:';
+
+const TRANSPORT_HINTS: Record<TransportFailureKind, string> = {
+  'connect-timeout':
+    `${TRANSPORT_HINT_MARKER} TCP bağlantısı kurulamadı (hedef yanıt vermedi). Hedef kapalı olabilir ya da bu ` +
+    "sunucunun çıkış IP'sini/bölgesini ağ katmanında engelliyor olabilir; Türkiye'deki bir bağlantıdan " +
+    'erişilebiliyorsa neden büyük olasılıkla yurt dışı IP engelidir. Engel aşılmaz.',
+  dns: `${TRANSPORT_HINT_MARKER} alan adı çözümlenemedi (DNS kaydı yok veya çözümleyici erişilemiyor).`,
+  refused: `${TRANSPORT_HINT_MARKER} hedef bağlantıyı reddetti (port kapalı).`,
+  tls: `${TRANSPORT_HINT_MARKER} TLS sertifika doğrulaması başarısız; doğrulama kapatılmaz.`,
+};
+
+export function transportFailureHint(kind: TransportFailureKind): string {
+  return TRANSPORT_HINTS[kind];
+}
+
+/**
+ * Yeniden denemeler tükendiğinde fırlatılan aktarım hatasına operatörün panelde
+ * göreceği kısa bir neden ipucu ekler. Durum kodu olan (yanıt alınmış) hatalara
+ * ve zaten ipucu taşıyan mesajlara dokunmaz.
+ */
+export function withTransportHint(error: FetchError): FetchError {
+  if (error.status !== null || error.message.includes(TRANSPORT_HINT_MARKER)) return error;
+  const kind = classifyTransportFailure(error.message);
+  if (!kind) return error;
+  return new FetchError(
+    error.url,
+    `${error.message} — ${transportFailureHint(kind)}`,
+    error.status,
+    error.retryable,
+    error.retryAfterMs,
+  );
+}
+
 export class FetchError extends Error {
   readonly url: string;
   readonly status: number | null;
@@ -653,7 +703,7 @@ export class HttpClient {
           }
         }
 
-        if (!fetchError.retryable || attempt > maxRetries) throw fetchError;
+        if (!fetchError.retryable || attempt > maxRetries) throw withTransportHint(fetchError);
         const exponentialBackoff = Math.min(2 ** attempt * 500, 15_000) * (0.8 + Math.random() * 0.4);
         const backoff = Math.max(exponentialBackoff, fetchError.retryAfterMs ?? 0);
         this.logger.warn(
