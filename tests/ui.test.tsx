@@ -108,6 +108,15 @@ beforeEach(() => {
     sources: { total: 9, enabled: 8, verified: 3, built: 5, failing: 0, stale: 8, planned: 18 },
     warnings: [],
   });
+  // Giriş yapmış kullanıcıda ana sayfa tercihleri okur; varsayılan: tercih yok.
+  responses.set('/api/notifications/preferences', {
+    preference: null,
+    email: 'aday@ornek.test',
+    emailVerified: true,
+    canReceive: true,
+    options: { employmentTypes: [], educationLevels: [], kpssScoreTypes: [], modes: [] },
+    notice: null,
+  });
 });
 
 afterEach(() => {
@@ -143,9 +152,9 @@ describe('arayüz kabuğu', () => {
       await screen.findByRole('heading', { level: 1, name: /Kamu personel alım ilanları/ }),
     ).toBeTruthy();
     expect(screen.getByLabelText('Arama terimi')).toBeTruthy();
-    // Güncellik kartı sade dille yazılır: son güncelleme + takip edilen kaynak sayısı.
+    // Güncellik kartı sade dille yazılır: son güncelleme + özet sayılar.
     expect(await screen.findByText('Henüz güncelleme yok')).toBeTruthy();
-    expect(screen.getByText(/resmî kaynak takip ediliyor/)).toBeTruthy();
+    expect(screen.getByText('Takip edilen kaynak')).toBeTruthy();
     // Kapsam feragati kabukta (yan menü/alt bilgi) tekrar edilmez; tarama süreci terimleri görünmez.
     expect(screen.queryByText(/Her ilanı bulamayabiliriz/)).toBeNull();
     expect(screen.queryByText(/worker/i)).toBeNull();
