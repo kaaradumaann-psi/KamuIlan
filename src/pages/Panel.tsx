@@ -50,6 +50,35 @@ function toList(value: string): string[] {
     .filter((item) => item.length > 1);
 }
 
+/**
+ * Kaydet düğmesinin yanındaki sonuç satırı. Sayfa başındaki bildirim, form
+ * aşağı kaydırılmışken görünmüyordu; kullanıcı kaydın olmadığını sanıyordu.
+ */
+function SaveFeedback({
+  message,
+  error,
+  pending,
+}: {
+  message: string | null;
+  error: string | null;
+  pending: boolean;
+}): ReactNode {
+  if (pending) return null;
+  if (error) {
+    return (
+      <p className="form-error push-sm" role="alert">
+        Kaydedilemedi: {error}
+      </p>
+    );
+  }
+  if (!message) return null;
+  return (
+    <p className="text-muted-sm push-sm" role="status">
+      ✓ {message}
+    </p>
+  );
+}
+
 export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'history' } = {}): ReactNode {
   const queryClient = useQueryClient();
   const { logout } = useAuth();
@@ -65,6 +94,9 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
   const [candidateProfile, setCandidateProfile] = useState<CandidateProfile>(EMPTY_PROFILE);
   const [profilePersonalizationEnabled, setProfilePersonalizationEnabled] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  // Virgüllü profil alanlarının ham metni: diziye çevrilip geri yazılırsa ilk harf
+  // (tek harfli parça elenir) ve virgül anında siliniyor, alan doldurulamıyordu.
+  const [profileDraft, setProfileDraft] = useState<{ departments?: string; skills?: string }>({});
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -160,6 +192,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
     setCandidateProfile({ ...EMPTY_PROFILE });
     setProfilePersonalizationEnabled(false);
     setConfirmClearProfile(false);
+    setProfileDraft({});
     save.mutate({ candidateProfile: { ...EMPTY_PROFILE }, profilePersonalizationEnabled: false });
   };
 
@@ -501,10 +534,11 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                   <input
                     id="profile-departments"
                     className="input"
-                    value={candidateProfile.departments.join(', ')}
-                    onChange={(event) =>
-                      setCandidateProfile({ ...candidateProfile, departments: toList(event.target.value) })
-                    }
+                    value={profileDraft.departments ?? candidateProfile.departments.join(', ')}
+                    onChange={(event) => {
+                      setProfileDraft({ ...profileDraft, departments: event.target.value });
+                      setCandidateProfile({ ...candidateProfile, departments: toList(event.target.value) });
+                    }}
                     placeholder="ör. İnşaat Mühendisliği"
                   />
                 </Field>
@@ -512,10 +546,11 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                   <input
                     id="profile-skills"
                     className="input"
-                    value={candidateProfile.skills.join(', ')}
-                    onChange={(event) =>
-                      setCandidateProfile({ ...candidateProfile, skills: toList(event.target.value) })
-                    }
+                    value={profileDraft.skills ?? candidateProfile.skills.join(', ')}
+                    onChange={(event) => {
+                      setProfileDraft({ ...profileDraft, skills: event.target.value });
+                      setCandidateProfile({ ...candidateProfile, skills: toList(event.target.value) });
+                    }}
                     placeholder="ör. AutoCAD, ilk yardım"
                   />
                 </Field>
@@ -557,12 +592,22 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                   Profil işlemleri e-posta bildirimlerini açmaz veya değiştirmez.
                 </span>
               </div>
+              <SaveFeedback
+                message={save.data?.message ?? null}
+                error={save.isError ? errorMessage(save.error) : null}
+                pending={save.isPending}
+              />
             </fieldset>
 
             <div className="form-col-span-2">
               <button type="submit" className="btn-primary" disabled={save.isPending}>
                 {save.isPending ? 'Kaydediliyor…' : 'Tercihleri kaydet ve bildirimleri aç'}
               </button>
+              <SaveFeedback
+                message={save.data?.message ?? null}
+                error={save.isError ? errorMessage(save.error) : null}
+                pending={save.isPending}
+              />
             </div>
           </form>
         </Card>
