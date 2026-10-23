@@ -29,6 +29,7 @@ import type { TelegramSender } from '../telegram/deliver';
 import { toIstanbulDateOnly } from '../domain/dates';
 import type { SourceAdapter } from '../sources/types';
 import { runSourceScrape } from '../ingest/pipeline';
+import { SOURCE_DEFINITIONS, findSourceDefinition } from '../config/sources';
 import { purgeLlmAnalyses } from '../ai/classifier';
 import { QUEUE_NAMES, type QueueBackend, type QueueJobPayload } from './queue';
 import {
@@ -401,11 +402,28 @@ export class WorkerRuntime {
         const purgedRuns = await this.repos.runs.purgeFinishedOlderThan(
           new Date(now.getTime() - 90 * 24 * 3_600_000).toISOString(),
         );
+        // Ölü mektup kuyruğu: 2 günden eski işler + artık taranmayan (bölge engelli/kapalı)
+        // kaynakların işleri silinir; aksi hâlde sağlık sürekli "degraded" kalırdı.
+        const purgedDeadOld = await this.repos.queue.purgeDeadOlderThan(
+          new Date(now.getTime() - 2 * 24 * 3_600_000).toISOString(),
+        );
+        const gatedKeys = SOURCE_DEFINITIONS.filter(
+          (source) => source.accessState === 'region-blocked' || !source.enabled,
+        ).map((source) => source.key);
+        const purgedDeadGated = await this.repos.queue.purgeDeadForSources(gatedKeys);
         return {
           ran: kind,
           closedJobs: 0,
           activatedJobs: 0,
-          purged: purgedLocks + purgedLimits + purgedSessions + purgedHeartbeats + purgedLlm + purgedRuns.deleted,
+          purged:
+            purgedLocks +
+            purgedLimits +
+            purgedSessions +
+            purgedHeartbeats +
+            purgedLlm +
+            purgedRuns.deleted +
+            purgedDeadOld +
+            purgedDeadGated,
         };
       }
       case 'coverage-audit': {
@@ -443,6 +461,8 @@ export class WorkerRuntime {
       const sources = await this.repos.sources.list();
       for (const source of sources) {
         if (!source.enabled) continue;
+        // Bölge engelli kaynak resmî erişim bekliyor; "hiç başarılamadı" uyarısı üretmez.
+        if (findSourceDefinition(source.key)?.accessState === 'region-blocked') continue;
         const neverSucceeded = isStale(source.health.lastSuccessAt, now, SOURCE_STALE_AFTER_MS);
         if (!neverSucceeded || source.health.consecutiveFailures < 3) {
           this.warnedSources.delete(source.key);
