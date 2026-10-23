@@ -914,6 +914,21 @@ async function findCandidates(
     map.set(job.id, job);
   }
 
+  // Aday ilanların kaynak kayıtları (tek sorgu): aynı kaynağın FARKLI ilan
+  // numarasıyla gelen kaydın yanlış birleşmesini engellemek için decideDedupe'a
+  // `${sourceKey}::${sourceItemId}` kimlikleri taşınır.
+  const candidateIds = [...map.keys()];
+  const links =
+    candidateIds.length > 0
+      ? await repos.store.find('jobSources', { jobId: { $in: candidateIds } }, { limit: 10_000 })
+      : [];
+  const sourceItemsByJob = new Map<string, string[]>();
+  for (const link of links) {
+    const list = sourceItemsByJob.get(link.jobId) ?? [];
+    list.push(`${link.sourceKey}::${link.sourceItemId}`);
+    sourceItemsByJob.set(link.jobId, list);
+  }
+
   return [...map.values()].map((job) => ({
     id: job.id,
     title: job.title,
@@ -925,6 +940,7 @@ async function findCandidates(
     applicationEndDate: job.applicationEndDate,
     textExcerpt: job.textExcerpt,
     sourceKeys: job.sourceKeys,
+    sourceItemIds: sourceItemsByJob.get(job.id) ?? [],
   }));
 }
 

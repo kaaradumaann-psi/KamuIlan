@@ -57,7 +57,8 @@
     "eval:build-set": "tsx scripts/eval-build-set.ts",
     "eval:label-page": "tsx scripts/eval-label-page.ts",
     "eval:extraction": "tsx scripts/eval-extraction.ts",
-    "tani:ilan": "tsx scripts/tani-ilan-kalitesi.ts"
+    "tani:ilan": "tsx scripts/tani-ilan-kalitesi.ts",
+    "repair:iskur-split": "tsx scripts/repair-iskur-split.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",
