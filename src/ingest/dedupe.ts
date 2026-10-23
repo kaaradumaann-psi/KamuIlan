@@ -52,6 +52,12 @@ export interface DedupeCandidateJob {
   applicationEndDate: string | null;
   textExcerpt: string;
   sourceKeys: string[];
+  /**
+   * İlana bağlı kaynak kayıtlarının kimlikleri (`${sourceKey}::${sourceItemId}`).
+   * Aynı kaynağın FARKLI kaynak-içi kimliğiyle gelen ilanın yanlışlıkla bu ilana
+   * birleşmesini engellemek için kullanılır (bkz. `hasConflictingSourceItem`).
+   */
+  sourceItemIds: string[];
 }
 
 export type DedupeAction = 'create' | 'merge' | 'review';
@@ -83,13 +89,46 @@ export function matchBySourceIdentity(
   };
 }
 
-export function decideDedupe(raw: DedupeRawItem, candidates: DedupeCandidateJob[]): DedupeDecision {
-  if (candidates.length === 0) {
+/**
+ * Aday ilan, AYNI kaynaktan FARKLI bir kaynak-içi kimlikle zaten bağlı mı?
+ *
+ * Üretim bulgusu (23.10.2026): İŞKUR e-Şube kaynağı 91 ayrı İŞKUR ilan
+ * numarası getirdi; her satır kendi ilanıdır (farklı il/meslek/kurum). Kurum +
+ * başlık + son başvuru benzerliği yüksek olduğu için bunlar 10 ilana
+ * birleşiyordu. Kural: aynı kaynağın iki FARKLI kaynak-içi kimliği asla tek
+ * ilanda birleşmez. (Kaynaklar arası tekilleştirme — aynı ilan RG + İŞKUR —
+ * etkilenmez: farklı kaynağın kimliği burada çatışma saymaz.)
+ */
+function hasConflictingSourceItem(raw: DedupeRawItem, candidate: DedupeCandidateJob): boolean {
+  const prefix = `${raw.sourceKey}::`;
+  return candidate.sourceItemIds.some(
+    (entry) => entry.startsWith(prefix) && entry.slice(prefix.length) !== raw.sourceItemId,
+  );
+}
+
+export function decideDedupe(raw: DedupeRawItem, rawCandidates: DedupeCandidateJob[]): DedupeDecision {
+  if (rawCandidates.length === 0) {
     return {
       action: 'create',
       jobId: null,
       matchedBy: [],
       reason: 'Aynı ilana benzeyen kayıt bulunamadı; yeni ilan oluşturuldu.',
+      score: 0,
+      candidateJobIds: [],
+    };
+  }
+
+  // Aynı kaynağın farklı kaynak-içi kimliğiyle zaten bağlı adaylar birleştirme
+  // hedefi OLAMAZ: bunlar ayrı ilanlardır. Adaylardan elenir; geriye kimse
+  // kalmazsa yeni ilan oluşturulur.
+  const candidates = rawCandidates.filter((candidate) => !hasConflictingSourceItem(raw, candidate));
+  if (candidates.length === 0) {
+    return {
+      action: 'create',
+      jobId: null,
+      matchedBy: [],
+      reason:
+        'Aynı kaynağın farklı ilan numaraları ayrı ilandır; eşleşen tüm adaylar aynı kaynaktan başka kimlikle bağlı.',
       score: 0,
       candidateJobIds: [],
     };

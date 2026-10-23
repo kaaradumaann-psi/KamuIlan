@@ -19,6 +19,7 @@ function candidate(title: string, institution: string, excerpt = ''): DedupeCand
     applicationEndDate: '2026-11-06',
     textExcerpt: excerpt,
     sourceKeys: ['resmigazete-cestili-ilanlar'],
+    sourceItemIds: [],
   };
 }
 

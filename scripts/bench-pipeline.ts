@@ -64,6 +64,7 @@ async function main(): Promise<void> {
     applicationEndDate: '2026-11-30',
     textExcerpt: 'Kurumumuza sözleşmeli personel alınacaktır. '.repeat(20),
     sourceKeys: ['resmigazete'],
+    sourceItemIds: [`resmigazete::item_${index}`],
   }));
   for (const text of texts) {
     const title = text.split('\n').slice(0, 2).join(' ');

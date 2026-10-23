@@ -83,7 +83,12 @@ export const CLASSIFICATION_VERSION = '2026.10.7';
 // 2026.10.9: pozisyon başlığı ve "(K (yazıyla) Kişi" aynı satırda (OCR biçimi) okunur; rakam yazıyla
 // doğrulanır (gerçek RG OCR: İŞKUR 18.10-4-4, "(| (Bir) Kişi").
 export const EXTRACTION_VERSION = '2026.10.9';
-export const DEDUPE_VERSION = '2026.10.1';
+// 2026.10.2: aynı kaynağın FARKLI kaynak-içi kimliğiyle (ör. İŞKUR ilan no) gelen
+// ilanlar asla tek ilanda birleşmez (üretim 23.10.2026: iskur-esube-kamu 91 ayrı
+// ilan no → 10 ilan). decideDedupe adayı `${sourceKey}::${sourceItemId}` ile eler;
+// kaynaklar arası tekilleştirme (RG ↔ İŞKUR) sürer. Mevcut yanlış birleşmeler
+// `npm run repair:iskur-split -- --apply` ile ayrılır.
+export const DEDUPE_VERSION = '2026.10.2';
 
 /** Sayfalama sınırları. */
 export const PAGINATION = {
