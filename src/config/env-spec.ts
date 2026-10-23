@@ -1056,9 +1056,11 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     key: 'OCR_MAX_DOCS_PER_RUN',
     group: 'tarama',
     label: 'Koşu başına OCR belgesi',
-    help: 'Tek taramada OCR yapılacak azami belge; kalanlar sonraki taramaya kalır.',
+    help:
+      'Tek taramada OCR yapılacak azami belge; bütçe dolunca kalan TARANMIŞ belgeler bu koşumda kayıt ' +
+      'oluşturmaz, sonraki taramada OCR ile tamamlanır (sentetik başlıkla kaydedilip kilitlenmezler).',
     type: 'number',
-    defaultValue: '3',
+    defaultValue: '6',
     optional: true,
     dependsOn: (values) => truthy(values['OCR_ENABLED']),
     skipReason: 'OCR_ENABLED kapalı.',
@@ -1078,9 +1080,23 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     key: 'RG_BACKFILL_DAYS_PER_RUN',
     group: 'tarama',
     label: 'Geri taramada koşum başına gün',
-    help: 'Bir Resmî Gazete koşumunda işlenecek azami geçmiş gün; PDF bütçesi günlük taramayla ortaktır.',
+    help: 'Bir Resmî Gazete koşumunda işlenecek azami geçmiş gün.',
     type: 'number',
     defaultValue: '3',
+    optional: true,
+    dependsOn: (values) => Number(values['RG_BACKFILL_DAYS'] ?? 0) > 0,
+    skipReason: 'RG_BACKFILL_DAYS kapalı.',
+  },
+  {
+    key: 'RG_BACKFILL_PDFS_PER_RUN',
+    group: 'tarama',
+    label: 'Geri taramaya ayrılan PDF bütçesi (koşum başına)',
+    help:
+      'Her Resmî Gazete koşumunda geri taramaya AYRILAN asgari PDF indirme sayısı. Olağan günler (bugün+dün) ' +
+      'bu kadar belgeyi geri taramaya bırakacak şekilde kendi indirme sınırından kısılır; geçmiş günler ' +
+      'böylece her koşumda ilerler. 0 = ayrılmış bütçe yok (olağan günler tüm PDF bütçesini kullanabilir).',
+    type: 'number',
+    defaultValue: '8',
     optional: true,
     dependsOn: (values) => Number(values['RG_BACKFILL_DAYS'] ?? 0) > 0,
     skipReason: 'RG_BACKFILL_DAYS kapalı.',

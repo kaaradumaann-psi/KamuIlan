@@ -33,6 +33,7 @@ import { FetchError, HttpClient } from '../sources/fetcher';
 import { requireAdapter } from '../sources/registry';
 import { AdapterStructureError, AdapterUnavailableError, SourceAccessError } from '../sources/errors';
 import type { AdapterContext, SourceAdapter } from '../sources/types';
+import { demoteBackfillDates } from '../sources/adapters/resmigazete-backfill';
 import { queueNotificationsForJob } from '../notifications/service';
 import { createLlmClassificationGate, disabledLlmGate, llmClassifierConfig, type LlmClassificationGate } from '../ai/classifier';
 import { applyRawAnnouncement } from './jobs-service';
@@ -283,6 +284,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
   });
 
   const totals: ScrapeRunTotals = { ...EMPTY_TOTALS, httpStatuses: [], errors: [], notes: [] };
+  // Kayıt aşamasında hata alan ilanların yayım günleri (YYYY-MM-DD): adaptör durumunu artık
+  // hatalara rağmen kalıcılaştırıyoruz; yalnız ilanı kaybolan geri tarama günleri geri alınır.
+  const failedItemDates = new Set<string>();
   const notificationCounts = { queued: 0 };
   const startedAt = repos.clock.now().getTime();
   let status: ScrapeRunDoc['status'] = 'success';
@@ -427,6 +431,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           totals.errors.push(`${item.url}: ${message}`);
+          if (typeof item.publishedAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(item.publishedAt)) {
+            failedItemDates.add(item.publishedAt.slice(0, 10));
+          }
           // Log alanları aranabilirlik içindir: hangi kaynak, hangi aşama, hangi kayıt.
           logger.error(
             { err: message, url: item.url, sourceKey: source.key, stage: 'item' },
@@ -435,10 +442,16 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         }
       }
 
-      // Adaptör durumu (ör. RG geriye dönük tarama ilerlemesi) yalnız tüm ilanlar hatasız
-      // işlendiyse yazılır: aksi hâlde "işlendi" sayılan gün kaybolan kayıt bırakabilirdi.
-      if (runResult.adapterState !== undefined && totals.errors.length === 0) {
-        await repos.sources.update(source.key, { adapterState: runResult.adapterState });
+      // Adaptör durumu (ör. RG geriye dönük tarama ilerlemesi) HER KOŞUMDA kalıcılaşır. Eski
+      // davranış (yalnız tüm ilanlar hatasızken yaz) tek bir ilan işleme hatasında TÜM geri tarama
+      // ilerlemesini siliyordu; ilerleme hiç tutmuyordu. Artık ilanı kaybolan geri tarama günleri
+      // "tamamlandı"dan geri çekilir (yeniden taranır), kalan ilerleme korunur.
+      if (runResult.adapterState !== undefined) {
+        const adapterState =
+          totals.errors.length === 0
+            ? runResult.adapterState
+            : demoteBackfillDates(runResult.adapterState, failedItemDates);
+        await repos.sources.update(source.key, { adapterState });
       }
 
       if (!contentUnchanged) {

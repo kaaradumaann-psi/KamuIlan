@@ -374,14 +374,21 @@ const envSchema = z.object({
   /** Belge başına OCR yapılacak azami sayfa. */
   OCR_MAX_PAGES: z.coerce.number().int().min(1).max(20).default(4),
   /** Tek tarama koşusunda OCR yapılacak azami belge (CPU ve tarama süresi freni). */
-  OCR_MAX_DOCS_PER_RUN: z.coerce.number().int().min(0).max(50).default(3),
+  OCR_MAX_DOCS_PER_RUN: z.coerce.number().int().min(0).max(50).default(6),
   /**
    * Resmî Gazete geriye dönük tarama penceresi (gün). 0 = kapalı. > 0 ise worker geçmiş günleri
    * kalıcı ilerleme kaydıyla koşum başına sınırlı sayıda işler; pencere bitince durur, tekrarlamaz.
    */
   RG_BACKFILL_DAYS: z.coerce.number().int().min(0).max(120).default(0),
-  /** Geri taramada koşum başına işlenecek azami geçmiş gün (PDF bütçesi olağan taramayla ortaktır). */
+  /** Geri taramada koşum başına işlenecek azami geçmiş gün. */
   RG_BACKFILL_DAYS_PER_RUN: z.coerce.number().int().min(1).max(10).default(3),
+  /**
+   * Geri taramaya koşum başına AYRILAN asgari PDF indirme bütçesi. Olağan günler (bugün+dün) bu kadar
+   * belgeyi geri taramaya bırakmak için kendi indirme sınırlarından kısılır; böylece geri tarama her
+   * koşumda ilerler (eski davranış: olağan günler PDF bütçesinin tamamını yiyip geçmiş günleri sürekli
+   * erteliyordu, ilerleme hiç kaydedilmiyordu). PDF başına üst sınırı taramanın toplam PDF bütçesidir.
+   */
+  RG_BACKFILL_PDFS_PER_RUN: z.coerce.number().int().min(0).max(25).default(8),
   /** İstem sürümüyle birlikte önbellek anahtarını belirleyen model adı. Boşsa LLM_MODEL kullanılır. */
   LLM_CLASSIFIER_MODEL: z.string().default(''),
   // Virgülle ayrılmış yedek modeller (aynı sağlayıcı/uç nokta); sıra = deneme sırası.
