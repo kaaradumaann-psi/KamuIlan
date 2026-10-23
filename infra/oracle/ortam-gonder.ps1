@@ -65,6 +65,8 @@ $ayar = [ordered]@{
   OCR_ENABLED               = '1'
   # Resmî Gazete geçmiş taraması: son 60 gün, koşu başına 3 gün (23.10.2026).
   RG_BACKFILL_DAYS          = '60'
+  # Taranmış ilan OCR'ı koşu başına: akademik geri tarama hızlansın (23.10.2026).
+  OCR_MAX_DOCS_PER_RUN      = '8'
   LLM_CLASSIFIER_ENABLED    = '0'
 }
 # Değerler tek tırnakta: hem systemd EnvironmentFile hem `set -a; . dosya` aynı şekilde okur
