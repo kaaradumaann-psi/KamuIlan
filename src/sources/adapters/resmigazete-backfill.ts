@@ -118,3 +118,43 @@ export function recordRgBackfill(
   if (remaining && remaining.dates.length === 0) state.completedAt = now.toISOString();
   return state;
 }
+
+/**
+ * Bir koşumda kayıt aşamasında (sınıflandırma/DB) HATA alan ilanların ait olduğu günleri "tamamlandı"
+ * kümesinden geri çeker ki gün yeniden taransın. Kullanım: pipeline, adaptör durumunu artık ilan
+ * işleme hatası olsa da kalıcılaştırır (eski davranış: tek hata TÜM geri tarama ilerlemesini
+ * siliyordu, ilerleme hiç tutmuyordu); yalnızca ilanı kaybolan günler geri alınır.
+ *
+ * Gün `attempts`'e eklenir (deneme sayısıyla sınırlı): kalıcı bir kayıt hatası günü sonsuza dek
+ * yeniden indirtmesin, `MAX_ATTEMPTS` sonrası `skippedDates`'e geçsin.
+ */
+export function demoteBackfillDates(
+  adapterState: Readonly<Record<string, unknown>>,
+  failedDates: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (failedDates.size === 0) return { ...adapterState };
+  const state = readRgBackfillState(adapterState);
+  if (!state) return { ...adapterState };
+  let changed = false;
+  const doneDates: string[] = [];
+  for (const date of state.doneDates) {
+    if (!failedDates.has(date)) {
+      doneDates.push(date);
+      continue;
+    }
+    changed = true;
+    const attempts = (state.attempts[date] ?? 0) + 1;
+    if (attempts >= RG_BACKFILL_MAX_ATTEMPTS) {
+      if (!state.skippedDates.includes(date)) state.skippedDates.push(date);
+      delete state.attempts[date];
+    } else {
+      state.attempts[date] = attempts;
+    }
+  }
+  if (!changed) return { ...adapterState };
+  state.skippedDates.sort();
+  return {
+    ...adapterState,
+    rgBackfill: { ...state, doneDates, completedAt: null },
+  };
+}

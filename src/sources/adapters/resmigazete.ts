@@ -19,9 +19,9 @@ import type { JobAttachment, RawAnnouncement } from '../../domain';
 import { AdapterStructureError } from '../errors';
 import { cleanInstitution, ownCardText } from '../listing-utils';
 import { loadHtml, readableText, absoluteUrl } from '../../lib/html';
-import { extractPdfText } from '../../extraction/pdf';
+import { extractPdfText, OCR_TRIGGER_CHARS } from '../../extraction/pdf';
 import { classify } from '../../classification/engine';
-import { sharedOcrEngine } from '../../extraction/ocr';
+import { sharedOcrEngine, type OcrEngine } from '../../extraction/ocr';
 import { getEnv } from '../../config/env';
 import { join } from 'node:path';
 import { budgetedTimeoutMs, hasBudgetFor } from '../scan-budget';
@@ -52,6 +52,12 @@ const MAX_SECTION_PAGES = 10;
 const PDF_TIMEOUT_MS = 25_000;
 /** Bir PDF indirmesine başlamak için gereken asgari kalan bütçe. */
 const MIN_PDF_BUDGET_MS = 8_000;
+/**
+ * Geri tarama etkinken olağan günler bu kadar ZAMAN bütçesini geçmiş günlere bırakır: olağan günlerin
+ * PDF indirmesi, kalan süre bu payın altına inince durur (ama koşum "bütçe bitti" sayılmaz; geçmiş
+ * günler bu payla taranır). Böylece geri tarama yalnız PDF sayısıyla değil, zamanla da aç kalmaz.
+ */
+const BACKFILL_TIME_RESERVE_MS = 25_000;
 /**
  * Tek bölüm (liste) sayfası isteği için üst sınır. Verilmediğinde HttpClient varsayılanı tüm tarama
  * bütçesidir (SCRAPE_TIMEOUT_MS): sunucu yanıt başlığını göndermeyip bağlantıyı askıda tuttuğunda
@@ -261,7 +267,14 @@ export function describeSectionPage(html: string, pageUrl: string): SectionPageD
 }
 
 export class ResmiGazeteAdapter implements SourceAdapter {
-  constructor(private readonly browser: SectionBrowser | null = null) {}
+  /**
+   * `ocrEngineOverride` yalnız testler için: verilmezse süreç ortak OCR motoru (sharedOcrEngine)
+   * kullanılır. `undefined` = varsayılan; `null` = OCR kapalı; Promise = enjekte edilmiş motor.
+   */
+  constructor(
+    private readonly browser: SectionBrowser | null = null,
+    private readonly ocrEngineOverride?: Promise<OcrEngine> | null,
+  ) {}
 
   private async openBrowser(
     allowedHosts: readonly string[],
@@ -292,11 +305,14 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     // yetiyorsa. Belge başı ~5–15 sn CPU; sınır, taramanın zaman aşımına düşmesini önler.
     const env = getEnv();
     let ocrDocs = 0;
-    const ocrEngine = sharedOcrEngine({
-      enabled: env.OCR_ENABLED,
-      langPath: env.OCR_LANG_PATH,
-      cachePath: join(env.DATA_DIR, 'ocr-cache'),
-    });
+    const ocrEngine =
+      this.ocrEngineOverride !== undefined
+        ? this.ocrEngineOverride
+        : sharedOcrEngine({
+            enabled: env.OCR_ENABLED,
+            langPath: env.OCR_LANG_PATH,
+            cachePath: join(env.DATA_DIR, 'ocr-cache'),
+          });
     let limitNoted = false;
     // Zaman bütçesi dolduğunda kalan belgeler atlanır ve koşum KISMİ kapsamla
     // döner (eski davranış: sert zaman aşımı → hiçbir kayıt oluşmaz).
@@ -340,6 +356,18 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     const backfillResults: { dateOnly: string; outcome: RgBackfillOutcome }[] = [];
     let backfillItems = 0;
     let skipCurrentDays = false;
+    // Geri tarama etkinse olağan günlerden PDF ve zaman bütçesi AYRILIR; aksi hâlde olağan günler
+    // (bugün+dün) 25 PDF'lik bütçenin tamamını yiyip her geçmiş günü sonsuza dek erteliyordu.
+    const backfillActive = (backfillPlan?.dates.length ?? 0) > 0;
+    // Pay en çok bütçenin yarısı kadardır: olağan günler (bugünkü/dünkü taze ilanlar) öncelikli
+    // kalsın, çok küçük bütçede (ör. 1) tamamen aç kalmasın. Üretimde bütçe 25 → pay 8 (yarıdan az).
+    const backfillPdfReserve = backfillActive
+      ? Math.min(env.RG_BACKFILL_PDFS_PER_RUN, Math.floor(ctx.maxDetailFetches / 2))
+      : 0;
+    // Olağan günler en çok bu kadar PDF indirir; kalan PDF bütçesi geçmiş günlere garanti edilir.
+    const currentDayFetchLimit = Math.max(0, ctx.maxDetailFetches - backfillPdfReserve);
+    let ocrDeferred = 0;
+    let ocrDeferNoted = false;
     // RG çok sık istekte HTML yanıtlarını askıya alıyor: istekler arası en az 2 sn.
     const minIntervalMs = Math.max(ctx.source.minRequestIntervalMs, RG_MIN_REQUEST_INTERVAL_MS);
     const browserSessionRef: { current: SectionBrowserSession | null } = { current: null };
@@ -502,13 +530,17 @@ export class ResmiGazeteAdapter implements SourceAdapter {
           );
 
           for (const row of uniqueRows) {
-            if (detailFetches >= ctx.maxDetailFetches) {
+            // Olağan günler kendi PDF bütçesiyle (geri taramaya ayrılan pay düşülmüş) sınırlıdır;
+            // geri tarama kalan PDF bütçesini (tüm tarama bütçesine kadar) kullanabilir.
+            const fetchLimit = backfill ? ctx.maxDetailFetches : currentDayFetchLimit;
+            if (detailFetches >= fetchLimit) {
               dayDeferred = true;
               if (backfill) continue;
               if (!limitNoted) {
                 limitNoted = true;
                 notes.push(
-                  `Belge indirme sınırı (${ctx.maxDetailFetches}) doldu; kalan ilanlar sonraki taramada alınacak.`,
+                  `Olağan günlerin belge indirme sınırı (${fetchLimit}) doldu; kalan ilanlar sonraki taramada alınacak` +
+                    (backfillPdfReserve > 0 ? ` (${backfillPdfReserve} PDF geri taramaya ayrıldı).` : '.'),
                 );
               }
               continue;
@@ -524,6 +556,21 @@ export class ResmiGazeteAdapter implements SourceAdapter {
                 notes.push(
                   'Tarama zaman bütçesi doldu; indirilmemiş belgeler sonraki taramaya bırakıldı ' +
                     '(kaynak başarısız sayılmaz, bu koşum kısmi kapsamla kaydedilir).',
+                );
+              }
+              break;
+            }
+
+            // Geri tarama etkinken olağan günler, geçmiş günlere zaman payı bırakmak için erken durur.
+            // Bu bir "bütçe bitti" (budgetExhausted) durumu DEĞİLDİR: geri tarama bu payla sürebilsin.
+            if (!backfill && backfillActive && !hasBudgetFor(ctx, MIN_PDF_BUDGET_MS + BACKFILL_TIME_RESERVE_MS)) {
+              dayDeferred = true;
+              deferredByBudget += 1;
+              if (!budgetNoted) {
+                budgetNoted = true;
+                notes.push(
+                  'Tarama zaman bütçesinin bir kısmı geri taramaya ayrıldı; olağan günlerin kalan belgeleri ' +
+                    'sonraki taramaya bırakıldı (kaynak başarısız sayılmaz).',
                 );
               }
               break;
@@ -575,6 +622,30 @@ export class ResmiGazeteAdapter implements SourceAdapter {
                 : {}),
             });
             if (pdf.ocr) ocrDocs += 1;
+
+            // Taranmış belge OCR'a muhtaç ama bu koşumda OCR bütçesi (belge sayısı/zaman) yoktu:
+            // kaydı OLUŞTURMA. Aksi hâlde sentetik başlıkla kaydedilip "bilinen" olur ve bir daha
+            // asla OCR'lanmaz (23.10.2026: Pamukkale/TİBTÜ üniversite ilanları böyle kilitlenmişti).
+            // Kayıt oluşmadığı için sonraki koşumda (bütçe yenilenince) yeniden indirilip OCR'lanır.
+            const textNonWs = pdf.text.replace(/\s/g, '').length;
+            const ocrWouldHelp =
+              ocrEngine !== null &&
+              !pdf.error &&
+              textNonWs < OCR_TRIGGER_CHARS &&
+              !textLayerTitleRejected(pdf.text);
+            if (ocrWouldHelp && !ocrAllowed) {
+              ocrDeferred += 1;
+              dayDeferred = true;
+              if (!ocrDeferNoted) {
+                ocrDeferNoted = true;
+                notes.push(
+                  'OCR bütçesi (OCR_MAX_DOCS_PER_RUN) doldu; taranmış belge(ler) sentetik başlıkla ' +
+                    'kaydedilmek yerine kayıt oluşturmadan sonraki taramaya bırakıldı.',
+                );
+              }
+              continue;
+            }
+
             const itemNotes: string[] = [];
             if (pdf.error) itemNotes.push(`PDF okunamadı: ${pdf.error}`);
             if (pdf.ocr) itemNotes.push(pdf.ocr.note);
@@ -709,6 +780,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     const hasKnownOmissions =
       limitNoted ||
       budgetNoted ||
+      ocrDeferred > 0 ||
       failedPdfFetches > 0 ||
       sectionCoverages.some((section) => section.status === 'partial') ||
       sectionCoverages.length < days.length;
@@ -738,6 +810,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
                   `Tarama zaman bütçesi doldu; en az ${deferredByBudget} belge sonraki taramaya bırakıldı.`,
                 ]
               : []),
+            ...(ocrDeferred > 0
+              ? [
+                  `${ocrDeferred} taranmış belge OCR bütçesi dolduğu için bu koşumda kaydedilmeyip sonraki taramaya bırakıldı.`,
+                ]
+              : []),
             ...(failedPdfFetches > 0
               ? [`${failedPdfFetches} PDF alınamadı; ilgili ilanlar oluşturulamadı.`]
               : []),
@@ -747,18 +824,27 @@ export class ResmiGazeteAdapter implements SourceAdapter {
     );
 
     let adapterState: Record<string, unknown> | undefined;
+    let backfillHealthNote: string | null = null;
     if (backfillPlan) {
       const nextState = recordRgBackfill(backfillPlan, backfillResults, ctx.fetchedAt);
       adapterState = { ...(ctx.adapterState ?? {}), rgBackfill: nextState };
       const finished = nextState.doneDates.length + nextState.skippedDates.length;
-      notes.push(
-        `Geri tarama (${nextState.windowDays} gün, başlangıç ${nextState.anchorDate}): bu koşumda ` +
-          `${backfillResults.filter((result) => result.outcome === 'done').length}/${backfillResults.length} gün tamamlandı, ` +
-          `${backfillItems} geçmiş ilan; toplam ${finished}/${Math.max(0, nextState.windowDays - 1)} gün` +
-          (nextState.skippedDates.length > 0 ? ` (${nextState.skippedDates.length} gün ${RG_BACKFILL_MAX_ATTEMPTS} denemede okunamadı, atlandı)` : '') +
-          (nextState.completedAt ? '; geri tarama bitti, tekrarlanmayacak.' : '.'),
-      );
+      const totalDays = Math.max(0, nextState.windowDays - 1);
+      backfillHealthNote =
+        `Geri tarama (${nextState.windowDays} gün, başlangıç ${nextState.anchorDate}): ` +
+        `bu koşumda ${backfillResults.filter((result) => result.outcome === 'done').length}/${backfillResults.length} gün tamamlandı, ` +
+        `${backfillItems} geçmiş ilan; toplam ${finished}/${totalDays} gün bitti` +
+        (nextState.skippedDates.length > 0
+          ? ` (${nextState.skippedDates.length} gün ${RG_BACKFILL_MAX_ATTEMPTS} denemede okunamadı, atlandı)`
+          : '') +
+        (nextState.completedAt ? '; geri tarama bitti, tekrarlanmayacak.' : '.');
+      notes.push(backfillHealthNote);
     }
+
+    // Geri tarama ilerlemesi kaynak sağlığında (kapsam notu) görünür olsun.
+    const coverageNoteWithBackfill = backfillHealthNote
+      ? `${coverageNote} ${backfillHealthNote}`
+      : coverageNote;
 
     return {
       items,
@@ -768,7 +854,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
       lastModified,
       // Geçmiş günlerden ilan geldiyse koşum "değişmedi" sayılmaz.
       notModified: notModified && backfillItems === 0,
-      coverage: { status: coverageStatus, note: coverageNote },
+      coverage: { status: coverageStatus, note: coverageNoteWithBackfill },
       ...(adapterState ? { adapterState } : {}),
     };
   }
