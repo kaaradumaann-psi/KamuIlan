@@ -43,6 +43,20 @@ const EMPTY_PROFILE: CandidateProfile = {
   experienceYears: null,
 };
 
+interface NotificationSettings {
+  onlyNewJobs: boolean;
+  notifyOnChanges: boolean;
+  includeWorkerJobs: boolean;
+  includeAcademicJobs: boolean;
+}
+
+const DEFAULT_SETTINGS: NotificationSettings = {
+  onlyNewJobs: true,
+  notifyOnChanges: true,
+  includeWorkerJobs: true,
+  includeAcademicJobs: true,
+};
+
 function toList(value: string): string[] {
   return value
     .split(',')
@@ -93,6 +107,11 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
   const [filters, setFilters] = useState<PreferenceFilters>(EMPTY_FILTERS);
   const [candidateProfile, setCandidateProfile] = useState<CandidateProfile>(EMPTY_PROFILE);
   const [profilePersonalizationEnabled, setProfilePersonalizationEnabled] = useState(false);
+  // Bildirim anahtarları da formun parçasıdır: eskiden tıklanınca tek başına
+  // kaydediliyordu, metin alanları ise düğme bekliyordu (karışık davranış).
+  const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
+  // "Ek koşullar" yalnızca kayıtlı bir koşul varsa açık başlar; sonra kullanıcıya kalır.
+  const [moreOpen, setMoreOpen] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   // Virgüllü profil alanlarının ham metni: diziye çevrilip geri yazılırsa ilk harf
   // (tek harfli parça elenir) ve virgül anında siliniyor, alan doldurulamıyordu.
@@ -111,6 +130,25 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       });
       setCandidateProfile({ ...EMPTY_PROFILE, ...(preferences.data.preference.candidateProfile ?? {}) });
       setProfilePersonalizationEnabled(preferences.data.preference.profilePersonalizationEnabled ?? false);
+      const stored = preferences.data.preference;
+      const storedFilters = stored.filters;
+      if (
+        storedFilters.employmentTypes.length > 0 ||
+        storedFilters.educationLevels.length > 0 ||
+        storedFilters.departments.length > 0 ||
+        storedFilters.kpssMinScore != null ||
+        storedFilters.minDaysUntilDeadline != null ||
+        stored.includeWorkerJobs === false ||
+        stored.includeAcademicJobs === false
+      ) {
+        setMoreOpen(true);
+      }
+      setSettings({
+        onlyNewJobs: stored.onlyNewJobs ?? true,
+        notifyOnChanges: stored.notifyOnChanges ?? true,
+        includeWorkerJobs: stored.includeWorkerJobs ?? true,
+        includeAcademicJobs: stored.includeAcademicJobs ?? true,
+      });
     }
   }, [preferences.data?.preference]);
 
@@ -123,6 +161,16 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       void queryClient.invalidateQueries({ queryKey: ['preferences'] });
     },
     onError: (caught) => setError(errorMessage(caught)),
+  });
+
+  // Profil ayrı karttadır; sonucu da kendi düğmesinin yanında gösterilir.
+  const saveProfile = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      api.put<{ message: string }>('/api/notifications/preferences', body),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ['preferences'] });
+    },
   });
 
   const pause = useMutation({
@@ -178,14 +226,23 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       enabled: true,
       paused: false,
       filters,
-      candidateProfile,
-      profilePersonalizationEnabled,
+      ...settings,
     });
   };
 
+  const conditionCount = [
+    filters.employmentTypes.length,
+    filters.educationLevels.length,
+    filters.departments.length,
+    filters.kpssMinScore === null ? 0 : 1,
+    filters.minDaysUntilDeadline === null ? 0 : 1,
+    settings.includeWorkerJobs ? 0 : 1,
+    settings.includeAcademicJobs ? 0 : 1,
+  ].filter((count) => count > 0).length;
+
   /** Profil onayı/alanları e-posta bildirim aboneliğinden bağımsız kaydedilebilir. */
   const saveProfileOnly = (): void => {
-    save.mutate({ candidateProfile, profilePersonalizationEnabled });
+    saveProfile.mutate({ candidateProfile, profilePersonalizationEnabled });
   };
 
   const clearProfile = (): void => {
@@ -193,7 +250,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
     setProfilePersonalizationEnabled(false);
     setConfirmClearProfile(false);
     setProfileDraft({});
-    save.mutate({ candidateProfile: { ...EMPTY_PROFILE }, profilePersonalizationEnabled: false });
+    saveProfile.mutate({ candidateProfile: { ...EMPTY_PROFILE }, profilePersonalizationEnabled: false });
   };
 
   return (
@@ -265,341 +322,235 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       {view === 'preferences' && (
         <Card
           title="Bildirim tercihleri"
-          description="İlan, yazdığınız kelimelerden herhangi birine uyduğunda bildirim alırsınız. Boş bıraktığınız alan yok sayılır."
+          description="Yazdığınız kelimelerden herhangi biri bir ilanda geçerse e-posta ile haber veririz. Boş bıraktığınız alanlar yok sayılır."
         >
           <form
-            className="form-grid-2col"
+            className="pref-form"
             onSubmit={(event) => {
               event.preventDefault();
               submit();
             }}
           >
-            <Field
-              label="Anahtar kelimeler"
-              htmlFor="pref-keywords"
-              hint="Virgülle ayırın. İlan başlığı ve metninde aranır."
-            >
-              <input
-                id="pref-keywords"
-                className="input"
-                value={draft['keywords'] ?? (preferences.data.preference?.filters.keywords ?? []).join(', ')}
-                onChange={(event) => {
-                  setDraft({ ...draft, keywords: event.target.value });
-                  setFilters({ ...filters, keywords: toList(event.target.value) });
-                }}
-                placeholder="ör. hemşire, zabıta"
-              />
-            </Field>
-            <Field label="Unvanlar" htmlFor="pref-titles" hint="Virgülle ayırın.">
-              <input
-                id="pref-titles"
-                className="input"
-                value={draft['titles'] ?? (preferences.data.preference?.filters.titles ?? []).join(', ')}
-                onChange={(event) => {
-                  setDraft({ ...draft, titles: event.target.value });
-                  setFilters({ ...filters, titles: toList(event.target.value) });
-                }}
-                placeholder="ör. hemşire, mühendis"
-              />
-            </Field>
-            <Field label="Kurumlar" htmlFor="pref-institutions" hint="Virgülle ayırın (kısmi eşleşme).">
-              <input
-                id="pref-institutions"
-                className="input"
-                value={
-                  draft['institutions'] ??
-                  (preferences.data.preference?.filters.institutions ?? []).join(', ')
-                }
-                onChange={(event) => {
-                  setDraft({ ...draft, institutions: event.target.value });
-                  setFilters({ ...filters, institutions: toList(event.target.value) });
-                }}
-              />
-            </Field>
-            <Field label="İller" htmlFor="pref-cities" hint="Virgülle ayırın.">
-              <input
-                id="pref-cities"
-                className="input"
-                value={draft['cities'] ?? (preferences.data.preference?.filters.cities ?? []).join(', ')}
-                onChange={(event) => {
-                  setDraft({ ...draft, cities: event.target.value });
-                  setFilters({ ...filters, cities: toList(event.target.value) });
-                }}
-              />
-            </Field>
-
-            <fieldset className="form-col-span-2">
-              <legend className="label">İstihdam türleri</legend>
-              <div className="chip-row">
-                {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => (
-                  <label key={value} className="chip">
-                    <input
-                      type="checkbox"
-
-                      checked={filters.employmentTypes.includes(value as never)}
-                      onChange={(event) =>
-                        setFilters({
-                          ...filters,
-                          employmentTypes: event.target.checked
-                            ? [...filters.employmentTypes, value as never]
-                            : filters.employmentTypes.filter((item) => item !== value),
-                        })
-                      }
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-
-            <fieldset className="form-col-span-2">
-              <legend className="label">Eğitim düzeyleri</legend>
-              <div className="chip-row">
-                {/* Yalnızca kanonik düzeyler: 'belirtilmemis' sunucuda geçersiz,
-                    'lise' kayıtlarla eşleşmiyordu (kaydederken 400 hatası). */}
-                {EDUCATION_LEVELS.map((level) => (
-                  <label key={level} className="chip">
-                    <input
-                      type="checkbox"
-                      checked={filters.educationLevels.includes(level)}
-                      onChange={(event) =>
-                        setFilters({
-                          ...filters,
-                          educationLevels: event.target.checked
-                            ? [...filters.educationLevels, level]
-                            : filters.educationLevels.filter((item) => item !== level),
-                        })
-                      }
-                    />
-                    {EDUCATION_LEVEL_LABELS[level]}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-
-            <Field label="Bölümler" htmlFor="pref-departments" hint="Virgülle ayırın.">
-              <input
-                id="pref-departments"
-                className="input"
-                value={
-                  draft['departments'] ?? (preferences.data.preference?.filters.departments ?? []).join(', ')
-                }
-                onChange={(event) => {
-                  setDraft({ ...draft, departments: event.target.value });
-                  setFilters({ ...filters, departments: toList(event.target.value) });
-                }}
-              />
-            </Field>
-            <Field label="KPSS asgari puan" htmlFor="pref-kpss-score">
-              <input
-                id="pref-kpss-score"
-                className="input"
-                type="number"
-                min={0}
-                max={100}
-                value={filters.kpssMinScore ?? ''}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    kpssMinScore: event.target.value === '' ? null : Number(event.target.value),
-                  })
-                }
-              />
-            </Field>
-            <Field
-              label="Son başvuruya kalan en az gün"
-              htmlFor="pref-days"
-              hint="Çok yakın kapanan ilanları elemek için."
-            >
-              <input
-                id="pref-days"
-                className="input"
-                type="number"
-                min={0}
-                max={365}
-                value={filters.minDaysUntilDeadline ?? ''}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    minDaysUntilDeadline: event.target.value === '' ? null : Number(event.target.value),
-                  })
-                }
-              />
-            </Field>
-            <Field label="Bildirim sıklığı" htmlFor="pref-mode">
-              <select
-                id="pref-mode"
-                className="input"
-                value={preference?.mode ?? 'instant'}
-                onChange={(event) => save.mutate({ mode: event.target.value })}
-              >
-                <option value="instant">Anında (yeni ilan bulununca)</option>
-                {/* Günlük özet henüz gönderilmiyor (toplayıcı görevi yok). Yalnızca bu moddaki
-                    mevcut tercihler için durumu gösterilir; yeni seçim sunulmaz. */}
-                {preference?.mode === 'daily-digest' && (
-                  <option value="daily-digest" disabled>
-                    Günlük özet (henüz kullanılamıyor; bildirimler anında gönderilir)
-                  </option>
-                )}
-              </select>
-            </Field>
-
-            <div className="form-col-span-2 switch-list">
-              <label className="switch-row">
-                <input
-                  type="checkbox"
-
-                  checked={preference?.onlyNewJobs ?? true}
-                  onChange={(event) => save.mutate({ onlyNewJobs: event.target.checked })}
-                />
-                Yalnızca yeni ilanlar için bildir (sonuç/atama duyuruları gönderilmez)
-              </label>
-              <label className="switch-row">
-                <input
-                  type="checkbox"
-
-                  checked={preference?.notifyOnChanges ?? true}
-                  onChange={(event) => save.mutate({ notifyOnChanges: event.target.checked })}
-                />
-                Takip ettiğim ilanda değişiklik olursa (tarih, kontenjan, koşul) bildir
-              </label>
-              <label className="switch-row">
-                <input
-                  type="checkbox"
-
-                  checked={preference?.includeWorkerJobs ?? true}
-                  onChange={(event) => save.mutate({ includeWorkerJobs: event.target.checked })}
-                />
-                Kamu işçisi (4/D) ilanlarını dahil et
-              </label>
-              <label className="switch-row">
-                <input
-                  type="checkbox"
-
-                  checked={preference?.includeAcademicJobs ?? true}
-                  onChange={(event) => save.mutate({ includeAcademicJobs: event.target.checked })}
-                />
-                Akademik kadro ilanlarını dahil et
-              </label>
-            </div>
-
-            <fieldset className="form-col-span-2 profile-matching-settings">
-              <legend className="label">Akıllı profil eşleşmesi (isteğe bağlı)</legend>
-              <p className="text-muted-sm">
-                Mesleğinizi ve eğitiminizi girerseniz her ilanda size uyan koşulları gösteririz. Bilgileriniz
-                yalnızca hesabınızda kalır; istediğiniz zaman kapatabilir ya da silebilirsiniz.
-              </p>
-              <label className="switch-row profile-consent-row">
-                <input
-                  type="checkbox"
-                  checked={profilePersonalizationEnabled}
-                  onChange={(event) => setProfilePersonalizationEnabled(event.target.checked)}
-                />
-                Profilimi ilanlara özel eşleşme açıklamalarında kullan
-              </label>
-              <div className="form-grid-2col profile-form-grid">
-                <Field
-                  label="Mesleğim / hedef unvanım"
-                  htmlFor="profile-profession"
-                  hint="ör. inşaat mühendisi, hemşire"
-                >
+            <section className="pref-section" aria-labelledby="pref-what">
+              <h3 id="pref-what" className="pref-section-title">
+                Neyi takip ediyorsunuz?
+              </h3>
+              <p className="text-muted-sm pref-section-note">Birden fazla değeri virgülle ayırın.</p>
+              <div className="form-grid-2col">
+                <Field label="Anahtar kelimeler" htmlFor="pref-keywords" hint="İlan başlığında ve metninde aranır.">
                   <input
-                    id="profile-profession"
+                    id="pref-keywords"
                     className="input"
-                    maxLength={100}
-                    value={candidateProfile.profession}
-                    onChange={(event) =>
-                      setCandidateProfile({ ...candidateProfile, profession: event.target.value })
-                    }
+                    value={draft['keywords'] ?? (preference?.filters.keywords ?? []).join(', ')}
+                    onChange={(event) => {
+                      setDraft({ ...draft, keywords: event.target.value });
+                      setFilters({ ...filters, keywords: toList(event.target.value) });
+                    }}
+                    placeholder="ör. psikoloji, rehberlik"
                   />
                 </Field>
-                <Field label="Eğitim düzeyim" htmlFor="profile-education">
-                  <select
-                    id="profile-education"
+                <Field label="Unvanlar" htmlFor="pref-titles">
+                  <input
+                    id="pref-titles"
                     className="input"
-                    value={candidateProfile.educationLevel ?? ''}
-                    onChange={(event) =>
-                      setCandidateProfile({ ...candidateProfile, educationLevel: event.target.value || null })
-                    }
-                  >
-                    <option value="">Belirtmek istemiyorum</option>
-                    {EDUCATION_LEVELS.map((level) => (
-                      <option key={level} value={level}>
-                        {EDUCATION_LEVEL_LABELS[level]}
-                      </option>
+                    value={draft['titles'] ?? (preference?.filters.titles ?? []).join(', ')}
+                    onChange={(event) => {
+                      setDraft({ ...draft, titles: event.target.value });
+                      setFilters({ ...filters, titles: toList(event.target.value) });
+                    }}
+                    placeholder="ör. psikolog, hemşire"
+                  />
+                </Field>
+                <Field label="Kurumlar" htmlFor="pref-institutions" hint="Adın bir kısmı yeterli.">
+                  <input
+                    id="pref-institutions"
+                    className="input"
+                    value={draft['institutions'] ?? (preference?.filters.institutions ?? []).join(', ')}
+                    onChange={(event) => {
+                      setDraft({ ...draft, institutions: event.target.value });
+                      setFilters({ ...filters, institutions: toList(event.target.value) });
+                    }}
+                    placeholder="ör. Sağlık Bakanlığı"
+                  />
+                </Field>
+                <Field label="İller" htmlFor="pref-cities">
+                  <input
+                    id="pref-cities"
+                    className="input"
+                    value={draft['cities'] ?? (preference?.filters.cities ?? []).join(', ')}
+                    onChange={(event) => {
+                      setDraft({ ...draft, cities: event.target.value });
+                      setFilters({ ...filters, cities: toList(event.target.value) });
+                    }}
+                    placeholder="Tüm iller"
+                  />
+                </Field>
+              </div>
+            </section>
+
+            <details
+              className="pref-section pref-more"
+              open={moreOpen}
+              onToggle={(event) => setMoreOpen(event.currentTarget.open)}
+            >
+              <summary className="pref-section-title">
+                Ek koşullar (isteğe bağlı){conditionCount > 0 ? ` · ${conditionCount} seçili` : ''}
+              </summary>
+              <div className="pref-more-body">
+                <fieldset className="pref-fieldset">
+                  <legend className="label">İstihdam türleri</legend>
+                  <div className="chip-row">
+                    {Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => (
+                      <label key={value} className="chip">
+                        <input
+                          type="checkbox"
+                          checked={filters.employmentTypes.includes(value as never)}
+                          onChange={(event) =>
+                            setFilters({
+                              ...filters,
+                              employmentTypes: event.target.checked
+                                ? [...filters.employmentTypes, value as never]
+                                : filters.employmentTypes.filter((item) => item !== value),
+                            })
+                          }
+                        />
+                        {label}
+                      </label>
                     ))}
-                  </select>
-                </Field>
-                <Field label="Mezun olduğum bölümler" htmlFor="profile-departments" hint="Virgülle ayırın.">
-                  <input
-                    id="profile-departments"
-                    className="input"
-                    value={profileDraft.departments ?? candidateProfile.departments.join(', ')}
-                    onChange={(event) => {
-                      setProfileDraft({ ...profileDraft, departments: event.target.value });
-                      setCandidateProfile({ ...candidateProfile, departments: toList(event.target.value) });
-                    }}
-                    placeholder="ör. İnşaat Mühendisliği"
-                  />
-                </Field>
-                <Field label="Beceriler / belgeler" htmlFor="profile-skills" hint="Virgülle ayırın.">
-                  <input
-                    id="profile-skills"
-                    className="input"
-                    value={profileDraft.skills ?? candidateProfile.skills.join(', ')}
-                    onChange={(event) => {
-                      setProfileDraft({ ...profileDraft, skills: event.target.value });
-                      setCandidateProfile({ ...candidateProfile, skills: toList(event.target.value) });
-                    }}
-                    placeholder="ör. AutoCAD, ilk yardım"
-                  />
-                </Field>
-                <Field label="İlgili iş deneyimim (yıl)" htmlFor="profile-experience">
-                  <input
-                    id="profile-experience"
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={50}
-                    value={candidateProfile.experienceYears ?? ''}
-                    onChange={(event) =>
-                      setCandidateProfile({
-                        ...candidateProfile,
-                        experienceYears: event.target.value === '' ? null : Number(event.target.value),
-                      })
-                    }
-                  />
-                </Field>
-              </div>
-              <div className="profile-save-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={saveProfileOnly}
-                  disabled={save.isPending}
-                >
-                  {save.isPending ? 'Kaydediliyor…' : 'Profil tercihini ayrı kaydet'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={() => setConfirmClearProfile(true)}
-                  disabled={save.isPending}
-                >
-                  Profil bilgilerimi sil
-                </button>
-                <span className="text-muted-sm">
-                  Profil işlemleri e-posta bildirimlerini açmaz veya değiştirmez.
-                </span>
-              </div>
-              <SaveFeedback
-                message={save.data?.message ?? null}
-                error={save.isError ? errorMessage(save.error) : null}
-                pending={save.isPending}
-              />
-            </fieldset>
+                  </div>
+                </fieldset>
 
-            <div className="form-col-span-2">
+                <fieldset className="pref-fieldset">
+                  <legend className="label">Eğitim düzeyleri</legend>
+                  <div className="chip-row">
+                    {/* Yalnızca kanonik düzeyler: 'belirtilmemis' sunucuda geçersiz,
+                        'lise' kayıtlarla eşleşmiyordu (kaydederken 400 hatası). */}
+                    {EDUCATION_LEVELS.map((level) => (
+                      <label key={level} className="chip">
+                        <input
+                          type="checkbox"
+                          checked={filters.educationLevels.includes(level)}
+                          onChange={(event) =>
+                            setFilters({
+                              ...filters,
+                              educationLevels: event.target.checked
+                                ? [...filters.educationLevels, level]
+                                : filters.educationLevels.filter((item) => item !== level),
+                            })
+                          }
+                        />
+                        {EDUCATION_LEVEL_LABELS[level]}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="pref-grid-3">
+                  <Field label="İlanda aranan bölüm" htmlFor="pref-departments" hint="Virgülle ayırın.">
+                    <input
+                      id="pref-departments"
+                      className="input"
+                      value={draft['departments'] ?? (preference?.filters.departments ?? []).join(', ')}
+                      onChange={(event) => {
+                        setDraft({ ...draft, departments: event.target.value });
+                        setFilters({ ...filters, departments: toList(event.target.value) });
+                      }}
+                      placeholder="ör. psikoloji"
+                    />
+                  </Field>
+                  <Field label="KPSS asgari puan" htmlFor="pref-kpss-score">
+                    <input
+                      id="pref-kpss-score"
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={filters.kpssMinScore ?? ''}
+                      onChange={(event) =>
+                        setFilters({
+                          ...filters,
+                          kpssMinScore: event.target.value === '' ? null : Number(event.target.value),
+                        })
+                      }
+                      placeholder="ör. 70"
+                    />
+                  </Field>
+                  <Field
+                    label="Son başvuruya en az (gün)"
+                    htmlFor="pref-days"
+                    hint="Çok yakında kapanan ilanları eler."
+                  >
+                    <input
+                      id="pref-days"
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={365}
+                      value={filters.minDaysUntilDeadline ?? ''}
+                      onChange={(event) =>
+                        setFilters({
+                          ...filters,
+                          minDaysUntilDeadline: event.target.value === '' ? null : Number(event.target.value),
+                        })
+                      }
+                      placeholder="ör. 3"
+                    />
+                  </Field>
+                </div>
+
+                <div className="switch-list">
+                  <label className="switch-row">
+                    <input
+                      type="checkbox"
+                      checked={settings.includeWorkerJobs}
+                      onChange={(event) => setSettings({ ...settings, includeWorkerJobs: event.target.checked })}
+                    />
+                    Kamu işçisi (4/D) ilanlarını dahil et
+                  </label>
+                  <label className="switch-row">
+                    <input
+                      type="checkbox"
+                      checked={settings.includeAcademicJobs}
+                      onChange={(event) => setSettings({ ...settings, includeAcademicJobs: event.target.checked })}
+                    />
+                    Akademik kadro ilanlarını dahil et
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <section className="pref-section" aria-labelledby="pref-how">
+              <h3 id="pref-how" className="pref-section-title">
+                Bildirim ayarları
+              </h3>
+              <div className="switch-list">
+                <label className="switch-row">
+                  <input
+                    type="checkbox"
+                    checked={settings.onlyNewJobs}
+                    onChange={(event) => setSettings({ ...settings, onlyNewJobs: event.target.checked })}
+                  />
+                  Yalnızca yeni ilanlar için bildir (sonuç ve atama duyuruları gönderilmez)
+                </label>
+                <label className="switch-row">
+                  <input
+                    type="checkbox"
+                    checked={settings.notifyOnChanges}
+                    onChange={(event) => setSettings({ ...settings, notifyOnChanges: event.target.checked })}
+                  />
+                  Takip ettiğim ilanda değişiklik olursa (tarih, kontenjan, koşul) bildir
+                </label>
+              </div>
+              {/* Günlük özet henüz gönderilmiyor (toplayıcı görevi yok); yalnızca bu
+                  moddaki eski tercihler için durum gösterilir, yeni seçim sunulmaz. */}
+              {preference?.mode === 'daily-digest' && (
+                <p className="field-hint">
+                  Günlük özet henüz kullanılamıyor; bildirimler anında gönderilir.
+                </p>
+              )}
+            </section>
+
+            <div className="pref-save-bar">
               <button type="submit" className="btn-primary" disabled={save.isPending}>
                 {save.isPending ? 'Kaydediliyor…' : 'Tercihleri kaydet ve bildirimleri aç'}
               </button>
@@ -607,6 +558,117 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                 message={save.data?.message ?? null}
                 error={save.isError ? errorMessage(save.error) : null}
                 pending={save.isPending}
+              />
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {view === 'preferences' && (
+        <Card
+          title="Profilim (isteğe bağlı)"
+          description="Mesleğinizi ve eğitiminizi girerseniz her ilanda size uyan koşulları gösteririz. Bilgileriniz yalnızca hesabınızda kalır; bildirim tercihlerinizi değiştirmez."
+        >
+          <form
+            className="pref-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveProfileOnly();
+            }}
+          >
+            <label className="switch-row profile-consent-row">
+              <input
+                type="checkbox"
+                checked={profilePersonalizationEnabled}
+                onChange={(event) => setProfilePersonalizationEnabled(event.target.checked)}
+              />
+              Profilimi ilanlara özel eşleşme açıklamalarında kullan
+            </label>
+            <div className="form-grid-2col profile-form-grid">
+              <Field label="Mesleğim / hedef unvanım" htmlFor="profile-profession">
+                <input
+                  id="profile-profession"
+                  className="input"
+                  maxLength={100}
+                  value={candidateProfile.profession}
+                  onChange={(event) => setCandidateProfile({ ...candidateProfile, profession: event.target.value })}
+                  placeholder="ör. psikolog"
+                />
+              </Field>
+              <Field label="Eğitim düzeyim" htmlFor="profile-education">
+                <select
+                  id="profile-education"
+                  className="input"
+                  value={candidateProfile.educationLevel ?? ''}
+                  onChange={(event) =>
+                    setCandidateProfile({ ...candidateProfile, educationLevel: event.target.value || null })
+                  }
+                >
+                  <option value="">Belirtmek istemiyorum</option>
+                  {EDUCATION_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {EDUCATION_LEVEL_LABELS[level]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Mezun olduğum bölümler" htmlFor="profile-departments" hint="Virgülle ayırın.">
+                <input
+                  id="profile-departments"
+                  className="input"
+                  value={profileDraft.departments ?? candidateProfile.departments.join(', ')}
+                  onChange={(event) => {
+                    setProfileDraft({ ...profileDraft, departments: event.target.value });
+                    setCandidateProfile({ ...candidateProfile, departments: toList(event.target.value) });
+                  }}
+                  placeholder="ör. Psikoloji"
+                />
+              </Field>
+              <Field label="Beceriler / belgeler" htmlFor="profile-skills" hint="Virgülle ayırın.">
+                <input
+                  id="profile-skills"
+                  className="input"
+                  value={profileDraft.skills ?? candidateProfile.skills.join(', ')}
+                  onChange={(event) => {
+                    setProfileDraft({ ...profileDraft, skills: event.target.value });
+                    setCandidateProfile({ ...candidateProfile, skills: toList(event.target.value) });
+                  }}
+                  placeholder="ör. AutoCAD, ilk yardım"
+                />
+              </Field>
+              <Field label="İlgili iş deneyimim (yıl)" htmlFor="profile-experience">
+                <input
+                  id="profile-experience"
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={candidateProfile.experienceYears ?? ''}
+                  onChange={(event) =>
+                    setCandidateProfile({
+                      ...candidateProfile,
+                      experienceYears: event.target.value === '' ? null : Number(event.target.value),
+                    })
+                  }
+                />
+              </Field>
+            </div>
+            <div className="pref-save-bar">
+              <button type="submit" className="btn-primary" disabled={saveProfile.isPending}>
+                {saveProfile.isPending ? 'Kaydediliyor…' : 'Profili kaydet'}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setConfirmClearProfile(true)}
+                disabled={saveProfile.isPending}
+              >
+                Profil bilgilerimi sil
+              </button>
+              <SaveFeedback
+                message={saveProfile.data?.message ?? null}
+                error={saveProfile.isError ? errorMessage(saveProfile.error) : null}
+                pending={saveProfile.isPending}
               />
             </div>
           </form>
@@ -680,7 +742,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
           title="Profil bilgilerini sil"
           description="Profil alanlarınız kalıcı olarak boşaltılacak ve kişiselleştirme kapatılacak. E-posta bildirim tercihleriniz değişmeyecek."
           confirmLabel="Profilimi sil"
-          busy={save.isPending}
+          busy={saveProfile.isPending}
           onConfirm={clearProfile}
           onCancel={() => setConfirmClearProfile(false)}
         />
