@@ -5,9 +5,12 @@
  * Kullanıcıya teknik ayrıntı (tarama süreci, doğrulama sayıları) gösterilmez;
  * yalnızca "liste en son ne zaman güncellendi" ve kaç kurumun takip edildiği
  * yazılır. Ayrıntılı sağlık bilgisi yönetim panelindedir.
+ *
+ * Kullanıcı giriş yapmış ve Panel'de tercih kaydetmişse, listenin başında
+ * tercihlerine uyan açık ilanları öne çıkaran bir bölüm gösterilir.
  */
 import { useQuery } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
 import { JobCard } from '../components/JobCard';
@@ -16,19 +19,41 @@ import { Card, ErrorNotice, LoadingCard, StatCard, Tag } from '../components/ui'
 import { api, errorMessage } from '../lib/api';
 import { usePageMeta } from '../lib/page-meta';
 import { HEALTH_QUERY_KEY } from '../lib/query-keys';
+import { useAuth } from '../lib/session';
+import {
+  hasActivePreferences,
+  jobQueryFromPreferences,
+  preferenceListPath,
+} from '../lib/home-personalization';
 import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
 import { APP_TAGLINE } from '../site';
-import type { DashboardStats, HealthResponse, JobListResponse, PublicJobSummary } from '../types';
+import type {
+  DashboardStats,
+  HealthResponse,
+  JobListResponse,
+  PreferencesResponse,
+  PublicJobSummary,
+} from '../types';
 
 const STATS_KEY = ['home', 'stats'] as const;
 const LATEST_KEY = ['home', 'latest'] as const;
 const CLOSING_KEY = ['home', 'closing'] as const;
+const PREFERENCES_KEY = ['preferences'] as const;
 
 /** Bir günden eski güncelleme "gecikti" sayılır (durum bandıyla aynı eşik). */
 const STALE_MINUTES = 24 * 60;
 
+/** "Yaklaşan son başvuru" listesinde başlangıçta ve her adımda açılan satır sayısı. */
+const CLOSING_STEP = 8;
+
 /** "Liste ne kadar güncel?" kartı: sade dil, teknik terim yok. */
-function SystemStrip() {
+function SystemStrip({
+  stats,
+  nextDeadline,
+}: {
+  stats: DashboardStats | null;
+  nextDeadline: PublicJobSummary | null;
+}) {
   const health = useQuery({
     queryKey: HEALTH_QUERY_KEY,
     queryFn: ({ signal }) => api.get<HealthResponse>('/api/health', undefined, signal),
@@ -38,6 +63,7 @@ function SystemStrip() {
   const lastSuccessAt = data?.scans.lastSuccessAt ?? null;
   const minutes = data?.scans.minutesSinceSuccess ?? null;
   const late = data?.status === 'down' || (minutes !== null && minutes > STALE_MINUTES);
+  const deadlineDate = nextDeadline?.applicationEndAt ?? nextDeadline?.applicationEndDate ?? null;
 
   return (
     <aside className="desk-now" role="status" aria-busy={health.isLoading}>
@@ -62,13 +88,30 @@ function SystemStrip() {
                   ? formatRelative(lastSuccessAt)
                   : 'Henüz güncelleme yok'}
           </span>
-          {data && (
-            <span className="desk-now-detail">
-              <strong>{formatNumber(data.sources.enabled)}</strong> resmî kaynak takip ediliyor.
-            </span>
-          )}
         </div>
       </div>
+      {data && (
+        <ul className="desk-now-facts">
+          <li className="desk-now-fact">
+            <span className="desk-now-fact-label">Açık ilan</span>
+            <span className="desk-now-fact-value">{stats ? formatNumber(stats.active) : '—'}</span>
+          </li>
+          <li className="desk-now-fact">
+            <span className="desk-now-fact-label">Bugün eklenen</span>
+            <span className="desk-now-fact-value">{stats ? formatNumber(stats.addedToday) : '—'}</span>
+          </li>
+          <li className="desk-now-fact">
+            <span className="desk-now-fact-label">En yakın son başvuru</span>
+            <span className="desk-now-fact-value">
+              {deadlineDate ? formatDateOnly(deadlineDate) : 'Yok'}
+            </span>
+          </li>
+          <li className="desk-now-fact">
+            <span className="desk-now-fact-label">Takip edilen kaynak</span>
+            <span className="desk-now-fact-value">{formatNumber(data.sources.enabled)}</span>
+          </li>
+        </ul>
+      )}
       <div className="desk-now-foot">
         <Link className="desk-now-go" to="/panel">
           <Icon name="bell" size={14} />
@@ -86,8 +129,10 @@ function SystemStrip() {
 export function HomePage() {
   usePageMeta({ title: 'Kamu personel alım ilanları' });
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [term, setTerm] = useState('');
   const [city, setCity] = useState('');
+  const [closingVisible, setClosingVisible] = useState(CLOSING_STEP);
 
   const stats = useQuery({
     queryKey: STATS_KEY,
@@ -108,6 +153,27 @@ export function HomePage() {
       }>('/api/jobs/deadlines/upcoming', { days: 14 }, signal),
   });
 
+  // Tercihleri YALNIZCA giriş yapılmışsa getir (oturumsuz deneyimi bozmayız).
+  const preferences = useQuery({
+    queryKey: PREFERENCES_KEY,
+    queryFn: ({ signal }) =>
+      api.get<PreferencesResponse>('/api/notifications/preferences', undefined, signal),
+    enabled: Boolean(user),
+  });
+
+  const prefFilters = preferences.data?.preference?.filters ?? null;
+  const personalized = Boolean(user) && hasActivePreferences(prefFilters);
+  const matchParams = useMemo(
+    () => (personalized && prefFilters ? jobQueryFromPreferences(prefFilters) : null),
+    [personalized, prefFilters],
+  );
+
+  const matches = useQuery({
+    queryKey: ['home', 'matches', matchParams],
+    queryFn: ({ signal }) => api.get<JobListResponse>('/api/jobs', matchParams ?? undefined, signal),
+    enabled: Boolean(matchParams),
+  });
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const params = new URLSearchParams();
@@ -119,6 +185,10 @@ export function HomePage() {
 
   const typeCounts = stats.data?.byEmploymentType ?? [];
   const maxType = typeCounts.reduce((max, item) => Math.max(max, item.count), 0);
+
+  const closingItems = closing.data?.items ?? [];
+  const closingShown = closingItems.slice(0, closingVisible);
+  const closingAllShown = closingVisible >= closingItems.length;
 
   return (
     <div className="page-stack day-board">
@@ -170,7 +240,7 @@ export function HomePage() {
           </div>
         </div>
 
-        <SystemStrip />
+        <SystemStrip stats={stats.data ?? null} nextDeadline={closingItems[0] ?? null} />
       </section>
 
       {stats.isError && (
@@ -198,6 +268,51 @@ export function HomePage() {
           />
           <StatCard label="Toplam ilan" value={formatNumber(stats.data.total)} icon="list" />
         </section>
+      )}
+
+      {personalized && (
+        <Card
+          title="Size uygun ilanlar"
+          description="Panel'deki tercihlerinize uyan, başvurusu açık ilanlar."
+          actions={
+            prefFilters ? (
+              <Link className="board-text-link" to={preferenceListPath(prefFilters)}>
+                Tümünü gör <Icon name="right" size={13} />
+              </Link>
+            ) : undefined
+          }
+        >
+          {matches.isLoading && <LoadingCard title="İlanlar eşleştiriliyor…" />}
+          {matches.isError && (
+            <ErrorNotice message={errorMessage(matches.error)} onRetry={() => void matches.refetch()} />
+          )}
+          {matches.data && matches.data.items.length === 0 && (
+            <p className="text-muted-sm">
+              Şu an tercihlerinize uyan açık ilan yok. Yeni ilan çıkınca{' '}
+              <Link to="/panel">e-posta ile bildirelim</Link>.
+            </p>
+          )}
+          {matches.data && matches.data.items.length > 0 && (
+            <div className="job-list">
+              {matches.data.items.map((job) => (
+                <JobCard job={job} key={job.id} />
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {!personalized && (
+        <Link className="home-personalize-prompt" to="/panel">
+          <span className="home-personalize-icon" aria-hidden="true">
+            <Icon name="sparkles" size={16} />
+          </span>
+          <span className="home-personalize-text">
+            <strong>Tercihlerinizi girin, size uygun ilanları öne çıkaralım.</strong>
+            <span>Unvan, il ve çalışma türünü seçin; eşleşen açık ilanlar burada toplanır.</span>
+          </span>
+          <Icon name="arrowRight" size={15} />
+        </Link>
       )}
 
       <div className="dashboard-grid">
@@ -233,28 +348,60 @@ export function HomePage() {
           {closing.isError && (
             <ErrorNotice message={errorMessage(closing.error)} onRetry={() => void closing.refetch()} />
           )}
-          {closing.data && closing.data.items.length === 0 && (
+          {closing.data && closingItems.length === 0 && (
             <p className="text-muted-sm">Önümüzdeki 14 gün içinde başvurusu biten ilan yok.</p>
           )}
-          {closing.data && closing.data.items.length > 0 && (
-            <ul className="report-list">
-              {closing.data.items.map((job) => (
-                <li className="report-list-item" key={job.id}>
-                  <div>
-                    <Link to={`/ilanlar/${encodeURIComponent(job.id)}`}>{job.title}</Link>
-                    <span className="cell-subtitle">{job.institution}</span>
-                  </div>
-                  <div className="report-list-meta">
-                    <span className="date-tag">
-                      {formatDateOnly(job.applicationEndAt ?? job.applicationEndDate)}
-                    </span>
-                    <span className="text-muted-sm">
-                      {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          {closingItems.length > 0 && (
+            <>
+              <ul className="report-list">
+                {closingShown.map((job) => (
+                  <li className="report-list-item" key={job.id}>
+                    <div>
+                      <Link to={`/ilanlar/${encodeURIComponent(job.id)}`}>{job.title}</Link>
+                      <span className="cell-subtitle">{job.institution}</span>
+                    </div>
+                    <div className="report-list-meta">
+                      <span className="date-tag">
+                        {formatDateOnly(job.applicationEndAt ?? job.applicationEndDate)}
+                      </span>
+                      <span className="text-muted-sm">
+                        {deadlineLabel(job.deadline.daysLeft, job.deadline.state)}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {closingItems.length > CLOSING_STEP && (
+                <div className="report-list-more">
+                  <span className="text-muted-sm" aria-live="polite">
+                    {closingItems.length} ilandan {closingShown.length}’i gösteriliyor
+                  </span>
+                  {closingAllShown ? (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      aria-expanded="true"
+                      onClick={() => setClosingVisible(CLOSING_STEP)}
+                    >
+                      <Icon name="chevronUp" size={14} />
+                      <span>Daha az göster</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      aria-expanded="false"
+                      onClick={() =>
+                        setClosingVisible((count) => Math.min(count + CLOSING_STEP, closingItems.length))
+                      }
+                    >
+                      <Icon name="chevronDown" size={14} />
+                      <span>Daha fazla göster</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </Card>
       </div>

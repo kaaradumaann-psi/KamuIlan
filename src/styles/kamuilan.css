@@ -751,6 +751,41 @@
     color: rgba(255, 255, 255, 0.65);
   }
 
+  /* Kart içi "neler oluyor" özeti: açık ilan, bugün eklenen, en yakın son
+     başvuru ve takip edilen kaynak. İki sütun; dar ekranda tek sütuna iner. */
+  .desk-now-facts {
+    list-style: none;
+    margin: 12px 0 4px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+
+  .desk-now-fact {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .desk-now-fact-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .desk-now-fact-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+
   .desk-now-foot {
     display: flex;
     align-items: center;
@@ -1330,7 +1365,7 @@
 
   .distribution-list li {
     display: grid;
-    grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) 56px;
+    grid-template-columns: minmax(120px, 190px) minmax(0, 1fr) minmax(44px, auto);
     align-items: center;
     gap: 12px;
     font-size: 12.5px;
@@ -1338,6 +1373,8 @@
 
   .distribution-label {
     color: var(--soft);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .distribution-track {
@@ -1357,6 +1394,79 @@
   .distribution-value {
     text-align: right;
     color: var(--text);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* "Yaklaşan son başvuru" listesinin alt çubuğu: sayaç solda, aç/kapa düğmesi
+     sağda. Dar ekranda alt alta geçer, taşma olmaz. */
+  .report-list-more {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .report-list-more .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Oturumsuz / tercihsiz kullanıcıya kişiselleştirme çağrısı (ince, tıklanabilir). */
+  .home-personalize-prompt {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: var(--cream);
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .home-personalize-prompt:hover {
+    border-color: var(--accent);
+  }
+
+  .home-personalize-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background: var(--accent-soft, rgba(0, 0, 0, 0.05));
+    color: var(--accent-ink, var(--text));
+  }
+
+  .home-personalize-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .home-personalize-text strong {
+    font-size: 13.5px;
+    color: var(--text);
+  }
+
+  .home-personalize-text span {
+    font-size: 12.5px;
+    color: var(--soft);
+  }
+
+  .home-personalize-prompt > svg {
+    flex: none;
+    margin-left: auto;
+    color: var(--soft);
   }
 
   .list-row {
@@ -1637,12 +1747,15 @@
     }
 
     .distribution-list li {
-      grid-template-columns: minmax(0, 1fr) 56px;
-      row-gap: 4px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+      column-gap: 12px;
+      row-gap: 6px;
     }
 
     .distribution-track {
       grid-column: 1 / -1;
+      align-self: center;
     }
 
     .report-list-meta {
