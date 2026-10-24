@@ -27,8 +27,7 @@ const validEntry: SourceTermsEntry = {
 };
 
 describe('kaynak erişim şartları kapısı', () => {
-  it('depodaki kararlar: 22.10.2026 incelemesi (docs/kaynak-sartlari-inceleme-2026-10-22.md) ile birebir', () => {
-    // Yalnız robots.txt + kullanım şartları incelenip izin verilen kaynaklar taranır (K8).
+  it('depodaki kararlar: kullanıcı beyanıyla ilan.gov.tr erişimi açılır; diğer kararlar korunur', () => {
     const loaded = loadSourceTerms(process.cwd());
     expect(loaded.status).toBe('available');
     const expected: Record<string, 'allowed' | 'blocked' | 'unknown'> = {
@@ -38,8 +37,8 @@ describe('kaynak erişim şartları kapısı', () => {
       'iskur-kurumdisi-kamu-isci': 'blocked',
       // 23.10.2026 eki: e-Şube kamu ilanları (site sahibi onayı).
       'iskur-esube-acik-is': 'allowed',
-      'ilan-gov-tr-personel': 'blocked',
-      'ilan-gov-tr-api-personel': 'blocked',
+      'ilan-gov-tr-personel': 'allowed',
+      'ilan-gov-tr-api-personel': 'allowed',
       'kariyerkapisi-isealim': 'allowed',
       'meb-personel-duyurular': 'allowed',
       'kamuilan-sbb': 'unknown',
@@ -64,7 +63,7 @@ describe('kaynak erişim şartları kapısı', () => {
       const entry = loaded.entries.get(key) ?? null;
       expect(entry?.decision, key).toBe(decision);
       // allowed kayıtlar kapıdan eksiksiz geçer; diğerleri hiçbir koşulda geçmez.
-      expect(assessSourceTerms(entry, new Date('2026-10-22')).allowed, key).toBe(decision === 'allowed');
+      expect(assessSourceTerms(entry, new Date('2026-10-24')).allowed, key).toBe(decision === 'allowed');
     }
   });
 

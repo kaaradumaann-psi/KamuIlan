@@ -451,7 +451,10 @@ export function toReviewItem(item: {
     url: safeHref(item.url) ?? '',
     reason: item.reason,
     confidence: item.confidence,
-    payload: item.payload,
+    // Karar için saklanan kayıt anlık görüntüsü ve sınıflandırma ayrıntısı listede gönderilmez.
+    payload: Object.fromEntries(
+      Object.entries(item.payload).filter(([key]) => key !== 'raw' && key !== 'classification'),
+    ),
     candidateJobIds: item.candidateJobIds,
     status: item.status,
     createdAt: item.createdAt,

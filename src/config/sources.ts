@@ -133,10 +133,10 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'html-list',
     status: 'scraper-built',
     statusNote:
-      'Canlı doğrulama (14.10.2026) başarısız: sertifika zinciri doğrulanamadı (UNABLE_TO_VERIFY_LEAF_SIGNATURE). Node 22.15+ ile yeniden doğrulanana kadar doğrulanmış sayılmaz.',
+      'Kullanıcı yazılı erişim ve saklama izni bulunduğunu 24.10.2026 tarihinde bildirdi. HTML liste yolu SPA yapısı nedeniyle gerçek Chromium fallback kullanır; canlı doğrulama yapılana kadar scraper-built durumundadır.',
     lastVerifiedAt: null,
     verificationEvidence:
-      "22.10.2026 canlı deneme: TLS: www.ilan.gov.tr ara sertifikayı göndermiyor; certs/intermediates/geotrust-tls-rsa-ca-g1.pem ile Mozilla kökleri üzerinden doğrulandı (yalnız kökle UNABLE_TO_VERIFY_LEAF_SIGNATURE). Liste HTML'i Angular kabuğu (0 satır); veriyi Ad/AdsByFilter API'si veriyor ve tarayıcı dışı istemciye 403 dönüyor → Chromium gerekir (SOURCE_BROWSER_FALLBACK=1). Kullanım şartları incelemesi: BLOCKED. " +
+      "24.10.2026: kullanıcı yazılı erişim ve saklama izni bulunduğunu bildirdi. HTML liste yolu TLS doğrulaması açık gerçek Chromium fallback kullanır. " +
       '14.10.2026 canlı koşumunda bu adres TLS zinciri hatasıyla okunamadı. Aşağıdaki gözlemler ' +
       `tarihseldir (${VERIFIED_AT} ve 13.10.2026): personel-alimi listesi açıldı (157 ilan, 14 sayfa); ` +
       'örnek ilanlarda kurum adı, YOK***/DPB***/ILN*** tipi resmî ilan numaraları ve detay bağlantıları görüldü. ' +
@@ -165,21 +165,17 @@ export const SOURCE_DEFINITIONS: readonly SourceDefinition[] = [
     method: 'json-api',
     status: 'scraper-built',
     statusNote:
-      '14.10.2026 ekosistem araştırmasıyla API sözleşmesi keşfedildi (github.com/Ruchanbas/rg-ilan-botu ' +
-      'canlı doğrulaması: AdsByFilter + GetAdDetail GitHub Actions runner’larından 200 döner). ' +
-      'Fixture testleriyle doğrulandı; bu ortamdan canlı çalıştırma henüz yapılmadı. İlk canlı taramada ' +
-      'HTTP durum kodları ve tarama notları kontrol edilmeli.',
+      'Fixture testleriyle doğrulandı. Kullanıcı yazılı erişim ve saklama izni bulunduğunu 24.10.2026 tarihinde bildirdi. ' +
+      'Bu bilgisayardan canlı adapter koşumu başarılı; üretim sunucusunun egress yolu ayrıca doğrulanana kadar scraper-built durumundadır.',
     lastVerifiedAt: null,
     verificationEvidence:
-      "22.10.2026 canlı deneme: POST /api/api/services/app/Ad/AdsByFilter: eski gövde ({keys:{q:[..]}}) 500, sayfanın gövdesi ({keys:{ats:['5']}}) 403 (erişim kısıtı; aşılmadı). Kullanım şartları incelemesi: BLOCKED. " +
-      'github.com/Ruchanbas/rg-ilan-botu/src/rgbot/ilanapi.py (canlı doğrulanmış API sözleşmesi: ' +
-      'POST /api/api/services/app/Ad/AdsByFilter {"keys":{"q":[terim]}} + GET AdDetail/GetAdDetail); ' +
-      'tests/ilan-gov-tr-api.test.ts sözleşmenin fixture doğrulaması. HTML liste adaptörünün ' +
+      "24.10.2026 canlı koşum (bu bilgisayar): temiz AdsByFilter isteği 403; tek IGT-UI retry 200. Adapter 13 istek denemesinde 12 HTTP 200, 1 kayıt ve 1 detay gövdesi üretti; kapsam kısmi (sayfa üst sınırı). Üretim sunucusunun egress yolu ayrıca doğrulanmalı. Uygulama: `ats:[5]` + `txv:[73]`, 20 kayıt/sayfa, kategori başına en fazla 10 sayfa; kimlikli User-Agent/TLS açık, 403 sonrası koşu boyunca IGT-UI başlığı. Kullanıcı izin bulunduğunu bildirdi. " +
+      'tests/ilan-gov-tr-api.test.ts güncel sözleşmenin fixture doğrulaması. HTML liste adaptörünün ' +
       'doğrulaması docs/envanter-dogrulama-2026-10-11.md §3.',
     coverageNote:
-      'HTML liste adaptörünün tamamlayıcısı: metin aramasıyla geniş havuz (5 terim × offset sayfaları, ' +
-      'skipCount), yapılandırılmış alanlar (kurum, il, resmî ilan no, "Son Başvuru" filtresi). Alakasız ' +
-      'kayıtlar sınıflandırma hattının ret belleğiyle elenir; ihale/sonuç ilanları kapsam dışıdır.',
+      'HTML liste adaptörünün tamamlayıcısı: personel (ats:[5]) ve akademik (txv:[73]) kategorileri; ' +
+      'offset sayfalama, kurum, il, resmî ilan no ve Son Başvuru alanları. Arşiv ilanları atlanır; ' +
+      'yalnız yeni veya detayı eksik kayıtlar için detay isteği yapılır.',
     enabled: true,
     intervalMinutes: 90,
     minRequestIntervalMs: 2500,

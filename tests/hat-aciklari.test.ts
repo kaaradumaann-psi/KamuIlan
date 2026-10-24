@@ -55,6 +55,7 @@ function response(url: string, body: Buffer, contentType: string): FetchResponse
 interface Route {
   body: string | Buffer;
   type?: string;
+  error?: Error;
 }
 
 /** Yol tablosuyla sahte HTTP; tabloda olmayan istek hata (ağ yok). İzinli host listesi de kaydedilir. */
@@ -67,6 +68,7 @@ function fakeHttp(routes: Record<string, Route>, fallback?: { text: Route; binar
     calls.push({ url, kind, allowedHosts: options.allowedHosts ?? [], minIntervalMs: options.minIntervalMs });
     const route = routes[url] ?? fallback?.[kind];
     if (!route) throw new Error(`Beklenmeyen istek: ${url}`);
+    if (route.error) throw route.error;
     const body = typeof route.body === 'string' ? Buffer.from(route.body, 'utf8') : route.body;
     return response(url, body, route.type ?? 'text/html; charset=utf-8');
   };
@@ -198,6 +200,23 @@ describe('TKGM: detay metni ekli PDF\'te', () => {
     expect(read.notes.join(' ')).toMatch(/izinli host listesi dışında/);
   });
 
+  it('cms-api bağlantı zaman aşımı detay okumasını ilanı düşüren bir hataya çevirmeden raporlanır', async () => {
+    const src = source('tkgm-duyurular');
+    const { http, calls } = fakeHttp({
+      [TKGM_DETAIL_URL]: { body: TKGM_DETAIL_HTML },
+      [TKGM_PDF_URL]: { body: '', error: Object.assign(new Error('fetch failed'), { cause: Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' }) }) },
+    });
+    const read = await readAnnouncementDetail(ctx(src, http), TKGM_DETAIL_URL, {
+      allowedHosts: src.allowedHosts,
+      minIntervalMs: 0,
+    });
+    expect(read.failure).toBeNull();
+    expect(read.bodyText).toBeNull();
+    expect(read.bodyFrom).toBeNull();
+    expect(read.notes.join(' ')).toMatch(/bölgesel ağ engeli veya bağlantı sorunu.*ilan liste bilgisiyle korunuyor/);
+    expect(calls.map((call) => call.kind)).toEqual(['text', 'binary']);
+  });
+
   it('robots Disallow kuralına takılan adres istenmez', async () => {
     const src = source('tkgm-duyurular');
     const { http, calls } = fakeHttp({});
@@ -246,10 +265,10 @@ describe('Kariyer Kapısı: dış bağlantılı ilan gövdesi', () => {
     expect(
       externalBodySourceFor('https://personeltemin.jandarma.gov.tr/ilan', 'kariyerkapisi-isealim', terms, SOURCE_DEFINITIONS, NOW),
     ).toBeNull();
-    // Şartları "blocked" olan kaynak (ilan.gov.tr) host'u: gidilmez.
+    // İzin verilen ilan.gov.tr host'u yalnız ilan detay yolu olarak kabul edilir.
     expect(
       externalBodySourceFor('https://www.ilan.gov.tr/ilan/123/x', 'kariyerkapisi-isealim', terms, SOURCE_DEFINITIONS, NOW),
-    ).toBeNull();
+    ).toMatchObject({ key: 'ilan-gov-tr-personel' });
   });
 
   it('başlıkla örtüşen ekli belge, uzun menü metnine rağmen okunur', () => {

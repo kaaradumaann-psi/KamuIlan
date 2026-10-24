@@ -42,19 +42,23 @@ interface RecordedCall {
   url: string;
   method: string;
   jsonBody: unknown;
+  headers: Record<string, string>;
 }
 
 /** Sahte HTTP istemcisi: JSON cevabı döner, istek kaydı tutar (ağ yok). */
 function fakeJsonHttp(
   resolve: (url: string, call: RecordedCall) => unknown | undefined,
-  failure?: (url: string) => FetchError | null,
+  failure?: (url: string, call: RecordedCall, attempt: number) => FetchError | null,
 ): { http: HttpClient; calls: RecordedCall[] } {
   const calls: RecordedCall[] = [];
+  const attempts = new Map<string, number>();
   const handler = {
-    async fetchText(url: string, options?: { method?: string; jsonBody?: unknown }): Promise<FetchResponse> {
-      const call: RecordedCall = { url, method: options?.method ?? 'GET', jsonBody: options?.jsonBody };
+    async fetchText(url: string, options?: { method?: string; jsonBody?: unknown; headers?: Record<string, string> }): Promise<FetchResponse> {
+      const call: RecordedCall = { url, method: options?.method ?? 'GET', jsonBody: options?.jsonBody, headers: options?.headers ?? {} };
       calls.push(call);
-      const error = failure?.(url);
+      const attempt = (attempts.get(url) ?? 0) + 1;
+      attempts.set(url, attempt);
+      const error = failure?.(url, call, attempt);
       if (error) throw error;
       const payload = resolve(url, call);
       if (payload === undefined) throw new Error(`Beklenmeyen istek: ${url}`);
@@ -117,11 +121,12 @@ describe('ilan.gov.tr JSON API adaptörü', () => {
     expect(apiSource?.method).toBe('json-api');
     expect(apiSource?.status).toBe('scraper-built');
     expect(apiSource?.lastVerifiedAt).toBeNull();
-    expect(apiSource?.verificationEvidence).toContain('rg-ilan-botu');
+    expect(apiSource?.verificationEvidence).toContain('txv:[73]');
+    expect(apiSource?.verificationEvidence).toContain('temiz AdsByFilter isteği 403; tek IGT-UI retry 200');
     expect(apiSource?.allowedHosts.length ?? 0).toBeGreaterThan(0);
   });
 
-  it('AdsByFilter aramasını q DİZİSİYLE ve skipCount ile gönderir', async () => {
+  it('AdsByFilter isteğini ilan kategorisi filtresi, kimlikli AJAX başlığı ve sayfalama ile gönderir', async () => {
     const { http, calls } = fakeJsonHttp((url, call) => {
       if (url === `${API_BASE}/Ad/AdsByFilter`) {
         expect(call.method).toBe('POST');
@@ -137,16 +142,70 @@ describe('ilan.gov.tr JSON API adaptörü', () => {
 
     const search = calls.find((call) => call.url.endsWith('/Ad/AdsByFilter'));
     expect(search?.jsonBody).toEqual({
-      keys: { q: ['personel alımı'] },
+      keys: { ats: [5] },
+      sorting: 'publish_time desc',
       skipCount: 0,
-      maxResultCount: 100,
+      maxResultCount: 20,
     });
+    expect(search?.headers).toMatchObject({
+      'content-type': 'application/json-patch+json',
+      'x-requested-with': 'XMLHttpRequest',
+    });
+    // Kimlik (User-Agent) fetcher'ın sistem geneli değeridir; adaptör ezmez.
+    expect(search?.headers).not.toHaveProperty('user-agent');
+    expect(search?.headers).not.toHaveProperty('x-request-origin');
     expect(result.items).toHaveLength(1);
     expect(result.requestCount).toBeGreaterThan(0);
   });
 
+  it('akademik ilanları ayrı txv filtresiyle arar ve kategori bilgisini kayda taşır', async () => {
+    const { http, calls } = fakeJsonHttp((url, call) => {
+      if (url === `${API_BASE}/Ad/AdsByFilter`) {
+        const body = call.jsonBody as { keys: Record<string, number[]> };
+        if (body.keys.txv) return adsPayload([ad({ adNo: 'ILN-ACADEMIC-1', id: 'academic-1' })], 1);
+        return adsPayload([], 0);
+      }
+      if (url.includes('/AdDetail/GetAdDetail')) return { result: { content: 'Akademik ilan gövdesi '.repeat(20) } };
+      return undefined;
+    });
+
+    const result = await new IlanGovTrApiAdapter().run(contextFor(ilanApiSource, http));
+    const academicSearch = calls.find((call) => (call.jsonBody as { keys?: { txv?: number[] } }).keys?.txv);
+    expect(academicSearch?.jsonBody).toMatchObject({ keys: { txv: [73] }, sorting: 'publish_time desc' });
+    expect(result.items[0]?.sourceItemId).toBe('ILN-ACADEMIC-1');
+    expect(result.items[0]?.sourceCategory).toBe('akademik personel alımı');
+  });
+
+  it('temiz istek 403 verirse yalnız bir kez IGT-UI başlığıyla yeniden dener', async () => {
+    const { http, calls } = fakeJsonHttp(
+      (url, call) => {
+        if (url.endsWith('/Ad/AdsByFilter')) {
+          const body = call.jsonBody as { keys: Record<string, number[]> };
+          return body.keys.ats ? adsPayload([ad({})], 1) : adsPayload([], 0);
+        }
+        if (url.includes('/AdDetail/GetAdDetail')) return { result: { content: 'Başvuru metni '.repeat(30) } };
+        return undefined;
+      },
+      (url, call) => call.headers['x-request-origin'] === 'IGT-UI'
+        ? null
+        : new FetchError(url, 'Forbidden', 403, false),
+    );
+
+    const result = await new IlanGovTrApiAdapter().run(contextFor(ilanApiSource, http));
+    const listCalls = calls.filter((call) => call.url.endsWith('/Ad/AdsByFilter'));
+    const detailCalls = calls.filter((call) => call.url.includes('/AdDetail/GetAdDetail'));
+    expect(listCalls).toHaveLength(3);
+    expect(listCalls[0]?.headers).not.toHaveProperty('x-request-origin');
+    expect(listCalls[1]?.headers['x-request-origin']).toBe('IGT-UI');
+    expect(listCalls[2]?.headers['x-request-origin']).toBe('IGT-UI');
+    expect(detailCalls).toHaveLength(1);
+    expect(detailCalls[0]?.headers['x-request-origin']).toBe('IGT-UI');
+    expect(result.items).toHaveLength(1);
+    expect(result.requestCount).toBe(4);
+  });
+
   it('offset tabanlı sayfalamada skipCount ile ilerler ve numFound dolunca durur', async () => {
-    const pageSize = 100;
+    const pageSize = 20;
     const { http, calls } = fakeJsonHttp((url, call) => {
       if (url === `${API_BASE}/Ad/AdsByFilter`) {
         const body = call.jsonBody as { skipCount: number };
@@ -223,7 +282,7 @@ describe('ilan.gov.tr JSON API adaptörü', () => {
     expect(item?.bodyTextSource).toBe('detail');
   });
 
-  it('GetAdDetail isteğini upstream ile aynı şekilde id ile yapar (adNo değil)', async () => {
+  it('GetAdDetail isteğini id ile yapar (adNo değil) ve yalnız yeni kayıtları detaylandırır', async () => {
     const { http, calls } = fakeJsonHttp((url) => {
       if (url === `${API_BASE}/Ad/AdsByFilter`)
         return adsPayload(

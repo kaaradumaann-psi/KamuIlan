@@ -324,11 +324,11 @@ describe('ilan.gov.tr adaptörü (fixture HTML, ağ yok)', () => {
     '</body></html>',
   ].join('\n');
 
-  it('envanterde tanımlıdır; 14.10.2026 canlı koşumu başarısız olduğu için doğrulanmış sayılmaz', () => {
+  it('envanterde tanımlıdır; HTML adapter canlı doğrulanana kadar scraper-built kalır', () => {
     expect(ilanGovSource).toBeDefined();
     expect(ilanGovSource?.status).toBe('scraper-built');
     expect(ilanGovSource?.lastVerifiedAt).toBeNull();
-    expect(ilanGovSource?.statusNote).toMatch(/başarısız/);
+    expect(ilanGovSource?.statusNote).toMatch(/scraper-built/);
   });
 
   it('liste sayfasından ilanları, kurumu, ili ve tarihi çıkarır', async () => {

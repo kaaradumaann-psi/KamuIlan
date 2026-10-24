@@ -73,6 +73,11 @@ interface ReviewLlmOpinion {
 }
 
 /** İnceleme kaydı payload'ındaki LLM ön görüşünü güvenle okur (yoksa null). */
+/** Geri çekme/düzeltme duyurusu kaydı: ilan değildir, "ayrı yayımla"/"birleştir" uygulanmaz. */
+function isWithdrawalItem(item: ReviewItem): boolean {
+  return typeof item.payload.withdrawal === 'string' && item.payload.withdrawal.length > 0;
+}
+
 function llmOpinionOf(item: ReviewItem): ReviewLlmOpinion | null {
   const raw = item.payload?.llmOpinion;
   if (!raw || typeof raw !== 'object') return null;
@@ -533,6 +538,7 @@ function ReviewTab(): ReactNode {
   const [message, setMessage] = useState<string | null>(null);
   // Karar isteği başarısız olursa sessiz kalmayız: nedeni burada gösterilir.
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [selectedDedupeIds, setSelectedDedupeIds] = useState<Set<string>>(() => new Set());
   const query = useQuery({
     queryKey: ['admin-review', kind],
     queryFn: ({ signal }) =>
@@ -547,14 +553,30 @@ function ReviewTab(): ReactNode {
     mutationFn: (payload: {
       id: string;
       action: 'accept' | 'reject' | 'merge' | 'keep-separate' | 'ignore';
+      targetJobId?: string;
     }) =>
       api.post<{ message: string }>(`/api/admin/review-queue/${payload.id}/resolve`, {
         action: payload.action,
         note: '',
+        ...(payload.targetJobId ? { targetJobId: payload.targetJobId } : {}),
       }),
     onSuccess: (data) => {
       setMessage(data.message);
       setMutationError(null);
+      void queryClient.invalidateQueries({ queryKey: ['admin-review'] });
+    },
+    onError: (caught) => {
+      setMessage(null);
+      setMutationError(errorMessage(caught));
+    },
+  });
+
+  const bulkKeepSeparate = useMutation({
+    mutationFn: (ids: string[]) => api.post<{ resolved: number; message: string }>('/api/admin/review-queue/bulk-keep-separate', { ids }),
+    onSuccess: (data) => {
+      setMessage(data.message);
+      setMutationError(null);
+      setSelectedDedupeIds(new Set());
       void queryClient.invalidateQueries({ queryKey: ['admin-review'] });
     },
     onError: (caught) => {
@@ -571,7 +593,10 @@ function ReviewTab(): ReactNode {
           <select
             className="input"
             value={kind}
-            onChange={(event) => setKind(event.target.value as typeof kind)}
+            onChange={(event) => {
+              setKind(event.target.value as typeof kind);
+              setSelectedDedupeIds(new Set());
+            }}
           >
             <option value="">Tümü</option>
             <option value="classification">İlgililik</option>
@@ -601,12 +626,40 @@ function ReviewTab(): ReactNode {
       )}
       {query.data?.items.length === 0 && <InfoNote>İnceleme bekleyen kayıt yok.</InfoNote>}
 
+      {query.data?.items.some((item) => item.kind === 'dedupe' && !isWithdrawalItem(item)) && (
+        <div className="action-row">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={selectedDedupeIds.size === 0 || bulkKeepSeparate.isPending}
+            onClick={() => bulkKeepSeparate.mutate([...selectedDedupeIds])}
+          >
+            Seçilen {selectedDedupeIds.size} kaydı ayrı ilan olarak yayımla
+          </button>
+        </div>
+      )}
+
       {query.data?.items.map((item) => (
         <Card
           key={item.id}
           title={item.title}
           description={`${REVIEW_KIND_LABELS[item.kind] ?? item.kind} · eminlik %${Math.round(item.confidence * 100)}`}
         >
+          {item.kind === 'dedupe' && !isWithdrawalItem(item) && (
+            <label className="body-copy">
+              <input
+                type="checkbox"
+                checked={selectedDedupeIds.has(item.id)}
+                onChange={(event) => setSelectedDedupeIds((current) => {
+                  const next = new Set(current);
+                  if (event.target.checked) next.add(item.id);
+                  else next.delete(item.id);
+                  return next;
+                })}
+              />{' '}
+              Toplu yayımlama için seç
+            </label>
+          )}
           <p className="body-copy">{item.reason}</p>
           {llmOpinionOf(item) && (
             <div className="push-sm">
@@ -639,27 +692,38 @@ function ReviewTab(): ReactNode {
                   <Link to={`/ilanlar/${encodeURIComponent(id)}`}>
                     {query.data?.candidateTitles[id] ?? id}
                   </Link>
+                  {item.kind === 'dedupe' && !isWithdrawalItem(item) && (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        disabled={decide.isPending}
+                        onClick={() => decide.mutate({ id: item.id, action: 'merge', targetJobId: id })}
+                      >
+                        Bu ilanla aynı — birleştir
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           )}
+          {item.kind === 'dedupe' && isWithdrawalItem(item) && (
+            <p className="text-muted-sm push-sm">
+              Geri çekme/düzeltme duyurusu: eşleşen ilan bulunamadı. Duyuru ilan değildir; ilgili ilanı
+              ilan sayfasından elle güncelleyip bu kaydı kapatın.
+            </p>
+          )}
           <div className="action-row push-lg">
-            {item.kind === 'dedupe' && item.candidateJobIds.length >= 2 && (
+            {item.kind === 'dedupe' && !isWithdrawalItem(item) && (
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => decide.mutate({ id: item.id, action: 'merge' })}
-              >
-                Aynı ilan — birleştir
-              </button>
-            )}
-            {item.kind === 'dedupe' && (
-              <button
-                type="button"
-                className="btn-secondary"
+                disabled={decide.isPending}
                 onClick={() => decide.mutate({ id: item.id, action: 'keep-separate' })}
               >
-                Farklı ilan — ayrı bırak
+                Farklı ilan — ayrı yayımla
               </button>
             )}
             {item.kind === 'classification' && (
