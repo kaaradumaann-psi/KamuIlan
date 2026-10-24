@@ -10,7 +10,7 @@
  * tercihlerine uyan açık ilanları öne çıkaran bir bölüm gösterilir.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
 import { JobCard } from '../components/JobCard';
@@ -22,16 +22,13 @@ import { api, errorMessage } from '../lib/api';
 import { usePageMeta } from '../lib/page-meta';
 import { HEALTH_QUERY_KEY } from '../lib/query-keys';
 import { useAuth } from '../lib/session';
-import {
-  hasActivePreferences,
-  jobQueryFromPreferences,
-  preferenceListPath,
-} from '../lib/home-personalization';
+import { hasActivePreferences } from '../lib/home-personalization';
 import { deadlineLabel, employmentTypeLabel, formatDateOnly, formatNumber, formatRelative } from '../lib/format';
 import { APP_TAGLINE } from '../site';
 import type {
   DashboardStats,
   HealthResponse,
+  ForMeResponse,
   JobListResponse,
   PreferencesResponse,
   PublicJobSummary,
@@ -41,12 +38,25 @@ const STATS_KEY = ['home', 'stats'] as const;
 const LATEST_KEY = ['home', 'latest'] as const;
 const CLOSING_KEY = ['home', 'closing'] as const;
 const PREFERENCES_KEY = ['preferences'] as const;
+const FOR_ME_KEY = ['home', 'for-me'] as const;
+
+/** "Size uygun ilanlar" başlangıçta ve her "daha fazla" adımında açılan ilan sayısı. */
+const FOR_ME_STEP = 6;
+/** Sunucunun tek istekte verdiği en fazla ilan (`/api/jobs/for-me` pageSize sınırı). */
+const FOR_ME_MAX = 50;
 
 /** Bir günden eski güncelleme "gecikti" sayılır (durum bandıyla aynı eşik). */
 const STALE_MINUTES = 24 * 60;
 
 /** "Yaklaşan son başvuru" listesinde başlangıçta ve her adımda açılan satır sayısı. */
 const CLOSING_STEP = 8;
+
+/** "Size uygun ilanlar" açıklaması: kaç ilan eşleşti (gerçek sayı). */
+function forMeDescription(data: ForMeResponse | undefined): string {
+  if (!data || data.total === 0) return 'Tercihlerinize uyan güncel ilanlar.';
+  const count = `${data.truncated ? 'en az ' : ''}${formatNumber(data.total)}`;
+  return `Tercihlerinize uyan ${count} güncel ilan; son başvurusu yakın olan önce.`;
+}
 
 /** "Liste ne kadar güncel?" kartı: sade dil, teknik terim yok. */
 function SystemStrip({
@@ -168,15 +178,15 @@ export function HomePage() {
 
   const prefFilters = preferences.data?.preference?.filters ?? null;
   const personalized = Boolean(user) && hasActivePreferences(prefFilters);
-  const matchParams = useMemo(
-    () => (personalized && prefFilters ? jobQueryFromPreferences(prefFilters) : null),
-    [personalized, prefFilters],
-  );
+  const [forMeLimit, setForMeLimit] = useState(FOR_ME_STEP);
 
+  // Eşleştirme sunucuda, e-posta bildirimleriyle AYNI kuralla yapılır. Anahtar,
+  // tercihin güncellenme zamanını içerir: Panel'de değişen tercih eski listeyi göstermez.
   const matches = useQuery({
-    queryKey: ['home', 'matches', matchParams],
-    queryFn: ({ signal }) => api.get<JobListResponse>('/api/jobs', matchParams ?? undefined, signal),
-    enabled: Boolean(matchParams),
+    queryKey: [...FOR_ME_KEY, preferences.data?.preference?.updatedAt ?? null, forMeLimit],
+    queryFn: ({ signal }) => api.get<ForMeResponse>('/api/jobs/for-me', { pageSize: forMeLimit }, signal),
+    enabled: personalized,
+    placeholderData: (previous) => previous,
   });
 
   // Sihirbaz: tercihsiz kullanıcı için tek seferde tüm tercihleri kaydeder.
@@ -186,6 +196,7 @@ export function HomePage() {
       setWizardOpen(false);
       setWizardDone(true);
       void queryClient.invalidateQueries({ queryKey: PREFERENCES_KEY });
+      void queryClient.invalidateQueries({ queryKey: FOR_ME_KEY });
     },
   });
 
@@ -285,16 +296,20 @@ export function HomePage() {
         </section>
       )}
 
+      {wizardDone && (
+        <InfoNote tone="success">
+          Tercihleriniz kaydedildi, bildirimler açıldı. Eşleşen ilanlar aşağıda; yeni ilanlar e-postanıza da gelecek.
+        </InfoNote>
+      )}
+
       {personalized && (
         <Card
           title="Size uygun ilanlar"
-          description="Panel'deki tercihlerinize uyan, başvurusu açık ilanlar."
+          description={forMeDescription(matches.data)}
           actions={
-            prefFilters ? (
-              <Link className="board-text-link" to={preferenceListPath(prefFilters)}>
-                Tümünü gör <Icon name="right" size={13} />
-              </Link>
-            ) : undefined
+            <Link className="board-text-link" to="/panel">
+              Tercihleri düzenle <Icon name="right" size={13} />
+            </Link>
           }
         >
           {matches.isLoading && <LoadingCard title="İlanlar eşleştiriliyor…" />}
@@ -303,24 +318,41 @@ export function HomePage() {
           )}
           {matches.data && matches.data.items.length === 0 && (
             <p className="text-muted-sm">
-              Şu an tercihlerinize uyan açık ilan yok. Yeni ilan çıkınca{' '}
-              <Link to="/panel">e-posta ile bildirelim</Link>.
+              Şu an tercihlerinize uyan güncel ilan yok.{' '}
+              {preferences.data?.canReceive
+                ? 'Uyan yeni ilan çıktığında size haber vereceğiz.'
+                : 'Bildirimleri açarsanız uyan yeni ilan çıktığında haber veririz.'}{' '}
+              Daha çok ilan görmek için <Link to="/panel">tercihlerinizi genişletebilirsiniz</Link>.
             </p>
           )}
           {matches.data && matches.data.items.length > 0 && (
-            <div className="job-list">
-              {matches.data.items.map((job) => (
-                <JobCard job={job} key={job.id} />
-              ))}
-            </div>
+            <>
+              <div className="job-list">
+                {matches.data.items.map((job) => (
+                  <div className="match-item" key={job.id}>
+                    <JobCard job={job} />
+                    {job.matchReasons.length > 0 && (
+                      <p className="match-reasons">
+                        <span className="sr-only">Neden önerildi: </span>
+                        {job.matchReasons.join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {matches.data.total > matches.data.items.length && forMeLimit < FOR_ME_MAX && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm push-sm"
+                  disabled={matches.isFetching}
+                  onClick={() => setForMeLimit((limit) => Math.min(limit + FOR_ME_STEP * 2, FOR_ME_MAX))}
+                >
+                  {matches.isFetching ? 'Yükleniyor…' : 'Daha fazla göster'}
+                </button>
+              )}
+            </>
           )}
         </Card>
-      )}
-
-      {wizardDone && (
-        <InfoNote tone="success">
-          Tercihleriniz kaydedildi, bildirimler açıldı. Eşleşen yeni ilanlar burada ve e-postanızda görünecek.
-        </InfoNote>
       )}
 
       {Boolean(user) && !personalized && !wizardDone && (

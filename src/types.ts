@@ -338,6 +338,19 @@ export interface NotificationPreference {
   updatedAt: string;
 }
 
+/** `/api/jobs/for-me`: bildirim eşleştiricisiyle süzülmüş, başvurusu açık ilanlar. */
+export interface ForMeResponse {
+  personalized: boolean;
+  items: (PublicJobSummary & { matchReasons: string[] })[];
+  total: number;
+  /** Aday sınırına ulaşıldı: `total` alt sınırdır. */
+  truncated: boolean;
+  page: number;
+  pageSize: number;
+  pages: number;
+  generatedAt: string;
+}
+
 export interface PreferencesResponse {
   preference: NotificationPreference | null;
   email: string;

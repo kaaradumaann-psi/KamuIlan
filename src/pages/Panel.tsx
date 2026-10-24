@@ -28,7 +28,7 @@ import { DEPARTMENT_SUGGESTIONS } from '../domain/departments';
 import { INSTITUTION_SUGGESTIONS } from '../domain/institutions';
 import { PROVINCES } from '../domain/provinces';
 import { Icon } from '../components/Icon';
-import type { WizardPayload } from '../lib/wizard-payload';
+import { choicesFromPreference, type WizardPayload } from '../lib/wizard-payload';
 
 const PROVINCE_NAMES: readonly string[] = PROVINCES.map((province) => province.name);
 
@@ -820,6 +820,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
         <OnboardingWizard
           onClose={() => setWizardOpen(false)}
           onComplete={(payload) => wizardSave.mutate(payload)}
+          initialChoices={choicesFromPreference(preferences.data?.preference)}
           submitting={wizardSave.isPending}
           error={wizardSave.isError ? errorMessage(wizardSave.error) : null}
         />

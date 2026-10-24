@@ -8,6 +8,10 @@
  *
  * Akış öğesi: <guid>/<link> = IlanDetay?i=<guid>, <category> (İşçi/Memur/Akademik…),
  * <title> ("KURUM ADI - PERSONEL ALIM İLANI (N KİŞİLİK)"), <pubDate> (RFC822).
+ * <pubDate> ileri tarihli olabilir (ör. 24.10'da "09 Kasım", ilanın sitedeki bitişi
+ * 03 Aralık) ve portal bu ilanı yine "Aktif İlanlar"da gösterir; anlamı belgelenmemiştir.
+ * Gelecek tarih yayım tarihi diye yazılmaz (yanlış "yeni" sıralaması) ve başvuru
+ * başlangıcı diye de UYDURULMAZ; alan boş bırakılır.
  * Detay sayfası istemci tarafı (SPA) olduğundan son başvuru/kontenjan sunucudan
  * okunamaz; bu alanlar boş bırakılır. İlanın varlığı + başvuru bağlantısı yeterlidir.
  */
@@ -130,13 +134,16 @@ export class KariyerKapisiRssAdapter implements SourceAdapter {
       if (seen.has(sourceItemId)) continue;
       seen.add(sourceItemId);
       const category = tagText(block, 'category') ?? undefined;
+      const pubDay = parsePubDate(tagText(block, 'pubDate'));
+      const today = toIstanbulDateOnly(ctx.fetchedAt);
+      const dates = pubDay !== undefined && pubDay <= today ? { publishedAt: pubDay } : {};
       const announcement: RawAnnouncement = {
         sourceKey: ctx.source.key,
         sourceItemId,
         url: link,
         title,
         ...(institutionFromTitle(title) ? { institution: institutionFromTitle(title) } : {}),
-        ...(parsePubDate(tagText(block, 'pubDate')) ? { publishedAt: parsePubDate(tagText(block, 'pubDate')) } : {}),
+        ...dates,
         ...(category ? { sourceCategory: category } : {}),
         applicationUrl: link,
         attachments: [],

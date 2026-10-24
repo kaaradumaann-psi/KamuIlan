@@ -1613,6 +1613,23 @@
     outline-offset: 1px;
   }
 
+  /* "Size uygun ilanlar": kart + neden önerildiği satırı */
+  .match-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .match-reasons {
+    margin: 0;
+    padding: 0 4px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--soft);
+    overflow-wrap: anywhere;
+  }
+
   /* Başlangıç sihirbazı (tam ekran modal) ----------------------------------- */
   .wizard-backdrop {
     align-items: stretch;

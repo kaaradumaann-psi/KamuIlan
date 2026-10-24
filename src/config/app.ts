@@ -54,7 +54,10 @@ export const APP_VERSION = '2026.10.1';
 // "Açıktan … atama/sınav", "Meslek Personel Yardımcılığı", "İşçi İstihdamı" başlık kanıtı; başlığı
 // gövdenin ilk cümlesinden türetilmiş resmî ilanda giriş cümlesi ("… alınacaktır") başlık kanıtı
 // yerine geçer. Eski RET kararları yeniden işlenir (pipeline staleRejection).
-export const CLASSIFICATION_VERSION = '2026.10.7';
+// 2026.10.8: Kariyer Kapısı RSS öğesi (gövdesiz) portalın kendi alım kategorisiyle kabul edilir
+// (24.10.2026 canlı akış: 29 ilanın 26'sı incelemede, "Akreditasyon Uzman Yardımcısı Alımı"
+// reddedilmişti); görevde yükselme / yurt dışı eğitim kategorileri olağan kurala kalır.
+export const CLASSIFICATION_VERSION = '2026.10.8';
 // 2026.10.2: gövde metni artık sayfa iskeletinden (menü, çerez/KVKK modali,
 // erişilebilirlik araç çubuğu) arındırılarak çıkarılıyor.
 // 2026.10.3: iskelet temizliği metin katmanında da genişletildi —
@@ -82,7 +85,9 @@ export const CLASSIFICATION_VERSION = '2026.10.7';
 // (gerçek RG OCR: Orta Anadolu Kalkınma Ajansı 19.10-4-7, 2 → 7).
 // 2026.10.9: pozisyon başlığı ve "(K (yazıyla) Kişi" aynı satırda (OCR biçimi) okunur; rakam yazıyla
 // doğrulanır (gerçek RG OCR: İŞKUR 18.10-4-4, "(| (Bir) Kişi").
-export const EXTRACTION_VERSION = '2026.10.9';
+// 2026.10.10: "lisans" öğrenim düzeyi tek paragraflık metinde de bulunur ("ön/yüksek lisans"
+// maskesi ham metinde; önceden normalize edilmiş metinde cümle bölme çalışmıyordu).
+export const EXTRACTION_VERSION = '2026.10.10';
 // 2026.10.2: aynı kaynağın FARKLI kaynak-içi kimliğiyle (ör. İŞKUR ilan no) gelen
 // ilanlar asla tek ilanda birleşmez (üretim 23.10.2026: iskur-esube-kamu 91 ayrı
 // ilan no → 10 ilan). decideDedupe adayı `${sourceKey}::${sourceItemId}` ile eler;

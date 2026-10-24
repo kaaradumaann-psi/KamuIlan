@@ -84,6 +84,18 @@ export class ReviewRepo {
     return updated;
   }
 
+  /**
+   * Aynı bağlantı için açık sınıflandırma incelemelerini kapatır: kural güncellemesiyle
+   * kayıt sonradan kendiliğinden ilana dönüştüğünde kuyrukta bayat kayıt kalmasın.
+   */
+  async resolveOpenClassificationForUrl(url: string, resolution: string): Promise<number> {
+    return this.store.updateMany(
+      'reviewQueue',
+      { kind: 'classification', status: 'open', url },
+      { status: 'resolved', resolution, resolvedBy: 'system', resolvedAt: this.clock.now().toISOString() },
+    );
+  }
+
   async ignore(id: string, reason: string, resolvedBy: string): Promise<ReviewQueueDoc | null> {
     const updated = await this.store.updateOne('reviewQueue', { id }, {
       status: 'ignored',

@@ -6,8 +6,14 @@
  * en az 2 karakter olmasını ister; bu yüzden burada kısa/boş değerler elenir.
  * kpssMinScore 0–100 aralığında tutulur. Yalnızca şemada tanımlı alanlar
  * gönderilir (gövde `.strict()` doğrulanır).
+ *
+ * Sihirbazın SORMADIĞI alanlar (kurum filtresi, son güne kalan gün, bildirim
+ * modu, profil becerileri/deneyim) gövdeye YAZILMAZ: sunucu tercihleri alan
+ * bazında birleştirir; boş değer göndermek Panel'de ayarlanmış değerleri
+ * sessizce siliyordu.
  */
 import type { EmploymentType } from '../domain/types';
+import type { NotificationPreference } from '../types';
 
 export interface WizardChoices {
   /** Hedef unvan(lar) — ilki aynı zamanda profil mesleği olur. */
@@ -80,30 +86,26 @@ export function hasAnyChoice(choices: WizardChoices): boolean {
 export interface WizardPayload {
   enabled: true;
   paused: false;
-  mode: 'instant';
   onlyNewJobs: boolean;
   notifyOnChanges: boolean;
   includeWorkerJobs: boolean;
   includeAcademicJobs: boolean;
-  profilePersonalizationEnabled: boolean;
+  /** Yalnız unvan seçildiğinde `true` gönderilir; aksi hâlde mevcut ayar korunur. */
+  profilePersonalizationEnabled?: true;
   candidateProfile: {
     profession: string;
     educationLevel: string | null;
     departments: string[];
-    skills: string[];
-    experienceYears: number | null;
   };
   filters: {
     keywords: string[];
     titles: string[];
-    institutions: string[];
     cities: string[];
     employmentTypes: EmploymentType[];
     educationLevels: string[];
     departments: string[];
     kpssScoreTypes: string[];
     kpssMinScore: number | null;
-    minDaysUntilDeadline: number | null;
   };
 }
 
@@ -114,31 +116,50 @@ export function buildWizardPayload(choices: WizardChoices): WizardPayload {
   return {
     enabled: true,
     paused: false,
-    mode: 'instant',
     onlyNewJobs: choices.onlyNewJobs,
     notifyOnChanges: choices.notifyOnChanges,
     includeWorkerJobs: choices.includeWorkerJobs,
     includeAcademicJobs: choices.includeAcademicJobs,
     // Sihirbaz açıkça tamamlandığında profil eşleşme açıklamaları açılır.
-    profilePersonalizationEnabled: profession.length > 0,
+    ...(profession.length > 0 ? { profilePersonalizationEnabled: true as const } : {}),
     candidateProfile: {
       profession,
       educationLevel: choices.educationLevel,
       departments,
-      skills: [],
-      experienceYears: null,
     },
     filters: {
       keywords: sanitizeList(choices.keywords),
       titles,
-      institutions: [],
       cities: sanitizeList(choices.cities),
       employmentTypes: choices.employmentTypes,
       educationLevels: choices.educationLevels,
       departments,
       kpssScoreTypes: choices.kpssScoreTypes,
       kpssMinScore: clampScore(choices.kpssMinScore),
-      minDaysUntilDeadline: null,
     },
+  };
+}
+
+/**
+ * Kayıtlı tercihten sihirbaz başlangıcı: Panel'den yeniden açılan sihirbaz
+ * mevcut seçimleri gösterir (boş başlayıp "Tamamla" ile silmez).
+ */
+export function choicesFromPreference(preference: NotificationPreference | null | undefined): WizardChoices {
+  if (!preference) return INITIAL_WIZARD_CHOICES;
+  const { filters } = preference;
+  return {
+    titles: [...filters.titles],
+    keywords: [...filters.keywords],
+    departments: [...filters.departments],
+    cities: [...filters.cities],
+    employmentTypes: [...filters.employmentTypes] as EmploymentType[],
+    educationLevels: [...filters.educationLevels],
+    educationLevel: preference.candidateProfile?.educationLevel ?? filters.educationLevels[0] ?? null,
+    kpssScoreTypes: [...filters.kpssScoreTypes],
+    kpssMinScore: filters.kpssMinScore,
+    onlyNewJobs: preference.onlyNewJobs,
+    notifyOnChanges: preference.notifyOnChanges,
+    includeWorkerJobs: preference.includeWorkerJobs,
+    includeAcademicJobs: preference.includeAcademicJobs,
   };
 }
