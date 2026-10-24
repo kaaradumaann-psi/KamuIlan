@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
+import { detailFetchBudget } from '../src/ingest/pipeline';
 import { createLogger } from '../src/lib/logger';
 import {
   collectApiText,
@@ -457,5 +458,24 @@ describe('API yardımcıları', () => {
     );
     expect(deadlineFromAdFilters([{ key: 'İl', value: 'Ankara' }])).toBeNull();
     expect(deadlineFromAdFilters([{ key: 'Son Başvuru', value: 'yakında' }])).toBeNull();
+  });
+
+  it('tarama süresi dolmuşsa ayrıntı istemez; kalanı sonraki taramaya bırakır ve kapsamı kısmi bildirir', async () => {
+    const { http, calls } = fakeJsonHttp((url) => {
+      if (url === `${API_BASE}/Ad/AdsByFilter`) return adsPayload([ad({})], 1);
+      if (url.includes('/AdDetail/GetAdDetail')) return { result: { detail: 'Başvuru koşulları '.repeat(30) } };
+      return undefined;
+    });
+    const ctx = { ...contextFor(ilanApiSource, http), deadlineAt: new Date(Date.now() - 1_000) };
+    const result = await new IlanGovTrApiAdapter().run(ctx);
+    expect(calls.some((call) => call.url.includes('/AdDetail/GetAdDetail'))).toBe(false);
+    expect(result.items).toHaveLength(0);
+    expect(result.notes.join(' ')).toContain('sonraki taramaya bırakıldı');
+    expect(result.coverage?.status).not.toBe('complete');
+  });
+
+  it('JSON API ayrıntı bütçesi HTML yöntemlerinden yüksektir', () => {
+    expect(detailFetchBudget('json-api')).toBe(20);
+    expect(detailFetchBudget('html-list')).toBe(8);
   });
 });

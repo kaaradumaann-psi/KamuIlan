@@ -147,6 +147,10 @@ export function resolveAdapterSource(doc: SourceDoc): SourceDefinition {
 export function detailFetchBudget(method: string): number {
   if (method === 'browser') return 5;
   if (method === 'pdf-index') return 25;
+  // JSON ayrıntısı ucuzdur (HTML/PDF ayrıştırması yok). ilan.gov.tr 24.10.2026 ilk canlı
+  // taramada 140 ilan gördü; 8'lik bütçe birikimi ~27 saatte eritiyordu. 20 ayrıntı +
+  // ~11 liste isteği, 2,5 sn aralıkla tarama süresine sığar (adaptör ayrıca süreyi denetler).
+  if (method === 'json-api') return 20;
   // Each item may trigger multiple DB writes after this request; keep HTML
   // source runs within the configured timeout and drain detail backlogs over
   // subsequent scans instead of silently abandoning later pages.

@@ -32,6 +32,7 @@ import { toIstanbulIso } from '../../domain/dates';
 import type { RawAnnouncement } from '../../domain';
 import { AdapterStructureError, SourceAccessError } from '../errors';
 import { assertSafeUrl, describeFetchFailure, FetchError, type FetchOptions, type FetchResponse } from '../fetcher';
+import { hasBudgetFor } from '../scan-budget';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 
 const API_BASE_PATH = '/api/api/services/app';
@@ -350,7 +351,15 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
     let failedDetailFetches = 0;
     let detailsWithoutUsableText = 0;
 
+    let budgetStopped = 0;
     for (const row of selectedRows) {
+      // Tarama süresi dolmak üzereyse kalan ayrıntılar sonraki taramaya bırakılır
+      // (yarıda kesilen koşum tüm sonuçları kaybettirirdi).
+      if (!hasBudgetFor(ctx, Math.max(source.minRequestIntervalMs, 1_000) + 5_000)) {
+        budgetStopped = selectedRows.length - items.length;
+        notes.push(`Tarama süresi doldu; ${budgetStopped} ayrıntı sonraki taramaya bırakıldı.`);
+        break;
+      }
       let bodyText: string | null = null;
       let bodyTextTruncated = false;
       try {
@@ -446,6 +455,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
     if (detailsWithoutUsableText > 0)
       coverageNotes.push(`${detailsWithoutUsableText} detay yanıtından kullanılabilir metin çıkarılamadı.`);
     if (deferred > 0) coverageNotes.push(`${deferred} kayıt detay bütçesi nedeniyle ertelendi.`);
+    if (budgetStopped > 0) coverageNotes.push(`${budgetStopped} kayıt tarama süresi dolduğu için ertelendi.`);
     const capped = rowsByItem.size >= MAX_LIST_ITEMS;
     if (truncatedTerms.length > 0)
       coverageNotes.push(
