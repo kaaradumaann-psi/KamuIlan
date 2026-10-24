@@ -804,46 +804,91 @@ describe('yetkilendirme ve izolasyon', () => {
 });
 
 describe('inceleme kuyruğu kararı', () => {
-  it('tekilleştirme birleştirmesi yalnızca yönetici kararıyla ve kaynaklar korunarak yapılır', async () => {
+  it('toplu "ayrı yayımla" yeni kayıtları İLAN olarak yayımlar, kaydı çözer ve denetler', async () => {
     await createUser(world.repos, {
-      email: 'yonetici2@ornek.test',
+      email: 'toplu-yonetici@ornek.test',
       password: 'Guclu-Parola-2026',
       role: 'admin',
     });
-    const admin = await login(world.app, 'yonetici2@ornek.test', 'Guclu-Parola-2026');
+    const admin = await login(world.app, 'toplu-yonetici@ornek.test', 'Guclu-Parola-2026');
+    const enqueue = (suffix: string) =>
+      world.repos.review.enqueue({
+        kind: 'dedupe', sourceKey: SOURCE_KEY, title: `Örnek Belediyesi: Zabıta Memuru Alım İlanı ${suffix}`,
+        url: `https://ornek.test/toplu-${suffix}`, reason: 'Benzer başlık', confidence: 0.6,
+        payload: { sourceItemId: `TOPLU-${suffix}`, excerpt: 'Örnek Belediyesi Başkanlığından: Zabıta Memuru Alım İlanı. Belediyemiz bünyesinde 657 sayılı Kanuna tabi kadrolu zabıta memuru alımı yapılacaktır. Başvurular 02.11.2026 tarihinde başlayıp 11.11.2026 tarihinde sona erecektir.' },
+        candidateJobIds: [seeded.secondJobId],
+      });
+    const first = await enqueue('a');
+    const second = await enqueue('b');
 
-    const queue = await world.app.inject({
-      method: 'GET',
-      url: '/api/admin/review-queue?kind=dedupe',
-      cookies: { kamuilan_session: admin.session },
-    });
-    expect(queue.statusCode).toBe(200);
-    const items = (queue.json() as { items: { id: string; candidateJobIds: string[] }[] }).items;
-    const item = items.find((candidate) => candidate.candidateJobIds.includes(seeded.firstJobId));
-    expect(item).toBeTruthy();
-    expect(item?.candidateJobIds).toHaveLength(2);
-    const [targetId, duplicateId] = item?.candidateJobIds as string[];
-    const linksBefore = await world.repos.jobs.listSourceLinks(duplicateId as string);
-
-    const resolved = await world.app.inject({
+    const response = await world.app.inject({
       method: 'POST',
-      url: `/api/admin/review-queue/${item?.id}/resolve`,
-      payload: { action: 'merge', note: 'Aynı ilanın iki kaynak kaydı.' },
+      url: '/api/admin/review-queue/bulk-keep-separate',
+      payload: { ids: [first.item.id, second.item.id, first.item.id] },
       cookies: { kamuilan_session: admin.session, kamuilan_csrf: admin.csrf },
       headers: { 'x-csrf-token': admin.csrf },
     });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ resolved: 2, published: 2, failures: [] });
+    for (const suffix of ['a', 'b']) {
+      const link = await world.repos.jobs.findLinkBySourceItem(SOURCE_KEY, `TOPLU-${suffix}`);
+      expect(link, suffix).toBeTruthy();
+      expect(link?.jobId).not.toBe(seeded.secondJobId);
+      const job = await world.repos.jobs.findById(link?.jobId as string);
+      expect(job?.classification.decision).toBe('accept');
+    }
+    expect((await world.repos.review.findById(first.item.id))?.status).toBe('resolved');
+    expect((await world.repos.audit.list(20, 'admin.review-resolved')).filter((entry) => entry.meta.bulk === true)).toHaveLength(2);
+  });
+
+  it('kaynak kimliği olmayan kayıtta karar uygulanamaz; kayıt AÇIK kalır (sessiz kayıp yok)', async () => {
+    await createUser(world.repos, { email: 'acik-kalir@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    const admin = await login(world.app, 'acik-kalir@ornek.test', 'Guclu-Parola-2026');
+    const items = (await world.repos.review.list({ kind: 'dedupe', status: 'open' }));
+    const legacy = items.find((item) => item.title === 'Olası aynı ilan');
+    expect(legacy).toBeTruthy();
+    const response = await world.app.inject({
+      method: 'POST',
+      url: `/api/admin/review-queue/${legacy?.id}/resolve`,
+      payload: { action: 'keep-separate' },
+      cookies: { kamuilan_session: admin.session, kamuilan_csrf: admin.csrf },
+      headers: { 'x-csrf-token': admin.csrf },
+    });
+    expect(response.statusCode).toBe(400);
+    expect((await world.repos.review.findById(legacy?.id as string))?.status).toBe('open');
+  });
+
+  it('"bu ilanla aynı": yeni kayıt seçilen adaya kaynak olarak bağlanır; var olan hiçbir ilan kapanmaz', async () => {
+    await createUser(world.repos, { email: 'yonetici2@ornek.test', password: 'Guclu-Parola-2026', role: 'admin' });
+    const admin = await login(world.app, 'yonetici2@ornek.test', 'Guclu-Parola-2026');
+    const review = await world.repos.review.enqueue({
+      kind: 'dedupe', sourceKey: 'test-kaynak-2', title: 'Örnek Belediyesi: Zabıta Memuru Alım İlanı',
+      url: 'https://ornek2.test/zabita', reason: 'Benzer başlık + aynı kurum', confidence: 0.7,
+      payload: { sourceItemId: 'IKINCI-KAYNAK-ZABITA', excerpt: 'Örnek Belediyesi Başkanlığından: Zabıta Memuru Alım İlanı. Belediyemiz bünyesinde 657 sayılı Kanuna tabi kadrolu zabıta memuru alımı yapılacaktır. Başvurular 02.11.2026 tarihinde başlayıp 11.11.2026 tarihinde sona erecektir.' },
+      candidateJobIds: [seeded.firstJobId, seeded.secondJobId],
+    });
+    const cookies = { kamuilan_session: admin.session, kamuilan_csrf: admin.csrf };
+    const headers = { 'x-csrf-token': admin.csrf };
+
+    const wrongTarget = await world.app.inject({
+      method: 'POST', url: `/api/admin/review-queue/${review.item.id}/resolve`,
+      payload: { action: 'merge', targetJobId: 'job_baska_bir_ilan' }, cookies, headers,
+    });
+    expect(wrongTarget.statusCode).toBe(400);
+    expect((await world.repos.review.findById(review.item.id))?.status).toBe('open');
+
+    const resolved = await world.app.inject({
+      method: 'POST', url: `/api/admin/review-queue/${review.item.id}/resolve`,
+      payload: { action: 'merge', targetJobId: seeded.secondJobId }, cookies, headers,
+    });
     expect(resolved.statusCode).toBe(200);
-    const result = resolved.json() as { mergeResult: { mergedJobId: string } | null };
-    expect(result.mergeResult?.mergedJobId).toBe(targetId);
+    expect((resolved.json() as { mergeResult: { mergedJobId: string } | null }).mergeResult?.mergedJobId).toBe(seeded.secondJobId);
+    const links = await world.repos.jobs.listSourceLinks(seeded.secondJobId);
+    expect(links.some((link) => link.sourceItemId === 'IKINCI-KAYNAK-ZABITA')).toBe(true);
+    expect((await world.repos.jobs.findById(seeded.firstJobId))?.status).not.toBe('closed');
+    expect((await world.repos.jobs.findById(seeded.secondJobId))?.status).not.toBe('closed');
+    expect((await world.repos.review.findById(review.item.id))?.status).toBe('resolved');
 
-    const targetLinks = await world.repos.jobs.listSourceLinks(targetId as string);
-    expect(targetLinks.length).toBeGreaterThanOrEqual(linksBefore.length);
-    const duplicate = await world.repos.jobs.findById(duplicateId as string);
-    expect(duplicate?.status).toBe('closed');
-    const revisions = await world.repos.jobs.listRevisions(targetId as string);
-    expect(revisions.some((revision) => revision.summary.includes('birleştirildi'))).toBe(true);
-
-    // Denetim kaydı zorunlu.
     const auditLogs = await world.repos.audit.list(20, 'admin.review-resolved');
     expect(auditLogs.length).toBeGreaterThan(0);
     expect(auditLogs[0]?.actorRole).toBe('admin');

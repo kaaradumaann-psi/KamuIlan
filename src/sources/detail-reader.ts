@@ -22,7 +22,7 @@ import { isOfficialApplicationUrl, normalizeUrl } from '../domain/urls';
 import { extractPdfText } from '../extraction/pdf';
 import type { RawAnnouncement } from '../domain';
 import { normalizeTr } from '../domain/text';
-import { describeFetchFailure, FetchError, robotsDisallowMatch } from './fetcher';
+import { classifyTransportFailure, describeFetchFailure, FetchError, robotsDisallowMatch } from './fetcher';
 import { budgetedTimeoutMs, hasBudgetFor } from './scan-budget';
 import type { AdapterContext } from './types';
 
@@ -286,7 +286,13 @@ export async function readAnnouncementDetail(
         if (pdf.status !== null) result.statuses.push(pdf.status);
         const pdfText = pdf.text.trim();
         if (pdf.failure) {
-          result.notes.push(`Ekli ilan belgesi okunamadı (${preferred.url}): ${pdf.failure}`);
+          const cmsApiHost = new URL(preferred.url).hostname.toLowerCase() === 'cms-api.tkgm.gov.tr';
+          const regionBlocked = classifyTransportFailure(pdf.failure) === 'connect-timeout';
+          result.notes.push(
+            cmsApiHost && regionBlocked
+              ? `Ekli ilan belgesi bölgesel ağ engeli veya bağlantı sorunu nedeniyle alınamadı; ilan liste bilgisiyle korunuyor (${preferred.url}): ${pdf.failure}`
+              : `Ekli ilan belgesi okunamadı (${preferred.url}): ${pdf.failure}`,
+          );
         } else if (pdfText.length > MIN_BODY_CHARS) {
           // Başlıkla eşleşen belge ilanın kendisidir; uzun sayfa metni (menü/kenar
           // çubuğundaki başka duyuru başlıkları) sınıflandırmayı bulandırmasın diye eklenmez.

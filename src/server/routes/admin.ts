@@ -27,7 +27,7 @@ import {
 } from '../../config/sources';
 import type { Repos } from '../../db/repos';
 import { llmOverviewStats } from '../../ai/classifier';
-import { createId, randomToken } from '../../domain/ids';
+import { randomToken } from '../../domain/ids';
 import { hashPassword } from '../passwords';
 import { BRANDING } from '../../config/app';
 import { getEnv } from '../../config/env';
@@ -47,6 +47,8 @@ import {
 } from '../serializers';
 import { enqueueMaintenanceNow, enqueueSourceScrapeNow } from '../../worker/trigger';
 import { applyRawAnnouncement } from '../../ingest/jobs-service';
+import { applyDedupeReviewDecision, type DedupeReviewOutcome } from '../../ingest/review-decisions';
+import type { ReviewQueueDoc } from '../../db/schemas';
 import type { EmploymentType, RawAnnouncement } from '../../domain';
 
 const sourceKeySchema = z
@@ -371,6 +373,53 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
   );
 
   // ------------------------------------------------------------------ inceleme kuyruğu
+  app.post(
+    '/api/admin/review-queue/bulk-keep-separate',
+    { schema: { tags: ['admin'], summary: 'Seçili benzer ilan kayıtlarını ayrı bırak' } },
+    async (request) => {
+      const admin = requireAdmin(request);
+      const body = z.object({ ids: z.array(z.string().min(5).max(64)).min(1).max(50) }).parse(request.body ?? {});
+      const ids = [...new Set(body.ids)];
+      const items = await Promise.all(ids.map((id) => repos.review.findById(id)));
+      if (items.some((item) => !item || item.status !== 'open' || item.kind !== 'dedupe')) {
+        throw ApiError.badRequest('Yalnızca açık benzer ilan incelemeleri toplu işleme alınabilir.');
+      }
+      let resolved = 0;
+      let published = 0;
+      const failures: string[] = [];
+      for (const item of items as ReviewQueueDoc[]) {
+        // Karar ÖNCE uygulanır; ilan oluşturulamazsa kayıt açık kalır (sessiz kayıp yok).
+        let outcome: DedupeReviewOutcome;
+        try {
+          outcome = await applyDedupeReviewDecision(repos, item, { action: 'keep-separate' }, admin.id);
+        } catch (error) {
+          failures.push(`${item.title}: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
+        const done = await repos.review.resolve(item.id, 'keep-separate: Yönetici toplu kararıyla ayrı ilan olarak bırakıldı.', admin.id);
+        if (!done) continue;
+        resolved += 1;
+        if (outcome.action === 'created') published += 1;
+        await audit(repos.audit, request, {
+          action: 'admin.review-resolved',
+          targetType: 'review',
+          targetId: item.id,
+          actorUserId: admin.id,
+          actorRole: admin.role,
+          meta: { decision: 'keep-separate', bulk: true, jobId: outcome.jobId, outcome: outcome.action },
+        });
+      }
+      return {
+        resolved,
+        published,
+        failures,
+        message:
+          `${resolved} kayıt ayrı ilan olarak bırakıldı; ${published} yeni ilan yayımlandı.` +
+          (failures.length > 0 ? ` ${failures.length} kayıt işlenemedi ve açık bırakıldı.` : ''),
+      };
+    },
+  );
+
   app.get(
     '/api/admin/review-queue',
     { schema: { tags: ['admin'], summary: 'İnceleme kuyruğu (sınıflandırma/tekilleştirme/çıkarım)' } },
@@ -414,10 +463,34 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         .object({
           action: z.enum(['accept', 'reject', 'merge', 'keep-separate', 'ignore']),
           note: z.string().trim().max(400).default(''),
+          /** "Aynı ilan" kararında yeni kaydın bağlanacağı aday ilan (yoksa ilk aday). */
+          targetJobId: z.string().min(5).max(64).optional(),
         })
         .parse(request.body ?? {});
       const item = await repos.review.findById(params.id);
       if (!item) throw ApiError.notFound('İnceleme kaydı bulunamadı.');
+
+      // Tekilleştirme kararı: yeni kayıt ayrı ilan olur ya da seçilen adaya bağlanır.
+      // Karar ÖNCE uygulanır; başarısızsa kayıt açık kalır (sessiz kayıp yok).
+      let dedupeOutcome: DedupeReviewOutcome | null = null;
+      if (item.kind === 'dedupe' && (body.action === 'merge' || body.action === 'keep-separate')) {
+        if (item.status !== 'open') throw ApiError.badRequest('Bu inceleme kaydı zaten kapatılmış.');
+        let decision: Parameters<typeof applyDedupeReviewDecision>[2] = { action: 'keep-separate' };
+        if (body.action === 'merge') {
+          const targetJobId = body.targetJobId ?? item.candidateJobIds[0];
+          if (!targetJobId || !item.candidateJobIds.includes(targetJobId)) {
+            throw ApiError.badRequest('Birleştirme hedefi bu kaydın aday ilanlarından biri olmalı.');
+          }
+          decision = { action: 'merge', targetJobId };
+        }
+        try {
+          dedupeOutcome = await applyDedupeReviewDecision(repos, item, decision, admin.id);
+        } catch (error) {
+          throw ApiError.badRequest(
+            `Karar uygulanamadı; kayıt açık bırakıldı: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
 
       if (body.action === 'ignore') {
         await repos.review.ignore(params.id, body.note || 'Yönetici ilanı yok saydı.', admin.id);
@@ -498,46 +571,11 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         }
       }
 
-      // Tekilleştirme kararında: birleştirme yalnızca YÖNETİCİ onayıyla uygulanır.
-      let mergeResult: { mergedJobId: string; removedJobId: string } | null = null;
-      if (body.action === 'merge' && item.kind === 'dedupe' && item.candidateJobIds.length >= 2) {
-        const [targetId, sourceId] = item.candidateJobIds;
-        if (targetId && sourceId) {
-          const target = await repos.jobs.findById(targetId);
-          const duplicate = await repos.jobs.findById(sourceId);
-          if (target && duplicate) {
-            const links = await repos.jobs.listSourceLinks(duplicate.id);
-            for (const link of links) {
-              // Kaynak bağlantıları KORUNUR (hiçbiri silinmez), yalnızca hedef ilana taşınır.
-              await repos.jobs.addSourceLink({ ...link, id: createId('jsrc'), jobId: target.id });
-            }
-            const now = repos.clock.now().toISOString();
-            await repos.jobs.updateJob(target.id, {
-              sourceKeys: [...new Set([...target.sourceKeys, ...duplicate.sourceKeys])],
-              version: target.version + 1,
-              updatedAt: now,
-            });
-            await repos.jobs.addRevision({
-              id: createId('rev'),
-              jobId: target.id,
-              version: target.version + 1,
-              changeTypes: ['source-added'],
-              changedFields: ['sourceKeys'],
-              summary: `Yönetici onayıyla birleştirildi: ${duplicate.title}`,
-              previous: { sourceKeys: target.sourceKeys },
-              current: { sourceKeys: [...new Set([...target.sourceKeys, ...duplicate.sourceKeys])] },
-              createdAt: now,
-              sourceKey: item.sourceKey,
-            });
-            await repos.jobs.updateJob(duplicate.id, {
-              status: 'closed',
-              statusReason: `Yönetici onayıyla ${target.id} ile birleştirildi.`,
-              updatedAt: now,
-            });
-            mergeResult = { mergedJobId: target.id, removedJobId: duplicate.id };
-          }
-        }
-      }
+      // "Aynı ilan": yeni kayıt seçilen adaya kaynak olarak bağlandı (var olan hiçbir ilan kapatılmaz).
+      const mergeResult =
+        body.action === 'merge' && dedupeOutcome?.jobId ? { mergedJobId: dedupeOutcome.jobId } : null;
+      const publishedJobId =
+        body.action === 'keep-separate' && dedupeOutcome?.action === 'created' ? dedupeOutcome.jobId : null;
 
       await audit(repos.audit, request, {
         action: 'admin.review-resolved',
@@ -545,15 +583,16 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         targetId: params.id,
         actorUserId: admin.id,
         actorRole: admin.role,
-        meta: { decision: body.action, mergeResult, acceptedJobId },
+        meta: { decision: body.action, mergeResult, acceptedJobId, publishedJobId },
       });
       return {
         decision: body.action,
         mergeResult,
         acceptedJobId,
+        publishedJobId,
         message: mergeResult
-          ? 'Kayıtlar birleştirildi; kaynak bağlantıları korundu ve ikinci kayıt kapatıldı.'
-          : acceptedJobId
+          ? 'Yeni kayıt seçilen ilana kaynak olarak eklendi; var olan ilanlar korundu.'
+          : acceptedJobId || publishedJobId
             ? 'İlan kabul edildi ve yayımlandı.'
             : 'Karar kaydedildi.',
       };

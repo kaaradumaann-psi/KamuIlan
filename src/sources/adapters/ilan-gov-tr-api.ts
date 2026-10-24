@@ -8,20 +8,19 @@
  *
  *   Taban:  https://www.ilan.gov.tr/api/api/services/app   (çift "api" gerçek!)
  *   Arama:  POST Ad/AdsByFilter
- *           {"keys": {"q": ["<terim>"]}, "skipCount": N, "maxResultCount": M}
- *           DİKKAT: q DİZİ olmalıdır; düz metin 400 döner.
+ *           {"keys": {"ats": [5]}, "sorting": "publish_time desc", "skipCount": N, "maxResultCount": 20}
+ *           Akademik ilanlar `txv:[73]` filtresiyle ayrıca taranır.
  *   Cevap:  {"result": {"numFound": N, "ads": [...]}}
  *           Her ilan: id, adNo, title, advertiserName, slugifyTitle,
  *           addressCityName, publishStartDate, urlStr, isArchived,
  *           adTypeFilters[{key, value}] ("Son Başvuru" gibi alanlar).
- *   Detay:  GET AdDetail/GetAdDetail?id=<id>&isKiwiAd=false
+ *   Detay:  GET AdDetail/GetAdDetail?id=<id>
  *           (cevap şeması belgelenmemiş; alan adlarına güvenmeden tüm metin
  *           değerleri özyinelemeli toplanır — şema değişse de metin bulunur).
  *
  * Bu adaptör HTML liste adaptörünün YERİNE değil, YANINA konur:
- *  - HTML adaptörü kategori filtresiyle (ats=5) yalnız personel alımını alır.
- *  - API adaptörü metin aramasıyla geniş havuz toplar; ihale/sonuç gibi
- *    alakasız kayıtlar sınıflandırma hattında (ret belleğiyle) elenir.
+ *  - HTML adaptörü SPA listesi için gerçek tarayıcı fallback'ini kullanır.
+ *  - API adaptörü personel (`ats:[5]`) ve akademik (`txv:[73]`) kategorilerini toplar.
  *  - offset tabanlı sayfalama (skipCount) kanıtlanabilir ve deterministiktir.
  *
  * DÜRÜSTLÜK: API sözleşmesi üçüncü taraf canlı keşfiyle belgelenmiştir; bu
@@ -32,23 +31,18 @@ import { collapseWhitespace, makeExcerpt, normalizeTr, stripUiChrome } from '../
 import { toIstanbulIso } from '../../domain/dates';
 import type { RawAnnouncement } from '../../domain';
 import { AdapterStructureError, SourceAccessError } from '../errors';
-import { assertSafeUrl, describeFetchFailure, FetchError, type FetchResponse } from '../fetcher';
+import { assertSafeUrl, describeFetchFailure, FetchError, type FetchOptions, type FetchResponse } from '../fetcher';
 import type { AdapterContext, AdapterRunResult, SourceAdapter } from '../types';
 
 const API_BASE_PATH = '/api/api/services/app';
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 20;
 const MAX_LIST_ITEMS = 300;
 const MAX_ITEMS = 40;
-/** Terim başına en fazla sayfa (her sayfa PAGE_SIZE kayıt). */
-const MAX_PAGES_PER_TERM = 5;
-
-/** Arama terimleri: ilan.gov.tr metin araması "q" dizisi alır (canlı doğrulı). */
-const SEARCH_TERMS: readonly string[] = [
-  'personel alımı',
-  'memur alımı',
-  'işçi alımı',
-  'sözleşmeli personel alımı',
-  'akademik personel alımı',
+/** Her kategori için en fazla 10 sayfa (her sayfa 20 ilan); kaynak nazikçe taranır. */
+const MAX_PAGES_PER_FILTER = 10;
+const SEARCH_FILTERS: readonly { sourceCategory: string; keys: Record<string, number[]> }[] = [
+  { sourceCategory: 'personel alımı', keys: { ats: [5] } },
+  { sourceCategory: 'akademik personel alımı', keys: { txv: [73] } },
 ];
 
 interface ApiAd {
@@ -79,6 +73,7 @@ interface ParsedRow {
   publishedAt: string | null;
   applicationEndAt: string | null;
   referenceNo: string | null;
+  sourceCategory: string;
 }
 
 const HTML_TAG = /<[^>]+>/g;
@@ -155,7 +150,12 @@ export function deadlineFromAdFilters(
   return null;
 }
 
-function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[]): ParsedRow | null {
+function rowFromAd(
+  ad: ApiAd,
+  listingUrl: string,
+  allowedHosts: readonly string[],
+  sourceCategory: string,
+): ParsedRow | null {
   const id = String(ad.id ?? '').trim();
   const adNo = ad.adNo !== null && ad.adNo !== undefined ? String(ad.adNo).trim() : '';
   const itemId = adNo.length > 0 ? adNo : id.length > 0 ? id : null;
@@ -191,7 +191,48 @@ function rowFromAd(ad: ApiAd, listingUrl: string, allowedHosts: readonly string[
     publishedAt,
     applicationEndAt: deadlineFromAdFilters(ad.adTypeFilters),
     referenceNo: adNo || null,
+    sourceCategory,
   };
+}
+
+/**
+ * Operatör izin beyanıyla: dürüst isteğe yalnız HTTP 403 gelirse, aynı güvenlik
+ * ayarlarıyla bir kez sitenin XHR origin başlığı denenir. TLS, kimlikli UA ve
+ * host allowlist değişmez; 401/başka hata durumlarında başlık eklenmez.
+ */
+async function fetchApiWithUiOriginRetry(
+  ctx: AdapterContext,
+  url: string,
+  options: FetchOptions,
+  onAttempt: () => void,
+  uiOriginConfirmed: boolean,
+): Promise<{ response: FetchResponse; uiOriginUsed: boolean; retriedWithUiOrigin: boolean }> {
+  if (uiOriginConfirmed) {
+    onAttempt();
+    return {
+      response: await ctx.http.fetchText(url, {
+        ...options,
+        headers: { ...(options.headers ?? {}), 'x-request-origin': 'IGT-UI' },
+      }),
+      uiOriginUsed: true,
+      retriedWithUiOrigin: false,
+    };
+  }
+  onAttempt();
+  try {
+    return { response: await ctx.http.fetchText(url, options), uiOriginUsed: false, retriedWithUiOrigin: false };
+  } catch (error) {
+    if (!(error instanceof FetchError) || error.status !== 403) throw error;
+    onAttempt();
+    return {
+      response: await ctx.http.fetchText(url, {
+        ...options,
+        headers: { ...(options.headers ?? {}), 'x-request-origin': 'IGT-UI' },
+      }),
+      uiOriginUsed: true,
+      retriedWithUiOrigin: true,
+    };
+  }
 }
 
 export class IlanGovTrApiAdapter implements SourceAdapter {
@@ -199,13 +240,13 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
   readonly label = 'ilan.gov.tr — JSON API (personel alımı havuzu)';
   readonly method = 'json-api';
   readonly notes =
-    'Basın İlan Kurumu portalının JSON API’si: AdsByFilter ile metin araması (q dizi), ' +
+    'Basın İlan Kurumu portalının JSON API’si: AdsByFilter ile personel ve akademik kategori filtreleri, ' +
     'skipCount ile offset tabanlı sayfalama, GetAdDetail ile şemadan bağımsız detay metni. ' +
     'Yapılandırılmış alanlar (kurum, il, resmî ilan no, "Son Başvuru" filtresi) doğrudan okunur. ' +
-    'HTML liste adaptörünün yerine geçmez, onu tamamlar; alakasız kayıtlar sınıflandırma hattında elenir.';
+    'HTML liste adaptörünün yerine geçmez, onu tamamlar; 403 durumunda bir kez izinli IGT-UI fallback dener.';
 
   async run(ctx: AdapterContext): Promise<AdapterRunResult> {
-    const { source, http, liveFetch } = ctx;
+    const { source, liveFetch } = ctx;
     const notes: string[] = [];
     const httpStatuses: number[] = [];
 
@@ -226,24 +267,39 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
     let requestCount = 0;
     const rowsByItem = new Map<string, ParsedRow>();
     let totalNumFound = 0;
+    let uiOriginConfirmed = false;
     /** Sayfa sınırına takılıp numFound'a ulaşılamayan terimler (kapsam eksik). */
     const truncatedTerms: string[] = [];
 
-    for (const term of SEARCH_TERMS) {
+    for (const filter of SEARCH_FILTERS) {
       let skipCount = 0;
-      let termExhausted = false;
-      for (let page = 1; page <= MAX_PAGES_PER_TERM; page += 1) {
+      let filterExhausted = false;
+      for (let page = 1; page <= MAX_PAGES_PER_FILTER; page += 1) {
         if (rowsByItem.size >= MAX_LIST_ITEMS) break;
         let payload: unknown;
         try {
-          const response = await http.fetchText(`${apiBase}/Ad/AdsByFilter`, {
+          const request = await fetchApiWithUiOriginRetry(ctx, `${apiBase}/Ad/AdsByFilter`, {
             allowedHosts: source.allowedHosts,
             minIntervalMs: source.minRequestIntervalMs,
             method: 'POST',
-            jsonBody: { keys: { q: [term] }, skipCount, maxResultCount: PAGE_SIZE },
+            headers: {
+              'content-type': 'application/json-patch+json',
+              'x-requested-with': 'XMLHttpRequest',
+              accept: 'application/json, text/plain, */*',
+            },
+            jsonBody: {
+              keys: filter.keys,
+              sorting: 'publish_time desc',
+              skipCount,
+              maxResultCount: PAGE_SIZE,
+            },
             expectedContentTypes: ['application/json', 'text/json', 'text/plain'],
-          });
-          requestCount += 1;
+          }, () => { requestCount += 1; }, uiOriginConfirmed);
+          const response = request.response;
+          if (request.uiOriginUsed) uiOriginConfirmed = true;
+          if (request.retriedWithUiOrigin) {
+            notes.push('AdsByFilter temiz isteği 403 döndürdü; operatör izniyle IGT-UI başlığı ikinci kez denendi.');
+          }
           httpStatuses.push(response.status);
           payload = this.parseJson(response);
         } catch (error) {
@@ -252,8 +308,8 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
           if (error instanceof FetchError && (error.status === 403 || error.status === 401)) {
             throw new SourceAccessError(
               source.key,
-              'ilan.gov.tr API’si bu ortamdan erişilemiyor (HTTP ' +
-                `${error.status}). Erişim kısıtı aşılmaz; HTML liste adaptörü çalışmaya devam eder.`,
+              'ilan.gov.tr API’si temiz ve izinli XHR-origin denemelerinde HTTP ' +
+                `${error.status} döndürdü; HTML liste adaptörü çalışmaya devam eder.`,
               error.status,
             );
           }
@@ -266,19 +322,19 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
         totalNumFound = Math.max(totalNumFound, numFound);
         const fresh = ads.filter((ad) => ad.isArchived !== true);
         for (const ad of fresh) {
-          const row = rowFromAd(ad, listingUrl, source.allowedHosts);
+          const row = rowFromAd(ad, listingUrl, source.allowedHosts, filter.sourceCategory);
           if (row && !rowsByItem.has(row.itemId)) rowsByItem.set(row.itemId, row);
         }
-        notes.push(`"${term}" sayfa ${page}: ${ads.length} kayıt (numFound=${numFound}).`);
+        notes.push(`"${filter.sourceCategory}" kategori sayfa ${page}: ${ads.length} kayıt (numFound=${numFound}).`);
 
         // Offset sayfalama: boş sayfa ya da numFound'a ulaşma sonu kanıtlar.
         skipCount += PAGE_SIZE;
         if (ads.length < PAGE_SIZE || skipCount >= numFound) {
-          termExhausted = true;
+          filterExhausted = true;
           break;
         }
       }
-      if (!termExhausted && rowsByItem.size < MAX_LIST_ITEMS) truncatedTerms.push(term);
+      if (!filterExhausted && rowsByItem.size < MAX_LIST_ITEMS) truncatedTerms.push(filter.sourceCategory);
       if (rowsByItem.size >= MAX_LIST_ITEMS) break;
     }
 
@@ -298,15 +354,25 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
       let bodyText: string | null = null;
       let bodyTextTruncated = false;
       try {
-        const detailResponse = await http.fetchText(
-          `${apiBase}/AdDetail/GetAdDetail?id=${encodeURIComponent(row.detailId)}&isKiwiAd=false`,
+        const detailRequest = await fetchApiWithUiOriginRetry(ctx,
+          `${apiBase}/AdDetail/GetAdDetail?id=${encodeURIComponent(row.detailId)}`,
           {
             allowedHosts: source.allowedHosts,
             minIntervalMs: source.minRequestIntervalMs,
+            headers: {
+              'x-requested-with': 'XMLHttpRequest',
+              accept: 'application/json, text/plain, */*',
+            },
             expectedContentTypes: ['application/json', 'text/json', 'text/plain'],
           },
+          () => { requestCount += 1; },
+          uiOriginConfirmed,
         );
-        requestCount += 1;
+        const detailResponse = detailRequest.response;
+        if (detailRequest.uiOriginUsed) uiOriginConfirmed = true;
+        if (detailRequest.retriedWithUiOrigin) {
+          notes.push(`GetAdDetail ${row.itemId}: temiz istek 403 döndürdü; IGT-UI başlığı ikinci kez denendi.`);
+        }
         httpStatuses.push(detailResponse.status);
         const detailPayload = this.parseJson(detailResponse);
         const fullText = stripUiChrome(collectApiText(detailPayload));
@@ -330,7 +396,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
         institution: row.institution ?? source.institution,
         ...(row.publishedAt ? { publishedAt: row.publishedAt } : {}),
         ...(row.applicationEndAt ? { applicationEndAt: row.applicationEndAt } : {}),
-        sourceCategory: 'personel alımı',
+        sourceCategory: row.sourceCategory,
         ...(bodyText
           ? { bodyText, bodyTextSource: 'detail' as const, rawExcerpt: bodyText.slice(0, 400) }
           : {}),
@@ -383,7 +449,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
     const capped = rowsByItem.size >= MAX_LIST_ITEMS;
     if (truncatedTerms.length > 0)
       coverageNotes.push(
-        `${truncatedTerms.length} arama teriminde numFound'a ulaşılamadı (sayfa sınırı ${MAX_PAGES_PER_TERM}): ` +
+        `${truncatedTerms.length} kategoride numFound'a ulaşılamadı (sayfa sınırı ${MAX_PAGES_PER_FILTER}): ` +
           truncatedTerms.join(', ') + '.',
       );
     if (capped) coverageNotes.unshift(`${MAX_LIST_ITEMS} kayıtlık havuz sınırına ulaşıldı; aramanın tamamı bu çalışmada alınmadı.`);

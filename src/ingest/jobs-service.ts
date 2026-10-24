@@ -621,7 +621,7 @@ export interface ApplyContext {
 export async function applyRawAnnouncement(
   raw: RawAnnouncement,
   ctx: ApplyContext,
-  options: { classificationOverride?: ClassificationResult } = {},
+  options: { classificationOverride?: ClassificationResult; dedupeOverride?: DedupeOverride } = {},
 ): Promise<IngestOutcome> {
   // Güvenlik süzgeci: kaynağın kendi liste/dizin sayfası ilan kaydı olamaz.
   // Kayıt oluşmadan reddedilir ve karar tarama belleğine yazılır ki sonraki
@@ -778,6 +778,7 @@ export async function applyRawAnnouncement(
 
   const decision =
     identity ??
+    (options.dedupeOverride ? overrideDecision(options.dedupeOverride) : null) ??
     decideDedupe(
       {
         sourceKey: raw.sourceKey,
@@ -845,6 +846,10 @@ export async function applyRawAnnouncement(
         sourceItemId: raw.sourceItemId,
         excerpt: makeExcerpt(raw.bodyText ?? raw.rawExcerpt ?? '', 1_500),
         decision: decision.matchedBy,
+        // Yönetici "ayrı ilan" ya da "şu ilanla aynı" dediğinde kayıt bu anlık görüntüden
+        // işlenir; tarama belleği kaydı "görüldü" saydığı için kaynak onu yeniden vermez.
+        raw: reviewRawSnapshot(raw),
+        classification,
       },
       candidateJobIds: decision.candidateJobIds,
     });
@@ -994,6 +999,39 @@ async function createJob(
     changes: ['yeni ilan'],
     reviewId: null,
     revisionCreated: true,
+  };
+}
+
+/** Yönetici kararıyla tekilleştirme sonucu: yeni ilan ya da seçilen ilana bağlama. */
+export type DedupeOverride = { action: 'create' } | { action: 'merge'; jobId: string };
+
+function overrideDecision(override: DedupeOverride): DedupeDecision {
+  return override.action === 'create'
+    ? { action: 'create', jobId: null, matchedBy: ['yonetici'], reason: 'Yönetici kararı: ayrı ilan', score: 1, candidateJobIds: [] }
+    : {
+        action: 'merge',
+        jobId: override.jobId,
+        matchedBy: ['yonetici'],
+        reason: 'Yönetici kararı: aynı ilan',
+        score: 1,
+        candidateJobIds: [override.jobId],
+      };
+}
+
+/**
+ * İnceleme yükünde saklanan kayıt. Metin küçültme ilkesine uyar: ilan metninin tamamı
+ * saklanmaz; ilanın kendisinin tutacağı kadar (iletişim bilgisi karartılmış) özet ve
+ * kaynağın verdiği yapılandırılmış alanlar (tarih, kurum, il, ilan no…) tutulur.
+ */
+const REVIEW_SNAPSHOT_TEXT_LIMIT = 2_500;
+
+function reviewRawSnapshot(raw: RawAnnouncement): RawAnnouncement {
+  const { bodyText, rawExcerpt, links: _links, notes: _notes, ...structured } = raw;
+  const text = bodyText ?? rawExcerpt ?? '';
+  const excerpt = text ? makeExcerpt(collapseWhitespace(redactContactDetails(text)), REVIEW_SNAPSHOT_TEXT_LIMIT) : '';
+  return {
+    ...structured,
+    ...(excerpt ? { bodyText: excerpt, bodyTextTruncated: text.length > REVIEW_SNAPSHOT_TEXT_LIMIT } : {}),
   };
 }
 

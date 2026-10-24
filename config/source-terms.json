@@ -54,23 +54,23 @@
     },
     {
       "sourceKey": "ilan-gov-tr-personel",
-      "decision": "blocked",
-      "reviewedAt": "2026-10-22",
-      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-24",
+      "reviewedBy": "Halil (kullanıcı; bu oturumda yazılı erişim ve saklama izni bulunduğunu beyan etti)",
       "robotsUrl": "https://www.ilan.gov.tr/robots.txt",
       "termsUrl": "https://www.ilan.gov.tr/",
-      "allowsStorage": false,
-      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste (/ilan/tum-ilanlar/...) ve detay yolları yasaklanmamış; temkinle /*tebligat robotsDisallow olarak eklendi. ŞARTLAR: sitenin altbilgisi (main-es2015 paketi, footer-copyright) \"Bu sitede bulunan yazı, görsel ve video gibi hiçbir içerik izinsiz olarak kullanılamaz.\" diyor — açık izin şartı. Basın İlan Kurumu'ndan yazılı izin (bkz. docs/kaynak-izin-yazisi-taslak.md) alınmadan taranmaz."
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste ve detay yolları yasaklanmamış; /*tebligat robotsDisallow olarak uygulanır. Kullanıcı Halil 24.10.2026 tarihinde yazılı erişim ve saklama izni bulunduğunu beyan etti. İzin belgesinin tarihi/numarası bu oturumda paylaşılmadı ve burada doğrulanmadı; kayıt kullanıcı beyanına dayanır."
     },
     {
       "sourceKey": "ilan-gov-tr-api-personel",
-      "decision": "blocked",
-      "reviewedAt": "2026-10-22",
-      "reviewedBy": "Claude (robots.txt + kullanım şartları incelemesi); site sahibi onayı 22.10.2026",
+      "decision": "allowed",
+      "reviewedAt": "2026-10-24",
+      "reviewedBy": "Halil (kullanıcı; bu oturumda yazılı erişim ve saklama izni bulunduğunu beyan etti)",
       "robotsUrl": "https://www.ilan.gov.tr/robots.txt",
       "termsUrl": "https://www.ilan.gov.tr/",
-      "allowsStorage": false,
-      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste (/ilan/tum-ilanlar/...) ve /api/api/services/app uç noktaları yasaklanmamış; temkinle /*tebligat robotsDisallow olarak eklendi. ŞARTLAR: sitenin altbilgisi (main-es2015 paketi, footer-copyright) \"Bu sitede bulunan yazı, görsel ve video gibi hiçbir içerik izinsiz olarak kullanılamaz.\" diyor — açık izin şartı. Basın İlan Kurumu'ndan yazılı izin (bkz. docs/kaynak-izin-yazisi-taslak.md) alınmadan taranmaz."
+      "allowsStorage": true,
+      "notes": "robots.txt (22.10.2026, 200): User-agent * altında tek ve bozuk satır \"Disallow: Disallow: /*tebligat\"; liste ve /api/api/services/app uç noktaları yasaklanmamış; /*tebligat robotsDisallow olarak uygulanır. Kullanıcı Halil 24.10.2026 tarihinde yazılı erişim ve saklama izni bulunduğunu beyan etti. İzin belgesinin tarihi/numarası bu oturumda paylaşılmadı ve burada doğrulanmadı; kayıt kullanıcı beyanına dayanır."
     },
     {
       "sourceKey": "kariyerkapisi-isealim",
