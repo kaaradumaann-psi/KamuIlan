@@ -30,6 +30,8 @@ export interface OnboardingWizardProps {
   onComplete: (payload: WizardPayload) => void;
   submitting?: boolean;
   error?: string | null;
+  /** Başlangıç seçimleri (Panel'den açılınca kayıtlı tercihler). */
+  initialChoices?: WizardChoices;
 }
 
 interface StepDef {
@@ -45,8 +47,9 @@ export function OnboardingWizard({
   onComplete,
   submitting = false,
   error = null,
+  initialChoices = INITIAL_WIZARD_CHOICES,
 }: OnboardingWizardProps): ReactNode {
-  const [choices, setChoices] = useState<WizardChoices>(INITIAL_WIZARD_CHOICES);
+  const [choices, setChoices] = useState<WizardChoices>(initialChoices);
   const [index, setIndex] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);

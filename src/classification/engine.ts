@@ -70,6 +70,41 @@ export function normalizeForClassification(value: string): string {
   return normalizeTr(value);
 }
 
+/**
+ * Resmî işe alım portalı (Kariyer Kapısı) yalnızca kamu işe alım ilanı yayımlar ve
+ * RSS öğesinde ilan metni yoktur (detay sayfası istemci tarafı; ilan API'si sunucu
+ * bölgesine kapalı). Metin kanıtı aranınca 29 ilanın 26'sı incelemeye, "Akreditasyon
+ * Uzman Yardımcısı Alımı" gibi gerçek alımlar redde düşüyordu. Portalın KENDİ alım
+ * kategorisi kanıt sayılır; başlıktaki kesin ret kuralları (ihale, personel hareketi,
+ * haber dili) bu karardan ÖNCE çalıştığı için yine uygulanır. Görevde yükselme ve
+ * yurt dışı eğitim kategorileri alım değildir; listede yoktur, olağan kurala kalır.
+ */
+const OFFICIAL_PORTAL_SOURCE_KEYS: ReadonlySet<string> = new Set(['kariyerkapisi-isealim']);
+const OFFICIAL_PORTAL_CATEGORY_TYPES: readonly { pattern: RegExp; type: EmploymentType }[] = [
+  { pattern: /\bsozlesmeli personel\b/, type: 'sozlesmeli' },
+  { pattern: /\b(?:surekli|gecici) isci\b|\bisci ilan/, type: 'kamu-isci' },
+  { pattern: /\ba grubu memur\b|\bkariyer meslek\b/, type: 'kariyer-meslek' },
+  { pattern: /\bakademik personel\b/, type: 'akademik' },
+  { pattern: /\bmerkezi yerlestirme\b|\bmemur ilan|\bkadrolu personel\b/, type: 'kadrolu' },
+  { pattern: /\baskeri personel\b|\bkolluk\b/, type: 'diger-kamu' },
+];
+
+function officialPortalCategory(
+  sourceKey: string | undefined,
+  categoryText: string,
+): { type: EmploymentType } | null {
+  if (!sourceKey || !OFFICIAL_PORTAL_SOURCE_KEYS.has(sourceKey) || !categoryText) return null;
+  const match = OFFICIAL_PORTAL_CATEGORY_TYPES.find((entry) => entry.pattern.test(categoryText));
+  return match ? { type: match.type } : null;
+}
+
+/** Statü bildirmeyen tespitler: portal kategorisi bunların yerine geçer. */
+const NON_STATUS_TYPES: ReadonlySet<EmploymentType> = new Set<EmploymentType>([
+  'belirsiz',
+  'diger-kamu',
+  'kuruma-ozel-sinav',
+]);
+
 function matchRules(text: string, rules: readonly KeywordRule[]): MatchedRule[] {
   const matched: MatchedRule[] = [];
   for (const rule of rules) {
@@ -364,8 +399,15 @@ function classifyCore(input: ClassificationInput): ClassificationResult {
         },
       ]
     : [];
-  const matchedRules = [...titlePositives, ...bodyPositives, ...categoryPositive, ...leadRecruitment];
-  const { type: employmentType, reason: employmentReason } = detectEmploymentType(titleText, bodyText);
+  const portal = officialPortalCategory(input.sourceKey, categoryText);
+  const portalRule = portal
+    ? [{ id: 'pozitif.resmi-portal-kategorisi', reason: 'Resmî işe alım portalı alım kategorisinde yayımlıyor', weight: 0 }]
+    : [];
+  const matchedRules = [...titlePositives, ...bodyPositives, ...categoryPositive, ...leadRecruitment, ...portalRule];
+  const detected = detectEmploymentType(titleText, bodyText);
+  const employmentType = portal && NON_STATUS_TYPES.has(detected.type) ? portal.type : detected.type;
+  const employmentReason =
+    employmentType === detected.type ? detected.reason : 'İstihdam türü portalın ilan kategorisinden alındı';
 
   const reasons: string[] = [];
   if (titlePositives.length > 0) reasons.push(...titlePositives.map((rule) => rule.reason));
@@ -409,8 +451,15 @@ function classifyCore(input: ClassificationInput): ClassificationResult {
     reasons.push('İlanda personel alımına ilişkin yeterli ifade bulunamadı');
   }
 
-  // Gövde hiç okunamadıysa (bozuk PDF) güveni düşür ve incelemeye yönlendir.
-  if (input.documentTextMissing && decision === 'accept' && bodyText.length < 200) {
+  if (portal && decision !== 'accept') {
+    decision = 'accept';
+    confidence = 0.85;
+    reasons.push(`Resmî işe alım portalı bu ilanı "${input.sourceCategory?.trim()}" kategorisinde yayımlıyor`);
+  }
+
+  // Gövde hiç okunamadıysa (bozuk PDF) güveni düşür ve incelemeye yönlendir. Portal
+  // öğesinin metni zaten hiç yoktur; kanıt portalın kategorisidir.
+  if (!portal && input.documentTextMissing && decision === 'accept' && bodyText.length < 200) {
     decision = 'review';
     confidence = Math.min(confidence, 0.5);
     reasons.push('Belge metni çıkarılamadı; alanların doğrulanması gerekiyor');

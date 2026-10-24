@@ -205,7 +205,8 @@ describe('üretim akışı (sahte LLM)', () => {
     const jobs = await seedJobs(repos);
     const userId = await seedUser(repos, { consent: true, profile: true });
     const preference = await currentPreference(repos, userId);
-    const target = jobs[0] as JobDoc;
+    // "Veri Analisti" ilanı: unvan profille örtüşmez, yalnız öğrenim düzeyi uyar → sinyal 'low'.
+    const target = jobs[1] as JobDoc;
     const llm = fakeLlm(() =>
       completion(
         JSON.stringify({
@@ -213,7 +214,7 @@ describe('üretim akışı (sahte LLM)', () => {
             {
               jobId: target.id,
               uyum: 'guclu',
-              gerekceler: ['Bilgisayar mühendisliği bölümü ilanla örtüşüyor.'],
+              gerekceler: ['Veri analizi becerisi ilanla örtüşüyor.'],
               uyarilar: ['Son başvuruyu kontrol edin.'],
             },
             { jobId: 'job_yabanci', uyum: 'guclu', gerekceler: ['Sahte.'] },
@@ -233,9 +234,9 @@ describe('üretim akışı (sahte LLM)', () => {
     expect(outcome.result.mode).toBe('ai');
     expect(outcome.result.suggestions.map((item) => item.jobId)).toEqual([target.id]);
     // Uyum derecesi kodda belirlenen ön eleme sinyalini AŞAMAZ: bu aday için
-    // deterministik sinyal 'medium' olduğundan modelin "güçlü" iddiası
-    // 'possible' derecesine indirilir ve gerekçe olarak eklenir.
-    expect(outcome.result.suggestions[0]?.fit).toBe('possible');
+    // deterministik sinyal 'low' olduğundan modelin "güçlü" iddiası 'weak'
+    // derecesine indirilir ve gerekçe olarak eklenir.
+    expect(outcome.result.suggestions[0]?.fit).toBe('weak');
     expect((outcome.result.suggestions[0]?.caveats ?? []).join(' ')).toContain('sınırlandırıldı');
     expect(outcome.result.cached).toBe(false);
     expect(llm.calls).toHaveLength(1);

@@ -15,6 +15,7 @@ import { toIstanbulDateOnly } from '../../domain/dates';
 type JobStatus = (typeof JOB_STATUSES)[number];
 import { ApiError } from '../errors';
 import { requireUser } from '../context';
+import { hasActiveFilters, matchJobFilters } from '../../notifications/matcher';
 import { toPublicJobDetail, toPublicJobSummary, toRevision } from '../serializers';
 
 const listQuery = z.object({
@@ -60,6 +61,22 @@ const listQuery = z.object({
   page: z.coerce.number().int().min(1).max(500).default(1),
   pageSize: z.coerce.number().int().min(1).max(PAGINATION.maxPageSize).default(PAGINATION.defaultPageSize),
 });
+
+const forMeQuery = z.object({
+  page: z.coerce.number().int().min(1).max(100).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(6),
+});
+
+/** "Size uygun ilanlar" için bellekte süzülen en fazla açık ilan. */
+const FOR_ME_CANDIDATE_LIMIT = 3_000;
+
+/** Son başvuru tarihi yakın olan önce; tarihi olmayan en sonda. */
+function compareDeadline(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a.localeCompare(b);
+}
 
 function asArray(value: string | string[] | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -127,6 +144,54 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
         pages: Math.max(1, Math.ceil(result.total / result.pageSize)),
         sort: query.sort,
         generatedAt: now.toISOString(),
+      };
+    },
+  );
+
+  app.get(
+    '/api/jobs/for-me',
+    { schema: { tags: ['jobs'], summary: 'Tercihlerime uyan güncel ilanlar (bildirim kuralıyla)' } },
+    async (request) => {
+      const user = requireUser(request);
+      const query = forMeQuery.parse(request.query);
+      const now = repos.clock.now();
+      const preference = await repos.notifications.getPreference(user.id);
+      const base = { page: query.page, pageSize: query.pageSize, generatedAt: now.toISOString() };
+      if (!preference || !hasActiveFilters(preference.filters)) {
+        return { ...base, personalized: false, items: [], total: 0, pages: 1, truncated: false };
+      }
+      const filters = preference.filters;
+      const candidates = await repos.jobs.listForMatching(
+        {
+          // Son başvurusu bilinmeyen güncel ilanlar da dahil (ör. Kariyer Kapısı RSS'i tarih vermez);
+          // eskimiş ilan zaten 'closed' sayılır (computeStatus). Sıralamada tarihsizler sondadır.
+          status: ['active', 'upcoming', 'unknown'],
+          kind: 'job',
+          // Sorguya birebir çevrilebilen tek filtre: aday kümesini daraltır, sonucu değiştirmez.
+          ...(filters.employmentTypes.length > 0 ? { employmentTypes: filters.employmentTypes } : {}),
+        },
+        FOR_ME_CANDIDATE_LIMIT,
+      );
+      const matched = candidates
+        .map((job) => ({ job, match: matchJobFilters(filters, job, now, preference) }))
+        .filter(({ match }) => match.matched)
+        .sort(
+          (a, b) =>
+            compareDeadline(a.job.applicationEndDate, b.job.applicationEndDate) ||
+            b.job.createdAt.localeCompare(a.job.createdAt),
+        );
+      const start = (query.page - 1) * query.pageSize;
+      return {
+        ...base,
+        personalized: true,
+        items: matched.slice(start, start + query.pageSize).map(({ job, match }) => ({
+          ...toPublicJobSummary(job, now),
+          matchReasons: match.reasons,
+        })),
+        total: matched.length,
+        pages: Math.max(1, Math.ceil(matched.length / query.pageSize)),
+        // Aday sınırına ulaşıldıysa sayı alt sınırdır; arayüz "en az" der.
+        truncated: candidates.length >= FOR_ME_CANDIDATE_LIMIT,
       };
     },
   );

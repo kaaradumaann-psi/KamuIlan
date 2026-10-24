@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildWizardPayload,
+  choicesFromPreference,
   hasAnyChoice,
   INITIAL_WIZARD_CHOICES,
   type WizardChoices,
@@ -35,17 +36,19 @@ describe('buildWizardPayload', () => {
 
     expect(body.enabled).toBe(true);
     expect(body.paused).toBe(false);
-    expect(body.mode).toBe('instant');
+    // Sihirbazın sormadığı alanlar gövdeye yazılmaz (sunucu birleştirir, mevcutlar korunur).
+    expect('mode' in body).toBe(false);
+    expect('institutions' in body.filters).toBe(false);
+    expect('minDaysUntilDeadline' in body.filters).toBe(false);
+    expect('skills' in body.candidateProfile).toBe(false);
     expect(body.filters.titles).toEqual(['Hemşire']);
     expect(body.filters.keywords).toEqual(['rehberlik']);
-    expect(body.filters.institutions).toEqual([]);
     expect(body.filters.cities).toEqual(['Ankara', 'İstanbul']);
     expect(body.filters.employmentTypes).toEqual(['kadrolu']);
     expect(body.filters.educationLevels).toEqual(['lisans']);
     expect(body.filters.departments).toEqual(['Hemşirelik']);
     expect(body.filters.kpssScoreTypes).toEqual(['P3']);
     expect(body.filters.kpssMinScore).toBe(100);
-    expect(body.filters.minDaysUntilDeadline).toBeNull();
     expect(body.candidateProfile.profession).toBe('Hemşire');
     expect(body.candidateProfile.departments).toEqual(['Hemşirelik']);
     expect(body.profilePersonalizationEnabled).toBe(true);
@@ -55,7 +58,8 @@ describe('buildWizardPayload', () => {
   it('meslek yoksa profil kişiselleştirmesini açmaz', () => {
     const body = buildWizardPayload({ ...INITIAL_WIZARD_CHOICES, keywords: ['zabıta'] });
     expect(body.candidateProfile.profession).toBe('');
-    expect(body.profilePersonalizationEnabled).toBe(false);
+    // Unvan yoksa alan gönderilmez: Panel'de açılmış profil eşleşmesi kapanmaz.
+    expect(body.profilePersonalizationEnabled).toBeUndefined();
   });
 
   it('boş seçim anlamlı sayılmaz', () => {
@@ -113,5 +117,35 @@ describe('OnboardingWizard akışı', () => {
     render(<OnboardingWizard onComplete={vi.fn()} onClose={onClose} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sihirbazdan vazgeç' }));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('choicesFromPreference', () => {
+  it("kayıtlı tercihle başlar (Panel'den açılan sihirbaz mevcut seçimleri silmez)", () => {
+    const choices = choicesFromPreference({
+      onlyNewJobs: false,
+      notifyOnChanges: true,
+      includeWorkerJobs: false,
+      includeAcademicJobs: true,
+      candidateProfile: { profession: 'Hemşire', educationLevel: 'lisans', departments: [], skills: ['Excel'], experienceYears: 3 },
+      filters: {
+        keywords: ['sağlık'],
+        titles: ['Hemşire'],
+        institutions: ['Sağlık Bakanlığı'],
+        cities: ['Ankara'],
+        employmentTypes: ['sozlesmeli'],
+        educationLevels: ['lisans'],
+        departments: ['Hemşirelik'],
+        kpssScoreTypes: ['P3'],
+        kpssMinScore: 70,
+        minDaysUntilDeadline: null,
+      },
+    } as unknown as Parameters<typeof choicesFromPreference>[0]);
+    expect(choices.titles).toEqual(['Hemşire']);
+    expect(choices.cities).toEqual(['Ankara']);
+    expect(choices.kpssMinScore).toBe(70);
+    expect(choices.includeWorkerJobs).toBe(false);
+    expect(choices.onlyNewJobs).toBe(false);
+    expect(choicesFromPreference(null)).toEqual(INITIAL_WIZARD_CHOICES);
   });
 });

@@ -271,6 +271,18 @@ export class JobRepo {
     return { items, total, page, pageSize };
   }
 
+  /**
+   * Bellekte eşleştirme için aday ilanlar (sayfasız, üst sınırlı). Ana sayfa
+   * "Size uygun ilanlar" listesi bildirim eşleştiricisiyle süzülür; eşleştirici
+   * sorguya çevrilemeyen kurallar (içerme, "belirtilmemiş" dahil etme) içerir.
+   */
+  async listForMatching(filters: JobSearchFilters, limit: number): Promise<JobDoc[]> {
+    return this.store.find('jobs', this.buildFilter(filters), {
+      sort: SORTS.deadline,
+      limit: Math.max(1, limit),
+    });
+  }
+
   buildFilter(filters: JobSearchFilters, includeNonAccepted = false): Query {
     const clauses: Query[] = [];
     if (!includeNonAccepted) clauses.push({ 'classification.decision': 'accept' });

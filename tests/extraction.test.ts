@@ -161,6 +161,20 @@ describe('kurum, unvan ve şartlar', () => {
     expect(extractEducationLevels('Ön lisans mezunları başvurabilir.')).toEqual(['onlisans']);
     expect(extractEducationLevels('Ortaöğretim (lise) mezunu olmak şarttır.')).toEqual(['ortaogretim']);
     expect(extractEducationLevels('Metinde öğrenim bilgisi yer almıyor.')).toEqual([]);
+    // Tek paragraflık uzun metin (satır sonu yok): cümle bölme ham metinde yapılmalı.
+    const paragraph =
+      'Hastanemize 4/B sözleşmeli 20 hemşire alınacaktır. İl: Ankara. Hemşirelik lisans mezunu olmak, ' +
+      '2024 KPSS P3 puanına sahip olmak. Başvurular 23.10.2026 tarihinde başlayıp 03.11.2026 tarihinde sona erecektir. ' +
+      'Başvurular e-Devlet üzerinden alınacak olup şahsen veya posta yoluyla yapılan başvurular kabul edilmeyecektir.';
+    expect(extractEducationLevels(paragraph)).toEqual(['lisans']);
+    expect(
+      extractEducationLevels(
+        'Müdürlüğümüze 4/B sözleşmeli 8 ebe alınacaktır. İl: İzmir. Ebelik önlisans veya lisans mezunu olmak, KPSS P93 puanı. ' +
+          'Başvurular 23.10.2026 tarihinde başlayıp 30.10.2026 tarihinde sona erecektir ve süresinde yapılmayan başvurular dikkate alınmaz.',
+      ),
+    ).toEqual(['onlisans', 'lisans']);
+    expect(extractEducationLevels('YÜKSEK LİSANS mezunu olmak')).toEqual(['yukseklisans']);
+    expect(extractEducationLevels('ÖN LİSANS mezunu olmak')).toEqual(['onlisans']);
     expect(extractEducationLevels('Lisans sayılı karar 12.10.2026 tarihinde yayımlandı.')).toEqual([]);
   });
 

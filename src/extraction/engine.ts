@@ -1031,6 +1031,10 @@ export function extractTitles(text: string, titleText = ''): string[] {
   return found.sort((a, b) => b.length - a.length).slice(0, 12);
 }
 
+/** "ön lisans", "önlisans", "yüksek lisans" (Türkçe büyük/küçük harf, noktalı/noktasız i dahil). */
+const PREFIXED_LISANS_PATTERN =
+  /(?<![\p{L}\p{N}])(?:[öÖoO][nN]|[yY][üÜuU][kK][sS][eE][kK])\s*[lL][iİIı][sS][aA][nN][sS](?![\p{L}\p{N}])/gu;
+
 export function extractEducationLevels(text: string, titleText = ''): EducationLevel[] {
   const levels: EducationLevel[] = [];
   const checks: readonly { level: EducationLevel; phrases: readonly string[] }[] = [
@@ -1042,12 +1046,12 @@ export function extractEducationLevels(text: string, titleText = ''): EducationL
     { level: 'ilkogretim', phrases: ['ilköğretim', 'ilk öğretim'] },
   ];
   for (const check of checks) {
-    const bodyForLevel =
-      check.level === 'lisans' ? normalizeTr(text).replace(/\b(?:on|yuksek)\s+lisans\b/g, ' ') : text;
-    const titleForLevel =
-      check.level === 'lisans'
-        ? normalizeTr(titleText).replace(/\b(?:on|yuksek)\s+lisans\b/g, ' ')
-        : titleText;
+    // "Ön lisans"/"yüksek lisans" içindeki "lisans" lisans kanıtı değildir; maske HAM metinde
+    // uygulanır. Önceden metin normalize edilip maskeleniyordu: normalize noktaları sildiği
+    // için cümle bölme çalışmıyor, tek paragraflık ilanda "Hemşirelik lisans mezunu" bile
+    // bulunamıyordu ("ön lisans veya lisans" yalnız ön lisans çıkıyordu).
+    const bodyForLevel = check.level === 'lisans' ? text.replace(PREFIXED_LISANS_PATTERN, ' ') : text;
+    const titleForLevel = check.level === 'lisans' ? titleText.replace(PREFIXED_LISANS_PATTERN, ' ') : titleText;
     const matched = check.phrases.some(
       (phrase) =>
         hasContextualPhrase(titleForLevel, phrase, EDUCATION_CONTEXT) ||

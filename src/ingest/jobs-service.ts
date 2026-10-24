@@ -968,6 +968,10 @@ async function createJob(
   }
 
   await ctx.repos.jobs.addSourceLink(sourceLinkDocument(raw, job.id, nowIso));
+  await ctx.repos.review.resolveOpenClassificationForUrl(
+    raw.url,
+    'Sınıflandırma kuralı güncellendi; kayıt otomatik olarak ilana dönüştürüldü.',
+  );
 
   await ctx.repos.jobs.addRevision({
     id: createId('rev'),

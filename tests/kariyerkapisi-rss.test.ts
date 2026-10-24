@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SOURCE_DEFINITIONS } from '../src/config/sources';
+import { classify } from '../src/classification/engine';
 import { createLogger } from '../src/lib/logger';
 import { KariyerKapisiRssAdapter } from '../src/sources/adapters/kariyerkapisi-rss';
 import { requireAdapter } from '../src/sources/registry';
@@ -138,5 +139,52 @@ describe('Kariyer Kapısı RSS adaptörü', () => {
   it('akışta <item> yoksa yapı hatası verir (sessiz kayıp değil)', async () => {
     const { http } = fakeHttp('<?xml version="1.0"?><rss><channel><title>boş</title></channel></rss>');
     await expect(new KariyerKapisiRssAdapter().run(contextFor(http))).rejects.toBeInstanceOf(AdapterStructureError);
+  });
+
+  it('ileri tarihli pubDate yayım tarihi diye yazılmaz, başvuru başlangıcı da uydurulmaz', async () => {
+    const { http } = fakeHttp(
+      rssFeed([
+        rssItem('f0000000-0000-0000-0000-000000000001', 'Sözleşmeli Personel İlanları', 'ORTA ANADOLU KALKINMA AJANSI - PERSONEL ALIM İLANI - 2026', 'Mon, 09 Nov 2026 00:01:00 +0300'),
+      ]),
+    );
+    const [item] = (await new KariyerKapisiRssAdapter().run(contextFor(http))).items;
+    expect(item?.publishedAt).toBeUndefined();
+    expect(item?.applicationStartAt).toBeUndefined();
+  });
+});
+
+describe('Kariyer Kapısı ilanlarının sınıflandırılması (gerçek akıştan örnekler, 24.10.2026)', () => {
+  const kk = (title: string, category: string, sourceKey = 'kariyerkapisi-isealim') =>
+    classify({ title, body: '', sourceCategory: category, sourceKey, documentTextMissing: true });
+
+  it('alım kategorisindeki gövdesiz öğe kabul edilir; istihdam türü kategoriden gelir', () => {
+    const cases: [string, string, string][] = [
+      ['TÜRK STANDARDLARI ENSTİTÜSÜ - SÖZLEŞMELİ BİLİŞİM PERSONELİ ALIM İLANI 2026', 'Sözleşmeli Personel İlanları', 'sozlesmeli'],
+      ['TÜRK AKREDİTASYON KURUMU GENEL SEKRETERLİĞİ - AKREDİTASYON UZMAN YARDIMCISI ALIMI', 'A Grubu Memur (Kariyer Meslek)', 'kariyer-meslek'],
+      ['TÜRKİYE CUMHURİYETİ DEVLET DEMİRYOLLARI TAŞIMACILIK ANONİM ŞİRKETİ GENEL MÜDÜRLÜĞÜ - 166 SÜREKLİ İŞÇİ İSTİHDAMI', 'Sürekli İşçi', 'kamu-isci'],
+      ['ADALET BAKANLIĞI - 2026 Yılı Açıktan İcra Müdür ve İcra Müdür Yardımcılığı Sınav İlanı', 'Merkezi Yerleştirme (ÖSYM)', 'kadrolu'],
+      ['JANDARMA VE SAHİL GÜVENLİK AKADEMİSİ BAŞKANLIĞI - 2027 YILI J.GN.K.LIĞI MUVAZZAF SUBAY TEMİNİ', 'Askeri Personel İlanları', 'diger-kamu'],
+    ];
+    for (const [title, category, type] of cases) {
+      const result = kk(title, category);
+      expect(result.decision, title).toBe('accept');
+      expect(result.kind, title).toBe('job');
+      expect(result.employmentType, title).toBe(type);
+      expect(result.rules, title).toContain('pozitif.resmi-portal-kategorisi');
+    }
+  });
+
+  it('alım olmayan portal kategorileri olağan kurala kalır ve reddedilir', () => {
+    expect(
+      kk('ATATÜRK ORMAN ÇİFTLİĞİ MÜDÜRLÜĞÜ (AOÇ) - Görevde Yükselme ve Ünvan Değişikliği', 'Görevde Yükselme ve Unvan Değişikliği İlanları').decision,
+    ).toBe('reject');
+    expect(
+      kk('KAMU İHALE KURUMU - MESLEK PERSONELİ İÇİN YURT DIŞI YÜKSEK LİSANS EĞİTİMİ (2026 YILI)', 'Yurt Dışı Eğitim İlanları').decision,
+    ).toBe('reject');
+  });
+
+  it('portal ayrıcalığı başka kaynağa uygulanmaz (gövdesiz kayıt incelemede kalır)', () => {
+    const other = kk('TÜRK STANDARDLARI ENSTİTÜSÜ - SÖZLEŞMELİ BİLİŞİM PERSONELİ ALIM İLANI 2026', 'Sözleşmeli Personel İlanları', 'baska-kaynak');
+    expect(other.decision).toBe('review');
   });
 });
