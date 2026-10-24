@@ -150,9 +150,11 @@ describe('panel eğitim düzeyi tercihleri', () => {
 
     fireEvent.click(optIn);
     fireEvent.change(screen.getByLabelText(/Mesleğim \/ hedef unvanım/), { target: { value: 'hemşire' } });
-    fireEvent.change(screen.getByLabelText(/Beceriler \/ belgeler/), {
-      target: { value: 'ilk yardım, triyaj' },
-    });
+    const skills = screen.getByLabelText('Beceriler / belgeler') as HTMLInputElement;
+    fireEvent.change(skills, { target: { value: 'ilk yardım' } });
+    fireEvent.keyDown(skills, { key: 'Enter' });
+    fireEvent.change(skills, { target: { value: 'triyaj' } });
+    fireEvent.keyDown(skills, { key: 'Enter' });
     fireEvent.click(screen.getByRole('button', { name: 'Profili kaydet' }));
 
     await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
@@ -205,29 +207,43 @@ describe('panel eğitim düzeyi tercihleri', () => {
   });
 });
 
-describe('virgüllü profil alanları ve kayıt geri bildirimi', () => {
-  it('bölüm ve beceri alanlarına harf harf, virgüllü yazılabilir ve kaydedilir', async () => {
+describe('seçilebilir profil alanları (TagInput) ve kayıt geri bildirimi', () => {
+  it('bölüm ve beceri alanlarına yazıp Enter ile etiket eklenir ve kaydedilir', async () => {
     putMock.mockClear();
     renderPanel();
     const departments = (await screen.findByLabelText('Mezun olduğum bölümler')) as HTMLInputElement;
-    // Klavye girişi gibi: her tuşta değer bir karakter uzar.
-    let typed = '';
-    for (const char of 'P, Psikoloji') {
-      typed += char;
-      fireEvent.change(departments, { target: { value: typed } });
-    }
-    expect(departments.value).toBe('P, Psikoloji');
+    fireEvent.change(departments, { target: { value: 'Psikoloji' } });
+    fireEvent.keyDown(departments, { key: 'Enter' });
+    expect(departments.value).toBe('');
+    expect(screen.getByText('Psikoloji')).toBeTruthy();
+
     const skills = screen.getByLabelText('Beceriler / belgeler') as HTMLInputElement;
-    fireEvent.change(skills, { target: { value: 'A' } });
-    expect(skills.value).toBe('A');
-    fireEvent.change(skills, { target: { value: 'AutoCAD, ' } });
-    expect(skills.value).toBe('AutoCAD, ');
+    fireEvent.change(skills, { target: { value: 'AutoCAD' } });
+    fireEvent.keyDown(skills, { key: 'Enter' });
+    expect(screen.getByText('AutoCAD')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Profili kaydet' }));
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     const body = (putMock.mock.calls.at(-1) as unknown as [string, { candidateProfile: { departments: string[]; skills: string[] } }])[1];
     expect(body.candidateProfile.departments).toEqual(['Psikoloji']);
     expect(body.candidateProfile.skills).toEqual(['AutoCAD']);
+  });
+
+  it('unvan ve il alanları TagInput ile bildirim gövdesine yazılır', async () => {
+    putMock.mockClear();
+    renderPanel();
+    const titles = (await screen.findByLabelText('Unvanlar')) as HTMLInputElement;
+    fireEvent.change(titles, { target: { value: 'Hemşire' } });
+    fireEvent.keyDown(titles, { key: 'Enter' });
+    const cities = screen.getByLabelText('İller') as HTMLInputElement;
+    fireEvent.change(cities, { target: { value: 'Ankara' } });
+    fireEvent.keyDown(cities, { key: 'Enter' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tercihleri kaydet ve bildirimleri aç' }));
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    const body = (putMock.mock.calls.at(-1) as unknown as [string, { filters: { titles: string[]; cities: string[] } }])[1];
+    expect(body.filters.titles).toEqual(['Hemşire']);
+    expect(body.filters.cities).toEqual(['Ankara']);
   });
 
   it('kayıt sonucu düğmenin yanında gösterilir', async () => {

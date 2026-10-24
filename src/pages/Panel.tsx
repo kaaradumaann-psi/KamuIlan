@@ -21,6 +21,16 @@ import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../component
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { TelegramCard } from '../components/TelegramCard';
 import { AiSuggestionsCard } from '../components/AiSuggestionsCard';
+import { TagInput } from '../components/TagInput';
+import { OnboardingWizard } from '../components/OnboardingWizard';
+import { PROFESSION_SUGGESTIONS } from '../domain/professions';
+import { DEPARTMENT_SUGGESTIONS } from '../domain/departments';
+import { INSTITUTION_SUGGESTIONS } from '../domain/institutions';
+import { PROVINCES } from '../domain/provinces';
+import { Icon } from '../components/Icon';
+import type { WizardPayload } from '../lib/wizard-payload';
+
+const PROVINCE_NAMES: readonly string[] = PROVINCES.map((province) => province.name);
 
 const EMPTY_FILTERS: PreferenceFilters = {
   keywords: [],
@@ -56,13 +66,6 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   includeWorkerJobs: true,
   includeAcademicJobs: true,
 };
-
-function toList(value: string): string[] {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item.length > 1);
-}
 
 /**
  * Kaydet düğmesinin yanındaki sonuç satırı. Sayfa başındaki bildirim, form
@@ -112,10 +115,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   // "Ek koşullar" yalnızca kayıtlı bir koşul varsa açık başlar; sonra kullanıcıya kalır.
   const [moreOpen, setMoreOpen] = useState(false);
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  // Virgüllü profil alanlarının ham metni: diziye çevrilip geri yazılırsa ilk harf
-  // (tek harfli parça elenir) ve virgül anında siliniyor, alan doldurulamıyordu.
-  const [profileDraft, setProfileDraft] = useState<{ departments?: string; skills?: string }>({});
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,6 +158,19 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
     onSuccess: (data) => {
       setMessage(data.message);
       setError(null);
+      void queryClient.invalidateQueries({ queryKey: ['preferences'] });
+    },
+    onError: (caught) => setError(errorMessage(caught)),
+  });
+
+  // Başlangıç sihirbazı tüm gövdeyi (filtreler + profil + bildirim) tek seferde kaydeder.
+  const wizardSave = useMutation({
+    mutationFn: (body: WizardPayload) =>
+      api.put<{ message: string }>('/api/notifications/preferences', body),
+    onSuccess: (data) => {
+      setMessage(data.message);
+      setError(null);
+      setWizardOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['preferences'] });
     },
     onError: (caught) => setError(errorMessage(caught)),
@@ -249,7 +262,6 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
     setCandidateProfile({ ...EMPTY_PROFILE });
     setProfilePersonalizationEnabled(false);
     setConfirmClearProfile(false);
-    setProfileDraft({});
     saveProfile.mutate({ candidateProfile: { ...EMPTY_PROFILE }, profilePersonalizationEnabled: false });
   };
 
@@ -323,6 +335,12 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
         <Card
           title="Bildirim tercihleri"
           description="Yazdığınız kelimelerden herhangi biri bir ilanda geçerse e-posta ile haber veririz. Boş bıraktığınız alanlar yok sayılır."
+          actions={
+            <button type="button" className="btn-secondary btn-sm" onClick={() => setWizardOpen(true)}>
+              <Icon name="sparkles" size={15} />
+              <span>Sihirbazla doldur</span>
+            </button>
+          }
         >
           <form
             className="pref-form"
@@ -335,53 +353,52 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
               <h3 id="pref-what" className="pref-section-title">
                 Neyi takip ediyorsunuz?
               </h3>
-              <p className="text-muted-sm pref-section-note">Birden fazla değeri virgülle ayırın.</p>
+              <p className="text-muted-sm pref-section-note">
+                Her değeri yazıp Enter'a basın ya da önerilerden seçin. Dilediğiniz kadar ekleyebilirsiniz.
+              </p>
               <div className="form-grid-2col">
-                <Field label="Anahtar kelimeler" htmlFor="pref-keywords" hint="İlan başlığında ve metninde aranır.">
-                  <input
+                <Field
+                  label="Anahtar kelimeler"
+                  htmlFor="pref-keywords"
+                  hint="İlan başlığında ve metninde aranır (ör. rehberlik)."
+                >
+                  <TagInput
                     id="pref-keywords"
-                    className="input"
-                    value={draft['keywords'] ?? (preference?.filters.keywords ?? []).join(', ')}
-                    onChange={(event) => {
-                      setDraft({ ...draft, keywords: event.target.value });
-                      setFilters({ ...filters, keywords: toList(event.target.value) });
-                    }}
-                    placeholder="ör. psikoloji, rehberlik"
+                    ariaLabel="Anahtar kelimeler"
+                    values={filters.keywords}
+                    onChange={(keywords) => setFilters({ ...filters, keywords })}
+                    placeholder="ör. psikoloji"
                   />
                 </Field>
-                <Field label="Unvanlar" htmlFor="pref-titles">
-                  <input
+                <Field label="Unvanlar" htmlFor="pref-titles" hint="Aradığınız kadro/unvan (ör. hemşire).">
+                  <TagInput
                     id="pref-titles"
-                    className="input"
-                    value={draft['titles'] ?? (preference?.filters.titles ?? []).join(', ')}
-                    onChange={(event) => {
-                      setDraft({ ...draft, titles: event.target.value });
-                      setFilters({ ...filters, titles: toList(event.target.value) });
-                    }}
-                    placeholder="ör. psikolog, hemşire"
+                    ariaLabel="Unvanlar"
+                    values={filters.titles}
+                    onChange={(titles) => setFilters({ ...filters, titles })}
+                    suggestions={PROFESSION_SUGGESTIONS}
+                    placeholder="ör. psikolog"
                   />
                 </Field>
                 <Field label="Kurumlar" htmlFor="pref-institutions" hint="Adın bir kısmı yeterli.">
-                  <input
+                  <TagInput
                     id="pref-institutions"
-                    className="input"
-                    value={draft['institutions'] ?? (preference?.filters.institutions ?? []).join(', ')}
-                    onChange={(event) => {
-                      setDraft({ ...draft, institutions: event.target.value });
-                      setFilters({ ...filters, institutions: toList(event.target.value) });
-                    }}
+                    ariaLabel="Kurumlar"
+                    values={filters.institutions}
+                    onChange={(institutions) => setFilters({ ...filters, institutions })}
+                    suggestions={INSTITUTION_SUGGESTIONS}
+                    maxLength={120}
                     placeholder="ör. Sağlık Bakanlığı"
                   />
                 </Field>
-                <Field label="İller" htmlFor="pref-cities">
-                  <input
+                <Field label="İller" htmlFor="pref-cities" hint="Boş bırakırsanız tüm iller dahildir.">
+                  <TagInput
                     id="pref-cities"
-                    className="input"
-                    value={draft['cities'] ?? (preference?.filters.cities ?? []).join(', ')}
-                    onChange={(event) => {
-                      setDraft({ ...draft, cities: event.target.value });
-                      setFilters({ ...filters, cities: toList(event.target.value) });
-                    }}
+                    ariaLabel="İller"
+                    values={filters.cities}
+                    onChange={(cities) => setFilters({ ...filters, cities })}
+                    suggestions={PROVINCE_NAMES}
+                    maxLength={60}
                     placeholder="Tüm iller"
                   />
                 </Field>
@@ -446,15 +463,17 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                 </fieldset>
 
                 <div className="pref-grid-3">
-                  <Field label="İlanda aranan bölüm" htmlFor="pref-departments" hint="Virgülle ayırın.">
-                    <input
+                  <Field
+                    label="İlanda aranan bölüm"
+                    htmlFor="pref-departments"
+                    hint="İlanın istediği mezuniyet alanı."
+                  >
+                    <TagInput
                       id="pref-departments"
-                      className="input"
-                      value={draft['departments'] ?? (preference?.filters.departments ?? []).join(', ')}
-                      onChange={(event) => {
-                        setDraft({ ...draft, departments: event.target.value });
-                        setFilters({ ...filters, departments: toList(event.target.value) });
-                      }}
+                      ariaLabel="İlanda aranan bölüm"
+                      values={filters.departments}
+                      onChange={(departments) => setFilters({ ...filters, departments })}
+                      suggestions={DEPARTMENT_SUGGESTIONS}
                       placeholder="ör. psikoloji"
                     />
                   </Field>
@@ -585,15 +604,21 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
               Profilimi ilanlara özel eşleşme açıklamalarında kullan
             </label>
             <div className="form-grid-2col profile-form-grid">
-              <Field label="Mesleğim / hedef unvanım" htmlFor="profile-profession">
+              <Field label="Mesleğim / hedef unvanım" htmlFor="profile-profession" hint="Yazın ya da listeden seçin.">
                 <input
                   id="profile-profession"
                   className="input"
                   maxLength={100}
+                  list="profile-profession-list"
                   value={candidateProfile.profession}
                   onChange={(event) => setCandidateProfile({ ...candidateProfile, profession: event.target.value })}
                   placeholder="ör. psikolog"
                 />
+                <datalist id="profile-profession-list">
+                  {PROFESSION_SUGGESTIONS.map((option) => (
+                    <option value={option} key={option} />
+                  ))}
+                </datalist>
               </Field>
               <Field label="Eğitim düzeyim" htmlFor="profile-education">
                 <select
@@ -612,28 +637,27 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
                   ))}
                 </select>
               </Field>
-              <Field label="Mezun olduğum bölümler" htmlFor="profile-departments" hint="Virgülle ayırın.">
-                <input
+              <Field
+                label="Mezun olduğum bölümler"
+                htmlFor="profile-departments"
+                hint="Yazıp Enter'a basın ya da seçin."
+              >
+                <TagInput
                   id="profile-departments"
-                  className="input"
-                  value={profileDraft.departments ?? candidateProfile.departments.join(', ')}
-                  onChange={(event) => {
-                    setProfileDraft({ ...profileDraft, departments: event.target.value });
-                    setCandidateProfile({ ...candidateProfile, departments: toList(event.target.value) });
-                  }}
+                  ariaLabel="Mezun olduğum bölümler"
+                  values={candidateProfile.departments}
+                  onChange={(departments) => setCandidateProfile({ ...candidateProfile, departments })}
+                  suggestions={DEPARTMENT_SUGGESTIONS}
                   placeholder="ör. Psikoloji"
                 />
               </Field>
-              <Field label="Beceriler / belgeler" htmlFor="profile-skills" hint="Virgülle ayırın.">
-                <input
+              <Field label="Beceriler / belgeler" htmlFor="profile-skills" hint="Yazıp Enter'a basın.">
+                <TagInput
                   id="profile-skills"
-                  className="input"
-                  value={profileDraft.skills ?? candidateProfile.skills.join(', ')}
-                  onChange={(event) => {
-                    setProfileDraft({ ...profileDraft, skills: event.target.value });
-                    setCandidateProfile({ ...candidateProfile, skills: toList(event.target.value) });
-                  }}
-                  placeholder="ör. AutoCAD, ilk yardım"
+                  ariaLabel="Beceriler / belgeler"
+                  values={candidateProfile.skills}
+                  onChange={(skills) => setCandidateProfile({ ...candidateProfile, skills })}
+                  placeholder="ör. AutoCAD"
                 />
               </Field>
               <Field label="İlgili iş deneyimim (yıl)" htmlFor="profile-experience">
@@ -790,6 +814,15 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
             )}
           </div>
         </Card>
+      )}
+
+      {wizardOpen && (
+        <OnboardingWizard
+          onClose={() => setWizardOpen(false)}
+          onComplete={(payload) => wizardSave.mutate(payload)}
+          submitting={wizardSave.isPending}
+          error={wizardSave.isError ? errorMessage(wizardSave.error) : null}
+        />
       )}
     </div>
   );

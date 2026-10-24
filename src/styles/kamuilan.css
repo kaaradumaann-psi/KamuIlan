@@ -1469,6 +1469,313 @@
     color: var(--soft);
   }
 
+  /* Giriş yapmış, tercihsiz kullanıcıya belirgin sihirbaz çağrısı. */
+  .home-cta-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 18px 20px;
+    border: 1px solid var(--primary-border, var(--hairline));
+    border-radius: 14px;
+    background: var(--primary-tint, var(--cream));
+  }
+
+  .home-cta-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    background: var(--white, #fff);
+    color: var(--accent-ink, var(--accent));
+    border: 1px solid var(--primary-border, var(--hairline));
+  }
+
+  .home-cta-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 240px;
+  }
+
+  .home-cta-text strong {
+    font-size: 15px;
+    color: var(--text);
+  }
+
+  .home-cta-text span {
+    font-size: 13px;
+    color: var(--soft);
+    line-height: 1.45;
+  }
+
+  .home-cta-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    flex: 1 1 160px;
+  }
+
+  .home-cta-actions .btn-ghost {
+    text-align: center;
+    text-decoration: none;
+  }
+
+  /* Seçilebilir çok değerli giriş (etiket/chip) ------------------------------ */
+  .tag-input {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 8px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    background: var(--white, #fff);
+  }
+
+  .tag-input:focus-within {
+    border-color: var(--accent);
+  }
+
+  .tag-input.is-disabled {
+    opacity: 0.6;
+  }
+
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 4px 6px 4px 10px;
+    border: 1px solid var(--primary-border, var(--hairline));
+    border-radius: 999px;
+    background: var(--primary-tint, var(--bg-soft));
+    color: var(--accent-ink, var(--text));
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .tag-chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tag-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .tag-chip-remove:hover {
+    background: rgba(0, 0, 0, 0.08);
+  }
+
+  .tag-input-field {
+    flex: 1 1 120px;
+    min-width: 80px;
+    border: 0 !important;
+    outline: none;
+    padding: 4px 2px !important;
+    background: transparent !important;
+    font-size: 13.5px;
+    font-family: inherit;
+    color: var(--text);
+  }
+
+  .tag-input-field:focus {
+    border: 0 !important;
+  }
+
+  /* Başlangıç sihirbazı (tam ekran modal) ----------------------------------- */
+  .wizard-backdrop {
+    align-items: stretch;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .wizard-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 640px;
+    max-height: 100vh;
+    margin: auto;
+    background: var(--white, #fff);
+    border-radius: 0;
+    overflow-y: auto;
+  }
+
+  .wizard-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--hairline);
+    position: sticky;
+    top: 0;
+    background: var(--white, #fff);
+    z-index: 1;
+  }
+
+  .wizard-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .wizard-step-count {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--soft);
+  }
+
+  .wizard-progress-track {
+    display: block;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--bg-soft, var(--cream));
+    overflow: hidden;
+  }
+
+  .wizard-progress-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+    transition: width 0.25s ease;
+  }
+
+  .wizard-body {
+    flex: 1 1 auto;
+    padding: 22px 20px;
+  }
+
+  .wizard-title {
+    margin: 0 0 14px;
+    font-size: 19px;
+    color: var(--text);
+    outline: none;
+  }
+
+  .wizard-hint {
+    margin: 0 0 14px;
+    font-size: 13.5px;
+    color: var(--soft);
+    line-height: 1.5;
+  }
+
+  .wizard-welcome .wizard-points {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .wizard-welcome .wizard-points li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--text);
+  }
+
+  .wizard-welcome .wizard-points svg {
+    flex: none;
+    margin-top: 2px;
+    color: var(--accent);
+  }
+
+  .wizard-chip-row {
+    margin-top: 4px;
+  }
+
+  .wizard-score {
+    margin-top: 16px;
+    max-width: 220px;
+  }
+
+  .wizard-summary {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .wizard-summary-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 38%) 1fr;
+    gap: 10px;
+    padding: 9px 2px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 13.5px;
+  }
+
+  .wizard-summary-row:last-child {
+    border-bottom: 0;
+  }
+
+  .wizard-summary-row dt {
+    font-weight: 600;
+    color: var(--soft);
+  }
+
+  .wizard-summary-row dd {
+    margin: 0;
+    color: var(--text);
+    word-break: break-word;
+  }
+
+  .wizard-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--hairline);
+    position: sticky;
+    bottom: 0;
+    background: var(--white, #fff);
+  }
+
+  .wizard-foot-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  @media (min-width: 640px) {
+    .wizard-backdrop {
+      align-items: center;
+      padding: 24px;
+    }
+
+    .wizard-shell {
+      max-height: calc(100vh - 48px);
+      border-radius: 16px;
+    }
+  }
+
   .list-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
