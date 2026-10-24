@@ -9,13 +9,15 @@
  * Kullanıcı giriş yapmış ve Panel'de tercih kaydetmişse, listenin başında
  * tercihlerine uyan açık ilanları öne çıkaran bir bölüm gösterilir.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PROVINCES } from '../domain/provinces';
 import { JobCard } from '../components/JobCard';
 import { Icon } from '../components/Icon';
-import { Card, ErrorNotice, LoadingCard, StatCard, Tag } from '../components/ui';
+import { Card, ErrorNotice, InfoNote, LoadingCard, StatCard, Tag } from '../components/ui';
+import { OnboardingWizard } from '../components/OnboardingWizard';
+import type { WizardPayload } from '../lib/wizard-payload';
 import { api, errorMessage } from '../lib/api';
 import { usePageMeta } from '../lib/page-meta';
 import { HEALTH_QUERY_KEY } from '../lib/query-keys';
@@ -129,10 +131,13 @@ function SystemStrip({
 export function HomePage() {
   usePageMeta({ title: 'Kamu personel alım ilanları' });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const [term, setTerm] = useState('');
   const [city, setCity] = useState('');
   const [closingVisible, setClosingVisible] = useState(CLOSING_STEP);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardDone, setWizardDone] = useState(false);
 
   const stats = useQuery({
     queryKey: STATS_KEY,
@@ -172,6 +177,16 @@ export function HomePage() {
     queryKey: ['home', 'matches', matchParams],
     queryFn: ({ signal }) => api.get<JobListResponse>('/api/jobs', matchParams ?? undefined, signal),
     enabled: Boolean(matchParams),
+  });
+
+  // Sihirbaz: tercihsiz kullanıcı için tek seferde tüm tercihleri kaydeder.
+  const wizardSave = useMutation({
+    mutationFn: (body: WizardPayload) => api.put<{ message: string }>('/api/notifications/preferences', body),
+    onSuccess: () => {
+      setWizardOpen(false);
+      setWizardDone(true);
+      void queryClient.invalidateQueries({ queryKey: PREFERENCES_KEY });
+    },
   });
 
   function submit(event: FormEvent) {
@@ -302,7 +317,37 @@ export function HomePage() {
         </Card>
       )}
 
-      {!personalized && (
+      {wizardDone && (
+        <InfoNote tone="success">
+          Tercihleriniz kaydedildi, bildirimler açıldı. Eşleşen yeni ilanlar burada ve e-postanızda görünecek.
+        </InfoNote>
+      )}
+
+      {Boolean(user) && !personalized && !wizardDone && (
+        <section className="home-cta-banner">
+          <span className="home-cta-icon" aria-hidden="true">
+            <Icon name="sparkles" size={22} />
+          </span>
+          <div className="home-cta-text">
+            <strong>İlanları özelleştirmek ve bildirim almak için başlayın</strong>
+            <span>
+              Birkaç kısa soruyla ilgilendiğiniz unvan, il ve çalışma türünü belirleyin; eşleşen yeni ilanlar
+              çıktığında e-posta ile haber verelim.
+            </span>
+          </div>
+          <div className="home-cta-actions">
+            <button type="button" className="btn-primary" onClick={() => setWizardOpen(true)}>
+              <Icon name="sparkles" size={16} />
+              <span>Sihirbazı başlat</span>
+            </button>
+            <Link className="btn-ghost btn-sm" to="/panel">
+              Elle doldururum
+            </Link>
+          </div>
+        </section>
+      )}
+
+      {!user && (
         <Link className="home-personalize-prompt" to="/panel">
           <span className="home-personalize-icon" aria-hidden="true">
             <Icon name="sparkles" size={16} />
@@ -313,6 +358,15 @@ export function HomePage() {
           </span>
           <Icon name="arrowRight" size={15} />
         </Link>
+      )}
+
+      {wizardOpen && (
+        <OnboardingWizard
+          onClose={() => setWizardOpen(false)}
+          onComplete={(payload) => wizardSave.mutate(payload)}
+          submitting={wizardSave.isPending}
+          error={wizardSave.isError ? errorMessage(wizardSave.error) : null}
+        />
       )}
 
       <div className="dashboard-grid">
