@@ -47,7 +47,12 @@ import {
   type EmploymentType,
   type LlmVerdict,
 } from '../domain/types';
-import { RECRUITMENT_EVIDENCE_PATTERN, PROCESS_TITLE_SIGNAL_PATTERN } from '../classification/rules';
+import {
+  RECRUITMENT_EVIDENCE_PATTERN,
+  PROCESS_TITLE_CONTEXT_PATTERN,
+  PROCESS_TITLE_EXCLUDE_PATTERN,
+  PROCESS_TITLE_SIGNAL_PATTERN,
+} from '../classification/rules';
 import type { Logger } from '../lib/logger';
 import {
   callChatCompletion,
@@ -532,6 +537,27 @@ export function extractJsonPayload(content: string): string {
  *
  * Dönen değer: uygulanabilir karar veya `null` (doğrulanamadı → review kalır) + gerekçe.
  */
+/**
+ * Doğrulanamayan kararın kanıt alıntılarını denetim kaydı için tek satıra indirir (≤300).
+ * Talimat benzeri alıntı saklanmaz; yerine işaret yazılır.
+ */
+export function rejectedEvidenceForAudit(output: LlmClassifierOutput): string | null {
+  const entries: [string, string | null | undefined][] = [
+    ['alim', output.kanitlar.alimIfadesi],
+    ['surec', output.kanitlar.surecIfadesi],
+    ['olumsuz', output.kanitlar.olumsuzKanit],
+  ];
+  const parts = entries
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([label, value]) =>
+      `${label}: ${evidenceLooksLikeInjection(value) ? '[talimat benzeri ifade — saklanmadı]' : value.replace(/\s+/g, ' ').trim()}`,
+    );
+  return parts.length ? parts.join(' | ').slice(0, 300) : null;
+}
+
+const PRIOR_ANNOUNCEMENT_REFERENCE = /ilan(?:imiz|lar)?(?:in|inin|inda|imizda|imizin|ina|imiza|indaki|imizdaki)\b/u;
+const RECRUITMENT_VERB = /(?:alinacaktir|alinacak|alim yapilacaktir|istihdam edilecektir|istihdam edilmek uzere|atama yapilacaktir)/u;
+
 export function validateClassifierOutput(input: {
   output: LlmClassifierOutput;
   titleNormalized: string;
@@ -565,6 +591,12 @@ export function validateClassifierOutput(input: {
     if (!RECRUITMENT_EVIDENCE_PATTERN.test(normalizeTr(evidence))) {
       return fail('alım kanıtı deterministik alım ifadesi kalıbıyla eşleşmiyor');
     }
+    // Önceki bir ilana ATIF ("…Alım İlanımızda", "…alım ilanında", "ilanının") yeni alım kanıtı
+    // değildir; düzeltme/iptal metinlerinde geçer (Tatarlı Bld. ve Medipol düzeltmeleri "ilan" diye
+    // doğrulanmıştı). Gelecek zamanlı alım fiili yoksa reddedilir.
+    if (PRIOR_ANNOUNCEMENT_REFERENCE.test(normalizeTr(evidence)) && !RECRUITMENT_VERB.test(normalizeTr(evidence))) {
+      return fail('alım kanıtı önceki bir ilana atıf; yeni alım ifadesi değil');
+    }
     return { verdict: 'ilan', contentType: 'personnel_recruitment', evidence, failure: null };
   }
 
@@ -579,6 +611,12 @@ export function validateClassifierOutput(input: {
     }
     if (!PROCESS_TITLE_SIGNAL_PATTERN.test(normalizeTr(evidence))) {
       return fail('süreç kanıtı deterministik süreç sinyali kalıbıyla eşleşmiyor');
+    }
+    // Deterministik motorla aynı koşul: süreç sinyali PERSONEL bağlamında olmalı (ihale/öğrenci
+    // sınavı sonucu süreç duyurusu sayılmaz) ve dışlama kalıbına uymamalı.
+    const signalText = `${titleNormalized} ${normalizeTr(evidence)}`;
+    if (!PROCESS_TITLE_CONTEXT_PATTERN.test(`${signalText} ${normalizeTr(haystack)}`) || PROCESS_TITLE_EXCLUDE_PATTERN.test(signalText)) {
+      return fail('süreç kanıtı personel bağlamında değil');
     }
     return { verdict: 'surec', contentType: 'personnel_process_announcement', evidence, failure: null };
   }
@@ -1246,6 +1284,7 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
           summary: output.ozet,
           employmentType: output.istihdamTuru,
           evidence: null,
+          rejectedEvidence: rejectedEvidenceForAudit(output),
         });
         return {
           classification: {
@@ -1401,6 +1440,12 @@ export interface LlmTelemetryStats {
   cacheHitRate: number | null;
   /** Sağlayıcı hatası + zaman aşımı + doğrulanamayan çıktı payı (çağrı başına). */
   errorRate: number | null;
+  /**
+   * Yalnız sağlayıcı hatası + zaman aşımı payı. `invalid` çoğunlukla politika gereği otomatik
+   * uygulanmayan karardır (ör. `other` türünde ret); sağlayıcı arızası sayılmamalı (denetim 27.10.2026:
+   * 19 invalid'in 12'si `ilan-degil`, 0 sağlayıcı hatası; panel %44 "hata" gösteriyordu).
+   */
+  providerErrorRate: number | null;
   latency: { count: number; avgMs: number | null; p50Ms: number | null; p95Ms: number | null; maxMs: number | null };
   tokens: {
     prompt: number;
@@ -1464,6 +1509,10 @@ export function computeLlmTelemetry(
     cacheHits: scoped.length - apiCalls.length,
     cacheHitRate: scoped.length > 0 ? (scoped.length - apiCalls.length) / scoped.length : null,
     errorRate: apiCalls.length > 0 ? failures.length / apiCalls.length : null,
+    providerErrorRate:
+      apiCalls.length > 0
+        ? apiCalls.filter((row) => row.status === 'error' || row.status === 'timeout').length / apiCalls.length
+        : null,
     latency: {
       count: latencies.length,
       avgMs:

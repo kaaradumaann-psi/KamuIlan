@@ -612,6 +612,25 @@ export interface ApplyContext {
    * kanıtı doğrulanamayan veya sağlayıcı hatalı durumlarda kayıt review kalır.
    */
   llmGate?: LlmClassificationGate;
+  /** Koşum boyu tekilleştirme aday önbelleği (tarama hattı); yoksa her kayıtta okunur. */
+  candidateCache?: DedupeCandidateCache;
+}
+
+/**
+ * Tarama koşumu boyunca "son ilanlar" aday kümesini ve kaynak bağlarını tutar.
+ * Koşumda oluşturulan/güncellenen ilan `remember` ile eklenir; böylece aynı koşumdaki
+ * sonraki kayıt onu aday olarak görür (önbelleksiz davranışla aynı karar).
+ */
+export interface DedupeCandidateCache {
+  recent: Map<string, JobDoc> | null;
+  /** Kümenin okunduğu an; sonraki çağrılar yalnız bu andan sonra güncellenen ilanları çeker. */
+  loadedAt?: string;
+  links: Map<string, string[]>;
+}
+
+export function createDedupeCandidateCache(now: Date): DedupeCandidateCache {
+  // Koşumda yazılan ilanların updatedAt değeri koşum anıdır (ctx.now) → `>= loadedAt` onları kapsar.
+  return { recent: null, links: new Map(), loadedAt: now.toISOString() };
 }
 
 /**
@@ -669,7 +688,11 @@ export async function applyRawAnnouncement(
   // LLM ikinci aşama kapısı: yalnızca belirsiz (review) kayıtlarda ve yalnızca
   // tarama hattı kapıyı sağladıysa çalışır. Deterministik kabul/ret değişmez.
   let llmOpinion: LlmReviewOpinion | null = null;
-  if (!options.classificationOverride && ctx.llmGate && classification.decision === 'review') {
+  // Düzeltme/iptal duyuruları LLM'e gönderilmez: sonraki adımda geri çekme yoluna girerler ve
+  // model kararı sonucu değiştirmez (24–27.10.2026 üretim: 3/3 düzeltmede çağrı etkisizdi; Tatarlı
+  // düzeltmesinde model "ilan" dedi). Sinyal kapıdan ÖNCE hesaplanır; boşa çağrı ve yanlış kabul riski kalkar.
+  const withdrawal = detectWithdrawalSignal(raw.title, raw.bodyText ?? '');
+  if (!options.classificationOverride && ctx.llmGate && classification.decision === 'review' && !withdrawal) {
     const gateOutcome = await ctx.llmGate.evaluate({
       title: raw.title,
       body: raw.bodyText ?? raw.rawExcerpt ?? null,
@@ -682,8 +705,6 @@ export async function applyRawAnnouncement(
     classification = gateOutcome.classification;
     llmOpinion = gateOutcome.opinion;
   }
-
-  const withdrawal = detectWithdrawalSignal(raw.title, raw.bodyText ?? '');
 
   // Kaynak içi kimlik: aynı kaynak aynı ilanı tekrar gördü → güncelleme yolu.
   const existingLink = await ctx.repos.jobs.findLinkBySourceItem(raw.sourceKey, raw.sourceItemId);
@@ -705,7 +726,7 @@ export async function applyRawAnnouncement(
 
   // Geri çekme/düzeltme sinyali: mevcut ilan varsa durum güncellenir.
   if (withdrawal && !existingLink) {
-    const candidates = await findCandidates(ctx.repos, raw, null);
+    const candidates = await findCandidates(ctx.repos, raw, null, ctx.candidateCache);
     // Hedef YALNIZCA kanıtla seçilir (resmî no, kanonik URL, başlık kapsama,
     // kurum + yüksek benzerlik). Aday listesinin ilk elemanına düşmek, ilgisiz
     // bir ilanı "iptal edildi" diye kapatıyordu.
@@ -755,7 +776,7 @@ export async function applyRawAnnouncement(
   const document = buildJobDocument(raw, classification, { now: ctx.now, provenance: ctx.provenance });
 
   // Kaynak bağlantısı yeni kurulacaksa tekilleştirme adayları toplanır.
-  const candidates = await findCandidates(ctx.repos, raw, existingLink?.jobId ?? null);
+  const candidates = await findCandidates(ctx.repos, raw, existingLink?.jobId ?? null, ctx.candidateCache);
   const identity = matchBySourceIdentity(
     {
       sourceKey: raw.sourceKey,
@@ -883,6 +904,7 @@ async function findCandidates(
   repos: Repos,
   raw: RawAnnouncement,
   excludeJobId: string | null,
+  cache?: DedupeCandidateCache,
 ): Promise<(DedupeCandidateJob & { id: string })[]> {
   const institutionHint = normalizeTr(raw.institution ?? '');
   const referenceNo = extractReferenceFromTitle(raw.title);
@@ -912,8 +934,27 @@ async function findCandidates(
     }
   }
 
-  // Metin benzerliği taraması için son ilanlardan geniş bir küme eklenir.
-  const recent = await repos.store.find('jobs', {}, { limit: 400, sort: [['createdAt', -1]] });
+  // Metin benzerliği taraması için son ilanlardan geniş bir küme eklenir. Önbellek varsa
+  // küme koşumda bir kez okunur; sonrasında yalnız bu koşumda değişen ilanlar tazelenir.
+  let recent: JobDoc[];
+  if (!cache) {
+    recent = await repos.store.find('jobs', {}, { limit: 400, sort: [['createdAt', -1]] });
+  } else if (!cache.recent) {
+    const rows = await repos.store.find('jobs', {}, { limit: 400, sort: [['createdAt', -1]] });
+    cache.recent = new Map(rows.map((job) => [job.id, job]));
+    recent = rows;
+  } else {
+    const changed = await repos.store.find(
+      'jobs',
+      { updatedAt: { $gte: cache.loadedAt ?? new Date(0).toISOString() } },
+      { limit: 400, sort: [['updatedAt', -1]] },
+    );
+    for (const job of changed) {
+      cache.recent.set(job.id, job);
+      cache.links.delete(job.id);
+    }
+    recent = [...cache.recent.values()];
+  }
   for (const job of recent) {
     if (excludeJobId && job.id === excludeJobId) continue;
     map.set(job.id, job);
@@ -923,16 +964,20 @@ async function findCandidates(
   // numarasıyla gelen kaydın yanlış birleşmesini engellemek için decideDedupe'a
   // `${sourceKey}::${sourceItemId}` kimlikleri taşınır.
   const candidateIds = [...map.keys()];
-  const links =
-    candidateIds.length > 0
-      ? await repos.store.find('jobSources', { jobId: { $in: candidateIds } }, { limit: 10_000 })
-      : [];
   const sourceItemsByJob = new Map<string, string[]>();
+  const missing = cache ? candidateIds.filter((id) => !cache.links.has(id)) : candidateIds;
+  if (cache) for (const id of candidateIds) if (cache.links.has(id)) sourceItemsByJob.set(id, cache.links.get(id) ?? []);
+  const links =
+    missing.length > 0
+      ? await repos.store.find('jobSources', { jobId: { $in: missing } }, { limit: 10_000 })
+      : [];
+  for (const id of missing) sourceItemsByJob.set(id, []);
   for (const link of links) {
     const list = sourceItemsByJob.get(link.jobId) ?? [];
     list.push(`${link.sourceKey}::${link.sourceItemId}`);
     sourceItemsByJob.set(link.jobId, list);
   }
+  if (cache) for (const id of missing) cache.links.set(id, sourceItemsByJob.get(id) ?? []);
 
   return [...map.values()].map((job) => ({
     id: job.id,

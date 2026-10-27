@@ -98,9 +98,12 @@ export async function deliverTelegramItem(input: {
 
 function renderMessage(item: EmailOutboxDoc, sender: TelegramSender): RenderedTelegramMessage {
   if (item.kind === 'test') return renderTestMessage(sender.senderName);
-  if (item.kind !== 'job-notification') throw new Error(`Telegram için desteklenmeyen tür: ${item.kind}`);
+  if (item.kind !== 'job-notification' && item.kind !== 'saved-job-update' && item.kind !== 'deadline-reminder') {
+    throw new Error(`Telegram için desteklenmeyen tür: ${item.kind}`);
+  }
   const payload = readJobPayload(item.payload);
   if (!payload) throw new Error('İlan verisi eksik veya bozuk.');
-  const kind = item.template === 'job-changed' ? 'job-changed' : 'new-job';
+  const kind =
+    item.kind === 'job-notification' ? (item.template === 'job-changed' ? 'job-changed' : 'new-job') : item.kind;
   return renderJobMessage({ kind, payload, baseUrl: sender.baseUrl, senderName: sender.senderName });
 }

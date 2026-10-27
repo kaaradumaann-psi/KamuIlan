@@ -2828,11 +2828,12 @@
   }
 
   /* -------------------------------------------------------------------------
-     22 · Karanlık tema
+     22 · Tema şeması
      -------------------------------------------------------------------------
-     psikolog ve MMPI çalışma alanları yalnızca AÇIK tema yayınlar; Kamuİlan
-     da aynı kararı paylaşır. Karanlık modda işletim sistemi öğelerinin
-     (kaydırma çubuğu, form denetimleri) açık temaya geçmesi engellenir.
+     Varsayılan açık tema. Karanlık tema dosya sonundaki "23 · Karanlık tema"
+     bölümünde `:root[data-theme='dark']` ile token düzeyinde açılır; bu
+     öznitelik `src/components/theme.ts` tarafından (sistem tercihi veya
+     kullanıcı seçimi) yazılır.
      ------------------------------------------------------------------------- */
   :root {
     color-scheme: light;
@@ -3415,5 +3416,348 @@
   .site-footer-link {
     min-width: 40px;
     justify-content: center;
+  }
+}
+
+/* --- Yönetim paneli dar ekran ---------------------------------------
+   responsive.css sekmeleri `white-space: nowrap` yapar; 360-390 px'de üç
+   sütunlu ızgarada "İncelenecek ilanlar", "Kapsam durumu" gibi etiketler
+   düğmeden taşıyordu. Dar ekranda iki sütun + satır kaydırma. */
+@media screen and (max-width: 620px) {
+  .subnav-tabs > .subnav-tab {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .subnav-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card-head,
+  .card-head > div {
+    min-width: 0;
+  }
+
+  .card-head {
+    flex-wrap: wrap;
+  }
+
+  .card-title,
+  .card-sub,
+  .page-title,
+  .metric-label,
+  .compact-list,
+  .note-list,
+  .step-list {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ===========================================================================
+   23 · Karanlık tema
+   ---------------------------------------------------------------------------
+   Ortak katmanlar (coherence.css, theme.css …) başka depolarla bayt bayt
+   aynı kalmalıdır; bu yüzden karanlık tema yalnızca burada, token yeniden
+   tanımıyla ve ortak katmanlardaki sabit açık renklerin üzerine yazılarak
+   kurulur. `--white` karanlıkta "yüzey" rengidir: `background: var(--white)`
+   kartlar koyulaşır, `color: var(--white)` + `background: var(--text)`
+   düğmelerde koyu metin açık zemin üzerinde kalır.
+   Kontrast (WCAG): metin #f2f2f4 / yüzey #1c1c1f ≈ 15:1; --soft #a8a8ae
+   ≈ 7.6:1; --muted #9a9aa0 ≈ 6.3:1; --accent-ink #6cb4ff ≈ 7.9:1.
+   =========================================================================== */
+@media screen {
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    color: #f2f2f4;
+    background-color: #111113;
+
+    --bg: #111113;
+    --canvas: #111113;
+    --white: #1c1c1f;
+    --paper: #1c1c1f;
+    --bg-soft: #232327;
+    --cream: #232327;
+    --cream-deep: #2a2a2e;
+    --text: #f2f2f4;
+    --ink: #f2f2f4;
+    --ink-2: #d4d4d8;
+    --ink-3: #a8a8ae;
+    --ink-4: #9a9aa0;
+    --dark: #f2f2f4;
+    --soft: #a8a8ae;
+    --muted: #9a9aa0;
+    --hairline: #333338;
+    --border: #333338;
+    --line: #333338;
+    --line-strong: #45454b;
+    --slate-50: #232327;
+    --slate-100: #2a2a2e;
+    --slate-200: #333338;
+    --slate-300: #45454b;
+    --slate-400: #8e8e93;
+    --slate-500: #a8a8ae;
+    --slate-600: #bdbdc2;
+    --slate-700: #d4d4d8;
+    --slate-800: #e8e8eb;
+    --slate-900: #f2f2f4;
+    --forest: #2c2c30;
+    --forest-dark: #2c2c30;
+    --accent-ink: #6cb4ff;
+    --primary-tint: #13243a;
+    --primary-border: #1f3d63;
+    --sage: #13243a;
+    --sage-strong: #1f3d63;
+    --border-focus: #4aa3ff;
+    --danger-ink: #ff8f86;
+    --danger-tint: #3a1a18;
+    --danger-border: #5c2925;
+    --success: #30c48d;
+    --success-tint: #0f2a20;
+    --success-border: #1d4a37;
+    --warning: #e0a43a;
+    --warning-tint: #2e2410;
+    --warning-border: #55421c;
+    --warning-ink: #f5c06a;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 6px 16px -10px rgba(0, 0, 0, 0.6);
+    --shadow-lg: 0 16px 36px -24px rgba(0, 0, 0, 0.7);
+    --shadow-xl: 0 26px 60px -34px rgba(0, 0, 0, 0.8);
+  }
+
+  /* Kırmızı düğmede metin beyaz kalır (--white artık yüzey rengidir). */
+  :root[data-theme='dark'] .btn-danger {
+    color: #fff;
+  }
+
+  /* Marka işareti koyu zeminde görünür kalsın. */
+  :root[data-theme='dark'] .brand-mark,
+  :root[data-theme='dark'] .site-footer-mark,
+  :root[data-theme='dark'] .info-brand-mark,
+  :root[data-theme='dark'] .auth-brand-mark {
+    border-color: var(--line-strong);
+  }
+
+  /* Ortak katmanlardaki sabit açık renklerin karanlık karşılıkları
+     (scratch üreticiyle çıkarıldı; yalnızca ekran kuralları). */
+  :root[data-theme='dark'] .auth-shell,
+  :root[data-theme='dark'] .code-block {
+    background: var(--slate-100);
+  }
+
+  :root[data-theme='dark'] .admin-avatar-ring,
+  :root[data-theme='dark'] .bg-purple-tint,
+  :root[data-theme='dark'] .badge-psychologist {
+    background: #241d38;
+  }
+
+  :root[data-theme='dark'] .admin-avatar-ring,
+  :root[data-theme='dark'] .bg-purple-tint,
+  :root[data-theme='dark'] .badge-admin,
+  :root[data-theme='dark'] .badge-psychologist {
+    color: #c4a7ff;
+  }
+
+  :root[data-theme='dark'] .admin-avatar-ring,
+  :root[data-theme='dark'] .badge-psychologist {
+    border: 1px solid #43376a;
+  }
+
+  :root[data-theme='dark'] .ready-pill,
+  :root[data-theme='dark'] .success-content h3,
+  :root[data-theme='dark'] .success-content p,
+  :root[data-theme='dark'] .record-ref-code,
+  :root[data-theme='dark'] .success-hint,
+  :root[data-theme='dark'] .success-banner,
+  :root[data-theme='dark'] .pill-active,
+  :root[data-theme='dark'] .undo-info {
+    color: #5fd39a;
+  }
+
+  :root[data-theme='dark'] .record-ref-code {
+    background: color-mix(in srgb, var(--white) 70%, transparent);
+  }
+
+  :root[data-theme='dark'] .answer-bubble-cell.choice-true,
+  :root[data-theme='dark'] .calendar-day-cell.today,
+  :root[data-theme='dark'] .assessment-note,
+  :root[data-theme='dark'] .assessment-card:nth-child(4) .assessment-card-icon {
+    background: var(--primary-tint);
+  }
+
+  :root[data-theme='dark'] .answer-bubble-cell.choice-true {
+    border-color: var(--primary-border);
+  }
+
+  :root[data-theme='dark'] .answer-bubble-cell.choice-true,
+  :root[data-theme='dark'] .info-banner {
+    color: #7cb7ff;
+  }
+
+  :root[data-theme='dark'] .answer-bubble-cell.choice-false {
+    background: var(--danger-tint);
+  }
+
+  :root[data-theme='dark'] .answer-bubble-cell.choice-false {
+    border-color: var(--danger-border);
+  }
+
+  :root[data-theme='dark'] .answer-bubble-cell.choice-false,
+  :root[data-theme='dark'] .error-banner,
+  :root[data-theme='dark'] .confirm-text strong,
+  :root[data-theme='dark'] .scan-alert {
+    color: #ff8f86;
+  }
+
+  :root[data-theme='dark'] .app-header,
+  :root[data-theme='dark'] .info-topbar,
+  :root[data-theme='dark'] .site-footer,
+  :root[data-theme='dark'] .auth-card,
+  :root[data-theme='dark'] .auth-shell .empty-state-card,
+  :root[data-theme='dark'] .empty-state-card,
+  :root[data-theme='dark'] .metric-card,
+  :root[data-theme='dark'] .assessment-card,
+  :root[data-theme='dark'] .modern-table-card,
+  :root[data-theme='dark'] .client-table-wrap,
+  :root[data-theme='dark'] .prep-card,
+  :root[data-theme='dark'] .form-group input,
+  :root[data-theme='dark'] .form-group select,
+  :root[data-theme='dark'] .form-group textarea,
+  :root[data-theme='dark'] .filter-select,
+  :root[data-theme='dark'] .search-input-wrap input,
+  :root[data-theme='dark'] .report-list-item,
+  :root[data-theme='dark'] .print-report-sheet,
+  :root[data-theme='dark'] .desk-rail button,
+  :root[data-theme='dark'] .sr-only.focus-not-sr-only:focus,
+  :root[data-theme='dark'] .nav-toggle,
+  :root[data-theme='dark'] .row-muted,
+  :root[data-theme='dark'] .page-option:hover,
+  :root[data-theme='dark'] .scaled-paper,
+  :root[data-theme='dark'] .workspace-sidebar,
+  :root[data-theme='dark'] .btn-logout,
+  :root[data-theme='dark'] .btn-secondary,
+  :root[data-theme='dark'] .btn-icon,
+  :root[data-theme='dark'] .field input,
+  :root[data-theme='dark'] .field textarea,
+  :root[data-theme='dark'] .search-input-wrapper input,
+  :root[data-theme='dark'] .day-board .desk-rail button,
+  :root[data-theme='dark'] .onboarding-panel,
+  :root[data-theme='dark'] .board-tool,
+  :root[data-theme='dark'] .board-empty,
+  :root[data-theme='dark'] .board-clear,
+  :root[data-theme='dark'] .attention-panel,
+  :root[data-theme='dark'] .board-shortcuts,
+  :root[data-theme='dark'] .attention-head > span,
+  :root[data-theme='dark'] .tomorrow-card,
+  :root[data-theme='dark'] .assessment-page .assessment-card,
+  :root[data-theme='dark'] .assessment-count,
+  :root[data-theme='dark'] .assessment-history-item,
+  :root[data-theme='dark'] .task-card,
+  :root[data-theme='dark'] .auth-layout,
+  :root[data-theme='dark'] .auth-loading,
+  :root[data-theme='dark'] .portal-layout .nav-toggle,
+  :root[data-theme='dark'] .client-table[data-mobile-cards] tr {
+    background: var(--white);
+  }
+
+  :root[data-theme='dark'] .subnav-tab:hover {
+    background: color-mix(in srgb, var(--white) 72%, transparent);
+  }
+
+  :root[data-theme='dark'] .subnav-tab.is-active .subnav-count,
+  :root[data-theme='dark'] .subnav-tab.active .subnav-count,
+  :root[data-theme='dark'] .page-btn.is-current {
+    color: var(--bg);
+  }
+
+  :root[data-theme='dark'] .profile-matching-settings,
+  :root[data-theme='dark'] .code-block {
+    border: 1px solid var(--border);
+  }
+
+  :root[data-theme='dark'] .profile-matching-settings,
+  :root[data-theme='dark'] .modern-data-table:not([data-mobile-cards]) tbody tr:hover td:first-child,
+  :root[data-theme='dark'] .print-status-note,
+  :root[data-theme='dark'] .sidebar-link:hover,
+  :root[data-theme='dark'] .modern-data-table th,
+  :root[data-theme='dark'] .client-table th,
+  :root[data-theme='dark'] .modern-data-table tbody tr:hover,
+  :root[data-theme='dark'] .client-table tr:hover td,
+  :root[data-theme='dark'] .question-item-card.answered,
+  :root[data-theme='dark'] .clinical-modal-foot,
+  :root[data-theme='dark'] .onboarding-steps,
+  :root[data-theme='dark'] .board-tool:hover,
+  :root[data-theme='dark'] .assessment-card:nth-child(3) .assessment-card-icon,
+  :root[data-theme='dark'] .mobile-nav-panel[role='dialog'] .mobile-nav-foot {
+    background: var(--bg-soft);
+  }
+
+  :root[data-theme='dark'] .profile-match-caveats,
+  :root[data-theme='dark'] .warning-banner,
+  :root[data-theme='dark'] .badge-risk-moderate,
+  :root[data-theme='dark'] .badge-risk-low,
+  :root[data-theme='dark'] .prep-checks {
+    color: #f5c06a;
+  }
+
+  :root[data-theme='dark'] .ai-suggestion-item {
+    border-top: 1px solid var(--hairline);
+  }
+
+  :root[data-theme='dark'] .modern-data-table tbody tr:hover {
+    background-color: var(--bg-soft);
+  }
+
+  :root[data-theme='dark'] .btn-secondary:hover:not(:disabled),
+  :root[data-theme='dark'] .day-board .desk-rail button:hover,
+  :root[data-theme='dark'] .board-tool:hover,
+  :root[data-theme='dark'] .assessment-page .assessment-card:hover {
+    border-color: var(--line-strong);
+  }
+
+  :root[data-theme='dark'] .empty-state-card,
+  :root[data-theme='dark'] .board-empty,
+  :root[data-theme='dark'] .mobile-card-table .client-list-empty {
+    border: 1px dashed var(--line-strong);
+  }
+
+  :root[data-theme='dark'] .task-card.priority-low {
+    border-left-color: var(--line-strong);
+  }
+
+  :root[data-theme='dark'] .info-topbar {
+    background: color-mix(in srgb, var(--white) 96%, transparent);
+  }
+
+  :root[data-theme='dark'] .auth-shell {
+    background: var(--canvas);
+  }
+
+}
+
+/* Alt bilgideki tema seçici (sistem / açık / koyu). */
+@media screen {
+  .theme-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--soft);
+  }
+
+  .theme-switch-label {
+    font-weight: 600;
+  }
+
+  .theme-switch-select {
+    min-height: 32px;
+    padding: 4px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--text);
+    font: inherit;
   }
 }

@@ -100,6 +100,73 @@ export const EXACT_FIELDS: Partial<Record<CollectionName, Readonly<Record<string
     startedAt: 'string',
     finishedAt: 'string',
   },
+  // Egress (27.10.2026): aşağıdaki koleksiyonlar tam çeviri listesinde değilken `count` ve
+  // `find` eşleşen TÜM satırların `data` belgesini Supabase'ten çekip bellekte sayıyordu.
+  // Kuyruk istatistiği her kalp atışında (30 sn) 5 kez çalışıyor ve tamamlanmış işler hiç
+  // silinmediği için her çağrıda tablonun tamamı aktarılıyordu (pg_stat_statements: 85.815
+  // çağrı / 11 milyon satır ≈ 7 GB). Tam çeviriyle sayım `count(*)`, liste LIMIT'li SQL olur.
+  queueJobs: {
+    id: 'string',
+    queue: 'string',
+    name: 'string',
+    dedupeKey: 'string',
+    status: 'string',
+    runAt: 'string',
+    lockedBy: 'string',
+    lockedUntil: 'string',
+    createdAt: 'string',
+    updatedAt: 'string',
+    completedAt: 'string',
+    attempts: 'number',
+  },
+  reviewQueue: {
+    id: 'string',
+    kind: 'string',
+    sourceKey: 'string',
+    status: 'string',
+    title: 'string',
+    url: 'string',
+    createdAt: 'string',
+    resolvedAt: 'string',
+  },
+  emailOutbox: {
+    id: 'string',
+    channel: 'string',
+    eventId: 'string',
+    jobId: 'string',
+    userId: 'string',
+    kind: 'string',
+    status: 'string',
+    idempotencyKey: 'string',
+    nextAttemptAt: 'string',
+    createdAt: 'string',
+    updatedAt: 'string',
+  },
+  workerHeartbeats: {
+    id: 'string',
+    workerId: 'string',
+    role: 'string',
+    status: 'string',
+    startedAt: 'string',
+    lastHeartbeatAt: 'string',
+  },
+  scheduledTasks: {
+    id: 'string',
+    kind: 'string',
+    sourceKey: 'string',
+    nextRunAt: 'string',
+    updatedAt: 'string',
+  },
+  llmAnalyses: {
+    id: 'string',
+    cacheKey: 'string',
+    contentKey: 'string',
+    url: 'string',
+    sourceKey: 'string',
+    model: 'string',
+    status: 'string',
+    createdAt: 'string',
+  },
 };
 
 /** Sapma koşulunun sürümü: EXACT_FIELDS değişince artırılır (kısmi indeks yeniden kurulur). */

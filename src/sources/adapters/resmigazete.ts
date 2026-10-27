@@ -563,7 +563,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
 
             // Geri tarama etkinken olağan günler, geçmiş günlere zaman payı bırakmak için erken durur.
             // Bu bir "bütçe bitti" (budgetExhausted) durumu DEĞİLDİR: geri tarama bu payla sürebilsin.
-            if (!backfill && backfillActive && !hasBudgetFor(ctx, MIN_PDF_BUDGET_MS + BACKFILL_TIME_RESERVE_MS)) {
+            if (
+              !backfill &&
+              backfillActive &&
+              !hasBudgetFor(ctx, MIN_PDF_BUDGET_MS + BACKFILL_TIME_RESERVE_MS)
+            ) {
               dayDeferred = true;
               deferredByBudget += 1;
               if (!budgetNoted) {
@@ -606,7 +610,8 @@ export class ResmiGazeteAdapter implements SourceAdapter {
               continue;
             }
 
-            const ocrAllowed = ocrEngine !== null && ocrDocs < env.OCR_MAX_DOCS_PER_RUN && hasBudgetFor(ctx, 60_000);
+            const ocrAllowed =
+              ocrEngine !== null && ocrDocs < env.OCR_MAX_DOCS_PER_RUN && hasBudgetFor(ctx, 60_000);
             const pdf = await extractPdfText(new Uint8Array(pdfBody), {
               maxPages: 16,
               maxChars: 60_000,
@@ -661,9 +666,11 @@ export class ResmiGazeteAdapter implements SourceAdapter {
             }
 
             const rowInstitution = cleanInstitution(row.rowText);
-            const title = deriveTitle(pdf.text, row.rowText, rowInstitution, dateOnly);
-            const bodyText = pdf.text;
             const publishedAt = toIstanbulIso(dateOnly, '00:00');
+            // Tek PDF'te birden çok ilan ("—— • ——" ayracı) ayrı kayıt olur: Fırat Ü. 26.10.2026
+            // PDF'i öğretim üyesi (65) ve öğretim elemanı (15) ilanlarını birlikte taşıyordu; tek
+            // kayıtta birleşip öğretim elemanı ilanının sınav tarihi son başvuru sanılıyordu.
+            const segments = pdf.ocr?.used ? [pdf.text] : splitResmiGazeteAnnouncements(pdf.text);
 
             const attachment: JobAttachment = {
               url: row.pdfUrl,
@@ -673,22 +680,42 @@ export class ResmiGazeteAdapter implements SourceAdapter {
             };
 
             if (backfill) backfillItems += 1;
-            items.push({
-              sourceKey: ctx.source.key,
-              sourceItemId: this.sourceItemId(row.pdfUrl),
-              url: row.pdfUrl,
-              title,
-              bodyText,
-              bodyTextSource: 'document',
-              ...(pdf.ocr?.used && pdf.ocr.confidence !== null ? { ocrConfidence: pdf.ocr.confidence } : {}),
-              ...(pdf.truncated ? { bodyTextTruncated: true } : {}),
-              ...(rowInstitution ? { institution: rowInstitution } : {}),
-              publishedAt,
-              attachments: [attachment],
-              sourceCategory: 'resmi-gazete-cesitli-ilanlar',
-              rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
-              extractionConfidence: pdf.noTextLayer ? 0.2 : pdf.error ? 0.1 : 0.6,
-              ...(itemNotes.length > 0 ? { notes: itemNotes } : {}),
+            segments.forEach((bodyText, segmentIndex) => {
+              const title = deriveTitle(bodyText, row.rowText, rowInstitution, dateOnly);
+              items.push({
+                sourceKey: ctx.source.key,
+                // İlk ilan eski kimliğini korur (var olan kayıtlar bağlı kalır); sonrakiler #2, #3…
+                sourceItemId:
+                  segmentIndex === 0
+                    ? this.sourceItemId(row.pdfUrl)
+                    : `${this.sourceItemId(row.pdfUrl)}#${segmentIndex + 1}`,
+                url: row.pdfUrl,
+                title,
+                bodyText,
+                bodyTextSource: 'document',
+                ...(pdf.ocr?.used && pdf.ocr.confidence !== null
+                  ? { ocrConfidence: pdf.ocr.confidence }
+                  : {}),
+                ...(pdf.truncated ? { bodyTextTruncated: true } : {}),
+                ...(rowInstitution ? { institution: rowInstitution } : {}),
+                publishedAt,
+                attachments: [attachment],
+                sourceCategory: 'resmi-gazete-cesitli-ilanlar',
+                rawExcerpt: collapseWhitespace(bodyText.slice(0, 1_200)),
+                extractionConfidence: pdf.noTextLayer ? 0.2 : pdf.error ? 0.1 : 0.6,
+                ...(itemNotes.length > 0 || segments.length > 1
+                  ? {
+                      notes: [
+                        ...itemNotes,
+                        ...(segments.length > 1
+                          ? [
+                              `PDF ${segments.length} ayrı ilan içeriyor; bu kayıt ${segmentIndex + 1}. ilandır.`,
+                            ]
+                          : []),
+                      ],
+                    }
+                  : {}),
+              });
             });
           }
 
@@ -762,7 +789,9 @@ export class ResmiGazeteAdapter implements SourceAdapter {
                 ? 'failed'
                 : 'done';
           backfillResults.push({ dateOnly, outcome });
-          notes.push(`Geri tarama ${dateOnly}: ${outcome === 'done' ? 'tamamlandı' : outcome === 'deferred' ? 'bütçe doldu, sonraki koşumda sürecek' : `tamamlanamadı (${sectionNote})`}.`);
+          notes.push(
+            `Geri tarama ${dateOnly}: ${outcome === 'done' ? 'tamamlandı' : outcome === 'deferred' ? 'bütçe doldu, sonraki koşumda sürecek' : `tamamlanamadı (${sectionNote})`}.`,
+          );
           continue;
         }
         sectionCoverages.push({ dateOnly, status: sectionStatus, note: sectionNote });
@@ -806,9 +835,7 @@ export class ResmiGazeteAdapter implements SourceAdapter {
                 ]
               : []),
             ...(budgetNoted
-              ? [
-                  `Tarama zaman bütçesi doldu; en az ${deferredByBudget} belge sonraki taramaya bırakıldı.`,
-                ]
+              ? [`Tarama zaman bütçesi doldu; en az ${deferredByBudget} belge sonraki taramaya bırakıldı.`]
               : []),
             ...(ocrDeferred > 0
               ? [
@@ -941,7 +968,9 @@ function issuerHeading(lines: readonly string[]): string | null {
     const paragraph = lines.slice(index + 1, index + 6).join(' ');
     const sentence = paragraph
       .split(/(?<=\.)\s+/)
-      .find((part) => /\b(?:al[ıi]nacakt[ıi]r|al[ıi]m[ıi]\s+yap[ıi]lacakt[ıi]r|istihdam\s+edilecektir)/iu.test(part));
+      .find((part) =>
+        /\b(?:al[ıi]nacakt[ıi]r|al[ıi]m[ıi]\s+yap[ıi]lacakt[ıi]r|istihdam\s+edilecektir)/iu.test(part),
+      );
     if (sentence) {
       const trimmed = sentence.length > 200 ? `${sentence.slice(0, 199).trimEnd()}…` : sentence;
       return `${issuer} ${trimmed}`.slice(0, 300);
@@ -989,6 +1018,23 @@ function deriveTitle(pdfText: string, rowText: string, institution: string | nul
 }
 
 export { deriveTitle, firstDateOnlyIn };
+
+/**
+ * Resmî Gazete Çeşitli İlânlar PDF'inde aynı kurumun birden çok ilanı "—— • ——" ayracıyla
+ * ardışık basılır. Her parça bir "<Kurum>(dan|den|ndan|nden):" başlığıyla başlıyorsa ayrı ilan
+ * sayılır; aksi hâlde (ayraç süs amaçlıysa) metin bölünmez.
+ */
+export function splitResmiGazeteAnnouncements(text: string): string[] {
+  const parts = text
+    .split(/\s*—{1,4}\s*•\s*—{1,4}\s*/u)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (parts.length < 2) return [text];
+  const heading = /^[^:\n]{4,160}?(?:dan|den|ndan|nden|tan|ten)\s*:/u;
+  const usable = parts.filter((part) => part.replace(/\s/g, '').length >= 200);
+  if (usable.length < 2 || !usable.every((part) => heading.test(part))) return [text];
+  return usable;
+}
 
 const RECRUITMENT_SENTENCE =
   /(?<!\p{L})(öğretim üyesi|öğretim elemanı|öğretim görevlisi|araştırma görevlisi|sözleşmeli bilişim personeli|sözleşmeli personel|sürekli işçi|geçici işçi|memur)(?!\p{L})[^.]{0,120}?(?<!\p{L})(alınacaktır|alımı yapılacaktır|alım yapılacaktır|istihdam edilecektir|istihdam edilmek üzere)/iu;

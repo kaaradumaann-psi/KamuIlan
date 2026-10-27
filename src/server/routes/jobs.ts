@@ -106,9 +106,14 @@ export function registerJobRoutes(app: FastifyInstance, repos: Repos): void {
     { schema: { tags: ['jobs'], summary: 'İlan arama (filtreli, sayfalı)' } },
     async (request) => {
       const query = listQuery.parse(request.query);
-      const statuses = asArray(query.status)?.filter((value): value is JobStatus =>
-        (JOB_STATUSES as readonly string[]).includes(value),
-      );
+      const requested = asArray(query.status)?.flatMap((value) => value.split(','));
+      // Varsayılan: süresi geçmiş/iptal ilanlar listede, aramada ve "son eklenenler"de görünmez
+      // (madde 5). Arşiv `status=closed,cancelled`, hepsi `status=all` ile istenir.
+      const statuses: JobStatus[] | undefined = requested?.includes('all')
+        ? undefined
+        : requested && requested.length > 0
+          ? requested.filter((value): value is JobStatus => (JOB_STATUSES as readonly string[]).includes(value))
+          : ['active', 'upcoming', 'unknown'];
       const result = await repos.jobs.search(
         {
           ...(query.q !== undefined ? { q: query.q } : {}),

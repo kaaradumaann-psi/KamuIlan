@@ -403,6 +403,23 @@ export const notificationPreferenceSchema = z.object({
    * Rıza olmadan profil hiçbir harici hizmete gönderilmez.
    */
   aiConsentAt: z.string().nullable().default(null),
+  /**
+   * Son başvuru hatırlatmaları (takip edilen ve bildirimi gönderilmiş ilanlar). Eski kayıtlarda
+   * yoktur; yokluk "açık" sayılır (kullanıcı bildirimleri zaten açmıştır).
+   */
+  deadlineReminders: z.boolean().optional(),
+  /**
+   * SMS kanalı (Twilio). Varsayılan KAPALI; yalnızca E.164 numara + AÇIK RIZA zamanı varsa
+   * gönderilir. Numara outbox'a yazılmaz; gönderim anında buradan okunur (rıza geri alınırsa
+   * bekleyen SMS bastırılır).
+   */
+  sms: z
+    .object({
+      enabled: z.boolean(),
+      phoneE164: z.string().regex(/^\+[1-9]\d{7,14}$/).nullable(),
+      consentAt: z.string().nullable(),
+    })
+    .optional(),
   candidateProfile: candidateProfileSchema.default({
     profession: '',
     educationLevel: null,
@@ -444,12 +461,16 @@ export type NotificationEventDoc = z.infer<typeof notificationEventSchema>;
 export const emailOutboxSchema = z.object({
   id: idString('eml'),
   /** Teslim kanalı. Eski kayıtlar 'email' kabul edilir. */
-  channel: z.enum(['email', 'telegram']).default('email'),
+  channel: z.enum(['email', 'telegram', 'sms']).default('email'),
   eventId: idString('nev').nullable(),
   jobId: idString('job').nullable(),
   userId: idString('usr').nullable(),
   kind: z.enum([
     'job-notification',
+    /** Takip edilen (kaydedilen) ilanda değişiklik/düzeltme/iptal. */
+    'saved-job-update',
+    /** Son başvuru yaklaşıyor hatırlatması. */
+    'deadline-reminder',
     'digest',
     'email-verification',
     'password-reset',
@@ -669,6 +690,11 @@ export const llmAnalysisSchema = z.object({
   summary: z.string().max(400).nullable(),
   /** Doğrulanmış kanıt alıntısı (kısa); önbellek isabetinde kararın YENİDEN doğrulanması için saklanır. */
   evidence: z.string().max(300).nullable(),
+  /**
+   * Doğrulamadan GEÇEMEYEN kanıt alıntıları (yalnız `invalid`; denetim için). Önbellek yeniden
+   * eşlemesi bu alanı kullanmaz. Eski kayıtlarda yoktur.
+   */
+  rejectedEvidence: z.string().max(300).nullable().optional(),
   latencyMs: z.number().int().min(0),
   promptTokens: z.number().int().min(0).nullable(),
   completionTokens: z.number().int().min(0).nullable(),

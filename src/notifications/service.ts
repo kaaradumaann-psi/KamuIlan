@@ -13,6 +13,7 @@ import type { JobDoc } from '../db/schemas';
 import type { Repos } from '../db/repos';
 import { outboxIdempotencyKey } from '../db/repos/outbox';
 import { buildJobPayload, renderEmail } from '../email/templates';
+import { queueSavedJobUpdates, type FollowupResult } from './followups';
 import { isProcessNotice, matchPreferenceToJob, PROCESS_NOTICE_SUPPRESSION } from './matcher';
 
 export interface QueueNotificationsOptions {
@@ -22,6 +23,8 @@ export interface QueueNotificationsOptions {
   baseUrl: string;
   senderName: string;
   changeSummary?: string;
+  /** SMS kanalı yapılandırılmış mı (yalnız takip edilen ilan bildirimlerinde kullanılır). */
+  smsEnabled?: boolean;
   /** Test/geliştirme kolaylığı; üretimde değiştirilmez. */
   now?: Date;
 }
@@ -38,6 +41,8 @@ export interface QueueNotificationsResult {
   skippedPaused: number;
   /** Tüm kanallar bastırıldıysa neden (ör. süreç duyurusu). Yoksa null. */
   suppressedReason: string | null;
+  /** Değişiklikte: ilanı kaydeden (takip eden) kullanıcılara giden bildirimler. */
+  savedJobUpdates?: FollowupResult;
 }
 
 /**
@@ -74,6 +79,8 @@ export async function queueNotificationsForJob(
   }
 
   const preferences = await repos.notifications.listNotifiable();
+  // Bu sürüm için eşleşme bildirimi alan kullanıcılar: takip bildirimi ikinci kez gönderilmez.
+  const matchedUserIds = new Set<string>();
   for (const preference of preferences) {
     result.evaluated += 1;
 
@@ -97,6 +104,7 @@ export async function queueNotificationsForJob(
       continue;
     }
     result.matched += 1;
+    matchedUserIds.add(user.id);
 
     const event = await repos.notifications.recordEvent({
       userId: user.id,
@@ -185,6 +193,20 @@ export async function queueNotificationsForJob(
       await repos.notifications.markEvent(event.event.id, 'queued');
       result.queued += 1;
     }
+  }
+
+  if (kind === 'job-changed') {
+    // Kaydedilen ilanda değişiklik/düzeltme/iptal: filtreden bağımsız olarak takip edene bildirilir.
+    result.savedJobUpdates = await queueSavedJobUpdates({
+      repos,
+      job,
+      baseUrl: options.baseUrl,
+      senderName: options.senderName,
+      ...(options.smsEnabled !== undefined ? { smsEnabled: options.smsEnabled } : {}),
+      skipUserIds: matchedUserIds,
+      now,
+      ...(options.changeSummary ? { changeSummary: options.changeSummary } : {}),
+    });
   }
 
   return result;

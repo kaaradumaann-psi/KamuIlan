@@ -188,8 +188,34 @@ export function redactContactDetails(value: string): string {
 }
 
 /** Extracts a readable, contact-redacted excerpt of at most `max` chars. */
+const HTML_ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', ndash: '–', mdash: '—', hellip: '…' };
+
+/**
+ * Portal JSON'undan (ilan.gov.tr GetAdDetail) metne karışan teknik artıkları siler:
+ * HTML varlıkları (`&nbsp;`), logo/ek dosya yolları, URL kısaltmaları (slug), ilan/kurum
+ * kodları (ILN02579840, YOK853553, M057822, YYN-000647) ve ISO zaman damgaları. Bunlar
+ * ilan metni değildir; kullanıcıya ve bildirimlere gösterilmemeli (27.10.2026: 55
+ * ilan.gov.tr kaydının 50'sinde `&nbsp;`, 8'inde logo yolu vardı).
+ */
+export function stripPortalArtifacts(value: string): string {
+  return value
+    .replace(/&(#\d{1,5}|[a-z]{2,8});/giu, (entity, name: string) => {
+      if (name.startsWith('#')) {
+        const code = Number(name.slice(1));
+        return code > 31 && code < 0x10000 ? String.fromCharCode(code === 160 ? 32 : code) : ' ';
+      }
+      return HTML_ENTITIES[name.toLowerCase()] ?? entity;
+    })
+    .replace(/(?:^|\s)\/?(?:AdvertiserLogo|AdSourceLogo|IlanEki)\/\S+/gu, ' ')
+    .replace(/(?:^|\s)\/ilan\/\d+\/[a-z0-9-]+/gu, ' ')
+    .replace(/(?<![\w/.:-])[a-z0-9]+(?:-[a-z0-9]+){3,}-?(?![\w/.-])/gu, ' ')
+    .replace(/\b(?:ILN|YOK)\d{5,}\b|\bYYN-\d{3,}\b|\bM\d{6}\b/gu, ' ')
+    .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/gu, ' ')
+    .replace(/\bBasın İlan Kurumu ILN\b|\bYüksek Öğretim Kurumu YOK\b/gu, ' ');
+}
+
 export function makeExcerpt(value: string, max = 1200): string {
-  const clean = collapseWhitespace(redactContactDetails(value));
+  const clean = collapseWhitespace(redactContactDetails(stripPortalArtifacts(value)));
   if (clean.length <= max) return clean;
   return `${clean.slice(0, max - 1).trimEnd()}…`;
 }
