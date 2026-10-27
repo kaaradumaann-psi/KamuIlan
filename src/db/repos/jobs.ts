@@ -10,7 +10,7 @@ import {
   STALE_PUBLICATION_DAYS,
   toIstanbulDateOnly,
 } from '../../domain/dates';
-import type { JobStatus } from '../../domain';
+import { EMPLOYMENT_TYPES, type JobStatus } from '../../domain';
 import type { Clock } from '../../lib/clock';
 import { systemClock } from '../../lib/clock';
 import type { StoragePort } from '../ports';
@@ -385,11 +385,16 @@ export class JobRepo {
         applicationEndDate: { $gte: today, $lte: soon },
       }),
       this.store.count('jobs', { ...base, publishedAt: { $gte: `${today}T00:00:00+03:00` } }),
-      this.store.find('jobs', base, { limit: 2_000, sort: [['createdAt', -1]] }),
+      // Tür dağılımı tür başına COUNT ile: önceden 2.000'e kadar TAM ilan belgesi çekiliyordu
+      // (ana sayfa açılışı başına ~5 MB Supabase veri aktarımı, 27.10.2026 ölçümü).
+      Promise.all(EMPLOYMENT_TYPES.map((type) => this.store.count('jobs', { ...base, employmentType: type }))),
     ]);
 
     const counts = new Map<string, number>();
-    for (const job of jobs) counts.set(job.employmentType, (counts.get(job.employmentType) ?? 0) + 1);
+    EMPLOYMENT_TYPES.forEach((type, index) => {
+      const count = jobs[index] ?? 0;
+      if (count > 0) counts.set(type, count);
+    });
 
     const lastRuns = await this.store.find(
       'scrapeRuns',

@@ -374,6 +374,15 @@ export const TITLE_REJECT_RULES: readonly KeywordRule[] = [
     weight: 0,
   },
   {
+    // Denetim 27.10.2026: ÖSYM e-TEP/e-YDTS yeterlik sınavı ve TÜBİTAK kış/yaz okulu duyuruları
+    // "kontenjan" ve "başvuru tarihleri" geçtiği için incelemeye düşüyor, LLM'e gidiyordu.
+    id: 'ret-baslik.yeterlik-sinavi-okul',
+    reason: 'Başlık dil yeterlik sınavı ya da kış/yaz okulu duyurusu — personel alımı değil',
+    // "Uzmanlık Yeterlik Sınavı" gibi kurum giriş sınavları alımdır; yalnız DİL yeterlik sınavı reddedilir.
+    pattern: /\b(?:(?:ingilizce|yabanci\s+dil|dil)\s+yeterlik\s+sinav\w*|e-?tep\b|e-?ydts\b|kis\s+okulu\w*|yaz\s+okulu\w*)/,
+    weight: 0,
+  },
+  {
     // Ekosistem deseni (github.com/berketez/is-basvuru-botu): genel başvuru /
     // özgeçmiş havuzu ilanları belirli bir kadro açığı değil, ilerideki
     // pozisyonlar için havuz toplamadır — "yeni ilan" sayılmaz.

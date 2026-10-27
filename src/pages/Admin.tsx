@@ -322,9 +322,13 @@ function LlmGateSummary({ llm }: { llm: NonNullable<AdminOverview['llm']> }): Re
           </dd>
         </div>
         <div>
-          <dt>Doğrulanamayan dahil oran</dt>
+          <dt>Uygulanmayan karar payı</dt>
           <dd>
             {percent(day.errorRate, 1)} · önbellek isabeti {percent(day.cacheHitRate)}
+            <span className="cell-note">
+              Arıza değildir: kanıtı doğrulanamayan ya da politika gereği otomatik uygulanmayan kararlar
+              (ör. "diğer" türünde ret) incelemede kalır.
+            </span>
           </dd>
         </div>
         <div>

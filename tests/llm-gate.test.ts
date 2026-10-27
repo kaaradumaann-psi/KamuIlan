@@ -238,6 +238,11 @@ describe('LLM sınıflandırma kapısı', () => {
     // Denetim için reddedilen alıntı saklanır; önbellek alanı (evidence) boş kalır.
     expect(analyses[0]?.evidence).toBeNull();
     expect(analyses[0]?.rejectedEvidence).toBe('alim: hayali personel alımı ifadesi metinde yok');
+
+    // Negatif önbellek: aynı içerik yeniden taranınca ücretli çağrı tekrarlanmaz; kayıt review kalır.
+    const again = await gate.evaluate(gateInput());
+    expect(again.classification.decision).toBe('review');
+    expect(provider.calls).toHaveLength(1);
     await store.close();
   });
 
