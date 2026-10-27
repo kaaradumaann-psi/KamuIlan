@@ -55,9 +55,13 @@ export type IconName =
   | 'server'
   | 'send'
   | 'key'
-  | 'link';
+  | 'link'
+  | 'sun'
+  | 'moon';
 
 const paths: Record<IconName, string> = {
+  sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42',
+  moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z',
   print: 'M7 8V3h10v5M7 17H4V9h16v8h-3M7 14h10v7H7zM17 11h.01',
   left: 'm14 6-6 6 6 6',
   right: 'm10 6 6 6-6 6',

@@ -70,3 +70,47 @@ describe('ilan.gov.tr metin artıkları (madde 13)', () => {
     expect(clean).toMatch(/Enformasyon Memurluğu Sınavı/u);
   });
 });
+
+describe('çoklu ilan PDF: kabul hattı', () => {
+  it('iki parça aynı belge adresini paylaşsa da İKİ ayrı ilan olur', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { FileStore } = await import('../src/db/file-store');
+    const { createRepos } = await import('../src/db/repos');
+    const { INDEXES } = await import('../src/db/indexes');
+    const { applyRawAnnouncement } = await import('../src/ingest/jobs-service');
+    const store = new FileStore(mkdtempSync(join(tmpdir(), 'kamuilan-coklu-')), 'db.json');
+    await store.init();
+    await store.ensureIndexes(INDEXES);
+    const repos = createRepos(store);
+    const pdf = 'https://www.resmigazete.gov.tr/ilanlar/eskiilanlar/2026/10/20261026-4-4.pdf';
+    const parts = splitResmiGazeteAnnouncements(text);
+    const titles = ['Fırat Üniversitesi Rektörlüğünden: ÖĞRETİM ÜYESİ ALIM İLANI', 'Fırat Üniversitesi Rektörlüğünden: ÖĞRETİM ELEMANI ALIM İLANI'];
+    const outcomes = [];
+    for (const [index, bodyText] of parts.entries()) {
+      outcomes.push(
+        await applyRawAnnouncement(
+          {
+            sourceKey: 'resmigazete-cestili-ilanlar',
+            sourceItemId: index === 0 ? 'resmigazete:20261026-4-4.pdf' : 'resmigazete:20261026-4-4.pdf#2',
+            url: pdf,
+            title: titles[index] ?? '',
+            bodyText,
+            bodyTextSource: 'document',
+            institution: 'Fırat Üniversitesi Rektörlüğü',
+            publishedAt: PUBLISHED,
+            attachments: [],
+            extractionConfidence: 0.6,
+          },
+          { repos, now: new Date('2026-10-27T10:00:00Z'), workerId: 'test', provenance: 'scraped' },
+        ),
+      );
+    }
+    expect(outcomes.map((o) => o.action)).toEqual(['created', 'created']);
+    const jobs = await store.find('jobs', {});
+    expect(jobs.map((job) => job.applicationEndDate).sort()).toEqual(['2026-11-09', '2026-11-10']);
+    expect(jobs.every((job) => job.detailUrl.endsWith('20261026-4-4.pdf'))).toBe(true);
+    await store.close();
+  });
+});

@@ -989,6 +989,11 @@ function deriveTitle(pdfText: string, rowText: string, institution: string | nul
         .map((line) => collapseWhitespace(line))
         .filter((line) => line.length > 0),
     );
+    // Başlık satırı yerine uzun gövde cümlesi yakalandıysa (çoklu ilan PDF 2. parça) ve gövdede açık
+    // alım cümlesi varsa başlık ondan kurulur; yoksa eski davranış (uzun satır) korunur.
+    const longIssued = issued !== null && issued.length > 140 && normalizedRow.length >= 8;
+    const roleForLong = longIssued ? recruitmentRoleFromBody(pdfText) : null;
+    if (roleForLong) return `${normalizedRow}: ${roleForLong} ALIM İLANI`.slice(0, 300);
     if (issued) return issued;
     // Başlık satırı yoksa (taranmış/OCR belgede sık) gövdedeki açık alım cümlesinden başlık kur:
     // "…öğretim üyesi alınacaktır" → "Kurumdan: ÖĞRETİM ÜYESİ ALIM İLANI". Aksi hâlde "Kurum — tarih"

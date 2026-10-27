@@ -467,7 +467,7 @@ export function buildJobDocument(
     applicationEndDate: extraction.applicationEndDate,
     publishedAt,
     detailUrl,
-    normalizedUrl: detailUrl,
+    normalizedUrl: segmentedUrl(detailUrl, raw.sourceItemId),
     applicationUrl: raw.applicationUrl ? normalizeUrl(raw.applicationUrl) : extraction.applicationUrl,
     // Metinden okunan başvuru yöntemi depoya yazılır (detay sayfası gösterir).
     applicationMethod: extraction.applicationMethod ?? null,
@@ -927,6 +927,16 @@ export async function applyRawAnnouncement(
  * Kurumun (adı biliniyorsa) sistemde en az bir ilanı var mı? Ad yoksa ya da çok kısaysa
  * güvenli taraf: "var" sayılır (insan incelemesine gider).
  */
+/**
+ * Tek belgede birden çok ilan (kaynak kimliği `…#2`) aynı belge adresini paylaşır; ilan kimliği
+ * olarak kullanılan `normalizedUrl` benzersiz olduğundan parça numarası adrese eklenir. Aksi hâlde
+ * 2. ilan 1. ilanın üzerine yazılıyordu. Kullanıcıya gösterilen `detailUrl` belgenin kendisidir.
+ */
+export function segmentedUrl(url: string, sourceItemId: string): string {
+  const part = /#(\d+)$/.exec(sourceItemId)?.[1];
+  return part && part !== '1' ? `${url}#ilan-${part}` : url;
+}
+
 async function institutionHasJobs(repos: Repos, raw: RawAnnouncement): Promise<boolean> {
   const hint = normalizeTr(raw.institution ?? '').slice(0, 40).trim();
   if (hint.length < 6) return true;

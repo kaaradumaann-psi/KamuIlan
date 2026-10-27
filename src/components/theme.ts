@@ -16,9 +16,10 @@ const DARK_QUERY = '(prefers-color-scheme: dark)';
 export function readThemePreference(): ThemePreference {
   try {
     const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return value === 'light' || value === 'dark' ? value : 'system';
+    // Karanlık mod isteğe bağlıdır: kullanıcı açıkça seçmedikçe açık tema (sistem teması izlenmez).
+    return value === 'dark' ? 'dark' : 'light';
   } catch {
-    return 'system';
+    return 'light';
   }
 }
 

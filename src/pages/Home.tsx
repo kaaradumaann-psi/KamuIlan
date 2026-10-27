@@ -332,10 +332,28 @@ export function HomePage() {
                   <div className="match-item" key={job.id}>
                     <JobCard job={job} />
                     {job.matchReasons.length > 0 && (
-                      <p className="match-reasons">
-                        <span className="sr-only">Neden önerildi: </span>
-                        {job.matchReasons.join(' · ')}
-                      </p>
+                      <div className="match-reasons">
+                        <span className="match-reasons-label">
+                          <Icon name="sparkles" size={13} /> Neden önerildi
+                        </span>
+                        <ul className="match-chips">
+                          {job.matchReasons.map((reason) => {
+                            const at = reason.indexOf(':');
+                            return (
+                              <li className="match-chip" key={reason}>
+                                {at > 0 ? (
+                                  <>
+                                    <span className="match-chip-key">{reason.slice(0, at)}</span>
+                                    {reason.slice(at + 1).trim()}
+                                  </>
+                                ) : (
+                                  reason
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
                     )}
                   </div>
                 ))}
