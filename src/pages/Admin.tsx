@@ -34,7 +34,7 @@ import type {
   ScrapeRunSummary,
   SourceCoverageEntry,
 } from '../types';
-import { Badge, Card, DataTable, ErrorNotice, Field, InfoNote, Spinner, Tabs, Tag } from '../components/ui';
+import { Badge, Card, DataTable, ErrorNotice, Field, InfoNote, Spinner, StatCard, Tabs, Tag } from '../components/ui';
 
 type Tab =
   | 'ozet'
@@ -255,45 +255,7 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
       >
         {data.llm ? (
           data.llm.enabled ? (
-            <ul className="compact-list">
-              <li>
-                Model: {data.llm.model ?? '—'} · istem sürümü: {data.llm.promptVersion} · günlük sınır:{' '}
-                {formatNumber(data.llm.dailyCallLimit)} çağrı
-              </li>
-              <li>
-                Son 24 saat: {formatNumber(data.llm.last24h.calls)} çağrı · {formatNumber(data.llm.last24h.cacheHits)}{' '}
-                önbellek isabeti · {formatNumber(data.llm.last24h.invalid)} doğrulanamayan ·{' '}
-                {formatNumber(data.llm.last24h.errors)} hata · ortalama gecikme{' '}
-                {data.llm.last24h.avgLatencyMs !== null ? formatDuration(data.llm.last24h.avgLatencyMs) : '—'}
-              </li>
-              <li>
-                Token (24s): {formatNumber(data.llm.last24h.promptTokens)} girdi +{' '}
-                {formatNumber(data.llm.last24h.completionTokens)} çıktı · toplam kayıt:{' '}
-                {formatNumber(data.llm.totals.analyses)} ({formatNumber(data.llm.totals.ok)} geçerli)
-              </li>
-              <li>
-                Gecikme yüzdelikleri: p50{' '}
-                {data.llm.last24h.latency.p50Ms !== null ? formatDuration(data.llm.last24h.latency.p50Ms) : '—'} · p95{' '}
-                {data.llm.last24h.latency.p95Ms !== null ? formatDuration(data.llm.last24h.latency.p95Ms) : '—'} · en
-                yüksek{' '}
-                {data.llm.last24h.latency.maxMs !== null ? formatDuration(data.llm.last24h.latency.maxMs) : '—'} ·
-                sağlayıcı hatası{' '}
-                {data.llm.last24h.providerErrorRate == null
-                  ? '—'
-                  : `%${(data.llm.last24h.providerErrorRate * 100).toFixed(1)}`}{' '}
-                · doğrulanamayan dahil{' '}
-                {data.llm.last24h.errorRate === null ? '—' : `%${(data.llm.last24h.errorRate * 100).toFixed(1)}`} ·
-                önbellek isabeti{' '}
-                {data.llm.last24h.cacheHitRate === null ? '—' : `%${(data.llm.last24h.cacheHitRate * 100).toFixed(0)}`}
-              </li>
-              <li>
-                Maliyet:{' '}
-                {data.llm.last24h.cost.usd === null
-                  ? 'raporlanmadı'
-                  : `~$${data.llm.last24h.cost.usd.toFixed(4)} (TAHMİN)`}{' '}
-                <span className="cell-note"> · {data.llm.last24h.cost.note}</span>
-              </li>
-            </ul>
+            <LlmGateSummary llm={data.llm} />
           ) : (
             <InfoNote tone="info">
               Kapalı: belirsiz kayıtlar yalnızca kurallarla değerlendiriliyor ve inceleme kuyruğunda kalıyor.
@@ -303,6 +265,83 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
           )
         ) : null}
       </Card>
+    </div>
+  );
+}
+
+const percent = (value: number | null | undefined, digits = 0): string =>
+  value == null ? '—' : `%${(value * 100).toFixed(digits)}`;
+const duration = (value: number | null): string => (value === null ? '—' : formatDuration(value));
+
+/**
+ * LLM kapısı özeti: üstte dört gösterge (çağrı, doğrulanamayan, sağlayıcı hatası, gecikme),
+ * altta ayrıntı tablosu. "Doğrulanamayan" hata değildir: kanıt doğrulanamadığı için karar
+ * uygulanmadı ve kayıt incelemede kaldı (güvenli varsayılan).
+ */
+function LlmGateSummary({ llm }: { llm: NonNullable<AdminOverview['llm']> }): ReactNode {
+  const day = llm.last24h;
+  const providerErrors = day.providerErrorRate ?? null;
+  return (
+    <div className="llm-summary">
+      <p className="llm-summary-meta">
+        <Badge tone="success">Açık</Badge>
+        <span>
+          <strong>{llm.model ?? '—'}</strong> · istem {llm.promptVersion} · günlük sınır{' '}
+          {formatNumber(llm.dailyCallLimit)} çağrı
+        </span>
+      </p>
+      <div className="stats-grid-4" aria-label="Son 24 saat">
+        <StatCard label="Çağrı (24 saat)" value={formatNumber(day.calls)} icon="activity" hint={`${formatNumber(day.cacheHits)} önbellekten`} />
+        <StatCard
+          label="Doğrulanamayan"
+          value={formatNumber(day.invalid)}
+          icon="shield"
+          tone={day.invalid > 0 ? 'warning' : 'neutral'}
+          hint="Uygulanmadı, incelemede"
+        />
+        <StatCard
+          label="Sağlayıcı hatası"
+          value={percent(providerErrors, 1)}
+          icon="alert"
+          tone={providerErrors !== null && providerErrors > 0.2 ? 'danger' : 'success'}
+          hint={`${formatNumber(day.errors)} hata / zaman aşımı`}
+        />
+        <StatCard label="Ortalama gecikme" value={duration(day.avgLatencyMs)} icon="clock" hint={`p95 ${duration(day.latency.p95Ms)}`} />
+      </div>
+      <dl className="llm-summary-details">
+        <div>
+          <dt>Token (24 saat)</dt>
+          <dd>
+            {formatNumber(day.promptTokens)} girdi · {formatNumber(day.completionTokens)} çıktı
+          </dd>
+        </div>
+        <div>
+          <dt>Gecikme</dt>
+          <dd>
+            p50 {duration(day.latency.p50Ms)} · p95 {duration(day.latency.p95Ms)} · en yüksek {duration(day.latency.maxMs)}
+          </dd>
+        </div>
+        <div>
+          <dt>Doğrulanamayan dahil oran</dt>
+          <dd>
+            {percent(day.errorRate, 1)} · önbellek isabeti {percent(day.cacheHitRate)}
+          </dd>
+        </div>
+        <div>
+          <dt>Tüm zamanlar</dt>
+          <dd>
+            {formatNumber(llm.totals.analyses)} analiz · {formatNumber(llm.totals.ok)} geçerli ·{' '}
+            {formatNumber(llm.totals.invalid)} doğrulanamayan
+          </dd>
+        </div>
+        <div>
+          <dt>Maliyet (24 saat)</dt>
+          <dd>
+            {day.cost.usd === null ? 'raporlanmadı' : `~$${day.cost.usd.toFixed(4)} (tahmin)`}
+            <span className="cell-note">{day.cost.note}</span>
+          </dd>
+        </div>
+      </dl>
     </div>
   );
 }

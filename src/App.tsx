@@ -22,7 +22,7 @@ import { MobileNav, type MobileNavItem } from './components/MobileNav';
 import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
 import type { IconName } from './components/Icon';
-import { SiteFooter, INFO_ROUTES } from './components/SiteFooter';
+import { SiteFooter, INFO_ROUTES, ThemeToggle } from './components/SiteFooter';
 import { APP_VERSION } from './config/app';
 import { errorMessage } from './lib/api';
 import { useAuth } from './lib/session';
@@ -244,6 +244,8 @@ function AppShell({ children }: { children: ReactNode }) {
                 </div>
               )}
             </div>
+
+            <ThemeToggle />
 
             <MobileNav
               items={items}

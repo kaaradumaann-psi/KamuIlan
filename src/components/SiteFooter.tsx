@@ -85,40 +85,32 @@ export function SiteFooter({
           <a className="site-footer-link site-footer-link-muted" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
           </a>
-          <ThemeSwitch />
         </nav>
       </div>
     </footer>
   );
 }
 
-const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: 'system', label: 'Sistem' },
-  { value: 'light', label: 'Açık' },
-  { value: 'dark', label: 'Koyu' },
-];
-
-/** Tema seçici: sistem tercihi varsayılandır; seçim tarayıcıda saklanır. */
-export function ThemeSwitch() {
+/**
+ * Sağ üst köşedeki tema düğmesi: açık ↔ koyu. Karanlık mod isteğe bağlıdır; seçim tarayıcıda saklanır.
+ */
+export function ThemeToggle() {
   const [preference, setPreference] = useState<ThemePreference>(readThemePreference);
+  const dark = preference === 'dark';
   return (
-    <label className="theme-switch">
-      <span className="theme-switch-label">Tema</span>
-      <select
-        className="theme-switch-select"
-        value={preference}
-        onChange={(event) => {
-          const next = event.target.value as ThemePreference;
-          setPreference(next);
-          saveThemePreference(next);
-        }}
-      >
-        {THEME_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <button
+      type="button"
+      className="theme-toggle"
+      aria-pressed={dark}
+      aria-label={dark ? 'Açık temaya geç' : 'Karanlık moda geç'}
+      title={dark ? 'Açık temaya geç' : 'Karanlık moda geç'}
+      onClick={() => {
+        const next: ThemePreference = dark ? 'light' : 'dark';
+        setPreference(next);
+        saveThemePreference(next);
+      }}
+    >
+      <Icon name={dark ? 'sun' : 'moon'} size={17} />
+    </button>
   );
 }
