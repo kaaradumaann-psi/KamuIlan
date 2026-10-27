@@ -20,6 +20,7 @@ import type {
 import { Badge, Card, ErrorNotice, Field, InfoNote, Spinner } from '../components/ui';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { TelegramCard } from '../components/TelegramCard';
+import { SmsCard } from '../components/SmsCard';
 import { AiSuggestionsCard } from '../components/AiSuggestionsCard';
 import { TagInput } from '../components/TagInput';
 import { OnboardingWizard } from '../components/OnboardingWizard';
@@ -700,6 +701,7 @@ export function PanelPage({ view = 'preferences' }: { view?: 'preferences' | 'hi
       )}
 
       {view === 'preferences' && <TelegramCard />}
+      {view === 'preferences' && <SmsCard />}
       {view === 'preferences' && <AiSuggestionsCard />}
 
       {view === 'history' && (

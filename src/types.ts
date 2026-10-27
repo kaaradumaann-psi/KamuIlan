@@ -463,6 +463,8 @@ export interface AdminOverview {
       apiCalls: number;
       cacheHitRate: number | null;
       errorRate: number | null;
+      /** Yalnız sağlayıcı hatası + zaman aşımı (doğrulanamayan karar hariç). Eski API'de yok. */
+      providerErrorRate?: number | null;
       latency: {
         count: number;
         avgMs: number | null;

@@ -32,6 +32,7 @@ export type EnvGroup =
   | 'tarama'
   | 'eposta'
   | 'telegram'
+  | 'sms'
   | 'llm'
   | 'yonetim';
 
@@ -43,6 +44,7 @@ export const ENV_GROUP_LABELS: Record<EnvGroup, string> = {
   tarama: 'Kaynak tarama',
   eposta: 'E-posta',
   telegram: 'Telegram',
+  sms: 'SMS (Twilio)',
   llm: 'LLM / yapay zekâ',
   yonetim: 'Yönetim ve ilk hesap',
 };
@@ -55,6 +57,7 @@ export const ENV_GROUP_ORDER: EnvGroup[] = [
   'tarama',
   'eposta',
   'telegram',
+  'sms',
   'llm',
   'yonetim',
 ];
@@ -998,6 +1001,70 @@ export const ENV_FIELDS: EnvFieldSpec[] = [
     optional: true,
     dependsOn: (values) => Boolean(values['TELEGRAM_BOT_TOKEN']),
     skipReason: 'TELEGRAM_BOT_TOKEN boş.',
+  },
+
+  /* --- SMS (Twilio) --- */
+  {
+    key: 'SMS_ENABLED',
+    group: 'sms',
+    label: 'SMS bildirimleri (Twilio)',
+    help: 'Varsayılan kapalı. Açmadan önce docs/sms-twilio.md (Türkiye gönderim koşulları) okuyun.',
+    type: 'boolean',
+    defaultValue: '0',
+    optional: true,
+  },
+  {
+    key: 'TWILIO_ACCOUNT_SID',
+    group: 'sms',
+    label: 'Twilio Account SID',
+    help: 'Twilio Console → Account Info (AC ile başlar).',
+    type: 'string',
+    pattern: /^AC[0-9a-fA-F]{32}$/,
+    optional: true,
+    dependsOn: (values) => values['SMS_ENABLED'] === '1',
+    skipReason: 'SMS_ENABLED kapalı.',
+  },
+  {
+    key: 'TWILIO_AUTH_TOKEN',
+    group: 'sms',
+    label: 'Twilio Auth Token',
+    help: 'Gizli tutun; loglara yazılmaz.',
+    type: 'secret',
+    secret: true,
+    optional: true,
+    dependsOn: (values) => values['SMS_ENABLED'] === '1',
+    skipReason: 'SMS_ENABLED kapalı.',
+  },
+  {
+    key: 'TWILIO_FROM',
+    group: 'sms',
+    label: 'Gönderen numara / ad',
+    help: 'E.164 numara (+1...) ya da kayıtlı alfanümerik gönderen. Messaging Service SID varsa boş kalabilir.',
+    type: 'string',
+    optional: true,
+    dependsOn: (values) => values['SMS_ENABLED'] === '1',
+    skipReason: 'SMS_ENABLED kapalı.',
+  },
+  {
+    key: 'TWILIO_MESSAGING_SERVICE_SID',
+    group: 'sms',
+    label: 'Twilio Messaging Service SID',
+    help: 'MG ile başlar. Tanımlıysa TWILIO_FROM yerine kullanılır.',
+    type: 'string',
+    pattern: /^MG[0-9a-fA-F]{32}$/,
+    optional: true,
+    dependsOn: (values) => values['SMS_ENABLED'] === '1',
+    skipReason: 'SMS_ENABLED kapalı.',
+  },
+  {
+    key: 'TWILIO_API_BASE_URL',
+    group: 'sms',
+    label: 'Twilio API adresi',
+    help: 'Yalnızca test/vekil için değiştirin.',
+    type: 'url',
+    optional: true,
+    dependsOn: (values) => values['SMS_ENABLED'] === '1',
+    skipReason: 'SMS_ENABLED kapalı.',
   },
 
   /* --- LLM --- */

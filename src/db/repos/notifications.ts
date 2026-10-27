@@ -132,6 +132,9 @@ export class NotificationRepo {
       includeAcademicJobs: input.includeAcademicJobs ?? true,
       profilePersonalizationEnabled: input.profilePersonalizationEnabled ?? false,
       aiConsentAt: input.aiConsentAt ?? null,
+      // İsteğe bağlı alanlar yalnız verildiyse yazılır (SMS varsayılan olarak YOK = kapalı).
+      ...(input.deadlineReminders !== undefined ? { deadlineReminders: input.deadlineReminders } : {}),
+      ...(input.sms !== undefined ? { sms: input.sms } : {}),
       candidateProfile: { ...EMPTY_CANDIDATE_PROFILE, ...(input.candidateProfile ?? {}) },
       filters: { ...EMPTY_FILTERS, ...(input.filters ?? {}) },
       createdAt: now,

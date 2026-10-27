@@ -36,7 +36,7 @@ import type { AdapterContext, SourceAdapter } from '../sources/types';
 import { demoteBackfillDates } from '../sources/adapters/resmigazete-backfill';
 import { queueNotificationsForJob } from '../notifications/service';
 import { createLlmClassificationGate, disabledLlmGate, llmClassifierConfig, type LlmClassificationGate } from '../ai/classifier';
-import { applyRawAnnouncement } from './jobs-service';
+import { applyRawAnnouncement, createDedupeCandidateCache, type DedupeCandidateCache } from './jobs-service';
 import { sanitizeRawAnnouncement } from './sanitize';
 import { sourceTermsGate } from '../sources/terms';
 
@@ -413,6 +413,9 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
         adapterNotes.push(resultMessage);
       }
 
+      // Tekilleştirme adayları (son ilanlar) koşum boyunca bir kez okunur; her kayıtta
+      // yeniden çekmek Supabase veri aktarımının ana kaynaklarından biriydi (27.10.2026).
+      const candidateCache = createDedupeCandidateCache(now);
       for (const item of runResult.items) {
         try {
           const outcome = await processItem(sanitizeRawAnnouncement(item), {
@@ -421,6 +424,7 @@ export async function runSourceScrape(options: RunSourceOptions): Promise<RunSou
             workerId,
             logger,
             llmGate,
+            candidateCache,
           });
           if (outcome === 'created') totals.jobsCreated += 1;
           else if (outcome === 'updated') totals.jobsUpdated += 1;
@@ -629,7 +633,14 @@ export function lockExpiry(now: Date, timeoutMs: number): string {
 
 async function processItem(
   item: RawAnnouncement,
-  ctx: { repos: Repos; now: Date; workerId: string; logger: Logger; llmGate: LlmClassificationGate },
+  ctx: {
+    repos: Repos;
+    now: Date;
+    workerId: string;
+    logger: Logger;
+    llmGate: LlmClassificationGate;
+    candidateCache: DedupeCandidateCache;
+  },
 ): Promise<'created' | 'updated' | 'merged' | 'review' | 'rejected' | 'withdrawal'> {
   const outcome = await applyRawAnnouncement(item, {
     repos: ctx.repos,
@@ -637,6 +648,7 @@ async function processItem(
     workerId: ctx.workerId,
     provenance: 'scraped',
     llmGate: ctx.llmGate,
+    candidateCache: ctx.candidateCache,
   });
   switch (outcome.action) {
     case 'created':

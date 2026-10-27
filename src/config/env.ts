@@ -342,6 +342,17 @@ const envSchema = z.object({
   /** Bot API taban adresi (test için değiştirilebilir; üretimde öntanımlı kalır). */
   TELEGRAM_API_BASE_URL: z.string().default('https://api.telegram.org'),
 
+  // --- SMS bildirimleri (Twilio; varsayılan KAPALI) ---
+  /** Açıkça '1' yapılmadıkça hiçbir SMS kuyruğa alınmaz ve gönderilmez. */
+  SMS_ENABLED: flag('0'),
+  TWILIO_ACCOUNT_SID: z.string().default(''),
+  TWILIO_AUTH_TOKEN: z.string().default(''),
+  /** Gönderen: E.164 numara veya (ülke kurallarına uygunsa) alfanümerik gönderen adı. */
+  TWILIO_FROM: z.string().default(''),
+  /** Tanımlıysa TWILIO_FROM yerine Messaging Service kullanılır. */
+  TWILIO_MESSAGING_SERVICE_SID: z.string().default(''),
+  TWILIO_API_BASE_URL: z.string().default('https://api.twilio.com'),
+
   // --- Yapay zekâ destekli öneriler (açık rıza ile; varsayılan KAPALI) ---
   AI_ASSISTANT_ENABLED: flag('0'),
   /** Rıza metninde gösterilen sağlayıcı adı (ör. "Groq"). Hangi hizmete gittiğini kullanıcı görür. */
@@ -1042,7 +1053,13 @@ export function describeEnv(env: Env = getEnv()): Record<string, string | boolea
       env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_BOT_USERNAME
         ? `@${env.TELEGRAM_BOT_USERNAME} (webhook sırrı ${env.TELEGRAM_WEBHOOK_SECRET ? 'tanımlı' : 'yok'})`
         : 'kapalı',
-    aiAssistant: env.AI_ASSISTANT_ENABLED ? `açık (${env.LLM_MODEL || 'model yok'})` : 'kapalı',
+    // SMS: sır değerleri gösterilmez; yalnızca açık/kapalı ve eksik ayar.
+    sms: !env.SMS_ENABLED
+      ? 'kapalı'
+      : env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && (env.TWILIO_FROM || env.TWILIO_MESSAGING_SERVICE_SID)
+        ? 'açık (Twilio)'
+        : 'açık ama Twilio ayarları eksik (gönderilmez)',
+    aiAssistant:env.AI_ASSISTANT_ENABLED ? `açık (${env.LLM_MODEL || 'model yok'})` : 'kapalı',
     llmClassifier: env.LLM_CLASSIFIER_ENABLED
       ? `açık (${env.LLM_CLASSIFIER_MODEL || env.LLM_MODEL}, günlük sınır ${env.LLM_DAILY_CALL_LIMIT})`
       : 'kapalı',

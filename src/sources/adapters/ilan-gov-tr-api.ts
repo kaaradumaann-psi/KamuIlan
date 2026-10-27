@@ -27,7 +27,7 @@
  * depoda fixture testleriyle doğrulanmıştır ancak bu ortamdan CANLI denenemez
  * (ağ erişimi kapalı). Bu yüzden envanter kaydı "scraper-built" durumundadır.
  */
-import { collapseWhitespace, makeExcerpt, normalizeTr, stripUiChrome } from '../../domain/text';
+import { collapseWhitespace, makeExcerpt, normalizeTr, stripPortalArtifacts, stripUiChrome } from '../../domain/text';
 import { toIstanbulIso } from '../../domain/dates';
 import type { RawAnnouncement } from '../../domain';
 import { AdapterStructureError, SourceAccessError } from '../errors';
@@ -384,7 +384,7 @@ export class IlanGovTrApiAdapter implements SourceAdapter {
         }
         httpStatuses.push(detailResponse.status);
         const detailPayload = this.parseJson(detailResponse);
-        const fullText = stripUiChrome(collectApiText(detailPayload));
+        const fullText = stripUiChrome(stripPortalArtifacts(collectApiText(detailPayload)));
         if (fullText.length > MIN_USABLE_BODY) {
           bodyTextTruncated = fullText.length > 100_000;
           bodyText = fullText.slice(0, 100_000);

@@ -26,6 +26,9 @@ import { sendOutboxBatch } from '../email/service';
 import { TelegramBotClient } from '../telegram/client';
 import { telegramConfig, type TelegramConfig } from '../telegram/config';
 import type { TelegramSender } from '../telegram/deliver';
+import type { SmsSender } from '../sms/deliver';
+import { createTwilioClient, readSmsConfig } from '../sms/twilio';
+import { queueDeadlineReminders } from '../notifications/followups';
 import { toIstanbulDateOnly } from '../domain/dates';
 import type { SourceAdapter } from '../sources/types';
 import { runSourceScrape } from '../ingest/pipeline';
@@ -49,6 +52,8 @@ export interface WorkerRuntimeOptions {
   transport?: EmailTransport;
   /** Telegram gönderici; `null` = kapalı. Verilmezse ortam değişkenlerinden kurulur. */
   telegram?: TelegramSender | null;
+  /** SMS (Twilio) gönderici; `null` = kapalı. Verilmezse ortamdan (SMS_ENABLED) kurulur. */
+  sms?: SmsSender | null;
   liveFetch?: boolean;
   /** Yalnızca testlerde: kalp atışı kaydını devre dışı bırakmaz, saati sabitler. */
   now?: () => Date;
@@ -70,6 +75,10 @@ export interface WorkerTickResult {
   scrapes: { processed: number; succeeded: number; failed: number; skipped: number; collapsed: number };
   emails: { claimed: number; sent: number; failed: number; dead: number };
   telegram: { claimed: number; sent: number; failed: number; dead: number; suppressed: number };
+  /** SMS kanalı (yalnız SMS açıksa dolu). */
+  sms?: { claimed: number; sent: number; failed: number; dead: number; suppressed: number };
+  /** Son başvuru hatırlatmaları (kuyruğa alınan iş sayısı). */
+  reminders?: { jobs: number; queued: number };
   maintenance: { ran: string[]; closedJobs: number; activatedJobs: number; purged: number };
   warnings: string[];
 }
@@ -97,6 +106,8 @@ export class WorkerRuntime {
   readonly workerId: string;
   private readonly transport: EmailTransport | null;
   private readonly telegram: TelegramSender | null;
+  private readonly sms: SmsSender | null;
+  private lastReminderRunAt = 0;
   private readonly now: () => Date;
   private readonly coverageWarnings: boolean;
   private readonly liveFetch: boolean | undefined;
@@ -124,6 +135,7 @@ export class WorkerRuntime {
     this.transport = options.transport ?? createEmailTransport(this.env).transport;
     this.telegram =
       options.telegram !== undefined ? options.telegram : telegramSenderFromEnv(this.env);
+    this.sms = options.sms !== undefined ? options.sms : smsSenderFromEnv(this.env);
   }
 
   /** Tek tik. Testlerde doğrudan çağrılır; üretimde `run()` döngü kurar. */
@@ -158,6 +170,9 @@ export class WorkerRuntime {
     const email = await this.processEmailQueue(now);
     result.emails = email;
     result.telegram = await this.processTelegramQueue(now);
+    if (this.sms) result.sms = await this.processSmsQueue(now);
+    const reminders = await this.processDeadlineReminders(now);
+    if (reminders) result.reminders = reminders;
 
     const maintenance = await this.processMaintenanceQueue(now);
     result.maintenance = maintenance;
@@ -307,6 +322,62 @@ export class WorkerRuntime {
     }
   }
 
+  private async processSmsQueue(now: Date): Promise<NonNullable<WorkerTickResult['sms']>> {
+    const empty = { claimed: 0, sent: 0, failed: 0, dead: 0, suppressed: 0 };
+    if (!this.sms) return empty;
+    try {
+      const batch = await sendOutboxBatch({
+        repos: this.repos,
+        channel: 'sms',
+        sms: this.sms,
+        workerId: this.workerId,
+        limit: 20,
+        now,
+      });
+      return {
+        claimed: batch.claimed,
+        sent: batch.sent,
+        failed: batch.failed,
+        dead: batch.dead,
+        suppressed: batch.suppressed,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = message;
+      this.logger.error({ err: message }, 'sms turu başarısız');
+      return { ...empty, failed: 1 };
+    }
+  }
+
+  /**
+   * Son başvuru hatırlatmaları: zamanlayıcı açıkken en fazla 15 dakikada bir. Yalnızca outbox'a
+   * yazar (idempotent anahtar); gönderim kanal kuyruklarının işidir.
+   */
+  private async processDeadlineReminders(now: Date): Promise<WorkerTickResult['reminders'] | null> {
+    if (!this.env.SCHEDULER_ENABLED) return null;
+    if (now.getTime() - this.lastReminderRunAt < 15 * 60_000) return null;
+    this.lastReminderRunAt = now.getTime();
+    try {
+      const reminders = await queueDeadlineReminders({
+        repos: this.repos,
+        baseUrl: this.env.APP_BASE_URL,
+        senderName: this.env.APP_DISPLAY_NAME,
+        smsEnabled: this.sms !== null,
+        now,
+      });
+      return {
+        jobs: reminders.jobs,
+        queued: reminders.queuedEmail + reminders.queuedTelegram + reminders.queuedSms,
+      };
+    } catch (error) {
+      this.logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'son başvuru hatırlatmaları kuyruğa alınamadı',
+      );
+      return null;
+    }
+  }
+
   private async processEmailQueue(now: Date): Promise<WorkerTickResult['emails']> {
     if (!this.transport) return { claimed: 0, sent: 0, failed: 0, dead: 0 };
     try {
@@ -418,6 +489,11 @@ export class WorkerRuntime {
           (source) => source.accessState === 'region-blocked' || !source.enabled,
         ).map((source) => source.key);
         const purgedDeadGated = await this.repos.queue.purgeDeadForSources(gatedKeys);
+        // Tamamlanmış kuyruk işleri 2 gün saklanır (sonuçları scrapeRuns'ta kalır); silinmezse
+        // tablo yalnız büyür ve kuyruk istatistikleri her çağrıda daha çok veri taşır.
+        const purgedCompleted = await this.repos.queue.purgeCompletedOlderThan(
+          new Date(now.getTime() - 2 * 24 * 3_600_000).toISOString(),
+        );
         return {
           ran: kind,
           closedJobs: 0,
@@ -431,7 +507,8 @@ export class WorkerRuntime {
             purgedRuns.deleted +
             purgedDeadOld +
             purgedDeadScrapes +
-            purgedDeadGated,
+            purgedDeadGated +
+            purgedCompleted,
         };
       }
       case 'coverage-audit': {
@@ -763,6 +840,13 @@ export function summarizeRun(run: ScrapeRunDoc): { label: string; value: string 
 /** Bildirim gönderilecek ilanı kısaca tanımlar (log/panel). */
 export function describeJob(job: JobDoc): string {
   return `${job.title} — ${job.institution}`;
+}
+
+/** Ortam değişkenlerinden SMS göndericisi. SMS_ENABLED kapalı ya da Twilio ayarı eksikse null. */
+export function smsSenderFromEnv(env: Env): SmsSender | null {
+  const config = readSmsConfig(env);
+  if (!config) return null;
+  return { client: createTwilioClient(config), senderName: env.APP_DISPLAY_NAME, baseUrl: env.APP_BASE_URL };
 }
 
 /** Ortam değişkenlerinden Telegram göndericisi. Kanal kapalıysa null (e-posta etkilenmez). */

@@ -13,7 +13,15 @@ import type { JobDoc } from '../db/schemas';
 import { EMPLOYMENT_TYPE_LABELS } from '../domain/types';
 
 export type EmailTemplate =
-  'account-invite' | 'verify-email' | 'password-reset' | 'new-job' | 'job-changed' | 'daily-digest' | 'test';
+  | 'account-invite'
+  | 'verify-email'
+  | 'password-reset'
+  | 'new-job'
+  | 'job-changed'
+  | 'saved-job-update'
+  | 'deadline-reminder'
+  | 'daily-digest'
+  | 'test';
 
 export interface RenderContext {
   baseUrl: string;
@@ -86,6 +94,8 @@ export interface JobEmailPayload {
   applicationUrl: string | null;
   matchedOn: string[];
   changeSummary?: string;
+  /** Son başvuru hatırlatmasında kalan gün (İstanbul takvim günü; 0 = bugün). */
+  daysLeft?: number;
   /** İlan kaydedildiyse kullanıcı panelindeki adresi. */
   panelUrl?: string;
 }
@@ -334,6 +344,32 @@ function renderEmailBody(
           ? `${job.title} — ${job.institution}`
           : `Güncelleme: ${job.title} — ${job.institution}`;
       return { subject: subject.slice(0, 180), ...body };
+    }
+    case 'saved-job-update': {
+      const job = payload as unknown as JobEmailPayload;
+      const body = renderLayout({
+        heading: 'Takip ettiğiniz ilanda değişiklik',
+        intro: `Kaydettiğiniz ilanda güncelleme var${job.changeSummary ? `: ${job.changeSummary}` : '.'} Başvurmadan önce resmî ilan metnini kontrol edin.`,
+        bodyHtml: jobBodyHtml(job),
+        bodyText: jobBodyText(job),
+        ctx,
+        reason: 'Bu e-posta, ilanı kaydettiğiniz (takip ettiğiniz) için gönderildi.',
+      });
+      return { subject: `Takip ettiğiniz ilan güncellendi: ${job.title} — ${job.institution}`.slice(0, 180), ...body };
+    }
+    case 'deadline-reminder': {
+      const job = payload as unknown as JobEmailPayload;
+      const days = typeof job.daysLeft === 'number' ? job.daysLeft : null;
+      const when = days === 0 ? 'bugün' : days === null ? 'yakında' : `${days} gün sonra`;
+      const body = renderLayout({
+        heading: 'Son başvuru yaklaşıyor',
+        intro: `Takip ettiğiniz ya da size bildirilen ilanın son başvuru tarihi ${when} (${formatDateTr(job.applicationEndDate)}).`,
+        bodyHtml: jobBodyHtml(job),
+        bodyText: jobBodyText(job),
+        ctx,
+        reason: 'Bu e-posta, son başvuru hatırlatmaları açık olduğu için gönderildi.',
+      });
+      return { subject: `Son başvuru ${when}: ${job.title} — ${job.institution}`.slice(0, 180), ...body };
     }
     case 'daily-digest': {
       const jobs = Array.isArray(payload['jobs']) ? (payload['jobs'] as JobEmailPayload[]) : [];

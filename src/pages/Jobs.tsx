@@ -31,14 +31,15 @@ import { usePageMeta } from '../lib/page-meta';
 import { formatNumber } from '../lib/format';
 import type { JobListResponse } from '../types';
 
-type JobsPreset = 'all' | 'open' | 'closing7' | 'upcoming' | 'archive';
+type JobsPreset = 'current' | 'all' | 'open' | 'closing7' | 'upcoming' | 'archive';
 
 const PRESETS: readonly { id: JobsPreset; label: string }[] = [
-  { id: 'all', label: 'Tümü' },
+  { id: 'current', label: 'Güncel' },
   { id: 'open', label: 'Başvurusu açık' },
   { id: 'closing7', label: 'Son günü yaklaşanlar' },
   { id: 'upcoming', label: 'Yakında başlayacak' },
-  { id: 'archive', label: 'Arşiv' },
+  { id: 'archive', label: 'Süresi geçmiş (arşiv)' },
+  { id: 'all', label: 'Tümü' },
 ];
 
 const SORT_OPTIONS: readonly { value: string; label: string }[] = [
@@ -51,7 +52,9 @@ const SORT_OPTIONS: readonly { value: string; label: string }[] = [
 
 /** URL filtrelerinin hangi durum düğmesine karşılık geldiği (aria-pressed için). */
 function activePreset(filters: JobFilters): JobsPreset | null {
-  if (!filters.status) return 'all';
+  // Durum seçilmemişse sunucu süresi geçmiş/iptal ilanları göstermez ("Güncel").
+  if (!filters.status) return 'current';
+  if (filters.status === 'all') return 'all';
   if (filters.status === ARCHIVE_STATUS) return 'archive';
   if (filters.status === 'upcoming') return 'upcoming';
   if (filters.status === 'active') return filters.deadlineTo ? 'closing7' : 'open';
@@ -61,7 +64,7 @@ function activePreset(filters: JobFilters): JobsPreset | null {
 /** Durum düğmesinin zaten gösterdiği alanlar etiket olarak tekrarlanmaz. */
 function presetCoveredKeys(preset: JobsPreset | null): ReadonlySet<keyof JobFilters> {
   if (preset === 'closing7') return new Set<keyof JobFilters>(['status', 'deadlineFrom', 'deadlineTo']);
-  if (preset && preset !== 'all') return new Set<keyof JobFilters>(['status']);
+  if (preset && preset !== 'current') return new Set<keyof JobFilters>(['status']);
   return new Set();
 }
 
@@ -152,7 +155,8 @@ export function JobsPage() {
     // Önceki "son günü yaklaşanlar" penceresi başka bir duruma taşınmasın.
     const withoutWindow: JobFilters =
       currentPreset === 'closing7' ? { ...base, deadlineFrom: '', deadlineTo: '' } : base;
-    if (preset === 'all') apply({ ...withoutWindow, kind: urlFilters.kind, status: '' });
+    if (preset === 'current') apply({ ...withoutWindow, kind: urlFilters.kind, status: '' });
+    else if (preset === 'all') apply({ ...withoutWindow, kind: urlFilters.kind, status: 'all' });
     else if (preset === 'open') apply({ ...withoutWindow, status: 'active', sort: 'deadline' });
     else if (preset === 'closing7')
       apply({ ...base, status: 'active', deadlineFrom: today, deadlineTo: in7, sort: 'deadline' });

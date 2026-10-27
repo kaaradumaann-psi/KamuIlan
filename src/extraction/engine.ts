@@ -716,7 +716,13 @@ export function extractApplicationWindow(
   body: string,
   listing: ExtractionInput['listing'] = {},
 ): WindowResult {
-  const text = `${title}\n${body}`;
+  // Sınav/sonuç/ön değerlendirme tarihleri başvuru penceresi değildir. Tablo biçimli ilanlarda
+  // ("Duyuru Başlama Tarihi : 26.10.2026 Sınava Giriş Tarih : 16.11.2026 Son Başvuru Tarihi :
+  // 10.11.2026", RG 26.10.2026-4-4 Fırat) aralık okuyucusu ilk iki tarihi alıp sınav gününü
+  // son başvuru sanıyordu. Etiketli bu tarihler okumadan önce çıkarılır.
+  const text = stripNonApplicationDates(`${title}\n${body}`);
+  const labeled = labeledApplicationWindow(text);
+  if (labeled) return labeled;
   const sentences = text.split(/(?<=[.;!?])\s+|\n/).filter((sentence) => sentence.trim().length > 0);
 
   const isWindowSentence = (sentence: string): boolean =>
@@ -809,6 +815,11 @@ export function extractApplicationWindow(
     }
   }
 
+  // Göreli süre: "Başvurular ilan yayım tarihinden itibaren 15 gündür" — yayım günü 1. gün
+  // sayılır (YÖK akademik ilan uygulaması; Fırat 26.10 → 09.11.2026). Yayım tarihi yoksa üretilmez.
+  const relative = relativeDeadline(text, cleanText(listing.publishedAt));
+  if (relative) return relative;
+
   // Liste sayfasından gelen yapılandırılmış bitiş tarihi (varsa) kullanılır.
   const listingEnd = cleanText(listing.applicationEndAt);
   if (listingEnd) {
@@ -831,6 +842,65 @@ export function extractApplicationWindow(
   }
 
   return { start: null, end: null, startSnippet: null, endSnippet: null };
+}
+
+const LABEL_DATE = String.raw`(\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+(?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)\s+\d{4})`;
+
+/** Sınav, sonuç ve ön değerlendirme gibi başvuru dışı etiketli tarihleri metinden çıkarır. */
+export function stripNonApplicationDates(text: string): string {
+  const label = new RegExp(
+    String.raw`(?<![\p{L}])(?:(?:Giriş\s+)?Sınav(?:a\s+Giriş|ın)?|Sözlü\s+Sınav|Yazılı\s+Sınav|Mülakat|Sonuç(?:\s+Açıklama)?|Sınav\s+(?:Sonuç|Açıklama)|Ön\s+[Dd]eğerlendirme(?:\s+Sonuç)?|Kesin\s+Sonuç)\s+(?:Tarih(?:i|leri)?)\s*:?\s*${LABEL_DATE}`,
+    'giu',
+  );
+  return text.replace(label, ' ');
+}
+
+function dateOnlyResult(dateOnly: string, raw: string): ParsedTurkishDate {
+  return { dateOnly, time: null, raw, iso: `${dateOnly}T23:59:00+03:00`, timeIsDefault: true };
+}
+
+/**
+ * "Son Başvuru Tarihi : 10.11.2026" gibi açık etiketler cümle sezgisinden önce gelir
+ * (etiketin kendisi alanın anlamını kesinleştirir). Başlangıç etiketi varsa o da alınır.
+ */
+function labeledApplicationWindow(text: string): WindowResult | null {
+  const endMatch = new RegExp(String.raw`Son\s+Ba[şs]vuru\s+(?:Tarihi|Günü)\s*:?\s*${LABEL_DATE}`, 'iu').exec(text);
+  const end = endMatch ? parseTurkishDate(endMatch[1] ?? '') : null;
+  if (!endMatch || !end) return null;
+  const startMatch = new RegExp(
+    String.raw`(?:Ba[şs]vuru|Duyuru)\s+Ba[şs]la(?:ma|ngıç)\s+Tarihi\s*:?\s*${LABEL_DATE}`,
+    'iu',
+  ).exec(text);
+  const start = startMatch ? parseTurkishDate(startMatch[1] ?? '') : null;
+  const validStart = start && start.dateOnly <= end.dateOnly ? start : null;
+  return {
+    start: validStart,
+    end,
+    startSnippet: validStart && startMatch ? collapseWhitespace(startMatch[0]) : null,
+    endSnippet: collapseWhitespace(endMatch[0]),
+  };
+}
+
+function relativeDeadline(text: string, publishedAt: string | null): WindowResult | null {
+  const pub = publishedAt?.slice(0, 10) ?? '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pub)) return null;
+  const match =
+    /(?:ilan(?:ın|in)?|yay[ıi]m(?:lan)?\p{L}*)[^.\n]{0,80}?(?:tarihinden|tarihten|gününden)\s+itibaren\s+(\d{1,2})\s*(?:\([^)]{0,20}\)\s*)?(iş\s+günü|gün)/iu.exec(
+      text,
+    );
+  // İş günü hesabı tatil takvimi ister; tahmin üretilmez.
+  if (!match || /iş/iu.test(match[2] ?? '')) return null;
+  const days = Number(match[1]);
+  if (!Number.isInteger(days) || days < 1 || days > 60) return null;
+  const end = new Date(`${pub}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + days - 1);
+  const dateOnly = end.toISOString().slice(0, 10);
+  return {
+    start: dateOnlyResult(pub, pub),
+    end: dateOnlyResult(dateOnly, match[0]),
+    startSnippet: `Yayım tarihi: ${pub}`,
+    endSnippet: `${collapseWhitespace(match[0]).slice(0, 200)} (yayım ${pub}, yayım günü dahil ${days} gün)`,
+  };
 }
 
 /** Noktalı (14.10.2026) ya da yazıyla ay (14 Ekim 2026) tarih biçimi. */

@@ -42,7 +42,7 @@ async function world(): Promise<Repos> {
 describe('/api/jobs tür alanı ve filtresi', () => {
   it('her ilan özetinde kind alanı bulunur; ihale kaydı akışa girmez', async () => {
     await world();
-    const response = await app!.inject({ method: 'GET', url: '/api/jobs?pageSize=50' });
+    const response = await app!.inject({ method: 'GET', url: '/api/jobs?pageSize=50&status=all' });
     expect(response.statusCode).toBe(200);
     const body = response.json() as { items: Array<{ title: string; kind: string }> };
     expect(body.items.length).toBe(2);
@@ -52,7 +52,7 @@ describe('/api/jobs tür alanı ve filtresi', () => {
 
   it('kind=process yalnızca süreç duyurularını döndürür', async () => {
     await world();
-    const response = await app!.inject({ method: 'GET', url: '/api/jobs?kind=process&pageSize=50' });
+    const response = await app!.inject({ method: 'GET', url: '/api/jobs?kind=process&pageSize=50&status=all' });
     const body = response.json() as { items: Array<{ title: string; kind: string }>; total: number };
     expect(response.statusCode).toBe(200);
     expect(body.total).toBe(1);

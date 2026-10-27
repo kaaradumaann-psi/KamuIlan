@@ -100,10 +100,13 @@ describe('düzeltme ilanı hedefi', () => {
     expect(outcome.action).toBe('review');
   });
 
-  it('atıf yapılan günde kurumun ilanı yoksa incelemeye gönderir', async () => {
+  it('kurumun sistemde hiç ilanı yoksa incelemeye düşmez; kaynak kararı olarak kaydedilir', async () => {
     const repos = await makeRepos();
     const outcome = await applyRawAnnouncement(raw(byId('20261017-4-12')), ctx(repos));
-    expect(outcome.action).toBe('review');
+    // Düzeltilecek kayıt yok: insan incelemesi gereksiz (27.10.2026 kuyruk yükü).
+    expect(outcome.action).toBe('withdrawal-signal');
+    expect(outcome.jobId).toBeNull();
+    expect(await repos.review.list({ status: 'open' })).toHaveLength(0);
   });
 });
 

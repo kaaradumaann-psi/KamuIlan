@@ -77,13 +77,15 @@ describe('GET /api/jobs — arşiv görünümü', () => {
     expect(returned).toEqual([ids.closed, ids.cancelled].sort());
   });
 
-  it('status=cancelled iptal edilen ilanı bulur; varsayılan liste üçünü de gösterir (silinmez)', async () => {
+  it('status=cancelled iptal edilen ilanı bulur; status=all üçünü de gösterir (silinmez); varsayılan liste yalnız güncel ilanı gösterir', async () => {
     const { app, ids } = await seededApp();
     const cancelled = (await app.inject({ method: 'GET', url: '/api/jobs?status=cancelled' })).json() as {
       items: { id: string }[];
     };
     expect(cancelled.items.map((item) => item.id)).toEqual([ids.cancelled]);
-    const all = (await app.inject({ method: 'GET', url: '/api/jobs' })).json() as { total: number };
+    const all = (await app.inject({ method: 'GET', url: '/api/jobs?status=all' })).json() as { total: number };
     expect(all.total).toBe(3);
+    const current = (await app.inject({ method: 'GET', url: '/api/jobs' })).json() as { total: number };
+    expect(current.total).toBe(1);
   });
 });

@@ -1,8 +1,9 @@
-import type { MouseEvent } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from './Icon';
 import { BrandMark } from './BrandMark';
 import { APP_NAME, CONTACT_EMAIL, COPYRIGHT_HOLDER, COPYRIGHT_YEAR, SITE_LABEL, SITE_URL } from '../site';
+import { readThemePreference, saveThemePreference, type ThemePreference } from './theme';
 
 /** Alt bilgide ve mobil menüde kullanılan site sayfaları. */
 export const INFO_ROUTES = {
@@ -84,8 +85,40 @@ export function SiteFooter({
           <a className="site-footer-link site-footer-link-muted" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
           </a>
+          <ThemeSwitch />
         </nav>
       </div>
     </footer>
+  );
+}
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'system', label: 'Sistem' },
+  { value: 'light', label: 'Açık' },
+  { value: 'dark', label: 'Koyu' },
+];
+
+/** Tema seçici: sistem tercihi varsayılandır; seçim tarayıcıda saklanır. */
+export function ThemeSwitch() {
+  const [preference, setPreference] = useState<ThemePreference>(readThemePreference);
+  return (
+    <label className="theme-switch">
+      <span className="theme-switch-label">Tema</span>
+      <select
+        className="theme-switch-select"
+        value={preference}
+        onChange={(event) => {
+          const next = event.target.value as ThemePreference;
+          setPreference(next);
+          saveThemePreference(next);
+        }}
+      >
+        {THEME_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

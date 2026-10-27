@@ -65,6 +65,7 @@ export function readJobPayload(raw: Record<string, unknown>): JobEmailPayload | 
       ? raw['matchedOn'].filter((v): v is string => typeof v === 'string')
       : [],
     changeSummary: str(raw['changeSummary']) ?? undefined,
+    ...(typeof raw['daysLeft'] === 'number' ? { daysLeft: raw['daysLeft'] } : {}),
   };
 }
 
@@ -74,13 +75,22 @@ export interface RenderedTelegramMessage {
 }
 
 export function renderJobMessage(input: {
-  kind: 'new-job' | 'job-changed';
+  kind: 'new-job' | 'job-changed' | 'saved-job-update' | 'deadline-reminder';
   payload: JobEmailPayload;
   baseUrl: string;
   senderName: string;
 }): RenderedTelegramMessage {
   const { payload, kind } = input;
-  const heading = kind === 'new-job' ? '🆕 <b>Yeni kamu ilanı</b>' : '🔄 <b>İlanda değişiklik</b>';
+  const heading =
+    kind === 'new-job'
+      ? '🆕 <b>Yeni kamu ilanı</b>'
+      : kind === 'saved-job-update'
+        ? '📌 <b>Takip ettiğiniz ilanda değişiklik</b>'
+        : kind === 'deadline-reminder'
+          ? payload.daysLeft === 0
+            ? '⏰ <b>Son başvuru BUGÜN</b>'
+            : `⏰ <b>Son başvuruya ${payload.daysLeft ?? '?'} gün kaldı</b>`
+          : '🔄 <b>İlanda değişiklik</b>';
   const employment =
     (EMPLOYMENT_TYPE_LABELS as Record<string, string>)[payload.employmentType] ?? payload.employmentType;
   const place = [payload.city, payload.district].filter(Boolean).join(' / ');
@@ -108,7 +118,7 @@ export function renderJobMessage(input: {
       `🎯 <b>Eşleşme:</b> ${escapeTelegram(clip(payload.matchedOn.slice(0, 5).join(' · '), 300))}`,
     );
   }
-  if (kind === 'job-changed' && payload.changeSummary) {
+  if ((kind === 'job-changed' || kind === 'saved-job-update') && payload.changeSummary) {
     lines.push(`📝 <b>Değişiklik:</b> ${escapeTelegram(clip(payload.changeSummary, 400))}`);
   }
   lines.push('', '⚠️ Başvurmadan önce resmî ilan metnini ve şartlarını kontrol edin.');

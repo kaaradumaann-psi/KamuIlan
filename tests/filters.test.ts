@@ -100,7 +100,9 @@ interface ListPayload {
 }
 
 async function listIds(app: Setup['app'], query: string): Promise<{ status: number; payload: ListPayload }> {
-  const response = await app.inject({ method: 'GET', url: `/api/jobs${query}` });
+  // Filtre anlamı sınanır: durum verilmemişse tümü (varsayılan "güncel" ayrı testte).
+  const withStatus = /[?&]status=/.test(query) ? query : `${query}${query ? '&' : '?'}status=all`;
+  const response = await app.inject({ method: 'GET', url: `/api/jobs${withStatus}` });
   return { status: response.statusCode, payload: JSON.parse(response.body) as ListPayload };
 }
 
@@ -110,6 +112,14 @@ describe('ilan filtreleri (API)', () => {
     const { payload } = await listIds(app, '');
     expect(payload.total).toBe(3);
     expect(payload.items.map((item) => item.id).sort()).toEqual([ids.a, ids.b, ids.c].sort());
+    await app.close();
+  });
+
+  it('varsayılan liste süresi geçmiş (closed) ilanı göstermez; status=all gösterir', async () => {
+    const { app, ids } = await setup();
+    const response = await app.inject({ method: 'GET', url: '/api/jobs' });
+    const ids0 = (JSON.parse(response.body) as ListPayload).items.map((item) => item.id).sort();
+    expect(ids0).toEqual([ids.a, ids.c].sort());
     await app.close();
   });
 

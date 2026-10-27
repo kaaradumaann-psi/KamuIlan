@@ -11,6 +11,8 @@ import type { Repos } from '../../db/repos';
 import { EDUCATION_LEVELS, EMPLOYMENT_TYPES, KPSS_SCORE_TYPES } from '../../domain';
 import { audit, requireUser } from '../context';
 import { ApiError } from '../errors';
+import { getEnv } from '../../config/env';
+import { normalizePhoneE164, readSmsConfig } from '../../sms/twilio';
 
 const filtersSchema = z
   .object({
@@ -48,6 +50,16 @@ const preferenceBody = z
       .strict()
       .optional(),
     filters: filtersSchema.optional(),
+    deadlineReminders: z.boolean().optional(),
+  })
+  .strict();
+
+const smsBody = z
+  .object({
+    phone: z.string().trim().max(24).nullable(),
+    /** Açık rıza kutusu: işaretli değilse numara saklanır ama SMS gönderilmez. */
+    consent: z.boolean(),
+    enabled: z.boolean(),
   })
   .strict();
 
@@ -93,6 +105,7 @@ export function registerNotificationRoutes(app: FastifyInstance, repos: Repos): 
           : {}),
         ...(body.candidateProfile !== undefined ? { candidateProfile: body.candidateProfile } : {}),
         ...(body.filters !== undefined ? { filters: body.filters } : {}),
+        ...(body.deadlineReminders !== undefined ? { deadlineReminders: body.deadlineReminders } : {}),
       });
       await audit(repos.audit, request, {
         action: 'notifications.preferences-updated',
@@ -113,6 +126,52 @@ export function registerNotificationRoutes(app: FastifyInstance, repos: Repos): 
         ]
           .filter(Boolean)
           .join(' '),
+      };
+    },
+  );
+
+  app.get(
+    '/api/notifications/sms',
+    { schema: { tags: ['notifications'], summary: 'SMS bildirim ayarım' } },
+    async (request) => {
+      const user = requireUser(request);
+      const preference = await repos.notifications.getPreference(user.id);
+      return {
+        available: readSmsConfig(getEnv()) !== null,
+        sms: preference?.sms ?? { enabled: false, phoneE164: null, consentAt: null },
+      };
+    },
+  );
+
+  app.put(
+    '/api/notifications/sms',
+    { schema: { tags: ['notifications'], summary: 'SMS numarası ve açık rıza' } },
+    async (request) => {
+      const user = requireUser(request);
+      const body = smsBody.parse(request.body ?? {});
+      const phoneE164 = body.phone ? normalizePhoneE164(body.phone) : null;
+      if (body.phone && !phoneE164) {
+        throw ApiError.badRequest('Telefon numarası geçersiz. Örnek: 0532 123 45 67 veya +905321234567.');
+      }
+      if (body.enabled && (!phoneE164 || !body.consent)) {
+        throw ApiError.badRequest('SMS açmak için geçerli numara ve açık rıza gerekir.');
+      }
+      const current = await repos.notifications.getPreference(user.id);
+      const consentAt = body.consent ? (current?.sms?.consentAt ?? repos.clock.now().toISOString()) : null;
+      const sms = { enabled: body.enabled && body.consent, phoneE164, consentAt };
+      const preference = await repos.notifications.upsertPreference(user.id, { sms });
+      await audit(repos.audit, request, {
+        action: body.consent ? 'notifications.sms-consent-given' : 'notifications.sms-consent-withdrawn',
+        targetType: 'user',
+        targetId: user.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        // Numara denetim kaydına yazılmaz (KVKK).
+        meta: { enabled: sms.enabled, hasPhone: Boolean(phoneE164) },
+      });
+      return {
+        sms: preference.sms ?? sms,
+        message: sms.enabled ? 'SMS bildirimleri açıldı.' : 'SMS bildirimleri kapalı.',
       };
     },
   );

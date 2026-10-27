@@ -235,6 +235,9 @@ describe('LLM sınıflandırma kapısı', () => {
     expect(outcome.opinion?.verdict).toBe('dogrulanamadi');
     const analyses: LlmAnalysisDoc[] = await repos.store.find('llmAnalyses', {});
     expect(analyses[0]?.status).toBe('invalid');
+    // Denetim için reddedilen alıntı saklanır; önbellek alanı (evidence) boş kalır.
+    expect(analyses[0]?.evidence).toBeNull();
+    expect(analyses[0]?.rejectedEvidence).toBe('alim: hayali personel alımı ifadesi metinde yok');
     await store.close();
   });
 

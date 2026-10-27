@@ -18,6 +18,7 @@ import { maskEmail } from '../domain/text';
 import { getEnv } from '../config/env';
 import type { Repos } from '../db/repos';
 import type { EmailOutboxDoc } from '../db/schemas';
+import { deliverSmsItem, type SmsSender } from '../sms/deliver';
 import { deliverTelegramItem, type TelegramSender } from '../telegram/deliver';
 import { renderEmail, type EmailTemplate } from './templates';
 import type { EmailTransport } from './transport';
@@ -30,6 +31,8 @@ export interface SendOutboxBatchOptions {
   transport?: EmailTransport;
   /** Telegram kanalı için zorunlu (yapılandırılmamışsa Telegram işleri hiç alınmaz). */
   telegram?: TelegramSender;
+  /** SMS kanalı için zorunlu (Twilio; varsayılan kapalı). */
+  sms?: SmsSender;
   /** Hangi kanalın işleri alınır (varsayılan e-posta). */
   channel?: OutboxChannel;
   workerId: string;
@@ -81,6 +84,7 @@ export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<
   const channel = options.channel ?? 'email';
   if (channel === 'email' && !options.transport) throw new Error('E-posta gönderimi için taşıyıcı gerekli.');
   if (channel === 'telegram' && !options.telegram) throw new Error('Telegram gönderimi için istemci gerekli.');
+  if (channel === 'sms' && !options.sms) throw new Error('SMS gönderimi için istemci gerekli.');
   const now = options.now ?? repos.clock.now();
   const batch = await repos.outbox.claimBatch(workerId, options.limit ?? 20, options.leaseMs ?? 120_000, channel);
   const result: SendOutboxBatchResult = { claimed: batch.length, sent: 0, failed: 0, dead: 0, suppressed: 0, errors: [] };
@@ -90,6 +94,7 @@ export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<
       repos,
       ...(options.transport ? { transport: options.transport } : {}),
       ...(options.telegram ? { telegram: options.telegram } : {}),
+      ...(options.sms ? { sms: options.sms } : {}),
       item,
       workerId,
       now,
@@ -100,7 +105,7 @@ export async function sendOutboxBatch(options: SendOutboxBatchOptions): Promise<
     else {
       result.failed += 1;
       if (outcome.error) {
-        const target = item.channel === 'telegram' ? `telegram:${item.userId ?? '?'}` : maskEmail(item.toEmail);
+        const target = item.channel === 'email' ? maskEmail(item.toEmail) : `${item.channel}:${item.userId ?? '?'}`;
         result.errors.push(`${target}: ${outcome.error}`);
       }
     }
@@ -113,6 +118,7 @@ export async function sendOne(input: {
   repos: Repos;
   transport?: EmailTransport;
   telegram?: TelegramSender;
+  sms?: SmsSender;
   item: EmailOutboxDoc;
   workerId: string;
   /** Yeniden deneme zamanı bu ana göre hesaplanır (testlerde sabit saat). */
@@ -138,6 +144,15 @@ export async function sendOne(input: {
       now,
       retryDelayMs: retryDelayMs,
     });
+  }
+
+  if (item.channel === 'sms') {
+    if (!input.sms) {
+      const retryAt = new Date(now.getTime() + 15 * 60_000).toISOString();
+      const updated = await repos.outbox.markFailed(item.id, 'SMS yapılandırılmamış.', retryAt);
+      return { status: updated?.status === 'dead' ? 'dead' : 'retry', error: 'SMS yapılandırılmamış.' };
+    }
+    return deliverSmsItem({ repos, sender: input.sms, item, now, retryDelayMs });
   }
 
   if (!input.transport) throw new Error('E-posta gönderimi için taşıyıcı gerekli.');

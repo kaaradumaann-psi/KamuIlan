@@ -492,12 +492,6 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
         }
       }
 
-      if (body.action === 'ignore') {
-        await repos.review.ignore(params.id, body.note || 'Yönetici ilanı yok saydı.', admin.id);
-      } else {
-        await repos.review.resolve(params.id, `${body.action}${body.note ? `: ${body.note}` : ''}`, admin.id);
-      }
-
       // Sınıflandırma kararında: yönetici "accept" derse inceleme kaydı gerçek ilana dönüştürülür.
       let acceptedJobId: string | null = null;
       if (body.action === 'accept' && item.kind === 'classification') {
@@ -548,7 +542,11 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
           const employmentType = (
             typeof item.payload.employmentType === 'string' ? item.payload.employmentType : 'belirsiz'
           ) as EmploymentType;
-          const outcome = await applyRawAnnouncement(
+          // İnceleme kaydı ilan oluşturulduktan SONRA kapatılır: önceden önce kapatılıyordu ve
+          // applyRawAnnouncement hata verirse kayıt kapalı, ilan yok kalıyordu (denetim 27.10.2026).
+          let outcome: Awaited<ReturnType<typeof applyRawAnnouncement>>;
+          try {
+            outcome = await applyRawAnnouncement(
             raw,
             { repos, now: repos.clock.now(), workerId: `admin:${admin.id}`, provenance: 'scraped' },
             {
@@ -567,8 +565,19 @@ export function registerAdminRoutes(app: FastifyInstance, repos: Repos): void {
               },
             },
           );
+          } catch (error) {
+            throw ApiError.badRequest(
+              `İlan oluşturulamadı; inceleme kaydı açık bırakıldı: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
           acceptedJobId = outcome.jobId;
         }
+      }
+
+      if (body.action === 'ignore') {
+        await repos.review.ignore(params.id, body.note || 'Yönetici ilanı yok saydı.', admin.id);
+      } else {
+        await repos.review.resolve(params.id, `${body.action}${body.note ? `: ${body.note}` : ''}`, admin.id);
       }
 
       // "Aynı ilan": yeni kayıt seçilen adaya kaynak olarak bağlandı (var olan hiçbir ilan kapatılmaz).

@@ -51,10 +51,16 @@ function lastJobsStatus(): unknown {
 describe('hazır görünümler', () => {
   it('Arşiv düğmesi kapanan + iptal edilen ilanları ister ve etkin görünür', async () => {
     renderJobs();
-    fireEvent.click(await screen.findByRole('button', { name: 'Arşiv' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Süresi geçmiş (arşiv)' }));
     await waitFor(() => expect(lastJobsStatus()).toBe('closed,cancelled'));
-    expect(screen.getByRole('button', { name: 'Arşiv' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('button', { name: 'Tümü' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Süresi geçmiş (arşiv)' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Güncel' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('Tümü düğmesi arşiv dahil tüm ilanları ister', async () => {
+    renderJobs();
+    fireEvent.click(await screen.findByRole('button', { name: 'Tümü' }));
+    await waitFor(() => expect(lastJobsStatus()).toBe('all'));
   });
 
   it('Yakında başlayacak düğmesi başvurusu henüz açılmamış ilanları ister', async () => {
@@ -63,9 +69,9 @@ describe('hazır görünümler', () => {
     await waitFor(() => expect(lastJobsStatus()).toBe('upcoming'));
   });
 
-  it('filtresiz liste "Tümü" görünümünü etkin işaretler', async () => {
+  it('filtresiz liste "Güncel" görünümünü etkin işaretler', async () => {
     renderJobs();
-    expect((await screen.findByRole('button', { name: 'Tümü' })).getAttribute('aria-pressed')).toBe('true');
+    expect((await screen.findByRole('button', { name: 'Güncel' })).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('URL’deki tekil durum (iptal edildi) etiket olarak görünür ve kaldırılabilir', async () => {
@@ -74,17 +80,17 @@ describe('hazır görünümler', () => {
     expect(screen.queryByLabelText('Durum', { selector: 'select' })).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: 'Durum: İptal edildi filtresini kaldır' }));
     await waitFor(() => expect(lastJobsStatus()).toBeUndefined());
-    expect(screen.getByRole('button', { name: 'Tümü' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Güncel' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('durum düğmesi arama ve il seçimini korur; Tümü yalnızca durumu kaldırır', async () => {
+  it('durum düğmesi arama ve il seçimini korur; Güncel yalnızca durumu kaldırır', async () => {
     renderJobs('/ilanlar?q=hemşire&city=Ankara');
     fireEvent.click(await screen.findByRole('button', { name: 'Başvurusu açık' }));
     await waitFor(() => expect(lastJobsStatus()).toBe('active'));
     const last = () => [...calls].reverse().find((call) => call.url === '/api/jobs')?.params;
     expect(last()?.q).toBe('hemşire');
     expect(last()?.city).toBe('Ankara');
-    fireEvent.click(screen.getByRole('button', { name: 'Tümü' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Güncel' }));
     await waitFor(() => expect(lastJobsStatus()).toBeUndefined());
     expect(last()?.q).toBe('hemşire');
   });

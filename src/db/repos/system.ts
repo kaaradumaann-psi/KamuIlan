@@ -521,6 +521,16 @@ export class BuiltinQueueRepo {
   }
 
   /**
+   * Tamamlanmış işleri saklama süresinden sonra siler. Tamamlanan işin sonucu tarama
+   * koşum kaydında (scrapeRuns) kalır; kuyruk satırı yalnız tekrar engeli (dedupeKey)
+   * için tutulur ve zamanlanmış işin anahtarı her koşumda yenidir. Üretimde hiç
+   * silinmedikleri için tablo yalnız büyüyordu (27.10.2026: 1.479 satırın hepsi completed).
+   */
+  async purgeCompletedOlderThan(iso: string): Promise<number> {
+    return this.store.deleteMany('queueJobs', { status: 'completed', updatedAt: { $lt: iso } });
+  }
+
+  /**
    * Ölü `source-scrape` işlerini kısa bir yaştan sonra siler.
    *
    * Zamanlayıcı her kaynak için taramayı aralıkla YENİDEN oluşturur; başarısız olup
