@@ -425,6 +425,25 @@ describe('son başvuru hatırlatmaları', () => {
     expect(lastDay.queuedEmail + lastDay.queuedTelegram).toBe(0);
   });
 
+  it('tercihi eşleşen (daha önce bildirim almamış) kullanıcıya ve kaydedene Telegram hatırlatması gider; filtresiz/eşleşmeyen almaz', async () => {
+    // İlan, kullanıcılar tercih kaydetmeden ÖNCE gelmiş: hiçbir yeni ilan bildirimi yok.
+    const job = makeJob({ title: 'Sağlık Bakanlığı Sözleşmeli Psikolog Alımı', titles: ['Psikolog'], applicationEndDate: '2026-10-30' });
+    await repos.jobs.insertJob(job);
+    const psikolog = await user('psikolog@ornek.test', { filters: { titles: ['Psikolog'] }, telegramChat: '901' });
+    const kaydeden = await user('kaydeden@ornek.test', { filters: { titles: ['Mühendis'] }, telegramChat: '902' });
+    const sofor = await user('sofor@ornek.test', { filters: { titles: ['Şoför'] }, telegramChat: '903' });
+    const filtresiz = await user('filtresiz@ornek.test', { telegramChat: '904' });
+    await repos.savedJobs.toggle(kaydeden, job.id);
+
+    await queueDeadlineReminders({ repos, baseUrl: BASE_URL, senderName: SENDER, smsEnabled: false, now: NOW });
+    const telegram = (await outbox()).filter((item) => item.kind === 'deadline-reminder' && item.channel === 'telegram');
+    const users = new Set(telegram.map((item) => item.userId));
+    expect(users).toEqual(new Set([psikolog, kaydeden]));
+    expect(users.has(sofor)).toBe(false);
+    expect(users.has(filtresiz)).toBe(false);
+    expect(telegram.every((item) => item.jobId === job.id && item.toEmail === `telegram:${item.userId}`)).toBe(true);
+  });
+
   it('kapanmış/iptal ilan ve uzak tarihli ilan için hatırlatma yok', async () => {
     const id = await user('k@ornek.test');
     const cancelled = makeJob({ status: 'cancelled', applicationEndDate: '2026-10-29' });

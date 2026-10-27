@@ -23,7 +23,7 @@ import type { EmailOutboxDoc, JobDoc, UserDoc } from '../db/schemas';
 import { buildJobPayload, renderEmail } from '../email/templates';
 import { getEnv } from '../config/env';
 import { readSmsConfig } from '../sms/twilio';
-import { isProcessNotice } from './matcher';
+import { hasActiveFilters, isProcessNotice, matchJobFilters } from './matcher';
 
 /** Açıkça verilmezse ortamdan: SMS_ENABLED + eksiksiz Twilio ayarı. Okunamazsa kapalı. */
 function resolveSmsEnabled(explicit: boolean | undefined): boolean {
@@ -230,6 +230,17 @@ export async function queueSavedJobUpdates(
 }
 
 /** Son başvurusu yaklaşan ilanlar için hatırlatmaları kuyruğa alır (idempotent; her tikte çağrılabilir). */
+async function listAllNotifiable(repos: Repos) {
+  const all = [];
+  for (let cursor: string | undefined; ; ) {
+    const page = await repos.notifications.listNotifiable(cursor, 200);
+    all.push(...page);
+    if (page.length < 200) break;
+    cursor = page.at(-1)?.userId;
+  }
+  return all;
+}
+
 export async function queueDeadlineReminders(options: FollowupOptions & { jobLimit?: number }): Promise<FollowupResult & { jobs: number }> {
   const { repos } = options;
   const now = options.now ?? repos.clock.now();
@@ -245,6 +256,12 @@ export async function queueDeadlineReminders(options: FollowupOptions & { jobLim
     { limit: options.jobLimit ?? 2_000 },
   );
 
+  // Tercihi (unvan, bölüm, il…) eşleşen kullanıcılar da hatırlatma alır: ilan, kullanıcı tercihini
+  // kaydetmeden önce gelmiş olsa bile (ör. "Psikolog" seçen kullanıcı, önceden eklenmiş psikolog
+  // ilanının son 3 gününde). Filtresiz ("tüm ilanlar") tercihler her ilana uyacağından hariç tutulur.
+  const preferences = jobs.length > 0 ? await listAllNotifiable(repos) : [];
+  const filtered = preferences.filter((preference) => hasActiveFilters(preference.filters) && preference.deadlineReminders !== false);
+
   for (const job of jobs) {
     if (isProcessNotice(job)) continue;
     const daysLeft = calendarDaysLeft(job.applicationEndDate, now);
@@ -257,7 +274,10 @@ export async function queueDeadlineReminders(options: FollowupOptions & { jobLim
     const notified = (await repos.notifications.listEventsForJob(job.id))
       .filter((event) => event.status === 'queued')
       .map((event) => event.userId);
-    const recipients = new Set([...saved, ...notified]);
+    const matchedByPreference = filtered
+      .filter((preference) => matchJobFilters(preference.filters, job, now, preference).matched)
+      .map((preference) => preference.userId);
+    const recipients = new Set([...saved, ...notified, ...matchedByPreference]);
 
     for (const userId of recipients) {
       const user = await repos.users.findById(userId);
@@ -269,7 +289,7 @@ export async function queueDeadlineReminders(options: FollowupOptions & { jobLim
       }
       const payload = {
         ...buildJobPayload(job, {
-          matchedOn: [saved.has(userId) ? 'takip ettiğiniz ilan' : 'size bildirilen ilan'],
+          matchedOn: [saved.has(userId) ? 'kaydettiğiniz ilan' : 'tercihlerinize uyan ilan'],
           baseUrl: options.baseUrl,
         }),
         daysLeft,
