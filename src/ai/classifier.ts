@@ -1059,6 +1059,25 @@ export function createLlmClassificationGate(deps: LlmGateDeps): LlmClassificatio
       const cached = await repos.store
         .find('llmAnalyses', { cacheKey: { $in: chainKeys }, status: 'ok' }, { limit: 1, sort: [['createdAt', -1]] })
         .then((rows) => rows[0] ?? null);
+      // 1b) Negatif önbellek: aynı içerik aynı istem sürümüyle son 7 günde doğrulanamadıysa
+      //     yeniden ücretli çağrı yapılmaz; kayıt zaten incelemededir (denetim 27.10.2026: ÖSYM
+      //     e-TEP aynı metinle iki kez çağrıldı, iki farklı tür aldı).
+      if (!cached) {
+        const recentInvalid = await repos.store.find(
+          'llmAnalyses',
+          {
+            contentKey,
+            promptVersion: LLM_PROMPT_VERSION,
+            status: 'invalid',
+            createdAt: { $gte: new Date(repos.clock.now().getTime() - 7 * 86_400_000).toISOString() },
+          },
+          { limit: 1 },
+        );
+        if (recentInvalid.length > 0) {
+          totals.blocked += 1;
+          return noop(input);
+        }
+      }
       const hitModel = cached?.model ?? config.model;
       if (cached && cached.verdict && cached.contentType) {
         totals.cacheHits += 1;
@@ -1530,19 +1549,24 @@ export function computeLlmTelemetry(
 }
 
 export async function llmOverviewStats(repos: Repos, env: Env, now: Date): Promise<LlmOverviewStats> {
-  const rows: LlmAnalysisDoc[] = await repos.store.find('llmAnalyses', {}, { limit: 5_000, sort: [['createdAt', -1]] });
   const dayAgo = now.getTime() - 24 * 3_600_000;
-  // `recent` yalnızca panelin "son 24 saat" satırındaki ek alanlar için; özet tek yerden hesaplanır.
-
-  const recent = rows.filter((row) => Date.parse(row.createdAt) >= dayAgo);
+  // Yalnız son 24 saatin satırları okunur; tüm zaman toplamları COUNT ile (önceden en çok 5.000
+  // satır okunuyordu: hem veri aktarımı hem sınır aşılınca sessizce eksik toplam).
+  const rows: LlmAnalysisDoc[] = await repos.store.find(
+    'llmAnalyses',
+    { createdAt: { $gte: new Date(dayAgo).toISOString() } },
+    { limit: 5_000, sort: [['createdAt', -1]] },
+  );
+  const recent = rows;
   const apiCalls = recent.filter((row) => !row.cacheHit);
-  const totals = {
-    analyses: rows.length,
-    ok: rows.filter((row) => row.status === 'ok').length,
-    invalid: rows.filter((row) => row.status === 'invalid').length,
-    error: rows.filter((row) => row.status === 'error').length,
-    timeout: rows.filter((row) => row.status === 'timeout').length,
-  };
+  const [analyses, ok, invalid, error, timeout] = await Promise.all([
+    repos.store.count('llmAnalyses', {}),
+    repos.store.count('llmAnalyses', { status: 'ok' }),
+    repos.store.count('llmAnalyses', { status: 'invalid' }),
+    repos.store.count('llmAnalyses', { status: 'error' }),
+    repos.store.count('llmAnalyses', { status: 'timeout' }),
+  ]);
+  const totals = { analyses, ok, invalid, error, timeout };
   const last24 = computeLlmTelemetry(rows, env, { sinceIso: new Date(dayAgo).toISOString() });
   return {
     enabled: env.LLM_CLASSIFIER_ENABLED,

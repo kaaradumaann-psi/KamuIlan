@@ -99,6 +99,8 @@ export const EXACT_FIELDS: Partial<Record<CollectionName, Readonly<Record<string
     trigger: 'string',
     startedAt: 'string',
     finishedAt: 'string',
+    // Sağlık özetindeki "son 50 süresi olan koşum" sorgusu bu alanla tam tabloyu çekiyordu.
+    durationMs: 'number',
   },
   // Egress (27.10.2026): aşağıdaki koleksiyonlar tam çeviri listesinde değilken `count` ve
   // `find` eşleşen TÜM satırların `data` belgesini Supabase'ten çekip bellekte sayıyordu.
@@ -161,6 +163,7 @@ export const EXACT_FIELDS: Partial<Record<CollectionName, Readonly<Record<string
     id: 'string',
     cacheKey: 'string',
     contentKey: 'string',
+    promptVersion: 'string',
     url: 'string',
     sourceKey: 'string',
     model: 'string',
@@ -170,7 +173,7 @@ export const EXACT_FIELDS: Partial<Record<CollectionName, Readonly<Record<string
 };
 
 /** Sapma koşulunun sürümü: EXACT_FIELDS değişince artırılır (kısmi indeks yeniden kurulur). */
-export const DEVIANT_INDEX_VERSION = 1;
+export const DEVIANT_INDEX_VERSION = 2;
 
 function literal(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
