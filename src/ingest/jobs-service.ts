@@ -737,6 +737,29 @@ export async function applyRawAnnouncement(
     const targetId =
       selectWithdrawalTarget(raw, candidates)?.id ??
       (withdrawal === 'correction' ? await targetByCitedGazette(ctx.repos, raw) : null);
+    if (!targetId && !(await institutionHasJobs(ctx.repos, raw))) {
+      // Kurumun sistemde HİÇ ilanı yoksa düzeltilecek/iptal edilecek kayıt da yoktur (çoğunlukla
+      // geriye dönük taramada eski bir ilana ait duyuru). İnceleme kuyruğuna düşürülmez; karar
+      // kaynak belleğine yazılır (27.10.2026: 174 açık tekilleştirme kaydının 104'ü buydu).
+      const note =
+        withdrawal === 'withdrawn'
+          ? 'İptal duyurusu: kurumun sistemde ilanı yok; işlem gerekmez.'
+          : 'Düzeltme duyurusu: kurumun sistemde ilanı yok; işlem gerekmez.';
+      await recordIngestDecision(raw, ctx, 'signal', {
+        reasons: [note],
+        rules: [`geri-cekme.${withdrawal}.kurum-ilani-yok`],
+        confidence: 0.6,
+      });
+      return {
+        action: 'withdrawal-signal',
+        jobId: null,
+        decision: null,
+        classification,
+        changes: [note],
+        reviewId: null,
+        revisionCreated: false,
+      };
+    }
     if (!targetId) {
       const reason =
         withdrawal === 'withdrawn'
@@ -898,6 +921,19 @@ export async function applyRawAnnouncement(
   }
 
   return createJob(raw, ctx, decision, document);
+}
+
+/**
+ * Kurumun (adı biliniyorsa) sistemde en az bir ilanı var mı? Ad yoksa ya da çok kısaysa
+ * güvenli taraf: "var" sayılır (insan incelemesine gider).
+ */
+async function institutionHasJobs(repos: Repos, raw: RawAnnouncement): Promise<boolean> {
+  const hint = normalizeTr(raw.institution ?? '').slice(0, 40).trim();
+  if (hint.length < 6) return true;
+  const count = await repos.store.count('jobs', {
+    institutionNormalized: { $regex: escapeRegExp(hint), $regexFlags: 'i' },
+  });
+  return count > 0;
 }
 
 async function findCandidates(

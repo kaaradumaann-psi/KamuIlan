@@ -10,6 +10,8 @@ export default tseslint.config(
       'data/**',
       // Git dışı canlı staging verisi ve yerel inceleme betikleri (.gitignore ile aynı).
       '.staging/**',
+      // Claude Code ajan çalışma kopyaları (depo dışı).
+      '.claude/**',
       'fixtures/live/**',
       'playwright-report/**',
       'test-results/**',

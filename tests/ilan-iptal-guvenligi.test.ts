@@ -87,7 +87,7 @@ describe('detectWithdrawalSignal — gerçek başlık biçimleri', () => {
 });
 
 describe('iptal duyurusunun hedef ilanı', () => {
-  it('kurum eşleşmese bile ilgisiz bir ilanı İPTAL ETMEZ; incelemeye gönderir', async () => {
+  it('kurum eşleşmese bile ilgisiz bir ilanı İPTAL ETMEZ; kurumun ilanı yoksa incelemesiz kaydedilir', async () => {
     const repos = await makeRepos();
     const first = await apply(repos, sozlesmeliPersonelIlani());
     expect(first.action).toBe('created');
@@ -97,12 +97,8 @@ describe('iptal duyurusunun hedef ilanı', () => {
     // Çıktı: ilan kapatılmaz.
     const job = await repos.jobs.findById(first.jobId as string);
     expect(job?.status).not.toBe('cancelled');
-    expect(outcome.jobId).not.toBe(first.jobId);
-    expect(outcome.action).toBe('review');
-
-    const queue = await repos.review.list({ status: 'open' });
-    expect(queue.length).toBeGreaterThan(0);
-    expect(queue[0]?.reason).toContain('eşleşen ilan bulunamadı');
+    expect(outcome.jobId).toBeNull();
+    expect(outcome.action).toBe('withdrawal-signal');
   });
 
   it('kurum bilgisi hiç yoksa da ilgisiz ilanı kapatmaz', async () => {

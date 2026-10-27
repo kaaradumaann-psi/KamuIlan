@@ -276,8 +276,13 @@ function OverviewTab({ data }: { data: AdminOverview }): ReactNode {
                 {data.llm.last24h.latency.p50Ms !== null ? formatDuration(data.llm.last24h.latency.p50Ms) : '—'} · p95{' '}
                 {data.llm.last24h.latency.p95Ms !== null ? formatDuration(data.llm.last24h.latency.p95Ms) : '—'} · en
                 yüksek{' '}
-                {data.llm.last24h.latency.maxMs !== null ? formatDuration(data.llm.last24h.latency.maxMs) : '—'} · hata
-                oranı {data.llm.last24h.errorRate === null ? '—' : `%${(data.llm.last24h.errorRate * 100).toFixed(1)}`} ·
+                {data.llm.last24h.latency.maxMs !== null ? formatDuration(data.llm.last24h.latency.maxMs) : '—'} ·
+                sağlayıcı hatası{' '}
+                {data.llm.last24h.providerErrorRate == null
+                  ? '—'
+                  : `%${(data.llm.last24h.providerErrorRate * 100).toFixed(1)}`}{' '}
+                · doğrulanamayan dahil{' '}
+                {data.llm.last24h.errorRate === null ? '—' : `%${(data.llm.last24h.errorRate * 100).toFixed(1)}`} ·
                 önbellek isabeti{' '}
                 {data.llm.last24h.cacheHitRate === null ? '—' : `%${(data.llm.last24h.cacheHitRate * 100).toFixed(0)}`}
               </li>

@@ -78,7 +78,14 @@ export async function queueNotificationsForJob(
     return result;
   }
 
-  const preferences = await repos.notifications.listNotifiable();
+  // Tüm aboneler sayfalanarak okunur (önceden ilk 200 kullanıcıdan sonrası bildirim almıyordu).
+  const preferences = [];
+  for (let cursor: string | undefined; ; ) {
+    const page = await repos.notifications.listNotifiable(cursor, 200);
+    preferences.push(...page);
+    if (page.length < 200) break;
+    cursor = page.at(-1)?.userId;
+  }
   // Bu sürüm için eşleşme bildirimi alan kullanıcılar: takip bildirimi ikinci kez gönderilmez.
   const matchedUserIds = new Set<string>();
   for (const preference of preferences) {

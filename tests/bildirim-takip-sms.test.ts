@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FileStore } from '../src/db/file-store';
 import { createRepos, type Repos } from '../src/db/repos';
 import { EMPTY_FILTERS } from '../src/db/repos/notifications';
-import type { EmailOutboxDoc, JobDoc } from '../src/db/schemas';
+import type { EmailOutboxDoc, JobDoc, NotificationPreferenceDoc } from '../src/db/schemas';
 import { sendOne } from '../src/email/service';
 import { fixedClock } from '../src/lib/clock';
 import {
@@ -550,5 +550,19 @@ describe('SMS (Twilio)', () => {
     const suppressed = await sendOne({ repos, item: fake, workerId: 'w', now: NOW, sms: { client, senderName: SENDER, baseUrl: BASE_URL } });
     expect(suppressed.status).toBe('suppressed');
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe('abone sayfalama', () => {
+  it('200 üstü aboneler de değerlendirilir (önceden ilk 200 ile sınırlıydı)', async () => {
+    const calls: (string | undefined)[] = [];
+    const fake = (id: number) => ({ userId: `usr_${String(id).padStart(24, '0')}` }) as unknown as NotificationPreferenceDoc;
+    repos.notifications.listNotifiable = async (cursor?: string) => {
+      calls.push(cursor);
+      return calls.length === 1 ? Array.from({ length: 200 }, (_, i) => fake(i)) : [fake(200), fake(201), fake(202)];
+    };
+    const result = await queueNotificationsForJob({ repos, job: makeJob(), kind: 'new-job', baseUrl: BASE_URL, senderName: SENDER, now: NOW });
+    expect(result.evaluated).toBe(203);
+    expect(calls).toEqual([undefined, fake(199).userId]);
   });
 });
